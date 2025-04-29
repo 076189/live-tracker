@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Tracker - Route 184</title>
+    <style>
+        /* CSS remains the same */
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9f9f9; } h1 { margin-bottom: 10px; } .update-time, .counter { font-size: 18px; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #ddd; padding: 8px; text-align: left; } th { background-color: #f4f4f4; } tr:nth-child(even) { background-color: #f9f9f9; } th select { margin-left: 5px; } td[colspan="5"] { text-align: center; font-style: italic; color: #555; padding: 15px 8px; }
+    </style>
+</head>
+<body>
+    <h1>Live Tracker for Route 184</h1>
+    <div class="update-time" id="update-time">Last Updated: --</div>
+    <div class="counter" id="bus-counter">Number of Buses: 0</div>
+    <table>
+        <thead> <tr> <th>Fleet Number<select id="filter-fleet"><option value="">All</option></select></th> <th>Bus Registration<select id="filter-reg"><option value="">All</option></select></th> <th>Destination<select id="filter-destination"><option value="">All</option></select></th> <th>Next Predicted Stop<select id="filter-stop"><option value="">All</option></select></th> <th>ETA at Next Stop<select id="filter-arrival"><option value="">All</option></select></th> </tr> </thead>
+        <tbody id="tracker-table"> <tr><td colspan="5">Fetching live data...</td></tr> </tbody>
+    </table>
+
+    <h2>Curtailments</h2>
+    <table>
+        <thead> <tr> <th>Route</th> <th>Fleet Number</th> <th>Bus Registration</th> <th>Curtailed To</th> <th>Time Curtailment Set</th> </tr> </thead>
+        <tbody id="curtailed-buses-table"> <tr><td colspan="5">Loading curtailment data...</td></tr> </tbody>
+    </table>
+
+    <script>
+        // --- Constants and Configuration ---
+        const routeId = "184";
+        const apiUrl = `https://api.tfl.gov.uk/Line/${routeId}/Arrivals`;
+        const curtailedBusesKey = `curtailedBusesArray_${routeId}`;
+        const tmpMapKey = "tmpRegistrationMap";
+        const filterStateKey = `arrivalsFilterState_${routeId}_all`;
+        const busLastSeenKey = `busLastSeenWithDest_${routeId}`;
+        const settingsKey = "trackerGlobalSettings";
+        const defaultSettings = { debounceMinutes: 60, timeoutMinutes: 30 };
+        const routeDestinationSettingsKey = 'routeDestinationSettings'; // For terminus checking
+        const tmpGenerationInfoKey = "tmpGenerationInfo";
+        const destinationOverrideKey = 'destinationOverrides';
+
+        // --- Storage Functions ---
+        function loadFromStorage(key, defaultValue = {}) { try { const data = localStorage.getItem(key); if (data) { const parsed = JSON.parse(data); if (typeof parsed === 'object' && parsed !== null) { return parsed; } } return defaultValue; } catch (e) { console.error(`Error loading ${key}:`, e); return defaultValue; } }
+        function saveToStorage(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(`Error saving ${key}:`, e); } }
+
+        // --- TMP Number Generation (Includes saving generation info) ---
+        function generateTMPNumber(registration) { const seed=12345;const combined=registration+seed.toString();let hash=0;if(combined.length===0)return"TMP0000";for(let i=0;i<combined.length;i++){const t=combined.charCodeAt(i);hash=(hash<<5)-hash+t,hash|=0}return`TMP${Math.abs(hash%1e4).toString().padStart(4,"0")}` }
+        function getTMPForRegistration(registration) { if (!registration) return 'TMP????'; let tmpMap = loadFromStorage(tmpMapKey, {}); if (typeof tmpMap !== 'object' || tmpMap === null) tmpMap = {}; if (tmpMap.hasOwnProperty(registration)) { return tmpMap[registration]; } let attempt = 0; let uniqueTMP = null; let generatedTMP; const MAX_ATTEMPTS = 100; const isTMPValueUsed = (map, tmpValue, currentReg) => { for (const reg in map) { if (map.hasOwnProperty(reg) && reg !== currentReg && map[reg] === tmpValue) { return true; } } return false; }; while (uniqueTMP === null && attempt < MAX_ATTEMPTS) { const inputForHash = attempt === 0 ? registration : `${registration}_${attempt}`; generatedTMP = generateTMPNumber(inputForHash); if (!isTMPValueUsed(tmpMap, generatedTMP, registration)) { uniqueTMP = generatedTMP; } else { console.warn(`TMP collision for ${registration}: ${generatedTMP}. Retrying...`); attempt++; } } if (uniqueTMP === null) { console.error(`Could not generate unique TMP for ${registration}.`); uniqueTMP = `ERR${Math.floor(1000 + Math.random() * 9000)}`; } tmpMap[registration] = uniqueTMP; saveToStorage(tmpMapKey, tmpMap); try { let genInfo = loadFromStorage(tmpGenerationInfoKey, {}); if (typeof genInfo !== 'object' || genInfo === null) genInfo = {}; genInfo[registration] = { route: routeId, timestamp: Date.now() }; saveToStorage(tmpGenerationInfoKey, genInfo); console.log(`Stored generation info for ${registration} (Route: ${routeId})`); } catch(e) { console.error(`Failed to save TMP generation info for ${registration}:`, e); } console.log(`Assigned TMP ${uniqueTMP} to ${registration}`); return uniqueTMP; }
+
+        // --- Curtailment Handling --- (Filters display to today)
+        function populateCurtailmentsTable() { const allCurtailments = loadFromStorage(curtailedBusesKey, []); const curtailedBusesTable = document.getElementById("curtailed-buses-table"); curtailedBusesTable.innerHTML = ""; if (!Array.isArray(allCurtailments)) { curtailedBusesTable.innerHTML = `<tr><td colspan="5">Error loading data.</td></tr>`; return; } const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0); const todayTimestamp = todayStart.getTime(); const todaysCurtailments = allCurtailments.filter(c => c && c.timestamp >= todayTimestamp); const sortedTodaysCurtailments = todaysCurtailments.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); if (sortedTodaysCurtailments.length > 0) { sortedTodaysCurtailments.forEach(bus => { const fleetNumber = getTMPForRegistration(bus.regNumber); let displayTime = 'N/A'; if (bus.timestamp && !isNaN(bus.timestamp)) { try { const dateObject = new Date(bus.timestamp); displayTime = dateObject.toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' }); } catch (e) { displayTime = bus.curtailmentTime || 'N/A'; } } else if (bus.curtailmentTime) { displayTime = bus.curtailmentTime; } const row = document.createElement("tr"); row.innerHTML = `<td>${bus.route || 'N/A'}</td><td>${fleetNumber}</td><td>${bus.regNumber || 'N/A'}</td><td>${bus.curtailedDestination || 'N/A'}</td><td>${displayTime}</td>`; curtailedBusesTable.appendChild(row); }); } else { curtailedBusesTable.innerHTML = `<tr><td colspan="5">No curtailments recorded for this route today.</td></tr>`; } }
+
+        // --- Live Data Fetching and Processing ---
+        async function fetchLiveBusData() {
+            const trackerTable = document.getElementById("tracker-table"); const busCounter = document.getElementById("bus-counter"); const updateTime = document.getElementById("update-time"); const filterFleet = document.getElementById("filter-fleet"); const filterReg = document.getElementById("filter-reg"); const filterDestination = document.getElementById("filter-destination"); const filterStop = document.getElementById("filter-stop"); const filterArrival = document.getElementById("filter-arrival");
+            try {
+                // Load settings and overrides
+                const loadedSettings = loadFromStorage(settingsKey, defaultSettings);
+                const debounceMinutes = loadedSettings.debounceMinutes || defaultSettings.debounceMinutes;
+                const timeoutMinutes = loadedSettings.timeoutMinutes || defaultSettings.timeoutMinutes;
+                const debounceMs = debounceMinutes * 60 * 1000; const timeoutMs = timeoutMinutes * 60 * 1000;
+                const allDestSettings = loadFromStorage(routeDestinationSettingsKey, {});
+                const defaultDestsForThisRoute = ["Chesterfield Road", "Barnet, Chesterfield Road", "Turnpike Lane Station", "Turnpike Lane Bus Station", "Turnpike Lane, Station"];
+                const finalDestinations = allDestSettings[routeId] || defaultDestsForThisRoute;
+                const destOverrides = loadFromStorage(destinationOverrideKey, {});
+
+                const response = await fetch(apiUrl); if (!response.ok) { throw new Error(`API error: ${response.status}`); }
+                const arrivals = await response.json(); const now = Date.now();
+                let busLastSeen = loadFromStorage(busLastSeenKey, {}); let tmpMap = loadFromStorage(tmpMapKey, {}); let allCurtailments = loadFromStorage(curtailedBusesKey, []);
+                if (!Array.isArray(allCurtailments)) { allCurtailments = []; }
+                const activeBuses = {}; let newCurtailmentDetected = false;
+
+                if (arrivals && Array.isArray(arrivals) && arrivals.length > 0) {
+                    arrivals.forEach(bus => {
+                        const regNumber = bus.vehicleId; if (!regNumber) return;
+                        const expectedArrivalTime = new Date(bus.expectedArrival).getTime();
+                        const apiDestination = bus.destinationName || "Unknown"; // Store API destination
+                        const lastSeenInfo = busLastSeen[regNumber];
+                        const previousDestination = lastSeenInfo?.destination;
+
+                        // Curtailment Check (uses apiDestination)
+                        if (previousDestination && apiDestination !== previousDestination && !finalDestinations.includes(apiDestination)) {
+                            const alreadyLoggedRecently = allCurtailments.some(c => c.regNumber === regNumber && c.curtailedDestination === apiDestination && c.timestamp && (now - c.timestamp) < debounceMs );
+                            if (!alreadyLoggedRecently) { /* ... log curtailment ... */ newCurtailmentDetected = true; }
+                        }
+                        busLastSeen[regNumber] = { time: now, destination: apiDestination }; // Update last seen
+
+                        // Store bus data if prediction is valid
+                        const existingPredictionTime = activeBuses[regNumber]?.expectedArrivalTimeMs;
+                        if (expectedArrivalTime >= now && (!existingPredictionTime || expectedArrivalTime < existingPredictionTime)) {
+                            const fleetNumber = getTMPForRegistration(regNumber);
+                            const arrivalTimeString = new Date(expectedArrivalTime).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                            activeBuses[regNumber] = { fleetNumber: fleetNumber, regNumber: regNumber, apiDestination: apiDestination, stopName: bus.stationName || "Unknown", stopArrivalTime: arrivalTimeString, expectedArrivalTimeMs: expectedArrivalTime };
+                        }
+                    });
+                }
+
+                if (newCurtailmentDetected) { saveToStorage(curtailedBusesKey, allCurtailments); populateCurtailmentsTable(); }
+                // Bus Timeout Check... (remains same)
+                tmpMap = loadFromStorage(tmpMapKey, {}); for (const reg in busLastSeen) { if (!activeBuses[reg] && (now - (busLastSeen[reg]?.time || 0) > timeoutMs)) { console.log(`Timing out bus ${reg} [${routeId}]...`); delete busLastSeen[reg]; if (tmpMap[reg] && tmpMap[reg].startsWith('TMP')) { delete tmpMap[reg]; } } } saveToStorage(busLastSeenKey, busLastSeen); saveToStorage(tmpMapKey, tmpMap);
+
+                // Determine Display Destination AFTER processing all arrivals
+                const activeBusArray = Object.values(activeBuses);
+                activeBusArray.forEach(bus => {
+                    const regOverride = destOverrides[bus.regNumber];
+                    const routeOverride = destOverrides[routeId];
+                    const globalOverride = destOverrides['*'];
+
+                    // ** UPDATED Logic: Remove suffix **
+                    if (regOverride) {
+                        bus.displayDestination = regOverride; // Just use the override
+                    } else if (routeOverride) {
+                        bus.displayDestination = routeOverride; // Just use the override
+                    } else if (globalOverride) {
+                        bus.displayDestination = globalOverride; // Just use the override
+                    } else {
+                        bus.displayDestination = bus.apiDestination; // Use original API if no overrides
+                    }
+                });
+
+                const sortedBuses = activeBusArray.sort((a, b) => (a.fleetNumber || '').localeCompare(b.fleetNumber || ''));
+
+                // Populate Filters (use apiDestination)
+                const filters = [filterFleet, filterReg, filterDestination, filterStop, filterArrival]; filters.forEach(f => { while (f.options.length > 1) f.remove(1); }); const options = { fleet: new Set(), reg: new Set(), destination: new Set(), stop: new Set(), arrival: new Set() }; sortedBuses.forEach(bus => { options.fleet.add(bus.fleetNumber); options.reg.add(bus.regNumber); options.destination.add(bus.apiDestination); options.stop.add(bus.stopName); options.arrival.add(bus.stopArrivalTime); }); [...options.fleet].sort().forEach(val => filterFleet.add(new Option(val, val))); [...options.reg].sort().forEach(val => filterReg.add(new Option(val, val))); [...options.destination].sort().forEach(val => filterDestination.add(new Option(val, val))); [...options.stop].sort().forEach(val => filterStop.add(new Option(val, val))); [...options.arrival].sort().forEach(val => filterArrival.add(new Option(val, val)));
+                // Restore Filter Selection
+                const savedFilterState = loadFromStorage(filterStateKey, {}); if (savedFilterState && typeof savedFilterState === 'object') { const setFilterValue = (el, val) => { if (val && [...el.options].some(opt => opt.value === val)) el.value = val; else el.value = ""; }; setFilterValue(filterFleet, savedFilterState.fleet); setFilterValue(filterReg, savedFilterState.reg); setFilterValue(filterDestination, savedFilterState.destination); setFilterValue(filterStop, savedFilterState.stop); setFilterValue(filterArrival, savedFilterState.arrival); } else { filters.forEach(f => { f.value = ""; }); }
+
+                // Populate Table (use displayDestination)
+                trackerTable.innerHTML = ""; if (sortedBuses.length === 0) { trackerTable.innerHTML = `<tr><td colspan="5">No buses are currently on route ${routeId}.</td></tr>`; } else { sortedBuses.forEach(bus => { const row = document.createElement("tr"); row.innerHTML = `<td>${bus.fleetNumber || 'N/A'}</td><td>${bus.regNumber || 'N/A'}</td><td>${bus.displayDestination}</td><td>${bus.stopName || 'N/A'}</td><td>${bus.stopArrivalTime || 'N/A'}</td>`; trackerTable.appendChild(row); }); }
+                busCounter.textContent = `Buses on Route ${routeId}: ${sortedBuses.length}`; updateTime.textContent = `Last Updated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`;
+                filterArrivalsTable();
+
+            } catch (error) { console.error(`Error fetching/processing [${routeId}]:`, error); /* ... */ }
+        }
+
+        // --- Filter Application Logic --- (Corrected version)
+        const filterFleet = document.getElementById("filter-fleet"); const filterReg = document.getElementById("filter-reg"); const filterDestination = document.getElementById("filter-destination"); const filterStop = document.getElementById("filter-stop"); const filterArrival = document.getElementById("filter-arrival"); const arrivalsTableBody = document.getElementById("tracker-table");
+        function saveFilterState() { const filterState = { fleet: filterFleet.value, reg: filterReg.value, destination: filterDestination.value, stop: filterStop.value, arrival: filterArrival.value }; saveToStorage(filterStateKey, filterState); }
+        function filterArrivalsTable() { const fleetFilter = filterFleet.value; const regFilter = filterReg.value; const destinationFilter = filterDestination.value; const stopFilter = filterStop.value; const arrivalFilter = filterArrival.value; const rows = arrivalsTableBody.querySelectorAll("tr"); rows.forEach(row => { if (row.cells.length < 5) { if (rows.length === 1) row.style.display = ""; else row.style.display = "none"; return; } const fleet = row.cells[0].textContent; const reg = row.cells[1].textContent; const destination = row.cells[2].textContent; /* Match against displayed destination now */ const stop = row.cells[3].textContent; const arrival = row.cells[4].textContent; const fleetMatch = !fleetFilter || fleet === fleetFilter; const regMatch = !regFilter || reg === regFilter; const destinationMatch = !destinationFilter || destination === destinationFilter; const stopMatch = !stopFilter || stop === stopFilter; const arrivalMatch = !arrivalFilter || arrival === arrivalFilter; row.style.display = (fleetMatch && regMatch && destinationMatch && stopMatch && arrivalMatch) ? "" : "none"; }); }
+
+        // Attach event listeners
+        filterFleet.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); }); filterReg.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); }); filterDestination.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); }); filterStop.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); }); filterArrival.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); });
+
+        // --- Initial Load ---
+        function initialize() { populateCurtailmentsTable(); const initialFilterState = loadFromStorage(filterStateKey, {}); if (initialFilterState && Object.keys(initialFilterState).length > 0) { filterFleet.value = initialFilterState.fleet || ""; filterReg.value = initialFilterState.reg || ""; filterDestination.value = initialFilterState.destination || ""; filterStop.value = initialFilterState.stop || ""; filterArrival.value = initialFilterState.arrival || ""; } fetchLiveBusData(); setInterval(fetchLiveBusData, 30000); }
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>

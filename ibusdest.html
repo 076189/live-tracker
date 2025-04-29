@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>iBus Destination Override Manager</title>
+    <style>
+        body, html { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f4; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 700px; margin: 20px auto; }
+        h1, h2 { text-align: center; color: #333; }
+        h2 { margin-top: 30px; border-top: 1px solid #ccc; padding-top: 20px;}
+        h3 { margin-top: 20px; margin-bottom: 10px; color: #444; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        .form-section, .list-section { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; text-align: left; }
+        input[type="text"] {
+            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+            margin-bottom: 15px; font-size: 1em;
+        }
+        button {
+            padding: 10px 20px; color: white; border: none; border-radius: 4px; cursor: pointer;
+            font-size: 1em; margin-right: 10px; transition: background-color 0.2s ease; background-color: #007bff;
+        }
+        button:hover { background-color: #0056b3; }
+        button.danger-button { background-color: #dc3545; font-size: 0.9em; padding: 5px 10px;}
+        button.danger-button:hover { background-color: #c82333; }
+        #overrides-list div {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 5px; border-bottom: 1px dotted #eee;
+        }
+         #overrides-list div span { flex-grow: 1; margin-right: 10px; text-align: left; word-break: break-word; }
+         #overrides-list div span strong { /* Style for keys in the list */
+              display: inline-block;
+              min-width: 150px; /* Adjust width as needed */
+              font-family: monospace; /* Make keys stand out slightly */
+              color: #17a2b8;
+         }
+         #overrides-list div span strong.global-key { /* Specific style for global key */
+              color: #dc3545;
+              font-weight: bold;
+         }
+        #overrides-list button { flex-shrink: 0; } /* Prevent remove button from shrinking */
+        .status-message { margin-top: 10px; text-align: center; min-height: 1em; font-weight: bold; }
+        .description-text { font-size: 0.9em; color: #666; margin-bottom: 15px; text-align: left; }
+        .override-section { border-top: 1px dashed #eee; padding-top: 15px; margin-top: 20px;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Manage iBus Destination Overrides</h1>
+        <p class="description-text">Use the sections below to override the iBus destination displayed on the live tracker pages. Overrides apply in this order: Specific Bus > Route-Wide > Global.</p>
+
+        <p class="description-text" style="color: #dc3545; font-style: italic;">*Note: Route-wide override currently sets the same destination regardless of direction. Direction-specific override needs further development.*</p>
+
+        <div class="form-section">
+            <h3>1. Specific Bus Override</h3>
+            <p class="description-text">Set a temporary destination for a single bus registration.</p>
+            <div class="override-group">
+                <label for="override-reg">Bus Registration:</label>
+                <input type="text" id="override-reg" placeholder="e.g., AB12CDE">
+            </div>
+            <div class="override-group">
+                <label for="override-dest">New Destination to Display:</label>
+                <input type="text" id="override-dest" placeholder="e.g., Golders Green Stn">
+            </div>
+            <div style="text-align: center;">
+                <button type="button" onclick="setRegistrationOverride()">Set / Update Specific Override</button>
+                <p id="specific-status" class="status-message" style="color: green;"></p>
+            </div>
+        </div>
+
+        <div class="form-section override-section">
+            <h3>2. Route-Wide Override</h3>
+            <p class="description-text">Set an iBus destination override for ALL buses currently displayed on a specific route page (unless they have a specific override set above). This is used in case data from TfL contains errors or is not being displayed.</p>
+            <div class="override-group">
+                <label for="route-override-id">Route ID:</label>
+                <input type="text" id="route-override-id" placeholder="e.g., 92 or N263">
+            </div>
+            <div class="override-group">
+                <label for="route-override-dest">New Destination for Entire Route:</label>
+                <input type="text" id="route-override-dest" placeholder="e.g., SEE BUS BLIND">
+            </div>
+            <div style="text-align: center;">
+                <button type="button" onclick="setRouteOverride()">Set/Update Route Override</button>
+                 <p id="route-status" class="status-message" style="color: green;"></p>
+             </div>
+        </div>
+
+        <div class="form-section override-section">
+            <h3>3. Global Override</h3>
+            <p class="description-text">Set a destination override message for ALL buses on ALL routes (unless they have a specific or route-wide override).</p>
+            <div class="override-group">
+                <label for="global-override-dest">Global Message to Display:</label>
+                <input type="text" id="global-override-dest" placeholder="e.g., Check Service Updates">
+            </div>
+            <div style="text-align: center;">
+                <button type="button" onclick="setGlobalOverride()">Set Global Override</button>
+                <button type="button" onclick="clearGlobalOverride()" class="danger-button">Clear Global Override</button>
+                 <p id="global-status" class="status-message" style="color: green;"></p>
+             </div>
+        </div>
+
+        <div class="list-section override-section">
+            <h2>Current Active Overrides</h2>
+            <p class="description-text" style="margin-top: 5px;">Overrides are applied in order: Specific > Route > Global.</p>
+            <div id="overrides-list">
+                <p>Loading...</p>
+             </div>
+        </div>
+
+    </div>
+
+<script>
+    const destinationOverrideKey = 'destinationOverrides'; // Key for storage
+
+    // --- Storage Helpers ---
+    function loadFromStorage(key, defaultValue = {}) {
+        try {
+            const data = localStorage.getItem(key);
+            // Ensure we return an object even if null/invalid JSON is stored
+            if (data) {
+                const parsed = JSON.parse(data);
+                if (typeof parsed === 'object' && parsed !== null) {
+                    return parsed;
+                }
+            }
+            return defaultValue; // Return default if no data or invalid data
+        } catch (e) {
+            console.error(`Error loading ${key}:`, e);
+            return defaultValue; // Return default on error
+        }
+    }
+    function saveToStorage(key, data) {
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {
+            console.error(`Error saving ${key}:`, e);
+            alert(`Error saving ${key}. Storage might be full.`);
+        }
+    }
+
+    // --- DOM Elements ---
+    const regInput = document.getElementById('override-reg');
+    const destInput = document.getElementById('override-dest');
+    const specificStatusMsg = document.getElementById('specific-status');
+    const routeIdInput = document.getElementById('route-override-id');
+    const routeDestInput = document.getElementById('route-override-dest');
+    const routeStatusMsg = document.getElementById('route-status');
+    const globalDestInput = document.getElementById('global-override-dest');
+    const globalStatusMsg = document.getElementById('global-status');
+    const overridesListDiv = document.getElementById('overrides-list');
+
+    // --- UI Functions ---
+    function displayOverrides() {
+        if (!overridesListDiv) return;
+        const overrides = loadFromStorage(destinationOverrideKey, {});
+        overridesListDiv.innerHTML = ''; // Clear current list
+
+        const otherKeys = [];
+
+        // Handle Global Override First
+        if (overrides.hasOwnProperty('*')) {
+            const dest = overrides['*'];
+            const itemDiv = document.createElement('div');
+            // Add data-key for consistency, though clearGlobalOverride handles it specifically
+            itemDiv.dataset.key = '*';
+            const textSpan = document.createElement('span');
+            textSpan.innerHTML = `<strong class="global-key">GLOBAL OVERRIDE:</strong> ${dest}`; // Special display for global
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = 'Remove Global';
+            removeBtn.className = 'danger-button';
+            removeBtn.onclick = () => clearGlobalOverride(); // Use specific clear function
+            itemDiv.appendChild(textSpan);
+            itemDiv.appendChild(removeBtn);
+            overridesListDiv.appendChild(itemDiv);
+        }
+
+        // Collect other keys (Registrations or Route IDs)
+        for (const key in overrides) {
+            if (overrides.hasOwnProperty(key) && key !== '*') {
+                otherKeys.push(key);
+            }
+        }
+
+        // Sort and display other keys
+        otherKeys.sort().forEach(key => {
+            const dest = overrides[key];
+            const itemDiv = document.createElement('div');
+            itemDiv.dataset.key = key; // *** THIS IS THE KEY FIX ***
+
+            const textSpan = document.createElement('span');
+            // Simple display, doesn't try to guess if it's route or reg here
+            textSpan.innerHTML = `<strong>${key}:</strong> ${dest}`;
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = 'Remove';
+            removeBtn.className = 'danger-button';
+            removeBtn.onclick = () => removeOverride(key); // Generic remove function, now works reliably
+
+            itemDiv.appendChild(textSpan);
+            itemDiv.appendChild(removeBtn);
+            overridesListDiv.appendChild(itemDiv);
+        });
+
+        if (overridesListDiv.children.length === 0) {
+             overridesListDiv.innerHTML = '<p>No destination overrides currently set.</p>';
+        }
+    }
+
+    function setRegistrationOverride() {
+        const reg = regInput.value.trim().toUpperCase();
+        const dest = destInput.value.trim();
+        if(specificStatusMsg) specificStatusMsg.textContent = '';
+
+        if (!reg || !dest) {
+            alert('Please enter both Registration and New Destination.');
+            return;
+        }
+        // Basic validation for typical UK reg format (optional but helpful)
+         if (!/^[A-Z]{2}\d{2}[A-Z]{3}$/.test(reg) && !/^[A-Z]\d{1,3}[A-Z]{3}$/.test(reg) && !/^[A-Z]{1,3}\d{1,4}$/.test(reg) ) {
+             if (!confirm(`Registration "${reg}" doesn't look like a standard format. Save anyway?`)) {
+                 regInput.focus();
+                 return;
+             }
+         }
+
+
+        try {
+            let overrides = loadFromStorage(destinationOverrideKey, {});
+            overrides[reg] = dest; // Set override for specific reg
+            saveToStorage(destinationOverrideKey, overrides);
+
+            if(specificStatusMsg) {
+                specificStatusMsg.textContent = `Override set for ${reg} to "${dest}".`;
+                specificStatusMsg.style.color = 'green';
+                setTimeout(() => { specificStatusMsg.textContent = ''; }, 4000);
+            }
+            regInput.value = '';
+            destInput.value = '';
+            regInput.focus();
+            displayOverrides(); // Refresh list
+
+        } catch (e) {
+             console.error("Error setting registration override:", e);
+             if(specificStatusMsg) {
+                specificStatusMsg.textContent = "Error saving override.";
+                specificStatusMsg.style.color = 'red';
+             }
+        }
+    }
+
+    function setRouteOverride() {
+        const routeId = routeIdInput.value.trim().toUpperCase(); // Standardize Route ID case maybe?
+        const dest = routeDestInput.value.trim();
+        if(routeStatusMsg) routeStatusMsg.textContent = '';
+
+        if (!routeId || !dest) {
+            alert('Please enter both Route ID and Destination.');
+            return;
+        }
+         // Basic validation - check if route ID looks reasonable
+         if (routeId.length > 5 || routeId.includes(" ") || !/^[A-Z0-9]+$/i.test(routeId)) {
+             if (!confirm(`Route ID "${routeId}" looks unusual. Save anyway?`)) {
+                 routeIdInput.focus();
+                 return;
+             }
+         }
+
+        try {
+            let overrides = loadFromStorage(destinationOverrideKey, {});
+            overrides[routeId] = dest; // Use route ID as the key
+            saveToStorage(destinationOverrideKey, overrides);
+
+            if(routeStatusMsg) {
+                routeStatusMsg.textContent = `Route override set for ${routeId} to "${dest}".`;
+                routeStatusMsg.style.color = 'green';
+                setTimeout(() => { routeStatusMsg.textContent = ''; }, 4000);
+            }
+            routeIdInput.value = '';
+            routeDestInput.value = '';
+            routeIdInput.focus();
+            displayOverrides(); // Refresh list
+
+        } catch (e) {
+             console.error("Error setting route override:", e);
+             if(routeStatusMsg) {
+                  routeStatusMsg.textContent = "Error saving override.";
+                  routeStatusMsg.style.color = 'red';
+             }
+        }
+    }
+
+    function setGlobalOverride() {
+        const dest = globalDestInput.value.trim();
+        if(globalStatusMsg) globalStatusMsg.textContent = '';
+
+        if (!dest) {
+            alert('Please enter the Global Message/Destination.');
+            return;
+        }
+
+         try {
+            let overrides = loadFromStorage(destinationOverrideKey, {});
+            overrides['*'] = dest; // Use '*' as the key for global
+            saveToStorage(destinationOverrideKey, overrides);
+
+            if(globalStatusMsg) {
+                globalStatusMsg.textContent = `Global override set to "${dest}".`;
+                globalStatusMsg.style.color = 'green';
+                 setTimeout(() => { globalStatusMsg.textContent = ''; }, 4000);
+             }
+            globalDestInput.value = '';
+            // globalDestInput.focus(); // Maybe don't focus after global set/clear
+            displayOverrides(); // Refresh list
+
+        } catch (e) {
+             console.error("Error setting global override:", e);
+             if(globalStatusMsg) {
+                globalStatusMsg.textContent = "Error saving override.";
+                globalStatusMsg.style.color = 'red';
+             }
+        }
+    }
+
+     function clearGlobalOverride() {
+         if (!confirm(`Are you sure you want to remove the Global destination override?`)) {
+             return;
+         }
+         if(globalStatusMsg) globalStatusMsg.textContent = '';
+
+         try {
+             let overrides = loadFromStorage(destinationOverrideKey, {});
+             if (overrides.hasOwnProperty('*')) {
+                 delete overrides['*'];
+                 saveToStorage(destinationOverrideKey, overrides);
+                 if(globalStatusMsg) {
+                     globalStatusMsg.textContent = `Global override removed.`;
+                     globalStatusMsg.style.color = 'green';
+                     setTimeout(() => { globalStatusMsg.textContent = ''; }, 4000);
+                 }
+                 displayOverrides(); // Refresh list
+             } else {
+                  if(globalStatusMsg) {
+                     globalStatusMsg.textContent = `No Global override was set.`;
+                     globalStatusMsg.style.color = 'orange';
+                     setTimeout(() => { globalStatusMsg.textContent = ''; }, 4000);
+                  }
+             }
+         } catch(e) {
+             console.error("Error removing global override:", e);
+             if(globalStatusMsg) {
+                globalStatusMsg.textContent = "Error removing override.";
+                globalStatusMsg.style.color = 'red';
+             }
+         }
+    }
+
+
+    function removeOverride(keyToRemove) {
+        // Use the reliable data-key attribute to find the element if needed for description
+        const listEntry = overridesListDiv.querySelector(`[data-key="${keyToRemove}"]`);
+        // Get description from the span within the found element, or fallback to the key
+        const description = listEntry ? listEntry.querySelector('span').textContent.replace('Remove','').trim() : keyToRemove;
+
+        if (!confirm(`Are you sure you want to remove the override for "${description}"?`)) {
+            return;
+        }
+        // Clear status messages
+        if(specificStatusMsg) specificStatusMsg.textContent = '';
+        if(routeStatusMsg) routeStatusMsg.textContent = '';
+        if(globalStatusMsg) globalStatusMsg.textContent = ''; // Clear global too, in case it was related
+
+        try {
+            let overrides = loadFromStorage(destinationOverrideKey, {});
+            if (overrides.hasOwnProperty(keyToRemove)) {
+                delete overrides[keyToRemove];
+                saveToStorage(destinationOverrideKey, overrides);
+                console.log(`Override removed for key: ${keyToRemove}.`);
+                // Optionally add a temporary status message here if desired
+                displayOverrides(); // Refresh list
+            } else {
+                // This case is less likely now the buttons are tied correctly, but keep for robustness
+                console.warn(`Override key "${keyToRemove}" not found for removal during remove attempt.`);
+                alert(`Override for "${keyToRemove}" could not be found to remove.`);
+            }
+        } catch(e) {
+            console.error("Error removing destination override:", e);
+            alert("Error removing override.");
+            // Consider adding red status message here too
+        }
+    }
+
+
+    // --- Initial Load ---
+    document.addEventListener('DOMContentLoaded', displayOverrides);
+
+</script>
+</body>
+</html>

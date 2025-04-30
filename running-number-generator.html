@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running Number Display</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            /* Base font as fallback */
+            font-family: 'Inter', sans-serif;
+            background-color: #e5e7eb; /* gray-200 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        .input-container {
+            max-width: 400px;
+            width: 100%;
+            margin: 1rem auto;
+            padding: 1.5rem;
+            background-color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            /* Ensure input is not affected by print styles */
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+        }
+        .input-group {
+             margin-bottom: 1rem;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151; /* gray-700 */
+        }
+        .input-group input[type="text"],
+        .input-group select {
+             width: 100%;
+             padding: 0.5rem;
+             border: 1px solid #d1d5db; /* gray-300 */
+             border-radius: 0.375rem; /* rounded-md */
+             box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        /* --- Styles for the A4 Preview Display --- */
+        .display-container {
+            width: 190mm;
+            height: 138mm;
+            max-width: 100%;
+            margin: 1rem auto;
+            padding: 5mm 10mm;
+            background-color: rgb(255, 242, 0); /* Yellow background */
+            border: 1px dashed #999;
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden; /* Hide overflow */
+            box-sizing: border-box;
+        }
+         #garageCodeDisplay {
+            /* Font set by JS */
+            /* *** UPDATED: Slightly smaller mm size for screen preview *** */
+            font-size: 28mm; /* Reduced from 30mm */
+            font-weight: 700;
+            color: black;
+            line-height: 1;
+            text-align: right;
+            margin-right: 0.1em; /* Reduced margin */
+            margin-top: 0;
+            margin-bottom: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+            flex-shrink: 0;
+         }
+        #runningNumberDisplay {
+             /* Font set by JS */
+             /* *** UPDATED: Slightly smaller mm size for screen preview *** */
+            font-size: 75mm; /* Reduced from 80mm */
+            font-weight: 700;
+            text-align: left;
+            color: black;
+            line-height: 1;
+            margin-top: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                background-color: white !important; /* Ensure white background for print */
+                margin: 0;
+                padding: 0;
+                display: block;
+                /* Font set by JS */
+            }
+            .input-container, button {
+                display: none !important;
+            }
+            .display-container {
+                width: 190mm;
+                height: 138mm;
+                max-width: none;
+                margin: 5mm auto 0 auto;
+                padding: 5mm 10mm;
+                border: none;
+                box-shadow: none;
+                justify-content: center;
+                align-items: center;
+                display: flex;
+                flex-direction: row;
+                page-break-after: always;
+                overflow: visible;
+                background-color: white !important; /* Ensure white background for print */
+            }
+             #garageCodeDisplay {
+                /* Keep exact pt size for print */
+                font-size: 104.543pt !important;
+                font-weight: 700;
+                color: black !important; /* Ensure black text */
+                line-height: 1;
+                text-align: right;
+                margin-right: 0.1em; /* Keep reduced margin */
+                margin-top: 0;
+                margin-bottom: 0;
+                white-space: nowrap;
+                overflow: visible;
+                 /* Font family set by JS */
+             }
+            #runningNumberDisplay {
+                /* Keep exact pt size for print */
+                font-size: 279.133pt !important;
+                color: black !important; /* Ensure black text */
+                line-height: 1;
+                font-weight: 700;
+                margin-top: 0;
+                text-align: left;
+                white-space: nowrap;
+                overflow: visible;
+                 /* Font family set by JS */
+            }
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="input-container">
+        <div class="input-group">
+            <label for="garageCodeInput">Garage Code (Optional):</label>
+            <input type="text" id="garageCodeInput" maxlength="3" placeholder="e.g., RP">
+        </div>
+        <div class="input-group">
+            <label for="runningNumberInput">Running Number:</label>
+            <input type="text" id="runningNumberInput" placeholder="e.g., 204">
+        </div>
+        <div class="input-group">
+            <label for="fontSelect">Font:</label>
+            <select id="fontSelect">
+                <option value="'NJFont Medium', 'Inter', sans-serif">NJFont Medium (Requires Install)</option>
+                <option value="'Gill Sans MT', 'Gill Sans', 'Inter', sans-serif">Gill Sans MT (Requires Install)</option>
+                <option value="'Inter', sans-serif">Inter (Web Safe Fallback)</option>
+            </select>
+        </div>
+        <button onclick="window.print()" class="mt-4 w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
+            Print Display
+        </button>
+    </div>
+
+    <div class="display-container">
+        <div id="garageCodeDisplay">RP</div>
+        <div id="runningNumberDisplay">204</div>
+    </div>
+
+    <script>
+        const garageCodeInput = document.getElementById('garageCodeInput');
+        const inputElement = document.getElementById('runningNumberInput');
+        const fontSelect = document.getElementById('fontSelect');
+        const displayElement = document.getElementById('runningNumberDisplay');
+        const garageCodeDisplay = document.getElementById('garageCodeDisplay');
+        const bodyElement = document.body; // Get body for font setting
+
+        // Function to update display
+        function updateDisplay() {
+            // Update Garage Code
+            garageCodeDisplay.textContent = garageCodeInput.value.toUpperCase() || '';
+
+            // Update Running Number
+            displayElement.textContent = inputElement.value || '---';
+
+            // Update Font for BOTH elements
+            const selectedFontFamily = fontSelect.value;
+            displayElement.style.fontFamily = selectedFontFamily;
+            garageCodeDisplay.style.fontFamily = selectedFontFamily; // Apply to garage code too
+            bodyElement.style.fontFamily = selectedFontFamily; // Apply to body for print
+
+            // Ensure bold weight is applied (useful if font has multiple weights)
+            displayElement.style.fontWeight = '700';
+            garageCodeDisplay.style.fontWeight = '700';
+        }
+
+        // Add event listeners to update on input change
+        garageCodeInput.addEventListener('input', updateDisplay);
+        inputElement.addEventListener('input', updateDisplay);
+        fontSelect.addEventListener('change', updateDisplay);
+
+        // Initial display update on page load
+        document.addEventListener('DOMContentLoaded', updateDisplay);
+    </script>
+
+</body>
+</html>

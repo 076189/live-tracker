@@ -76,7 +76,7 @@
     </div>
 
     <script>
-        console.log('--- STOP COUNTDOWN SCRIPT STARTED (v14 - Filter Debugging) ---');
+        console.log('--- STOP COUNTDOWN SCRIPT STARTED (v15 - Capitalize N Routes) ---');
 
         // --- DOM References ---
         const topLiveSearchInput = document.getElementById('top-live-search-input');
@@ -101,7 +101,7 @@
 
         // --- Storage Functions ---
         function loadFromStorage(key, defaultValue = {}) { try { const data = localStorage.getItem(key); if (data) { const parsed = JSON.parse(data); if (typeof parsed === 'object' && parsed !== null) return parsed; } return defaultValue; } catch (e) { console.error(`Error loading ${key}:`, e); return defaultValue; } }
-        function saveToStorage(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(`Error saving ${key}:`, e); } } // Added for filter state saving
+        function saveToStorage(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(`Error saving ${key}:`, e); } }
 
         // --- Debounce Utility ---
         function debounce(func, delay) { return function(...args) { clearTimeout(topSearchDebounceTimer); topSearchDebounceTimer = setTimeout(() => { func.apply(this, args); }, delay); }; }
@@ -122,8 +122,10 @@
         function getOverrideDestination(vehicleId, routeId, direction) {
             if (!destinationOverrides || typeof destinationOverrides !== 'object') return null;
             const reg = vehicleId ? vehicleId.toUpperCase() : null;
-            const route = routeId ? routeId.toUpperCase() : null;
+            const route = routeId ? routeId.toUpperCase() : null; // Use original route ID case for lookup? No, API might vary, use upper.
             const dirKey = (direction === 'outbound') ? 'dir1' : (direction === 'inbound') ? 'dir2' : null;
+
+            // Priority: Reg > Route > Global
             if (reg && destinationOverrides[reg] && typeof destinationOverrides[reg] === 'object' && dirKey && destinationOverrides[reg][dirKey]) { return destinationOverrides[reg][dirKey]; }
             if (route && destinationOverrides[route] && typeof destinationOverrides[route] === 'object' && dirKey && destinationOverrides[route][dirKey]) { return destinationOverrides[route][dirKey]; }
             if (destinationOverrides['*']) { return destinationOverrides['*']; }
@@ -153,11 +155,19 @@
                         let relativeTimeString;
                         if (diffMins <= 1) { relativeTimeString = "due"; } else { relativeTimeString = `${diffMins} mins`; }
 
-                        const routeId = bus.lineId; const vehicleId = bus.vehicleId; const direction = bus.direction;
+                        let routeId = bus.lineId || 'N/A';
+                        const vehicleId = bus.vehicleId;
+                        const direction = bus.direction;
+
+                        // *** ADDED: Capitalize 'n' prefix for routeId ***
+                        if (routeId.startsWith('n')) {
+                            routeId = 'N' + routeId.substring(1);
+                        }
+
                         const overrideDest = getOverrideDestination(vehicleId, routeId, direction);
                         const displayDestination = overrideDest !== null ? overrideDest : (bus.destinationName || 'Unknown');
 
-                        const arrivalData = { route: routeId || 'N/A', destination: displayDestination, etaRelative: relativeTimeString };
+                        const arrivalData = { route: routeId, destination: displayDestination, etaRelative: relativeTimeString };
                         displayArrivals.push(arrivalData);
                         options.route.add(arrivalData.route); options.destination.add(arrivalData.destination); options.arrival.add(arrivalData.etaRelative);
                     }
@@ -172,59 +182,43 @@
                  else { displayArrivals.forEach(bus => { const row = document.createElement("tr"); row.innerHTML = `<td>${bus.route}</td><td>${bus.destination}</td><td>${bus.etaRelative}</td>`; countdownTableBody.appendChild(row); }); }
 
                  if(updateTime) updateTime.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-                 filterCountdownTable(); // Apply filters AFTER table is populated
+                 filterCountdownTable();
 
              } catch (error) { console.error(`Error fetching arrivals for ${currentNaptanId}:`, error); if (!countdownTableBody.innerHTML.includes("Error")) { countdownTableBody.innerHTML = `<tr><td colspan="3">Error updating data. Check console.</td></tr>`; } stopArrivalInterval(); }
         }
 
-        // --- Filter Application Logic (ADDED DEBUG LOGS) ---
-        function saveFilterState() {
-            const filterState = {
-                route: filterRoute ? filterRoute.value : "",
-                destination: filterDestination ? filterDestination.value : "",
-                arrival: filterArrival ? filterArrival.value : ""
-            };
-            const filterStateKey = `${filterStateKeyBase}${currentNaptanId}`;
-            // console.log("Saving filter state:", filterState); // Optional: Log saved state
-            saveToStorage(filterStateKey, filterState);
-        }
-
+        // --- Filter Application Logic ---
+        function saveFilterState() { const filterState = { route: filterRoute ? filterRoute.value : "", destination: filterDestination ? filterDestination.value : "", arrival: filterArrival ? filterArrival.value : "" }; const filterStateKey = `${filterStateKeyBase}${currentNaptanId}`; saveToStorage(filterStateKey, filterState); }
         function filterCountdownTable() {
+            // console.log("Filtering table..."); // Basic log
             if (!countdownTableBody || !filterRoute || !filterDestination || !filterArrival) return;
             const routeFilter = filterRoute.value;
             const destinationFilter = filterDestination.value;
             const arrivalFilter = filterArrival.value;
 
-            // **** DEBUG LOG: Log active filters ****
-            console.log(`Filtering with: Route='${routeFilter}', Dest='${destinationFilter}', Arrival='${arrivalFilter}'`);
+            // console.log(`Filtering with: Route='${routeFilter}', Dest='${destinationFilter}', Arrival='${arrivalFilter}'`);
 
             const rows = countdownTableBody.querySelectorAll("tr");
             rows.forEach((row, index) => {
                 if (row.cells.length < 3) { // Check for message rows
                     const shouldHideMessage = routeFilter || destinationFilter || arrivalFilter;
-                     // **** DEBUG LOG: Log message row handling ****
                     // console.log(`Row ${index} (Message Row): Hiding? ${shouldHideMessage}`);
                     row.style.display = shouldHideMessage ? "none" : "";
                     return;
                 }
-                // Get text content from cells
                 const route = row.cells[0].textContent;
                 const destination = row.cells[1].textContent;
                 const arrival = row.cells[2].textContent;
 
-                 // **** DEBUG LOG: Log row data being checked ****
-                 console.log(`Row ${index}: Comparing Route='${route}' vs Filter='${routeFilter}', Dest='${destination}' vs Filter='${destinationFilter}', Arrival='${arrival}' vs Filter='${arrivalFilter}'`);
+                 // console.log(`Row ${index}: Comparing Route='${route}' vs Filter='${routeFilter}', Dest='${destination}' vs Filter='${destinationFilter}', Arrival='${arrival}' vs Filter='${arrivalFilter}'`);
 
-                // Check if row matches selected filters
                 const routeMatch = !routeFilter || route === routeFilter;
                 const destinationMatch = !destinationFilter || destination === destinationFilter;
                 const arrivalMatch = !arrivalFilter || arrival === arrivalFilter;
 
-                // **** DEBUG LOG: Log match results ****
                 const showRow = routeMatch && destinationMatch && arrivalMatch;
-                console.log(`   -> Matches: Route=${routeMatch}, Dest=${destinationMatch}, Arrival=${arrivalMatch}. Show row? ${showRow}`);
+                // console.log(`   -> Matches: Route=${routeMatch}, Dest=${destinationMatch}, Arrival=${arrivalMatch}. Show row? ${showRow}`);
 
-                // Show or hide row based on match
                 row.style.display = showRow ? "" : "none";
             });
         }
@@ -239,7 +233,6 @@
             await fetchAndSetStopName(naptanId);
             const filterStateKey = `${filterStateKeyBase}${naptanId}`;
             const initialFilterState = loadFromStorage(filterStateKey, {});
-            // console.log("Loaded initial filter state:", initialFilterState); // Optional: Log loaded state
             if (initialFilterState && typeof initialFilterState === 'object') {
                  if (filterRoute) filterRoute.value = initialFilterState.route || "";
                  if (filterDestination) filterDestination.value = initialFilterState.destination || "";

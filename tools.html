@@ -261,15 +261,15 @@
     const autoTmpModal = document.getElementById('auto-tmp-modal');
     const autoTmpList = document.getElementById('auto-tmp-list');
     const viewAutoTmpBtn = document.getElementById('view-auto-tmp-btn');
-    // ***** NEW DOM Refs for Fleet/TMP Import/Export *****
+    // ***** DOM Refs for Fleet/TMP Import/Export *****
     const exportTmpButton = document.getElementById('export-tmp-button');
     const importTmpButton = document.getElementById('import-tmp-button');
     const importTmpInput = document.getElementById('import-file-tmp');
-    // ***** END NEW DOM Refs *****
+    // ***** END DOM Refs *****
     // REMOVED: Refs for Final Destinations
 
 
-    // --- Auth, Timer, Basic UI (Includes DEBUG LOGS in showApp) ---
+    // --- Auth, Timer, Basic UI ---
     let sessionTimerId = null;
     function loadUsers() { try{const d=localStorage.getItem(usersStorageKey);if(d){users=JSON.parse(d);if(!users.Ryan||!users.Ryan.pass||!users.Ryan.role){console.warn("User data incomplete or missing 'Ryan' user, resetting.");setDefaultUsers();}}else{setDefaultUsers();}}catch(e){console.error("Err loading users, reset:",e);setDefaultUsers();} }
     function setDefaultUsers() { users={'Ryan':{pass:'password',role:'admin'}};saveUsersToStorage(); } // *** Default user changed to 'Ryan' ***
@@ -282,11 +282,11 @@
 
     function showApp() {
          // --- DEBUG LOGS ---
-         console.log('--- showApp CALLED ---');
-         console.log('isLoggedIn:', isLoggedIn);
-         console.log('currentUsername:', currentUsername);
-         console.log('User Object:', users[currentUsername]);
-         console.log('User Role:', users[currentUsername]?.role);
+         // console.log('--- showApp CALLED ---');
+         // console.log('isLoggedIn:', isLoggedIn);
+         // console.log('currentUsername:', currentUsername);
+         // console.log('User Object:', users[currentUsername]);
+         // console.log('User Role:', users[currentUsername]?.role);
          // --- END DEBUG LOGS ---
         try {
             if (!isLoggedIn || !currentUsername || !users[currentUsername]) { logout(); return; }
@@ -408,7 +408,7 @@
     function deleteUser(u){if(!isLoggedIn||users[currentUsername]?.role!=='admin'||u==='Ryan')return; if(!users.hasOwnProperty(u)){alert(`User "${u}" not found.`);return;} if(confirm(`DELETE user "${u}"? Cannot undo.`)){delete users[u];saveUsersToStorage();userManagementMessage.textContent=`User "${u}" deleted.`;userManagementMessage.style.color="green";displayUserManagement();setTimeout(()=>{if(userManagementMessage)userManagementMessage.textContent='';},4000);} } // *** Updated to protect 'Ryan' ***
 
 
-    // --- ***** NEW Fleet/TMP Import/Export Functions ***** ---
+    // --- Fleet/TMP Import/Export Functions (Includes Debugging Logs) ---
     function exportTmpMap() {
         if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) {
             alert('Access Denied.');
@@ -439,97 +439,147 @@
         }
     }
 
+    // ***** THIS VERSION INCLUDES DEBUGGING LOGS *****
     function handleTmpImport(file) {
+        console.log('handleTmpImport function started.'); // <-- ADDED
+
         if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) {
+            console.log('handleTmpImport: Permission check failed.'); // <-- ADDED
             alert('Access Denied.');
             if(importTmpInput) importTmpInput.value = ''; // Clear selection
             return;
         }
+        console.log('handleTmpImport: Permission check passed.'); // <-- ADDED
+
         if (!file) {
+            console.log('handleTmpImport: File validation failed - no file.'); // <-- ADDED
             alert("No file selected for Fleet/TMP import.");
             return;
         }
+        console.log(`handleTmpImport: File object received: name=${file.name}, size=${file.size}, type=${file.type}`); // <-- ADDED
+
         if (!file.name.toLowerCase().endsWith('.json')) {
+            console.log('handleTmpImport: File validation failed - not .json.'); // <-- ADDED
             alert("Please select a valid JSON file (.json) for Fleet/TMP import.");
             if(importTmpInput) importTmpInput.value = ''; // Clear selection
             return;
         }
+        console.log('handleTmpImport: File validation passed.'); // <-- ADDED
 
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            try {
-                const importedData = JSON.parse(e.target.result);
+        try { // Added outer try...catch for reader setup
+            const reader = new FileReader();
+            console.log('handleTmpImport: FileReader created.'); // <-- ADDED
 
-                // Basic validation: Ensure it's an object (map) and not null/array
-                if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) {
-                    throw new Error("Imported file is not a valid JSON object map (registration -> fleet/TMP).");
-                }
+            reader.onload = function(e) {
+                console.log('handleTmpImport: FileReader onload triggered.'); // <-- ADDED
+                try {
+                    console.log('handleTmpImport: Parsing JSON...'); // <-- ADDED
+                    const importedData = JSON.parse(e.target.result);
+                    console.log('handleTmpImport: JSON parsed successfully.'); // <-- ADDED
 
-                // More specific validation (optional but good) - Check if values are strings
-                let invalidEntries = 0;
-                for (const key in importedData) {
-                    if (typeof importedData[key] !== 'string') {
-                        console.warn(`Invalid non-string value found for key "${key}" during TMP import check. Removing entry.`);
-                        delete importedData[key]; // Remove invalid entry
-                        invalidEntries++;
+                    // Basic validation: Ensure it's an object (map) and not null/array
+                    if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) {
+                        console.log('handleTmpImport: Imported data is not a valid object map.'); // <-- ADDED
+                        throw new Error("Imported file is not a valid JSON object map (registration -> fleet/TMP).");
                     }
+                    console.log('handleTmpImport: Data type validation passed (is object map).'); // <-- ADDED
+
+
+                    // More specific validation (optional but good) - Check if values are strings
+                    let invalidEntries = 0;
+                    console.log('handleTmpImport: Validating entry values...'); // <-- ADDED
+                    for (const key in importedData) {
+                        if (typeof importedData[key] !== 'string') {
+                            console.warn(`handleTmpImport: Invalid non-string value found for key "${key}" during TMP import check. Removing entry.`);
+                            delete importedData[key]; // Remove invalid entry
+                            invalidEntries++;
+                        }
+                    }
+                     if (invalidEntries > 0) {
+                        console.log(`handleTmpImport: Removed ${invalidEntries} invalid entries.`); // <-- ADDED
+                        alert(`Warning: Found and removed ${invalidEntries} entries with non-string values during import validation.`);
+                     }
+
+                    if (Object.keys(importedData).length === 0 && invalidEntries > 0) {
+                        console.log('handleTmpImport: No valid entries remaining after validation.'); // <-- ADDED
+                         throw new Error("No valid string entries found in the imported file after validation.");
+                    }
+                    console.log(`handleTmpImport: Entry validation complete. ${Object.keys(importedData).length} valid entries remaining.`); // <-- ADDED
+
+                    console.log('handleTmpImport: Asking for confirmation...'); // <-- ADDED
+                    if (!confirm("Importing will REPLACE ALL existing Fleet/TMP assignments (Registration -> Fleet/TMP map). Are you sure? This cannot be undone.")) {
+                        console.log('handleTmpImport: User cancelled import.'); // <-- ADDED
+                        if(importTmpInput) importTmpInput.value = ''; // Clear selection
+                        return;
+                    }
+                    console.log('handleTmpImport: User confirmed import.'); // <-- ADDED
+
+                    // Save the validated data, overwriting the existing map
+                    console.log('handleTmpImport: Saving data to storage...'); // <-- ADDED
+                    saveToStorage(tmpMapKey, importedData);
+                    console.log('handleTmpImport: Data saved.'); // <-- ADDED
+
+                    alert(`Fleet/TMP assignments imported successfully! ${Object.keys(importedData).length} assignments loaded. All previous assignments have been replaced.`);
+
+                    // Refresh the display if the manual fleet form is visible
+                    console.log('handleTmpImport: Checking if manual fleet form needs update...'); // <-- ADDED
+                    if (manualFleetForm && !manualFleetForm.classList.contains('hidden')) {
+                        console.log('handleTmpImport: Updating manual assignments display.'); // <-- ADDED
+                        displayManualAssignments();
+                    }
+
+                } catch (error) {
+                    console.error("Error inside handleTmpImport onload:", error); // <-- Enhanced logging
+                    alert("Error processing Fleet/TMP assignments: " + error.message);
+                } finally {
+                    console.log('handleTmpImport: FileReader onload finished.'); // <-- ADDED
+                    if(importTmpInput) importTmpInput.value = ''; // Clear selection in all cases
                 }
-                 if (invalidEntries > 0) {
-                    alert(`Warning: Found and removed ${invalidEntries} entries with non-string values during import validation.`);
-                 }
+            };
 
-                if (Object.keys(importedData).length === 0 && invalidEntries > 0) {
-                     throw new Error("No valid string entries found in the imported file after validation.");
-                }
+            reader.onerror = function(err) { // Capture error object
+                console.error('handleTmpImport: FileReader onerror triggered:', err); // <-- Enhanced logging
+                alert("Error reading the selected Fleet/TMP assignment file.");
+                if(importTmpInput) importTmpInput.value = ''; // Clear selection
+            };
 
-                if (!confirm("Importing will REPLACE ALL existing Fleet/TMP assignments (Registration -> Fleet/TMP map). Are you sure? This cannot be undone.")) {
-                    if(importTmpInput) importTmpInput.value = ''; // Clear selection
-                    return;
-                }
+            console.log('handleTmpImport: Calling reader.readAsText...'); // <-- ADDED
+            reader.readAsText(file);
+            console.log('handleTmpImport: Called reader.readAsText.'); // <-- ADDED
 
-                // Save the validated data, overwriting the existing map
-                saveToStorage(tmpMapKey, importedData);
-
-                alert(`Fleet/TMP assignments imported successfully! ${Object.keys(importedData).length} assignments loaded. All previous assignments have been replaced.`);
-
-                // Refresh the display if the manual fleet form is visible
-                if (manualFleetForm && !manualFleetForm.classList.contains('hidden')) {
-                    displayManualAssignments();
-                }
-
-            } catch (error) {
-                console.error("Error importing Fleet/TMP assignments:", error);
-                alert("Error importing Fleet/TMP assignments: " + error.message);
-            } finally {
-                if(importTmpInput) importTmpInput.value = ''; // Clear selection in all cases
-            }
-        };
-
-        reader.onerror = function() {
-            alert("Error reading the selected Fleet/TMP assignment file.");
-            if(importTmpInput) importTmpInput.value = ''; // Clear selection
-        };
-
-        reader.readAsText(file);
+        } catch (readerSetupError) {
+            console.error('handleTmpImport: Error setting up FileReader:', readerSetupError); // <-- Added outer catch
+            alert('A critical error occurred trying to read the file.');
+            if (importTmpInput) importTmpInput.value = '';
+        }
     }
-    // --- ***** END NEW Fleet/TMP Import/Export Functions ***** ---
+    // ***** END DEBUGGING VERSION *****
 
 
     // --- REMOVED Manage Final Destinations Logic ---
 
-    // --- Event Listeners ---
+    // --- Event Listeners (Includes Debugging Logs) ---
     if(document.getElementById('import-file-curtailments')) {
         document.getElementById('import-file-curtailments').addEventListener('change', function() {
             if (this.files && this.files.length > 0) { handleCurtailmentImport(this.files[0]); }
         });
     }
-    // ***** NEW Listener for Fleet/TMP Import *****
+    // ***** Listener for Fleet/TMP Import (Includes Debugging Logs) *****
     if(importTmpInput) { // Check if the element exists
+        console.log("Attempting to add 'change' listener to importTmpInput"); // <-- ADD THIS LINE
         importTmpInput.addEventListener('change', function() {
-            if (this.files && this.files.length > 0) { handleTmpImport(this.files[0]); }
+            console.log("File input 'change' event triggered for TMP import."); // <-- ADD THIS LINE
+            if (this.files && this.files.length > 0) {
+                console.log("File selected:", this.files[0].name); // <-- ADD THIS LINE
+                handleTmpImport(this.files[0]);
+            } else {
+                console.log("File input event triggered, but no files found."); // <-- ADD THIS LINE
+            }
         });
+    } else {
+        console.error("Could not find importTmpInput element to attach listener."); // <-- ADD THIS LINE
     }
-    // ***** END NEW Listener *****
+    // ***** END Listener *****
 
     if(document.getElementById('confirm-password')) {
         document.getElementById('confirm-password').addEventListener('keydown', function(event) {

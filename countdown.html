@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bus Stop Countdown</title> <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Basic Reset & Font */
+        body, html { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9f9f9; }
+
+        /* Always Visible Title */
+        h1 { text-align: center; margin-bottom: 20px; }
+
+        /* Always Visible Top Live Search Bar */
+        #top-live-search-container { text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; position: relative; }
+        #top-live-search-input { width: 80%; max-width: 350px; padding: 10px; font-size: 1.1em; border: 1px solid #ccc; border-radius: 4px; vertical-align: middle; }
+        #top-live-search-results {
+             display: none; /* Hide initially */
+             position: absolute;
+             background-color: white;
+             border: 1px solid #ccc;
+             border-top: none;
+             border-radius: 0 0 4px 4px;
+             width: 80%; max-width: 350px;
+             left: 50%; transform: translateX(-50%);
+             max-height: 250px; overflow-y: auto;
+             z-index: 10; text-align: left;
+             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        #top-live-search-results div { padding: 8px 10px; border-bottom: 1px dotted #ccc; cursor: pointer; background-color: white;}
+        #top-live-search-results div:last-child { border-bottom: none; }
+        #top-live-search-results div:hover { background-color: #f0f0f0; }
+        #top-live-search-results strong { color: #0056b3; }
+        #top-live-search-results span { font-size: 0.9em; color: #555; margin-left: 10px; }
+         #top-live-search-results i { display: block; padding: 10px; font-style: italic; color: #555; }
+
+        /* Countdown Display Area (hidden when no stop selected) */
+        #countdown-content h2 { text-align: center; margin-top: 20px; margin-bottom: 5px; }
+        .info-container { display: flex; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px; font-size: 18px; }
+        .update-time { margin-bottom: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
+        th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; white-space: nowrap; }
+        th { background-color: #f4f4f4; position: sticky; top: 0; z-index: 1; } /* Note: Sticky header might need adjustment depending on layout */
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        th select { margin-left: 5px; padding: 2px; font-size: 0.9em;}
+        td[colspan="3"] { text-align: center; font-style: italic; color: #555; padding: 15px 8px; }
+        td:nth-child(2) { white-space: normal; } /* Allow destination to wrap */
+        td span.override-indicator { /* Style for override indicator */
+            font-weight: bold;
+            color: #e67e22; /* Orange color */
+            margin-left: 4px;
+            font-size: 0.85em;
+            vertical-align: super; /* Position slightly above baseline */
+        }
+
+    </style>
+</head>
+<body>
+    <h1>Bus Stop Countdown</h1>
+
+    <div id="top-live-search-container">
+        <input type="text" id="top-live-search-input" placeholder="Search for a Bus Stop..." aria-label="Search for a bus stop" autocomplete="off">
+        <div id="top-live-search-results"></div> </div>
+
+    <div id="countdown-content" style="display: none;">
+        <h2 id="stop-name-heading"></h2> <div class="info-container">
+            <div class="update-time" id="update-time">Last Updated: --</div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Route <select id="filter-route"><option value="">All</option></select></th>
+                    <th>Destination <select id="filter-destination"><option value="">All</option></select></th>
+                    <th>ETA <select id="filter-arrival"><option value="">All</option></select></th>
+                </tr>
+            </thead>
+            <tbody id="countdown-table-body">
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        console.log('--- STOP COUNTDOWN SCRIPT STARTED (v12 - Override Debugging) ---');
+
+        // --- DOM References ---
+        const topLiveSearchInput = document.getElementById('top-live-search-input');
+        const topLiveSearchResults = document.getElementById('top-live-search-results');
+        const countdownContentDiv = document.getElementById('countdown-content');
+        const stopNameHeading = document.getElementById('stop-name-heading');
+        const updateTime = document.getElementById('update-time');
+        const countdownTableBody = document.getElementById('countdown-table-body');
+        const filterRoute = document.getElementById("filter-route");
+        const filterDestination = document.getElementById("filter-destination");
+        const filterArrival = document.getElementById("filter-arrival");
+
+        // --- Constants & Variables ---
+        const filterStateKeyBase = `stopCountdownFilterState_Simple_`;
+        const stopApiBaseUrl = `https://api.tfl.gov.uk/StopPoint/`;
+        const destinationOverrideKey = 'destinationOverrides'; // Key for unified overrides
+        let topSearchDebounceTimer = null;
+        let arrivalFetchIntervalId = null;
+        const urlParams = new URLSearchParams(window.location.search);
+        let currentNaptanId = urlParams.get('naptanId')?.trim();
+        let destinationOverrides = {}; // Variable to hold loaded overrides
+
+        // --- Storage Functions ---
+        function loadFromStorage(key, defaultValue = {}) { try { const data = localStorage.getItem(key); if (data) { const parsed = JSON.parse(data); if (typeof parsed === 'object' && parsed !== null) return parsed; } return defaultValue; } catch (e) { console.error(`Error loading ${key}:`, e); return defaultValue; } }
+        // saveToStorage not needed in this file
+
+        // --- Debounce Utility ---
+        function debounce(func, delay) { return function(...args) { clearTimeout(topSearchDebounceTimer); topSearchDebounceTimer = setTimeout(() => { func.apply(this, args); }, delay); }; }
+
+        // --- Helper Function to Display Search Results ---
+        function displaySearchResults(resultsContainer, stops) { resultsContainer.innerHTML = ''; if (stops && stops.length > 0) { stops.forEach(stop => { const div = document.createElement('div'); div.onclick = () => { window.location.href = `countdown.html?naptanId=${stop.id}`; }; div.setAttribute('role', 'link'); div.setAttribute('aria-label', `Load countdown for ${stop.name}`); div.style.cursor = 'pointer'; let displayName = `<strong>${stop.name}</strong>`; if (stop.indicator) displayName += ` (${stop.indicator})`; if (stop.commonName && stop.commonName !== stop.name) { displayName += `<span> / ${stop.commonName}</span>`; } div.innerHTML = displayName; resultsContainer.appendChild(div); }); resultsContainer.style.display = 'block'; } else { resultsContainer.innerHTML = '<i>No bus stops found.</i>'; resultsContainer.style.display = 'block'; } }
+
+        // --- Top Live Stop Search Function ---
+         async function searchForStopsTop(query) { if (!topLiveSearchInput || !topLiveSearchResults) return; topLiveSearchResults.innerHTML = '<i>Searching...</i>'; topLiveSearchResults.style.display = 'block'; const searchUrl = `${stopApiBaseUrl}Search?query=${encodeURIComponent(query)}&modes=bus&useStopPointHierarchy=false&returnLines=false`; try { const response = await fetch(searchUrl); if (!response.ok) { throw new Error(`API Error: ${response.status}`); } const data = await response.json(); if(topLiveSearchInput.value.trim() === query) { displaySearchResults(topLiveSearchResults, data.matches); } } catch (error) { console.error("Error searching for stops (top):", error); if(topLiveSearchInput.value.trim() === query) { topLiveSearchResults.innerHTML = '<i>Error during search.</i>'; topLiveSearchResults.style.display = 'block'; } } }
+
+        // --- Debounced Handler for Top Search Input ---
+        const handleTopSearchInput = debounce(() => { const query = topLiveSearchInput.value.trim(); if (query.length > 2) { searchForStopsTop(query); } else { topLiveSearchResults.innerHTML = ''; topLiveSearchResults.style.display = 'none'; } }, 300);
+
+        // --- Fetch Stop Details for Name ---
+        async function fetchAndSetStopName(naptanId) { const stopDetailUrl = `${stopApiBaseUrl}${naptanId}`; let stopName = naptanId; try { const response = await fetch(stopDetailUrl); if (response.ok) { const data = await response.json(); stopName = data.commonName || data.name || naptanId; } else { console.error(`Failed to fetch stop details for ${naptanId}: ${response.status}`); } } catch (error) { console.error(`Error fetching stop details for ${naptanId}:`, error); } if (stopNameHeading) stopNameHeading.textContent = `Live Arrivals for ${stopName}`; document.title = `Countdown - ${stopName}`; if (topLiveSearchInput) topLiveSearchInput.placeholder = `At ${stopName}. Search another?`; }
+
+        // --- Check for Destination Override ---
+        function getOverrideDestination(vehicleId, routeId, direction) {
+            // **** DEBUG LOG ****
+            // console.log(`Checking override for: Reg=${vehicleId}, Route=${routeId}, Dir=${direction}`);
+
+            if (!destinationOverrides || typeof destinationOverrides !== 'object') {
+                // console.log(" -> No overrides object loaded.");
+                return null;
+            }
+
+            const reg = vehicleId ? vehicleId.toUpperCase() : null;
+            const route = routeId ? routeId.toUpperCase() : null;
+            // Map API direction (assuming "inbound"/"outbound") to override keys dir1/dir2
+            // *** Adjust this mapping if your API or override convention differs ***
+            const dirKey = (direction === 'outbound') ? 'dir1' : (direction === 'inbound') ? 'dir2' : null;
+            // console.log(` -> Mapped DirKey: ${dirKey}`);
+
+            // 1. Check Specific Reg Override (Directional)
+            if (reg && destinationOverrides[reg] && typeof destinationOverrides[reg] === 'object' && dirKey && destinationOverrides[reg][dirKey]) {
+                const override = destinationOverrides[reg][dirKey];
+                // console.log(` -> MATCHED Reg Override: ${override}`);
+                return override; // Return override if set for this direction
+            }
+
+            // 2. Check Route Override (Directional)
+            if (route && destinationOverrides[route] && typeof destinationOverrides[route] === 'object' && dirKey && destinationOverrides[route][dirKey]) {
+                 const override = destinationOverrides[route][dirKey];
+                 // console.log(` -> MATCHED Route Override: ${override}`);
+                 return override; // Return override if set for this direction
+            }
+
+            // 3. Check Global Override
+            if (destinationOverrides['*']) {
+                 const override = destinationOverrides['*'];
+                 // console.log(` -> MATCHED Global Override: ${override}`);
+                 return override; // Return global if set
+            }
+
+            // 4. No override found
+            // console.log(" -> No override matched.");
+            return null;
+        }
+
+
+        // --- Fetch Live Arrivals Function ---
+        async function fetchStopArrivals() {
+             if (!currentNaptanId || !countdownTableBody || !updateTime) return;
+             const apiUrl = `${stopApiBaseUrl}${currentNaptanId}/Arrivals`;
+             try {
+                 const response = await fetch(apiUrl);
+                 if (!response.ok) { if (response.status === 404) { countdownTableBody.innerHTML = `<tr><td colspan="3">Error: Stop Point ${currentNaptanId} not found by arrivals API.</td></tr>`; } else { countdownTableBody.innerHTML = `<tr><td colspan="3">Error fetching API arrival data (${response.status}).</td></tr>`; } throw new Error(`API error: ${response.status}`); }
+                 const arrivals = await response.json();
+                 const now = Date.now();
+                 arrivals.sort((a, b) => a.expectedArrival.localeCompare(b.expectedArrival));
+
+                 const displayArrivals = [];
+                 const options = { route: new Set(), destination: new Set(), arrival: new Set() };
+
+                 // **** DEBUG LOG ****
+                 console.log(`--- Processing ${arrivals.length} arrivals from API ---`);
+
+                 arrivals.forEach((bus, index) => {
+                    // **** DEBUG LOG: Log raw bus data ****
+                    // console.log(`Bus ${index+1} Raw Data:`, JSON.stringify(bus));
+
+                    const expectedArrivalTime = new Date(bus.expectedArrival).getTime();
+                    const diffMs = expectedArrivalTime - now;
+                    const diffMins = Math.round(diffMs / 60000);
+
+                    if (diffMins < 30) {
+                        let relativeTimeString;
+                        if (diffMins <= 1) { relativeTimeString = "due"; } else { relativeTimeString = `${diffMins} mins`; }
+
+                        const routeId = bus.lineId;
+                        const vehicleId = bus.vehicleId; // Assumes API provides this field
+                        const direction = bus.direction; // Assumes API provides this field
+
+                        // **** DEBUG LOG: Log data being passed to override check ****
+                        console.log(`Bus ${index+1}: Checking override for Reg='${vehicleId}', Route='${routeId}', Dir='${direction}'`);
+
+                        const overrideDest = getOverrideDestination(vehicleId, routeId, direction);
+                        const displayDestination = overrideDest !== null ? overrideDest : (bus.destinationName || 'Unknown');
+                        const isOverridden = overrideDest !== null;
+
+                        // **** DEBUG LOG: Log the result of the override check ****
+                        console.log(`   -> Original Dest: '${bus.destinationName}', Override Found: ${isOverridden}, Display Dest: '${displayDestination}'`);
+
+                        const arrivalData = { route: routeId || 'N/A', destination: displayDestination, etaRelative: relativeTimeString, overridden: isOverridden };
+                        displayArrivals.push(arrivalData);
+                        options.route.add(arrivalData.route); options.destination.add(arrivalData.destination); options.arrival.add(arrivalData.etaRelative);
+                    } else {
+                        // **** DEBUG LOG: Log buses being filtered out by time ****
+                        // console.log(`Bus ${index+1} (Route ${bus.lineId}, Reg ${bus.vehicleId}) filtered out, ETA ${diffMins} mins.`);
+                    }
+                 });
+
+                 // Update Filters
+                 const filters = [filterRoute, filterDestination, filterArrival]; const currentFilterValues = { route: filterRoute.value, destination: filterDestination.value, arrival: filterArrival.value }; filters.forEach(f => { if(f) while (f.options.length > 1) f.remove(1); }); const sortRelativeTimes = (a, b) => { if (a === b) return 0; const isDueA = a === 'due'; const isDueB = b === 'due'; if (isDueA) return -1; if (isDueB) return 1; const numA = parseInt(a); const numB = parseInt(b); if (!isNaN(numA) && !isNaN(numB)) return numA - numB; return a.localeCompare(b); }; [...options.route].sort().forEach(val => filterRoute?.add(new Option(val, val))); [...options.destination].sort().forEach(val => filterDestination?.add(new Option(val, val))); [...options.arrival].sort(sortRelativeTimes).forEach(val => filterArrival?.add(new Option(val, val))); const restoreFilterValue = (el, val) => { if (el && val && [...el.options].some(opt => opt.value === val)) el.value = val; else if (el) el.value = ""; }; restoreFilterValue(filterRoute, currentFilterValues.route); restoreFilterValue(filterDestination, currentFilterValues.destination); restoreFilterValue(filterArrival, currentFilterValues.arrival);
+
+                 // Populate Table
+                 countdownTableBody.innerHTML = "";
+                 if (displayArrivals.length === 0) { if (arrivals.length > 0) { countdownTableBody.innerHTML = `<tr><td colspan="3">No arrivals predicted within the next 29 minutes.</td></tr>`; } else { countdownTableBody.innerHTML = `<tr><td colspan="3">No predicted arrivals at this time.</td></tr>`; } }
+                 else { displayArrivals.forEach(bus => { const row = document.createElement("tr"); const overrideIndicator = bus.overridden ? '<span class="override-indicator" title="Destination overridden">[O]</span>' : ''; row.innerHTML = `<td>${bus.route}</td><td>${bus.destination}${overrideIndicator}</td><td>${bus.etaRelative}</td>`; countdownTableBody.appendChild(row); }); }
+
+                 if(updateTime) updateTime.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
+                 filterCountdownTable();
+
+             } catch (error) { console.error(`Error fetching arrivals for ${currentNaptanId}:`, error); if (!countdownTableBody.innerHTML.includes("Error")) { countdownTableBody.innerHTML = `<tr><td colspan="3">Error updating data. Check console.</td></tr>`; } stopArrivalInterval(); }
+        }
+
+        // --- Filter Application Logic ---
+        function saveFilterState() { const filterState = { route: filterRoute ? filterRoute.value : "", destination: filterDestination ? filterDestination.value : "", arrival: filterArrival ? filterArrival.value : "" }; const filterStateKey = `${filterStateKeyBase}${currentNaptanId}`; saveToStorage(filterStateKey, filterState); }
+        function filterCountdownTable() { if (!countdownTableBody || !filterRoute || !filterDestination || !filterArrival) return; const routeFilter = filterRoute.value; const destinationFilter = filterDestination.value; const arrivalFilter = filterArrival.value; const rows = countdownTableBody.querySelectorAll("tr"); rows.forEach(row => { if (row.cells.length < 3) { if(routeFilter || destinationFilter || arrivalFilter) { row.style.display = "none"; } else { row.style.display = ""; } return; } const route = row.cells[0].textContent; const destination = row.cells[1].textContent; const arrival = row.cells[2].textContent; const destinationTextOnly = row.cells[1].childNodes[0].nodeValue || destination; const routeMatch = !routeFilter || route === routeFilter; const destinationMatch = !destinationFilter || destinationTextOnly === destinationFilter; const arrivalMatch = !arrivalFilter || arrival === arrivalFilter; row.style.display = (routeMatch && destinationMatch && arrivalMatch) ? "" : "none"; }); }
+
+        // --- Stop Arrival Interval Timer ---
+        function stopArrivalInterval() { if (arrivalFetchIntervalId) { clearInterval(arrivalFetchIntervalId); arrivalFetchIntervalId = null; console.log("Update interval stopped."); } }
+
+        // --- Initialize countdown specific elements and fetching ---
+        async function initializeArrivalsDisplay(naptanId) {
+            console.log(`Initializing arrivals display for NaptanID: ${naptanId}`);
+            if (countdownContentDiv) countdownContentDiv.style.display = 'block'; // Show the arrivals area
+            await fetchAndSetStopName(naptanId); // Fetch and set stop name
+            // Load filters from storage
+            const filterStateKey = `${filterStateKeyBase}${naptanId}`;
+            const initialFilterState = loadFromStorage(filterStateKey, {});
+            if (initialFilterState && typeof initialFilterState === 'object') {
+                 if (filterRoute) filterRoute.value = initialFilterState.route || "";
+                 if (filterDestination) filterDestination.value = initialFilterState.destination || "";
+                 if (filterArrival) filterArrival.value = initialFilterState.arrival || "";
+            }
+            // Fetch arrivals and start interval
+            fetchStopArrivals(); // Initial fetch
+            stopArrivalInterval(); // Clear any previous interval
+            arrivalFetchIntervalId = setInterval(fetchStopArrivals, 30000); // Fetch every 30 seconds
+            // Attach filter listeners
+            if (filterRoute) filterRoute.addEventListener("change", () => { saveFilterState(); filterCountdownTable(); });
+            if (filterDestination) filterDestination.addEventListener("change", () => { saveFilterState(); filterCountdownTable(); });
+            if (filterArrival) filterArrival.addEventListener("change", () => { saveFilterState(); filterCountdownTable(); });
+        }
+
+        // --- Main Page Initialization ---
+        function initializePage() {
+            console.log("Initializing page...");
+            // Load overrides used by this page
+            destinationOverrides = loadFromStorage(destinationOverrideKey, {}); // Using the unified key
+            // **** DEBUG LOG: Log loaded overrides ****
+            console.log(`DEBUG: Loaded overrides from key '${destinationOverrideKey}':`, JSON.stringify(destinationOverrides));
+
+            // Always set up the top search bar
+             if (topLiveSearchInput) {
+                 topLiveSearchInput.addEventListener('input', handleTopSearchInput);
+                 document.addEventListener('click', (event) => { // Hide results on click away
+                    if (topLiveSearchResults && !topLiveSearchInput.contains(event.target) && !topLiveSearchResults.contains(event.target)) {
+                        topLiveSearchResults.style.display = 'none';
+                    }
+                 });
+                 topLiveSearchInput.addEventListener('focus', () => { // Re-search on focus if needed
+                     if(topLiveSearchInput.value.trim().length > 2) { handleTopSearchInput(); }
+                 });
+            }
+
+            // Check if a specific stop needs to be displayed
+            if (currentNaptanId) {
+                initializeArrivalsDisplay(currentNaptanId);
+            } else {
+                // No stop selected - ensure countdown area is hidden and set default title/placeholder
+                if (countdownContentDiv) countdownContentDiv.style.display = 'none';
+                document.title = "Bus Stop Search & Countdown";
+                if (topLiveSearchInput) topLiveSearchInput.placeholder = "Search for a Bus Stop...";
+                console.log("No NaptanID in URL. Ready for search.");
+            }
+        }
+
+        // --- Run Initialization ---
+        if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initializePage); }
+        else { initializePage(); }
+
+    </script>
+</body>
+</html>
+```

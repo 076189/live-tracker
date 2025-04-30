@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mobitec Barcode Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            text-align: center;
+        }
+        h1, .input-container, #errorMessage, #barcodeContainer, #simplicityIndex, #explanation {
+            display: none; /* Hidden until loading finishes */
+        }
+        .loading-message {
+            font-size: 18px;
+            color: #007BFF;
+            margin: 20px 0;
+        }
+        .input-container {
+            width: 100%;
+            background-color: #f9f9f9; /* Light background for better visibility */
+            border-bottom: 1px solid #ddd;
+            padding: 10px 0;
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .input-container input, .input-container button {
+            font-size: 16px;
+            padding: 10px;
+            margin: 5px;
+        }
+        .input-container button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .input-container button:hover {
+            background-color: #0056b3;
+        }
+        #errorMessage {
+            color: red;
+            margin-top: 20px;
+        }
+        .barcode {
+            display: flex;
+            flex-direction: column-reverse; /* Stack bars from bottom to top */
+            align-items: center;
+            justify-content: center;
+            margin: 20px auto; /* Centering barcode content */
+        }
+        .bar {
+            width: 70px;
+            margin: 2px 0;
+        }
+        .small-bar {
+            height: 20px;
+        }
+        .thick-bar {
+            height: 40px;
+        }
+        #simplicityIndex, #explanation {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loadingMessage" class="loading-message">Self testing. Loading...</div>
+
+    <!-- Main Content -->
+    <h1>Mobitec Barcode Generator</h1>
+    <div class="input-container">
+        <label for="numberInput">Enter a number:</label>
+        <input type="text" id="numberInput" placeholder="Enter a number (e.g., 172)" oninput="validateNumber()" />
+        <button onclick="generateBarcode()">Generate Barcode</button>
+    </div>
+    <div id="errorMessage"></div>
+    <div class="barcode" id="barcodeContainer"></div>
+    <div id="simplicityIndex"></div>
+    <div id="explanation"></div>
+    <audio id="audioPlayer" src="assets/Self Test copy.m4a" type="audio/mp4" preload="auto"></audio>
+
+    <script>
+        const loadingMessage = document.getElementById("loadingMessage");
+        const mainContent = [
+            document.querySelector("h1"),
+            ...document.querySelectorAll(".input-container, #errorMessage, #barcodeContainer, #simplicityIndex, #explanation")
+        ];
+        const audioPlayer = document.getElementById("audioPlayer");
+
+        // On page load, show loading message and hide everything else
+        window.addEventListener("load", () => {
+            setTimeout(() => {
+                // Hide loading message after 3 seconds
+                loadingMessage.style.display = "none";
+
+                // Show main content
+                mainContent.forEach(element => {
+                    element.style.display = "block";
+                });
+
+                // Play sound
+                audioPlayer.play();
+            }, 3000); // Delay of 3 seconds
+        });
+
+        // Validate input to allow only numeric values
+        function validateNumber() {
+            const inputField = document.getElementById("numberInput");
+            const nonNumericRegex = /[^0-9]/g; // Match non-numeric characters
+            inputField.value = inputField.value.replace(nonNumericRegex, ""); // Remove non-numeric characters
+        }
+
+        // Add Enter key functionality
+        document.getElementById("numberInput").addEventListener("keydown", function (event) {
+            if (event.key === "Enter") {
+                generateBarcode();
+            }
+        });
+
+        // Barcode Generation Functionality
+        function generateBarcode() {
+            const container = document.getElementById("barcodeContainer");
+            const errorMessage = document.getElementById("errorMessage");
+            const simplicityIndex = document.getElementById("simplicityIndex");
+            const explanation = document.getElementById("explanation");
+            const number = parseInt(document.getElementById("numberInput").value);
+
+            // Validation: Ensure valid number
+            if (isNaN(number)) {
+                errorMessage.textContent = "Please enter a valid number!";
+                return;
+            }
+            if ((number < 0 || number > 255) && number !== 511) {
+                errorMessage.textContent = "Invalid number! Enter between 0–255, or 511.";
+                return;
+            }
+            if (number.toString().length > 3) {
+                errorMessage.textContent = "Please enter a maximum of 3 digits!";
+                return;
+            }
+
+            errorMessage.textContent = ""; // Clear error message
+            container.innerHTML = ""; // Clear previous barcode
+            simplicityIndex.innerHTML = ""; // Clear simplicity index
+            explanation.innerHTML = ""; // Clear explanation
+
+            // Generate Barcode
+            const binary = number.toString(2).padStart(9, "0").split("").reverse(); // Reverse binary for correct order
+
+            // Add bars from bottom to top in reversed order
+            addBar(container, "black", "thick-bar"); // Bottom Alignment Bar
+            binary.forEach((bit) => {
+                const colorClass = bit === "1" ? "black" : "white";
+                addBar(container, colorClass, "small-bar");
+            });
+            addBar(container, "black", "small-bar"); // Top Alignment Bar
+
+            // Simplicity Index
+            const simplicityScore = binary.filter(bit => bit === "1").length;
+            simplicityIndex.textContent = `Simplicity Index: ${simplicityScore}/9`;
+
+            // Explanation of Binary Conversion
+            explanation.textContent = `The number ${number} converts to binary as ${binary.reverse().join("")}.`;
+        }
+
+        // Helper Function to Add Bars
+        function addBar(container, colorClass, sizeClass) {
+            const bar = document.createElement("div");
+            bar.className = `bar ${sizeClass}`;
+            bar.style.backgroundColor = colorClass === "black" ? "black" : "white";
+            container.appendChild(bar);
+            return bar;
+        }
+    </script>
+</body>
+</html>

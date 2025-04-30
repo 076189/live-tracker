@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>iBus Override & Final Destination Manager</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Basic Reset & Font */
+        body, html { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f4; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 800px; margin: 20px auto; }
+        h1, h2 { text-align: center; color: #333; }
+        h2 { margin-top: 30px; border-top: 1px solid #ccc; padding-top: 20px;}
+        h3 { margin-top: 20px; margin-bottom: 10px; color: #444; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        .form-section, .list-section { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; text-align: left; }
+        input[type="text"] {
+            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+            margin-bottom: 15px; font-size: 1em;
+        }
+        /* Style for filter inputs */
+        #filter-overrides, #dest-filter-input {
+            width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px;
+            font-size: 1em; box-sizing: border-box;
+        }
+        button {
+            padding: 10px 20px; color: white; border: none; border-radius: 4px; cursor: pointer;
+            font-size: 1em; margin-right: 10px; margin-bottom: 5px; transition: background-color 0.2s ease; background-color: #007bff;
+        }
+        button:hover { background-color: #0056b3; }
+        button.danger-button { background-color: #dc3545; font-size: 0.9em; padding: 5px 10px;}
+        button.danger-button:hover { background-color: #c82333; }
+        button.secondary-button { background-color: #6c757d; font-size: 0.9em; padding: 6px 12px;}
+        button.secondary-button:hover { background-color: #5a6268; }
+
+        /* Override List Styles */
+        #overrides-list div { display: flex; justify-content: space-between; align-items: center; padding: 8px 5px; border-bottom: 1px dotted #eee; }
+        #overrides-list div span { flex-grow: 1; margin-right: 10px; text-align: left; word-break: break-word; }
+        #overrides-list div span strong { display: inline-block; min-width: 150px; font-family: monospace; color: #17a2b8; }
+        #overrides-list div span strong.global-key { color: #dc3545; font-weight: bold; }
+        #overrides-list div span span.dest-dir { font-weight: bold; color: #6c757d; margin-left: 8px; }
+        #overrides-list div span em { color: #999; font-style: italic; }
+        #overrides-list button { flex-shrink: 0; }
+
+        .status-message { margin-top: 10px; text-align: center; min-height: 1em; font-weight: bold; }
+        .description-text { font-size: 0.9em; color: #666; margin-bottom: 15px; text-align: left; }
+        .override-section { border-top: 1px dashed #eee; padding-top: 15px; margin-top: 20px;}
+        .override-group { margin-bottom: 15px; }
+
+        /* --- Styles for Final Destinations Section --- */
+        fieldset { border: 1px solid #ddd; border-radius: 4px; padding: 15px; margin-bottom: 20px; margin-top: 20px; }
+        legend { font-weight: bold; padding: 0 5px; color: #555; }
+        .dest-editor-controls { border-bottom: 1px solid #ddd; margin-bottom: 15px; padding-bottom: 15px; display: flex; flex-wrap: wrap; gap: 15px; /* Increased gap */ align-items: flex-end; }
+        .dest-editor-controls > div { flex: 1 1 200px; /* Allow growing and shrinking, base width */ min-width: 180px; }
+        .dest-editor-controls label { margin-bottom: 3px; font-size: 0.9em; }
+        .dest-editor-controls input[type="text"] { margin-bottom: 0; width: 100%; }
+        .dest-editor-controls button { margin: 0; margin-left: 10px; /* Add left margin to button */ flex-shrink: 0; }
+        #dest-editor-routes { max-height: 400px; overflow-y: auto; border: 1px solid #eee; padding: 10px; background-color: white; margin-bottom: 15px; }
+        .dest-route-section { border: 1px solid #ccc; border-radius: 4px; padding: 15px; margin-bottom: 15px; background-color: #fdfdfd; }
+        .dest-route-section.filtered-out { display: none; }
+        .dest-route-section h4 { margin-top: 0; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: none; padding: 0; }
+        .dest-route-section h4 span { font-size: 1.1em; color: #333;}
+        .dest-route-section .route-actions button { margin-left: 5px; }
+        .dest-route-section textarea { font-family: monospace; font-size: 0.95em; line-height: 1.4; width: 100%; box-sizing: border-box; }
+        .prefill-status { font-size: 0.8em; color: #666; margin-left: 10px; font-style: italic; display: inline-block; min-height: 1em;}
+        .dest-import-export-actions { margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ccc; text-align: center;}
+        .dest-save-actions { text-align: center; margin-top: 15px;}
+        .filter-placeholder { text-align: center; font-style: italic; color: #666; padding: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Manage iBus Overrides & Final Destinations</h1>
+        <p class="description-text">Use the sections below to set temporary destination overrides or manage official final destinations (used for curtailment detection).</p>
+
+        <h2>Temporary Destination Overrides</h2>
+        <p class="description-text">Overrides apply in order: Specific Bus (Directional) > Route (Directional) > Global.</p>
+
+        <div class="form-section">
+            <h3>1. Specific Bus Override (Directional)</h3> <p class="description-text">Set a temporary destination for a single bus registration, specific to its direction. Leave a direction blank if not needed.</p>
+            <div class="override-group">
+                <label for="override-reg">Bus Registration:</label>
+                <input type="text" id="override-reg" placeholder="e.g., AB12CDE">
+            </div>
+            <div class="override-group">
+                <label for="override-dest-dir1">New Destination for Direction 1:</label>
+                <input type="text" id="override-dest-dir1" placeholder="e.g., Towards Terminus A">
+            </div>
+            <div class="override-group">
+                <label for="override-dest-dir2">New Destination for Direction 2:</label>
+                <input type="text" id="override-dest-dir2" placeholder="e.g., Towards Terminus B">
+            </div>
+            <div style="text-align: center;">
+                <button type="button" onclick="setRegistrationOverride()">Set / Update Specific Override</button>
+                <p id="specific-status" class="status-message" style="color: green;"></p>
+            </div>
+        </div>
+
+        <div class="form-section override-section">
+            <h3>2. Route-Wide Directional Override</h3>
+            <p class="description-text">Set specific temporary iBus destination overrides for each direction of a route. Leave a direction blank if no override is needed for it.</p>
+            <div class="override-group">
+                <label for="route-override-id">Route:</label>
+                <input type="text" id="route-override-id" placeholder="e.g., 92 or N263">
+            </div>
+            <div class="override-group">
+                <label for="route-override-dest-dir1">New Destination for Direction 1:</label>
+                <input type="text" id="route-override-dest-dir1" placeholder="e.g., Ealing Hospital">
+            </div>
+            <div class="override-group">
+                <label for="route-override-dest-dir2">New Destination for Direction 2:</label>
+                <input type="text" id="route-override-dest-dir2" placeholder="e.g., Brent Park Tesco">
+            </div>
+            <div style="text-align: center;">
+                <button type="button" onclick="setRouteOverride()">Set/Update Directional Route Override</button>
+                 <p id="route-status" class="status-message" style="color: green;"></p>
+             </div>
+        </div>
+
+        <div class="form-section override-section">
+            <h3>3. Global Override</h3>
+            <p class="description-text">Set a temporary destination override message for ALL buses on ALL routes (unless overridden above).</p>
+            <div class="override-group">
+                <label for="global-override-dest">Global Message to Display:</label>
+                <input type="text" id="global-override-dest" placeholder="e.g., Check Service Updates">
+            </div>
+            <div style="text-align: center;">
+                <button type="button" onclick="setGlobalOverride()">Set Global Override</button>
+                <button type="button" onclick="clearGlobalOverride()" class="danger-button">Clear Global Override</button>
+                 <p id="global-status" class="status-message" style="color: green;"></p>
+             </div>
+        </div>
+
+        <div class="list-section override-section">
+            <h3>Current Active Temporary Overrides</h3>
+            <input type="text" id="filter-overrides" placeholder="Filter list by Reg, Route, or Destination...">
+            <div id="overrides-list">
+                <p>Loading...</p>
+             </div>
+        </div>
+
+        <h2>Manage Final Destinations</h2>
+        <fieldset id="final-destinations-fieldset">
+            <legend>Official Route Termini</legend>
+            <p class="description-text" style="text-align:left; margin-top:0; margin-bottom: 15px;">
+                Define official iBus terminus points for routes below to improve automatic curtailment detection on the tracker pages.
+                The list shows known TfL routes plus any you've manually added or previously saved.
+                Use the filter to find a route. Click 'Suggest Termini' to attempt to fetch suggestions from TfL (requires internet, may be blocked by browser if running locally). Add/remove routes manually if needed. Click 'Save All' when done.
+            </p>
+
+             <div class="dest-editor-controls">
+                 <div>
+                     <label for="dest-filter-input">Filter Route List:</label>
+                     <input type="text" id="dest-filter-input" placeholder="Enter route number...">
+                 </div>
+                 <div>
+                    <label for="add-dest-route">Route to Add:</label>
+                    <input type="text" id="add-dest-route" placeholder="e.g., 999">
+                 </div>
+                 <button type="button" onclick="addDestRouteSectionManual()" class="blue-button secondary-button">Add Manually</button>
+             </div>
+
+            <div id="dest-editor-routes" style="max-height: 400px; overflow-y: auto; border: 1px solid #eee; padding: 10px; background-color: white; margin-bottom: 15px;">
+                <p>Loading route list...</p> </div>
+
+            <div class="dest-save-actions">
+                <button type="button" onclick="saveAllFinalDestinations()" class="blue-button">Save All Final Destinations</button>
+                <p id="dest-editor-message" class="status-message" style="color: green;"></p>
+            </div>
+
+            <div class="dest-import-export-actions">
+                 <button type="button" id="export-dest-button" onclick="exportFinalDestinations()" class="blue-button secondary-button">Export Destinations</button>
+                 <button type="button" id="import-dest-button" onclick="document.getElementById('import-file-destinations').click()" class="blue-button secondary-button">Import Destinations</button>
+                 <input type="file" id="import-file-destinations" accept=".json" class="hidden">
+                 <p id="dest-import-export-message" class="status-message"></p>
+             </div>
+        </fieldset>
+        </div> <script>
+    // --- Constants ---
+    const destinationOverrideKey = 'destinationOverrides'; // Key for temporary overrides
+    const routeDestinationSettingsKey = 'routeDestinationSettings'; // Key for final destinations
+
+    // --- Storage Helpers ---
+    function loadFromStorage(key, defaultValue = {}) { try { const data = localStorage.getItem(key); if (data) { const parsed = JSON.parse(data); if (typeof parsed === 'object' && parsed !== null) return parsed; } return defaultValue; } catch (e) { console.error(`Error loading ${key}:`, e); return defaultValue; } }
+    function saveToStorage(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(`Error saving ${key}:`, e); alert(`Error saving ${key}. Storage might be full.`); } }
+
+    // --- DOM Elements for Temporary Overrides ---
+    const regInput = document.getElementById('override-reg');
+    // ** NEW: Inputs for directional specific override **
+    const specificDestDir1Input = document.getElementById('override-dest-dir1');
+    const specificDestDir2Input = document.getElementById('override-dest-dir2');
+    const specificStatusMsg = document.getElementById('specific-status');
+    const routeIdInput = document.getElementById('route-override-id');
+    const routeDestDir1Input = document.getElementById('route-override-dest-dir1');
+    const routeDestDir2Input = document.getElementById('route-override-dest-dir2');
+    const routeStatusMsg = document.getElementById('route-status');
+    const globalDestInput = document.getElementById('global-override-dest');
+    const globalStatusMsg = document.getElementById('global-status');
+    const overridesListDiv = document.getElementById('overrides-list');
+    const filterInput = document.getElementById('filter-overrides'); // Filter for temp overrides
+
+    // --- DOM Elements for Final Destinations ---
+    const addDestRouteInput = document.getElementById('add-dest-route');
+    const destFilterInput = document.getElementById('dest-filter-input');
+    const destEditorRoutesContainer = document.getElementById('dest-editor-routes');
+    const destEditorMessage = document.getElementById('dest-editor-message');
+    const importDestFileInput = document.getElementById('import-file-destinations');
+    const destImportExportMessage = document.getElementById('dest-import-export-message');
+
+    // --- Logic for Temporary Overrides ---
+    function displayOverrides() {
+        if (!overridesListDiv || !filterInput) return;
+        const overrides = loadFromStorage(destinationOverrideKey, {});
+        overridesListDiv.innerHTML = '';
+        const filterText = filterInput.value.trim().toUpperCase();
+        let itemsDisplayed = 0;
+
+        // Display Global Override
+        if (overrides.hasOwnProperty('*')) {
+            const globalDest = overrides['*'];
+            const globalDestUpper = globalDest.toUpperCase();
+            if (!filterText || 'GLOBAL OVERRIDE'.includes(filterText) || globalDestUpper.includes(filterText)) {
+                const itemDiv = document.createElement('div'); itemDiv.dataset.key = '*';
+                const textSpan = document.createElement('span'); textSpan.innerHTML = `<strong class="global-key">GLOBAL OVERRIDE:</strong> ${globalDest}`;
+                const removeBtn = document.createElement('button'); removeBtn.textContent = 'Remove Global'; removeBtn.className = 'danger-button'; removeBtn.type = 'button'; removeBtn.onclick = () => clearGlobalOverride();
+                itemDiv.appendChild(textSpan); itemDiv.appendChild(removeBtn); overridesListDiv.appendChild(itemDiv); itemsDisplayed++;
+            }
+        }
+
+        // Display Other Overrides (Specific Reg or Route)
+        const otherKeys = []; for (const key in overrides) { if (overrides.hasOwnProperty(key) && key !== '*') { otherKeys.push(key); } }
+        otherKeys.sort().forEach(key => {
+            const value = overrides[key];
+            let matchesFilter = false; let itemHTML = ''; const keyUpper = key.toUpperCase();
+
+            // Check if it's an object (Directional Override - Reg or Route)
+            if (typeof value === 'object' && value !== null && value.hasOwnProperty('dir1') && value.hasOwnProperty('dir2')) {
+                const destDir1 = value.dir1 || ''; const destDir2 = value.dir2 || '';
+                const destDir1Upper = destDir1.toUpperCase(); const destDir2Upper = destDir2.toUpperCase();
+                matchesFilter = !filterText || keyUpper.includes(filterText) || destDir1Upper.includes(filterText) || destDir2Upper.includes(filterText);
+                if (matchesFilter) {
+                    const dir1Display = destDir1 ? destDir1 : '<em>(Not Set)</em>'; const dir2Display = destDir2 ? destDir2 : '<em>(Not Set)</em>';
+                    // Distinguish display slightly between Route and Reg
+                    const prefix = /^[A-Z]{1,3}\d{1,4}$|^[A-Z]{2}\d{2}[A-Z]{3}$|^[A-Z]\d{1,3}[A-Z]{3}$/i.test(key) ? '' : 'Route '; // Basic check if key looks like a reg
+                    itemHTML = `<strong>${prefix}${key}:</strong> <span class="dest-dir">Dir 1:</span> ${dir1Display} <span class="dest-dir">Dir 2:</span> ${dir2Display}`;
+                }
+            } else if (typeof value === 'string') { // Handle legacy non-directional specific overrides if they exist
+                 const dest = value; const destUpper = dest.toUpperCase();
+                 matchesFilter = !filterText || keyUpper.includes(filterText) || destUpper.includes(filterText);
+                 if (matchesFilter) { itemHTML = `<strong>${key}:</strong> ${dest} <em>(Non-Directional)</em>`; }
+            } else { console.warn(`Unexpected data type for key "${key}":`, value); return; }
+
+            if (matchesFilter) {
+                const itemDiv = document.createElement('div'); itemDiv.dataset.key = key;
+                const textSpan = document.createElement('span'); textSpan.innerHTML = itemHTML;
+                const removeBtn = document.createElement('button'); removeBtn.textContent = 'Remove'; removeBtn.className = 'danger-button'; removeBtn.type = 'button'; removeBtn.onclick = () => removeOverride(key);
+                itemDiv.appendChild(textSpan); itemDiv.appendChild(removeBtn); overridesListDiv.appendChild(itemDiv); itemsDisplayed++;
+            }
+        });
+
+        if (itemsDisplayed === 0) { overridesListDiv.innerHTML = filterText ? '<p>No overrides match your filter.</p>' : '<p>No destination overrides currently set.</p>'; }
+    }
+
+    // ** UPDATED for Directional Specific Override **
+    function setRegistrationOverride() {
+        const reg = regInput.value.trim().toUpperCase();
+        // Read from directional inputs
+        const destDir1 = specificDestDir1Input.value.trim();
+        const destDir2 = specificDestDir2Input.value.trim();
+        if(specificStatusMsg) specificStatusMsg.textContent = '';
+
+        if (!reg) { alert('Please enter the Bus Registration.'); regInput.focus(); return; }
+        // Check if at least one destination is provided
+        if (!destDir1 && !destDir2) { alert('Please enter a destination for at least one direction.'); specificDestDir1Input.focus(); return; }
+
+        // Basic validation for reg format
+        if (!/^[A-Z]{2}\d{2}[A-Z]{3}$/.test(reg) && !/^[A-Z]\d{1,3}[A-Z]{3}$/.test(reg) && !/^[A-Z]{1,3}\d{1,4}$/.test(reg) ) {
+             if (!confirm(`Registration "${reg}" doesn't look like a standard format. Save anyway?`)) { regInput.focus(); return; }
+        }
+
+        try {
+            let overrides = loadFromStorage(destinationOverrideKey, {});
+            // Save as an object for directional specific override
+            overrides[reg] = { dir1: destDir1, dir2: destDir2 };
+            saveToStorage(destinationOverrideKey, overrides);
+
+            if(specificStatusMsg) {
+                specificStatusMsg.textContent = `Directional override updated for ${reg}.`;
+                specificStatusMsg.style.color = 'green';
+                setTimeout(() => { specificStatusMsg.textContent = ''; }, 4000);
+            }
+            // Clear all specific inputs
+            regInput.value = '';
+            specificDestDir1Input.value = '';
+            specificDestDir2Input.value = '';
+            regInput.focus(); // Focus back on reg input
+            displayOverrides(); // Refresh list
+
+        } catch (e) {
+             console.error("Error setting registration override:", e);
+             if(specificStatusMsg) { specificStatusMsg.textContent = "Error saving override."; specificStatusMsg.style.color = 'red'; }
+        }
+    }
+
+    function setRouteOverride() { /* ... Function unchanged ... */
+        const routeId = routeIdInput.value.trim().toUpperCase(); const destDir1 = routeDestDir1Input.value.trim(); const destDir2 = routeDestDir2Input.value.trim(); if(routeStatusMsg) routeStatusMsg.textContent = ''; if (!routeId) { alert('Please enter the Route.'); routeIdInput.focus(); return; } if (!destDir1 && !destDir2) { alert('Please enter a destination for at least one direction.'); routeDestDir1Input.focus(); return; } if (routeId.length > 5 || routeId.includes(" ") || !/^[A-Z0-9]+$/i.test(routeId)) { if (!confirm(`Route "${routeId}" looks unusual. Save anyway?`)) { routeIdInput.focus(); return; } } try { let overrides = loadFromStorage(destinationOverrideKey, {}); overrides[routeId] = { dir1: destDir1, dir2: destDir2 }; saveToStorage(destinationOverrideKey, overrides); if(routeStatusMsg) { routeStatusMsg.textContent = `Directional override updated for Route ${routeId}.`; routeStatusMsg.style.color = 'green'; setTimeout(() => { routeStatusMsg.textContent = ''; }, 4000); } routeIdInput.value = ''; routeDestDir1Input.value = ''; routeDestDir2Input.value = ''; routeIdInput.focus(); displayOverrides(); } catch (e) { console.error("Error setting route override:", e); if(routeStatusMsg) { routeStatusMsg.textContent = "Error saving override."; routeStatusMsg.style.color = 'red'; } }
+    }
+    function setGlobalOverride() { /* ... Function unchanged ... */
+        const dest = globalDestInput.value.trim(); if(globalStatusMsg) globalStatusMsg.textContent = ''; if (!dest) { alert('Please enter the Global Message/Destination.'); globalDestInput.focus(); return; } try { let overrides = loadFromStorage(destinationOverrideKey, {}); overrides['*'] = dest; saveToStorage(destinationOverrideKey, overrides); if(globalStatusMsg) { globalStatusMsg.textContent = `Global override set to "${dest}".`; globalStatusMsg.style.color = 'green'; setTimeout(() => { globalStatusMsg.textContent = ''; }, 4000); } globalDestInput.value = ''; displayOverrides(); } catch (e) { console.error("Error setting global override:", e); if(globalStatusMsg) { globalStatusMsg.textContent = "Error saving override."; globalStatusMsg.style.color = 'red'; } }
+    }
+    function clearGlobalOverride() { /* ... Function unchanged ... */
+        if (!confirm(`Are you sure you want to remove the Global destination override?`)) { return; } if(globalStatusMsg) globalStatusMsg.textContent = ''; try { let overrides = loadFromStorage(destinationOverrideKey, {}); if (overrides.hasOwnProperty('*')) { delete overrides['*']; saveToStorage(destinationOverrideKey, overrides); if(globalStatusMsg) { globalStatusMsg.textContent = `Global override removed.`; globalStatusMsg.style.color = 'green'; setTimeout(() => { globalStatusMsg.textContent = ''; }, 4000); } displayOverrides(); } else { if(globalStatusMsg) { globalStatusMsg.textContent = `No Global override was set.`; globalStatusMsg.style.color = 'orange'; setTimeout(() => { globalStatusMsg.textContent = ''; }, 4000); } } } catch(e) { console.error("Error removing global override:", e); if(globalStatusMsg) { globalStatusMsg.textContent = "Error removing override."; globalStatusMsg.style.color = 'red'; } }
+    }
+    // ** UPDATED removeOverride to clear correct status message **
+    function removeOverride(keyToRemove) {
+        const confirmationMessage = `Are you sure you want to remove the override for "${keyToRemove}"?`;
+        if (!confirm(confirmationMessage)) { return; }
+
+        // Determine which status message might be relevant
+        const overrides = loadFromStorage(destinationOverrideKey, {});
+        const overrideValue = overrides[keyToRemove];
+        if (typeof overrideValue === 'object') { // Directional Reg or Route
+             if (/^[A-Z]{1,3}\d{1,4}$|^[A-Z]{2}\d{2}[A-Z]{3}$|^[A-Z]\d{1,3}[A-Z]{3}$/i.test(keyToRemove)) {
+                 if(specificStatusMsg) specificStatusMsg.textContent = ''; // Likely specific reg
+             } else {
+                 if(routeStatusMsg) routeStatusMsg.textContent = ''; // Likely route
+             }
+        } else if (typeof overrideValue === 'string') { // Legacy specific reg
+             if(specificStatusMsg) specificStatusMsg.textContent = '';
+        }
+
+        try {
+            if (overrides.hasOwnProperty(keyToRemove)) {
+                delete overrides[keyToRemove];
+                saveToStorage(destinationOverrideKey, overrides);
+                console.log(`Override removed for key: ${keyToRemove}.`);
+                displayOverrides(); // Refresh list
+            } else {
+                console.warn(`Override key "${keyToRemove}" not found for removal.`);
+                alert(`Override for "${keyToRemove}" could not be found to remove.`);
+            }
+        } catch(e) {
+            console.error("Error removing destination override:", e);
+            alert("Error removing override.");
+        }
+    }
+
+
+    // --- Logic for Final Destinations ---
+    const KNOWN_TFL_BUS_ROUTES = ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","49","50","51","52","53","54","55","56","57","58","59","60","61","63","64","65","66","67","68","69","70","71","72","73","74","75","76","77","78","79","80","81","83","85","86","87","88","89","90","91","92","93","94","95","96","97","98","99","100","101","102","103","104","105","106","107","108","109","110","111","112","113","114","115","116","117","118","119","120","121","122","123","124","125","126","127","128","129","130","131","132","133","134","135","136","137","138","139","140","141","142","143","144","145","146","147","148","149","150","151","152","153","154","155","156","157","158","159","160","161","162","163","164","165","166","167","168","169","170","171","172","173","174","175","176","177","178","179","180","181","182","183","184","185","186","187","188","189","190","191","192","193","194","195","196","197","198","199","200","201","202","204","205","206","207","208","209","210","211","212","213","214","215","216","217","218","219","220","221","222","223","224","225","226","227","228","229","230","231","232","234","235","236","237","238","240","241","242","243","244","245","246","247","248","249","250","251","253","254","255","256","257","258","259","260","261","262","263","264","265","266","267","268","269","270","271","272","273","274","275","276","277","278","279","280","281","283","284","285","286","287","288","289","290","291","292","293","295","296","297","298","299","300","301","302","303","304","306","307","308","309","312","313","314","315","316","317","318","319","320","321","322","323","324","325","326","327","328","329","331","332","333","335","336","337","339","340","341","343","344","345","346","347","349","350","352","353","354","355","356","357","358","359","360","362","363","364","365","366","367","368","370","371","372","375","376","377","378","379","381","382","383","384","385","386","389","390","391","393","394","395","396","397","398","399","401","403","404","405","406","407","410","411","412","413","414","415","417","418","419","422","423","425","427","428","430","432","433","434","436","439","440","444","450","452","453","455","456","460","462","463","464","465","466","467","468","469","470","472","473","474","476","481","482","483","484","485","486","487","488","490","491","492","493","496","497","498","499","507","533","549","607","613","635","639","641","649","653","655","661","664","665","670","677","681","688","689","690","696","697","698","969","C1","C3","C10","C11","D3","D6","D7","D8","E1","E2","E3","E5","E6","E7","E8","E9","E10","E11","EL1","EL2","EL3","G1","H2","H3","H9","H10","H11","H12","H13","H14","H17","H18","H19","H20","H22","H25","H26","H28","H32","H37","H91","H98","K1","K2","K3","K4","K5","P4","P5","P12","P13","PR2","R1","R2","R3","R4","R5","R6","R7","R8","R9","R10","R11","R68","R70","S1","S3","S4","SL1","SL2","SL3","SL5","SL6","SL7","SL8","SL9","SL10","U1","U2","U3","U4","U5","U7","U9","U10","W3","W4","W5","W6","W7","W8","W9","W10","W11","W12","W13","W14","W15","W16","W19","X26","X68","X140"].sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+
+    function populateDestEditor() { /* ... Function unchanged ... */ if (!destEditorRoutesContainer || !destFilterInput) { console.error("Destination editor elements not found."); return; } destEditorRoutesContainer.innerHTML = ''; destFilterInput.value = ''; const savedSettings = loadFromStorage(routeDestinationSettingsKey, {}); const routeIdsToShow = new Set([...KNOWN_TFL_BUS_ROUTES, ...Object.keys(savedSettings)]); const sortedRouteIds = [...routeIdsToShow].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); if (sortedRouteIds.length === 0) { destEditorRoutesContainer.innerHTML = '<p>No routes found or saved.</p>'; return; } sortedRouteIds.forEach(routeId => { const savedDestinations = savedSettings[routeId] || []; createRouteSectionElement(routeId, savedDestinations); }); filterDestSections(); }
+    function createRouteSectionElement(routeId, destinations = []) { /* ... Function unchanged ... */ if (!destEditorRoutesContainer) return; if (destEditorRoutesContainer.querySelector(`[data-routeid="${routeId}"]`)) return; const sectionDiv = document.createElement('div'); sectionDiv.className = 'dest-route-section'; sectionDiv.dataset.routeid = routeId; const heading = document.createElement('h4'); const routeLabel = document.createElement('span'); routeLabel.textContent = `Route ${routeId}:`; heading.appendChild(routeLabel); const actionsDiv = document.createElement('div'); actionsDiv.className = 'route-actions'; const prefillBtn = document.createElement('button'); prefillBtn.textContent = 'Suggest Termini'; prefillBtn.title = 'Attempt to fetch termini from TfL API'; prefillBtn.className = 'blue-button secondary-button'; prefillBtn.type = 'button'; const statusSpan = document.createElement('span'); statusSpan.className = 'prefill-status'; prefillBtn.onclick = (event) => { const button = event.target; const textarea = button.closest('.dest-route-section').querySelector('textarea'); if(textarea && textarea.value.trim() === '') { fetchAndSuggestTermini(routeId, textarea, statusSpan); } else if (textarea) { statusSpan.textContent = 'Clear text area first.'; setTimeout(() => { statusSpan.textContent = ''; }, 3000); } }; actionsDiv.appendChild(prefillBtn); actionsDiv.appendChild(statusSpan); const removeBtn = document.createElement('button'); removeBtn.textContent = 'Remove'; removeBtn.title = 'Remove this route section'; removeBtn.className = 'danger-button secondary-button'; removeBtn.type = 'button'; removeBtn.onclick = () => removeDestRouteSection(routeId); actionsDiv.appendChild(removeBtn); heading.appendChild(actionsDiv); const textarea = document.createElement('textarea'); textarea.rows = 3; textarea.value = Array.isArray(destinations) ? destinations.join('\n') : ''; textarea.placeholder = 'Enter final destinations, one per line'; textarea.setAttribute('aria-label', `Final destinations for route ${routeId}`); sectionDiv.appendChild(heading); sectionDiv.appendChild(textarea); const initialMsg = destEditorRoutesContainer.querySelector('p.filter-placeholder') || destEditorRoutesContainer.querySelector('p:not(.filter-placeholder)'); if (initialMsg) initialMsg.remove(); destEditorRoutesContainer.appendChild(sectionDiv); }
+    function addDestRouteSectionManual() { /* ... Function unchanged ... */ if (!addDestRouteInput || !destEditorRoutesContainer) return; const routeId = addDestRouteInput.value.trim().toUpperCase(); if (!routeId) { alert('Please enter a Route to add.'); addDestRouteInput.focus(); return; } if (!/^[A-Z0-9]+$/i.test(routeId) || routeId.length > 5) { alert(`Route "${routeId}" looks invalid.`); addDestRouteInput.focus(); return; } if (destEditorRoutesContainer.querySelector(`[data-routeid="${routeId}"]`)) { alert(`Section for Route ${routeId} already exists or is listed.`); destEditorRoutesContainer.querySelector(`[data-routeid="${routeId}"]`)?.scrollIntoView({behavior: "smooth"}); return; } createRouteSectionElement(routeId, []); addDestRouteInput.value = ''; const newSection = destEditorRoutesContainer.querySelector(`[data-routeid="${routeId}"]`); newSection?.scrollIntoView({behavior: "smooth"}); newSection?.querySelector('textarea')?.focus(); filterDestSections(); }
+    function removeDestRouteSection(routeId) { /* ... Function unchanged ... */ if (!destEditorRoutesContainer) return; if (!confirm(`Remove section for Route ${routeId}? Unsaved changes lost. Won't save until 'Save All'.`)) { return; } const section = destEditorRoutesContainer.querySelector(`[data-routeid="${routeId}"]`); if (section) { section.remove(); filterDestSections(); } }
+    function filterDestSections() { /* ... Function unchanged ... */ if (!destEditorRoutesContainer || !destFilterInput) return; const filterText = destFilterInput.value.trim().toUpperCase(); const sections = destEditorRoutesContainer.querySelectorAll('.dest-route-section'); let visibleCount = 0; sections.forEach(section => { const routeId = section.dataset.routeid?.toUpperCase(); const show = routeId && (!filterText || routeId.includes(filterText)); section.style.display = show ? '' : 'none'; if(show) visibleCount++; }); let placeholder = destEditorRoutesContainer.querySelector('p.filter-placeholder'); if (visibleCount === 0 && (filterText || sections.length === 0)) { if (!placeholder) { placeholder = document.createElement('p'); placeholder.className = 'filter-placeholder'; placeholder.style.cssText = 'text-align: center; font-style: italic; color: #666; padding: 10px;'; destEditorRoutesContainer.appendChild(placeholder); } placeholder.textContent = filterText ? 'No routes match filter.' : 'No routes defined.'; placeholder.style.display = ''; } else if (placeholder) { placeholder.style.display = 'none'; } }
+    async function fetchAndSuggestTermini(routeId, textareaElement, statusSpanElement) { /* ... Function unchanged ... */ if (!routeId || !textareaElement || !statusSpanElement) return; if (textareaElement.value.trim() !== '') return; statusSpanElement.textContent = 'Fetching...'; textareaElement.disabled = true; try { const apiUrl = `https://api.tfl.gov.uk/Line/${routeId}/Route/Sequence/all`; const response = await fetch(apiUrl); if (!response.ok) { throw new Error(response.status === 404 ? `Route ${routeId} sequence not found` : `API Error ${response.status}`); } const data = await response.json(); const termini = new Set(); if (data.stopPointSequences && Array.isArray(data.stopPointSequences)) { data.stopPointSequences.forEach(seq => { if (seq.stopPoint && Array.isArray(seq.stopPoint) && seq.stopPoint.length > 0) { const firstStop = seq.stopPoint[0]?.name; const lastStop = seq.stopPoint[seq.stopPoint.length - 1]?.name; if (firstStop) termini.add(firstStop); if (lastStop) termini.add(lastStop); } }); } if (termini.size > 0) { textareaElement.value = `# Suggested termini for Route ${routeId}:\n` + [...termini].join('\n'); statusSpanElement.textContent = 'Suggestions loaded.'; } else { textareaElement.placeholder = `No termini suggestions found for ${routeId}. Enter manually.`; statusSpanElement.textContent = 'No suggestions.'; } } catch (error) { console.error(`Error fetching termini for ${routeId}:`, error); statusSpanElement.textContent = `Error: ${error.message}`; textareaElement.placeholder = `Could not fetch suggestions. Enter manually.`; } finally { textareaElement.disabled = false; setTimeout(() => { statusSpanElement.textContent = ''; }, 4000); } }
+    function saveAllFinalDestinations() { /* ... Function unchanged ... */ if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Access Denied.'); return; } if (!destEditorRoutesContainer || !destEditorMessage) { return; } try { const routeSections = destEditorRoutesContainer.querySelectorAll('.dest-route-section'); const newSettingsToSave = {}; routeSections.forEach(section => { const routeId = section.dataset.routeid; const textarea = section.querySelector('textarea'); if (routeId && textarea && section.style.display !== 'none') { const destinations = textarea.value.split('\n').map(line => line.replace(/#.*$/, '').trim()).filter(line => line.length > 0); if (destinations.length > 0) { newSettingsToSave[routeId] = destinations; } } }); saveToStorage(routeDestinationSettingsKey, newSettingsToSave); destEditorMessage.textContent = "Final destinations saved!"; destEditorMessage.style.color = "green"; console.log("Final destinations saved:", newSettingsToSave); setTimeout(() => { if(destEditorMessage) destEditorMessage.textContent = ""; }, 3000); } catch (e) { console.error("Error saving final destinations:", e); destEditorMessage.textContent = "Error saving."; destEditorMessage.style.color = "red"; } }
+    function exportFinalDestinations() { /* ... Function unchanged ... */ if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Access Denied.'); return; } if(destImportExportMessage) destImportExportMessage.textContent = ''; try { const settingsToExport = loadFromStorage(routeDestinationSettingsKey, {}); if (Object.keys(settingsToExport).length === 0) { alert("No final destination settings found to export."); return; } const jsonString = JSON.stringify(settingsToExport, null, 2); const blob = new Blob([jsonString], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "final_destination_settings.json"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); if(destImportExportMessage) { destImportExportMessage.textContent = 'Settings exported.'; destImportExportMessage.style.color = 'green'; setTimeout(() => { if(destImportExportMessage) destImportExportMessage.textContent = ''; }, 3000); } } catch (e) { console.error("Error exporting destinations:", e); if(destImportExportMessage) { destImportExportMessage.textContent = 'Error during export.'; destImportExportMessage.style.color = 'red'; } alert("An error occurred during export."); } }
+    function handleDestinationImport(file) { /* ... Function unchanged ... */ if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Access Denied.'); if(importDestFileInput) importDestFileInput.value = ''; return; } if (!file) { alert("No file selected."); return; } if (!file.name.toLowerCase().endsWith('.json')) { alert("Please select a valid JSON file (.json)."); if(importDestFileInput) importDestFileInput.value = ''; return; } if(destImportExportMessage) destImportExportMessage.textContent = ''; const reader = new FileReader(); reader.onload = function(e) { try { const importedData = JSON.parse(e.target.result); if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) { throw new Error("Invalid format: Must be a JSON object like {\"ROUTE\": [\"Dest1\", ...], ...})."); } let isValid = true; for (const route in importedData) { if (!Array.isArray(importedData[route]) || !importedData[route].every(dest => typeof dest === 'string')) { isValid = false; throw new Error(`Invalid format for route "${route}": Value must be an array of strings.`); } } if (!confirm("Importing will REPLACE ALL current final destination settings. Are you sure?")) { if(importDestFileInput) importDestFileInput.value = ''; return; } saveToStorage(routeDestinationSettingsKey, importedData); populateDestEditor(); if(destImportExportMessage) { destImportExportMessage.textContent = 'Destination settings imported successfully!'; destImportExportMessage.style.color = 'green'; setTimeout(() => { if(destImportExportMessage) destImportExportMessage.textContent = ''; }, 4000); } } catch (error) { console.error("Error importing destinations:", error); if(destImportExportMessage) { destImportExportMessage.textContent = `Import Error: ${error.message}`; destImportExportMessage.style.color = 'red'; } alert("Error importing destinations: " + error.message); } finally { if(importDestFileInput) importDestFileInput.value = ''; } }; reader.onerror = function() { alert("Error reading the selected file."); if(destImportExportMessage) { destImportExportMessage.textContent = 'Error reading file.'; destImportExportMessage.style.color = 'red'; } if(importDestFileInput) importDestFileInput.value = ''; }; reader.readAsText(file); }
+
+    // --- Event Listeners ---
+    // Listener for temporary override filter
+    if (filterInput) { filterInput.addEventListener('input', displayOverrides); }
+    // Listeners for final destination controls
+    if(destFilterInput) { destFilterInput.addEventListener('input', filterDestSections); }
+    if(importDestFileInput) { importDestFileInput.addEventListener('change', function() { if (this.files && this.files.length > 0) { handleDestinationImport(this.files[0]); } }); }
+
+    // --- Initial Load ---
+    document.addEventListener('DOMContentLoaded', () => {
+        // Ensure essential elements exist before proceeding
+        if (!document.getElementById('overrides-list') || !document.getElementById('dest-editor-routes')) {
+             console.error("CRITICAL ERROR: Essential list containers missing.");
+             document.body.innerHTML = '<p style="color: red; font-weight: bold; padding: 20px;">Page loading error: UI elements missing.</p>';
+             return;
+        }
+        displayOverrides(); // Display initial temporary overrides
+        populateDestEditor(); // Populate initial final destination list
+    });
+
+</script>
+</body>
+</html>

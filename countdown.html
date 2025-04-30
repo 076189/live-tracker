@@ -46,7 +46,6 @@
         th select { margin-left: 5px; padding: 2px; font-size: 0.9em;}
         td[colspan="3"] { text-align: center; font-style: italic; color: #555; padding: 15px 8px; }
         td:nth-child(2) { white-space: normal; } /* Allow destination to wrap */
-        /* Removed override indicator style */
 
     </style>
 </head>
@@ -55,10 +54,12 @@
 
     <div id="top-live-search-container">
         <input type="text" id="top-live-search-input" placeholder="Search for a Bus Stop..." aria-label="Search for a bus stop" autocomplete="off">
-        <div id="top-live-search-results"></div> </div>
+        <div id="top-live-search-results"></div>
+    </div>
 
     <div id="countdown-content" style="display: none;">
-        <h2 id="stop-name-heading"></h2> <div class="info-container">
+        <h2 id="stop-name-heading"></h2>
+        <div class="info-container">
             <div class="update-time" id="update-time">Last Updated: --</div>
         </div>
         <table>
@@ -75,7 +76,7 @@
     </div>
 
     <script>
-        console.log('--- STOP COUNTDOWN SCRIPT STARTED (v13 - No Override Indicator) ---');
+        console.log('--- STOP COUNTDOWN SCRIPT STARTED (v14 - Filter Debugging) ---');
 
         // --- DOM References ---
         const topLiveSearchInput = document.getElementById('top-live-search-input');
@@ -100,7 +101,7 @@
 
         // --- Storage Functions ---
         function loadFromStorage(key, defaultValue = {}) { try { const data = localStorage.getItem(key); if (data) { const parsed = JSON.parse(data); if (typeof parsed === 'object' && parsed !== null) return parsed; } return defaultValue; } catch (e) { console.error(`Error loading ${key}:`, e); return defaultValue; } }
-        // saveToStorage not needed in this file
+        function saveToStorage(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(`Error saving ${key}:`, e); } } // Added for filter state saving
 
         // --- Debounce Utility ---
         function debounce(func, delay) { return function(...args) { clearTimeout(topSearchDebounceTimer); topSearchDebounceTimer = setTimeout(() => { func.apply(this, args); }, delay); }; }
@@ -123,12 +124,10 @@
             const reg = vehicleId ? vehicleId.toUpperCase() : null;
             const route = routeId ? routeId.toUpperCase() : null;
             const dirKey = (direction === 'outbound') ? 'dir1' : (direction === 'inbound') ? 'dir2' : null;
-
-            // Priority: Reg > Route > Global
             if (reg && destinationOverrides[reg] && typeof destinationOverrides[reg] === 'object' && dirKey && destinationOverrides[reg][dirKey]) { return destinationOverrides[reg][dirKey]; }
             if (route && destinationOverrides[route] && typeof destinationOverrides[route] === 'object' && dirKey && destinationOverrides[route][dirKey]) { return destinationOverrides[route][dirKey]; }
             if (destinationOverrides['*']) { return destinationOverrides['*']; }
-            return null; // No override found
+            return null;
         }
 
         // --- Fetch Live Arrivals Function ---
@@ -157,9 +156,7 @@
                         const routeId = bus.lineId; const vehicleId = bus.vehicleId; const direction = bus.direction;
                         const overrideDest = getOverrideDestination(vehicleId, routeId, direction);
                         const displayDestination = overrideDest !== null ? overrideDest : (bus.destinationName || 'Unknown');
-                        // const isOverridden = overrideDest !== null; // No longer needed for display
 
-                        // Simplified arrivalData - removed 'overridden' flag
                         const arrivalData = { route: routeId || 'N/A', destination: displayDestination, etaRelative: relativeTimeString };
                         displayArrivals.push(arrivalData);
                         options.route.add(arrivalData.route); options.destination.add(arrivalData.destination); options.arrival.add(arrivalData.etaRelative);
@@ -169,45 +166,66 @@
                  // Update Filters
                  const filters = [filterRoute, filterDestination, filterArrival]; const currentFilterValues = { route: filterRoute.value, destination: filterDestination.value, arrival: filterArrival.value }; filters.forEach(f => { if(f) while (f.options.length > 1) f.remove(1); }); const sortRelativeTimes = (a, b) => { if (a === b) return 0; const isDueA = a === 'due'; const isDueB = b === 'due'; if (isDueA) return -1; if (isDueB) return 1; const numA = parseInt(a); const numB = parseInt(b); if (!isNaN(numA) && !isNaN(numB)) return numA - numB; return a.localeCompare(b); }; [...options.route].sort().forEach(val => filterRoute?.add(new Option(val, val))); [...options.destination].sort().forEach(val => filterDestination?.add(new Option(val, val))); [...options.arrival].sort(sortRelativeTimes).forEach(val => filterArrival?.add(new Option(val, val))); const restoreFilterValue = (el, val) => { if (el && val && [...el.options].some(opt => opt.value === val)) el.value = val; else if (el) el.value = ""; }; restoreFilterValue(filterRoute, currentFilterValues.route); restoreFilterValue(filterDestination, currentFilterValues.destination); restoreFilterValue(filterArrival, currentFilterValues.arrival);
 
-                 // Populate Table (REMOVED override indicator)
+                 // Populate Table
                  countdownTableBody.innerHTML = "";
                  if (displayArrivals.length === 0) { if (arrivals.length > 0) { countdownTableBody.innerHTML = `<tr><td colspan="3">No arrivals predicted within the next 29 minutes.</td></tr>`; } else { countdownTableBody.innerHTML = `<tr><td colspan="3">No predicted arrivals at this time.</td></tr>`; } }
-                 else {
-                    displayArrivals.forEach(bus => {
-                        const row = document.createElement("tr");
-                        // Removed the indicator logic
-                        row.innerHTML = `
-                            <td>${bus.route}</td>
-                            <td>${bus.destination}</td>
-                            <td>${bus.etaRelative}</td>`;
-                        countdownTableBody.appendChild(row);
-                    });
-                 }
+                 else { displayArrivals.forEach(bus => { const row = document.createElement("tr"); row.innerHTML = `<td>${bus.route}</td><td>${bus.destination}</td><td>${bus.etaRelative}</td>`; countdownTableBody.appendChild(row); }); }
 
                  if(updateTime) updateTime.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-                 filterCountdownTable();
+                 filterCountdownTable(); // Apply filters AFTER table is populated
 
              } catch (error) { console.error(`Error fetching arrivals for ${currentNaptanId}:`, error); if (!countdownTableBody.innerHTML.includes("Error")) { countdownTableBody.innerHTML = `<tr><td colspan="3">Error updating data. Check console.</td></tr>`; } stopArrivalInterval(); }
         }
 
-        // --- Filter Application Logic ---
-        function saveFilterState() { const filterState = { route: filterRoute ? filterRoute.value : "", destination: filterDestination ? filterDestination.value : "", arrival: filterArrival ? filterArrival.value : "" }; const filterStateKey = `${filterStateKeyBase}${currentNaptanId}`; saveToStorage(filterStateKey, filterState); }
+        // --- Filter Application Logic (ADDED DEBUG LOGS) ---
+        function saveFilterState() {
+            const filterState = {
+                route: filterRoute ? filterRoute.value : "",
+                destination: filterDestination ? filterDestination.value : "",
+                arrival: filterArrival ? filterArrival.value : ""
+            };
+            const filterStateKey = `${filterStateKeyBase}${currentNaptanId}`;
+            // console.log("Saving filter state:", filterState); // Optional: Log saved state
+            saveToStorage(filterStateKey, filterState);
+        }
+
         function filterCountdownTable() {
-            // Filter logic now works directly on textContent as indicator is gone
             if (!countdownTableBody || !filterRoute || !filterDestination || !filterArrival) return;
             const routeFilter = filterRoute.value;
             const destinationFilter = filterDestination.value;
             const arrivalFilter = filterArrival.value;
+
+            // **** DEBUG LOG: Log active filters ****
+            console.log(`Filtering with: Route='${routeFilter}', Dest='${destinationFilter}', Arrival='${arrivalFilter}'`);
+
             const rows = countdownTableBody.querySelectorAll("tr");
-            rows.forEach(row => {
-                if (row.cells.length < 3) { if(routeFilter || destinationFilter || arrivalFilter) { row.style.display = "none"; } else { row.style.display = ""; } return; }
+            rows.forEach((row, index) => {
+                if (row.cells.length < 3) { // Check for message rows
+                    const shouldHideMessage = routeFilter || destinationFilter || arrivalFilter;
+                     // **** DEBUG LOG: Log message row handling ****
+                    // console.log(`Row ${index} (Message Row): Hiding? ${shouldHideMessage}`);
+                    row.style.display = shouldHideMessage ? "none" : "";
+                    return;
+                }
+                // Get text content from cells
                 const route = row.cells[0].textContent;
-                const destination = row.cells[1].textContent; // Direct text content
+                const destination = row.cells[1].textContent;
                 const arrival = row.cells[2].textContent;
+
+                 // **** DEBUG LOG: Log row data being checked ****
+                 console.log(`Row ${index}: Comparing Route='${route}' vs Filter='${routeFilter}', Dest='${destination}' vs Filter='${destinationFilter}', Arrival='${arrival}' vs Filter='${arrivalFilter}'`);
+
+                // Check if row matches selected filters
                 const routeMatch = !routeFilter || route === routeFilter;
                 const destinationMatch = !destinationFilter || destination === destinationFilter;
                 const arrivalMatch = !arrivalFilter || arrival === arrivalFilter;
-                row.style.display = (routeMatch && destinationMatch && arrivalMatch) ? "" : "none";
+
+                // **** DEBUG LOG: Log match results ****
+                const showRow = routeMatch && destinationMatch && arrivalMatch;
+                console.log(`   -> Matches: Route=${routeMatch}, Dest=${destinationMatch}, Arrival=${arrivalMatch}. Show row? ${showRow}`);
+
+                // Show or hide row based on match
+                row.style.display = showRow ? "" : "none";
             });
         }
 
@@ -217,20 +235,19 @@
         // --- Initialize countdown specific elements and fetching ---
         async function initializeArrivalsDisplay(naptanId) {
             console.log(`Initializing arrivals display for NaptanID: ${naptanId}`);
-            if (countdownContentDiv) countdownContentDiv.style.display = 'block'; // Show the arrivals area
-            await fetchAndSetStopName(naptanId); // Fetch and set stop name
-            // Load filters from storage
+            if (countdownContentDiv) countdownContentDiv.style.display = 'block';
+            await fetchAndSetStopName(naptanId);
             const filterStateKey = `${filterStateKeyBase}${naptanId}`;
             const initialFilterState = loadFromStorage(filterStateKey, {});
+            // console.log("Loaded initial filter state:", initialFilterState); // Optional: Log loaded state
             if (initialFilterState && typeof initialFilterState === 'object') {
                  if (filterRoute) filterRoute.value = initialFilterState.route || "";
                  if (filterDestination) filterDestination.value = initialFilterState.destination || "";
                  if (filterArrival) filterArrival.value = initialFilterState.arrival || "";
             }
-            // Fetch arrivals and start interval
             fetchStopArrivals(); // Initial fetch
-            stopArrivalInterval(); // Clear any previous interval
-            arrivalFetchIntervalId = setInterval(fetchStopArrivals, 30000); // Fetch every 30 seconds
+            stopArrivalInterval();
+            arrivalFetchIntervalId = setInterval(fetchStopArrivals, 30000);
             // Attach filter listeners
             if (filterRoute) filterRoute.addEventListener("change", () => { saveFilterState(); filterCountdownTable(); });
             if (filterDestination) filterDestination.addEventListener("change", () => { saveFilterState(); filterCountdownTable(); });
@@ -240,33 +257,15 @@
         // --- Main Page Initialization ---
         function initializePage() {
             console.log("Initializing page...");
-            // Load overrides used by this page
-            destinationOverrides = loadFromStorage(destinationOverrideKey, {}); // Using the unified key
+            destinationOverrides = loadFromStorage(destinationOverrideKey, {});
             console.log(`Loaded overrides from key '${destinationOverrideKey}':`, JSON.stringify(destinationOverrides));
-
-            // Always set up the top search bar
-             if (topLiveSearchInput) {
+            if (topLiveSearchInput) {
                  topLiveSearchInput.addEventListener('input', handleTopSearchInput);
-                 document.addEventListener('click', (event) => { // Hide results on click away
-                    if (topLiveSearchResults && !topLiveSearchInput.contains(event.target) && !topLiveSearchResults.contains(event.target)) {
-                        topLiveSearchResults.style.display = 'none';
-                    }
-                 });
-                 topLiveSearchInput.addEventListener('focus', () => { // Re-search on focus if needed
-                     if(topLiveSearchInput.value.trim().length > 2) { handleTopSearchInput(); }
-                 });
+                 document.addEventListener('click', (event) => { if (topLiveSearchResults && !topLiveSearchInput.contains(event.target) && !topLiveSearchResults.contains(event.target)) { topLiveSearchResults.style.display = 'none'; } });
+                 topLiveSearchInput.addEventListener('focus', () => { if(topLiveSearchInput.value.trim().length > 2) { handleTopSearchInput(); } });
             }
-
-            // Check if a specific stop needs to be displayed
-            if (currentNaptanId) {
-                initializeArrivalsDisplay(currentNaptanId);
-            } else {
-                // No stop selected - ensure countdown area is hidden and set default title/placeholder
-                if (countdownContentDiv) countdownContentDiv.style.display = 'none';
-                document.title = "Bus Stop Search & Countdown";
-                if (topLiveSearchInput) topLiveSearchInput.placeholder = "Search for a Bus Stop...";
-                console.log("No NaptanID in URL. Ready for search.");
-            }
+            if (currentNaptanId) { initializeArrivalsDisplay(currentNaptanId); }
+            else { if (countdownContentDiv) countdownContentDiv.style.display = 'none'; document.title = "Bus Stop Search & Countdown"; if (topLiveSearchInput) topLiveSearchInput.placeholder = "Search for a Bus Stop..."; console.log("No NaptanID in URL. Ready for search."); }
         }
 
         // --- Run Initialization ---
@@ -276,4 +275,3 @@
     </script>
 </body>
 </html>
-```

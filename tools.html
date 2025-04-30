@@ -1,540 +1,603 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Live Bus Tracker</title>
+    <title>Live Tracker (Tools)</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         /* Basic Reset & Font */
         body, html { margin: 0; padding: 0; box-sizing: border-box; }
         *, *:before, *:after { box-sizing: inherit; }
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9f9f9; }
-        h1 { margin-bottom: 10px; text-align: center; }
-         .info-container { display: flex; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px; font-size: 18px; }
-         .update-time, .counter { margin-bottom: 5px; }
-         table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
-         th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; white-space: nowrap; }
-         th { background-color: #f4f4f4; position: sticky; top: 0; z-index: 1; }
-         tr:nth-child(even) { background-color: #f9f9f9; }
-         /* Style for rows representing buses seen recently but not in current feed */
-         tr.ghost-bus td { color: #777; font-style: italic; }
-         th select { margin-left: 5px; padding: 2px; font-size: 0.9em;}
-         td[colspan="5"] { text-align: center; font-style: italic; color: #555; padding: 15px 8px; white-space: normal; }
-         td:nth-child(3), td:nth-child(4) { white-space: normal; } /* Allow destination and stop name to wrap */
-         h2 { margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px; text-align: center;}
-         /* Style for the initial route selector */
-         #route-selector { display: none; text-align: center; padding: 30px; border: 1px solid #ccc; border-radius: 8px; margin: 30px auto; max-width: 450px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-         #route-selector h2 { margin-top: 0; margin-bottom: 20px; border: none; padding: 0; }
-         #route-selector input[type="text"] { width: 80%; max-width: 250px; padding: 10px; margin-bottom: 15px; font-size: 1.1em; border: 1px solid #ccc; border-radius: 4px; text-align: center; text-transform: uppercase; }
-         #route-selector button { padding: 10px 25px; font-size: 1.1em; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 4px; transition: background-color 0.2s ease; }
-         #route-selector button:hover { background-color: #0056b3; }
-         #route-search-error { color: red; min-height: 1em; margin-top: 15px; font-size: 0.9em; }
-
-         /* Styles for the top search bar */
-         #top-route-search-container { text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
-         #top-route-search-input { width: 60%; max-width: 200px; padding: 8px; font-size: 1em; border: 1px solid #ccc; border-radius: 4px; text-transform: uppercase; margin-right: 5px; vertical-align: middle; }
-         #top-route-search-button { padding: 8px 15px; font-size: 1em; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 4px; vertical-align: middle; transition: background-color 0.2s ease; }
-         #top-route-search-button:hover { background-color: #0056b3; }
-         #top-route-search-error { color: red; min-height: 1em; margin-top: 5px; font-size: 0.9em; }
-
-
+        body { font-family: Arial, sans-serif; padding: 20px; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; background-color: #f4f4f4; flex-direction: column; }
+        /* Containers */
+        .login-container, .app-container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); text-align: center; margin: 20px auto; width: 90%; max-width: 800px; }
+        .login-container { min-width: 300px; max-width: 400px; }
+        /* Headings and Text */
+        h1, h2, h3, h4 { margin-top: 0; color: #333; }
+        h1 { margin-bottom: 20px; } h2 { margin-bottom: 20px; } h3 { margin-bottom: 15px; }
+        h4 { margin-top: 25px; border-top: 1px solid #ccc; padding-top: 15px; margin-bottom: 10px; text-align: center; }
+        .welcome-message { font-size: 1.2em; color: #555; margin-bottom: 20px; }
+        .description-text { font-size: 0.9em; color: #666; margin-top: -5px; margin-bottom: 15px; text-align: center; }
+        .status-message { margin-top: 10px; text-align: center; min-height: 1em; font-weight: bold; }
+        .export-reminder-message { display: none; padding: 10px 15px; margin-bottom: 20px; border-radius: 4px; border: 1px solid #ffeeba; background-color: #fff3cd; color: #856404; font-weight: bold; text-align: center; }
+        .security-warning { color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 10px 15px; margin: 15px 0; border-radius: 4px; font-size: 0.9em; text-align: left; }
+        /* Button Styles & Grouping */
+        .blue-button, .reset-button, .danger-button, .secondary-button { padding: 10px 20px; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; margin-right: 10px; margin-bottom: 10px; display: inline-block; transition: background-color 0.2s ease; }
+        .blue-button { background-color: #007bff; } .blue-button:hover { background-color: #0056b3; }
+        .reset-button { background-color: #ffc107; color: black; border: 1px solid #d39e00; } .reset-button:hover { background-color: #e0a800; }
+        .danger-button { background-color: #dc3545; } .danger-button:hover { background-color: #c82333; }
+        .secondary-button { background-color: #6c757d; font-size: 0.9em; padding: 6px 12px;} .secondary-button:hover { background-color: #5a6268; }
+        .blue-button:last-of-type, .reset-button:last-of-type, .danger-button:last-of-type, .secondary-button:last-of-type { margin-right: 0; }
+        .main-actions-container { margin-bottom: 25px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+        .data-actions-container { margin-bottom: 25px; padding-top: 20px; border-top: 1px solid #eee; }
+        .other-actions-container { padding-top: 20px; border-top: 1px solid #eee; }
+        /* Forms & Inputs */
+        .form-group, .settings-group { margin-bottom: 15px; text-align: left; }
+        .form-group label, .settings-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group-inline { display: flex; align-items: center; text-align: left; margin-bottom: 15px;}
+        .form-group-inline input[type="checkbox"] { width: auto; margin-right: 8px; height: 1em; margin-bottom: 0;}
+        .form-group-inline label { font-weight: normal; margin-bottom: 0; }
+        fieldset { border: 1px solid #ddd; border-radius: 4px; padding: 15px; margin-bottom: 20px; }
+        legend { font-weight: bold; padding: 0 5px; color: #555; }
+        input[type="text"], input[type="password"], input[type="time"], input[type="number"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 10px; font-size: 1em; font-family: inherit; }
+        #add-curtailment-form > button, #manual-fleet-form > button,
+        #settings-form fieldset button, .settings-group button {
+             width: auto; display: inline-block; margin: 10px 10px 0 0;
+        }
+        /* Toggleable Forms */
+        #add-curtailment-form, #manual-fleet-form, #settings-form { margin-top: 20px; padding: 20px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; text-align: left; margin-bottom: 20px; }
+        #add-curtailment-form h3, #manual-fleet-form h3 { margin-top: 0; text-align: center; margin-bottom: 15px; }
+        /* User Management Table */
+        #user-management-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }
+        #user-management-table th, #user-management-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        #user-management-table th { background-color: #f2f2f2; }
+        #user-management-table select, #user-management-table input[type="password"] { padding: 5px 8px; font-size: 0.9em; margin: 0; width: auto; max-width: 150px; }
+        #user-management-table button { padding: 5px 8px; font-size: 0.9em; margin: 0 5px 0 0; width: auto; }
+        #user-management-table .delete-user-btn { background-color: #dc3545; color: white; border: none; }
+        #user-management-table .delete-user-btn:hover { background-color: #c82333; }
+        /* Manual Fleet Specific */
+        .revert-section { margin-top: 25px; border-top: 1px dashed #ccc; padding-top: 20px; }
+        #manual-assignments-display { text-align: left; max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 10px; background-color: white; font-size: 0.9em; line-height: 1.4; margin-bottom: 20px; }
+        #manual-assignments-display div { padding: 2px 0; }
+        #manual-assignments-display strong { display: inline-block; min-width: 80px; }
+        /* Modal Styles */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-box { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2); text-align: left; width: 90%; max-width: 800px; max-height: 80%; display: flex; flex-direction: column; overflow: hidden; }
+        .modal-box h3 { margin-top: 0; text-align: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #eee; flex-shrink: 0; }
+        .modal-content { flex-grow: 1; overflow-y: auto; font-size: 0.9em; margin-bottom: 15px; }
+        .modal-content div { border-bottom: 1px dotted #eee; padding: 8px 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+        .modal-content span { line-height: 1.4; }
+        .modal-content strong { margin-right: 4px; color: #555; }
+        .modal-content .delete-curtailment-btn { padding: 3px 8px; font-size: 0.85em; background-color: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer; margin-left: auto; transition: background-color 0.2s ease; }
+        .modal-content .delete-curtailment-btn:hover { background-color: #c82333; }
+        .modal-buttons { text-align: right; margin-top: auto; padding-top: 15px; border-top: 1px solid #eee; flex-shrink: 0; }
+        .modal-buttons button { margin-left: 10px; }
+        .modal-buttons .cancel-button { background-color: #6c757d; }
+        .modal-buttons .cancel-button:hover { background-color: #5a6268; }
+        /* Utility */
+        .hidden { display: none; }
+        /* Centering Lower Sections Fix */
+        #data-actions, #other-actions, #app-container > div:has(#logout-button) { text-align: center; }
+        /* Description Text Margin Fix */
+        #manual-fleet-form div > .description-text { margin-top: 5px; }
+        /* REMOVED Final Destination Styles */
     </style>
 </head>
 <body>
-    <div id="route-selector">
-        <h2>Enter Route to Track</h2>
-        <input type="text" id="route-search-input" placeholder="e.g., 184, N20" aria-label="Route ID Input">
-        <button id="route-search-button" onclick="loadSelectedRoute()">Load Route</button>
-        <p id="route-search-error"></p>
+    <div id="login-container" class="login-container">
+        <h2>Live Tracker Tools Login</h2>
+        <form onsubmit="login(); return false;">
+             <div class="form-group"> <label for="username">Username:</label> <input type="text" id="username" name="username" required autocomplete="username"> </div>
+             <div class="form-group"> <label for="password">Password:</label> <input type="password" id="password" name="password" required autocomplete="current-password"> </div>
+             <div class="form-group-inline"> <input type="checkbox" id="stayLoggedInCheckbox" name="stayLoggedIn"> <label for="stayLoggedInCheckbox">Stay logged in (disables auto-logout this session)</label> </div>
+             <div class="form-group" style="text-align: center;"> <button type="submit" class="blue-button">Login</button> <p id="login-error" style="color: red; margin-top: 10px; min-height: 1em;"></p> </div>
+        </form>
     </div>
 
-    <div id="tracker-content" style="display: none;">
-
-        <div id="top-route-search-container">
-            <input type="text" id="top-route-search-input" placeholder="Change Route (e.g., N91)" aria-label="Change Route ID Input">
-            <button id="top-route-search-button" onclick="loadTopRoute()">Go</button>
-            <p id="top-route-search-error"></p>
+    <div id="app-container" class="app-container hidden">
+        <h1>Live Tracker Tools</h1>
+        <p id="welcome-message" class="welcome-message"></p>
+        <div id="export-reminder" class="export-reminder-message"></div>
+        <div class="main-actions-container">
+            <button id="toggle-add-curtailment" onclick="toggleAddCurtailmentForm()" class="blue-button hidden">Add New Curtailment</button>
+            <button id="toggle-manual-fleet" onclick="toggleManualFleetForm()" class="blue-button hidden">Assign / View Manual Fleet</button>
+            <button id="view-all-curtailments-btn" onclick="showAllCurtailmentsModal()" class="blue-button hidden">View / Manage All Curtailments</button>
+            <button id="toggle-settings" onclick="toggleSettingsForm()" class="blue-button hidden">Settings</button>
         </div>
-        <h1 id="main-heading">Live Bus Tracker</h1>
-        <div class="info-container">
-            <div class="update-time" id="update-time">Last Updated: --</div>
-            <div class="counter" id="bus-counter">Buses on Route: 0</div>
+
+        <div id="add-curtailment-form" class="add-curtailment-form hidden">
+             <h3>Add New Curtailment</h3>
+             <div class="form-group"> <label for="route">Route Number:</label> <input type="text" id="route" required placeholder="e.g., 184"></div>
+             <div class="form-group"> <label for="regNumber">Bus Registration:</label> <input type="text" id="regNumber" required placeholder="e.g., AB12CDE"></div>
+             <div class="form-group"> <label for="curtailedDestination">Curtailed Destination:</label> <input type="text" id="curtailedDestination" required placeholder="e.g., Arnos Grove Station"></div>
+             <div class="form-group"> <label for="curtailmentTimeInput">Time Logged (HH:MM):</label> <input type="time" id="curtailmentTimeInput" required></div>
+             <button type="button" onclick="addCurtailment()" class="blue-button">Add Curtailment</button> <p id="add-curtailment-message" class="status-message" style="color: green;"></p>
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Fleet No.<select id="filter-fleet"><option value="">All</option></select></th>
-                    <th>Registration<select id="filter-reg"><option value="">All</option></select></th>
-                    <th>Destination<select id="filter-destination"><option value="">All</option></select></th>
-                    <th>Next Predicted Stop / Status<select id="filter-stop"><option value="">All</option></select></th>
-                    <th>ETA<select id="filter-arrival"><option value="">All</option></select></th>
-                </tr>
-            </thead>
-            <tbody id="tracker-table">
-                <tr><td colspan="5">Fetching live data...</td></tr>
-            </tbody>
-        </table>
 
-        <h2 id="curtailments-heading">Curtailments Today</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Route</th>
-                    <th>Fleet No.</th>
-                    <th>Registration</th>
-                    <th>Curtailed To</th>
-                    <th>Time Logged</th>
-                </tr>
-            </thead>
-            <tbody id="curtailed-buses-table">
-                <tr><td colspan="5">Loading curtailment data...</td></tr>
-            </tbody>
-        </table>
-    </div> <script>
-         console.log('--- FULL TRACKER SCRIPT STARTED (v5 - Timeout Fix) ---');
+        <div id="manual-fleet-form" class="manual-fleet-form hidden">
+             <h3>Assign Manual Fleet Number</h3>
+             <div class="form-group"> <label for="manualRegNumber">Bus Registration:</label> <input type="text" id="manualRegNumber" placeholder="e.g., AB12CDE"></div>
+             <div class="form-group"> <label for="manualFleetNumber">Real Fleet Number:</label> <input type="text" id="manualFleetNumber" placeholder="e.g., VH45161, 9001"></div>
+             <button type="button" onclick="assignManualFleetNumber()" class="blue-button">Assign Fleet Number</button> <p id="assign-status" class="status-message" style="color: green;"></p>
+             <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #eee;">
+                 <button id="view-auto-tmp-btn" type="button" onclick="showAutoTmpModal()" class="blue-button">View Auto-Generated TMPs</button>
+                 <p class="description-text">View a list of registrations with system-assigned TMP/ERR numbers.</p>
+             </div>
+             <h4>Current Manual Assignments</h4> <div id="manual-assignments-display">Loading...</div>
+             <div class="revert-section hidden">
+                 <label for="revertRegNumber">Registration to Revert:</label>
+                 <input type="text" id="revertRegNumber" placeholder="e.g., AB12CDE">
+                 <button type="button" onclick="revertToTMP()" class="blue-button reset-button">Revert to Auto TMP</button>
+                 <p id="revert-status" class="status-message" style="color: green;"></p>
+             </div>
+        </div>
 
-         // Get references needed for showing/hiding sections
-         const routeSelectorDiv = document.getElementById('route-selector');
-         const trackerContentDiv = document.getElementById('tracker-content');
+        <div id="settings-form" class="settings-form hidden">
+            <fieldset> <legend>Tracker Settings</legend> <div class="settings-group"> <label for="setting-debounce">Curtailment Debounce Time (minutes):</label> <input type="number" id="setting-debounce" min="0" step="1" placeholder="e.g., 60"> <p class="description-text">Time before logging the same curtailment again (used by auto-detect).</p> </div> <div class="settings-group"> <label for="setting-timeout">Bus Timeout Threshold (minutes):</label> <input type="number" id="setting-timeout" min="1" step="1" placeholder="e.g., 30"> <p class="description-text">Time a bus stays listed after disappearing from API feed.</p> </div> <div class="settings-group"> <label for="setting-auto-logout">Auto Logout Time (minutes):</label> <input type="number" id="setting-auto-logout" min="0" step="1" placeholder="e.g., 30"> <p class="description-text">Automatically log out after this many minutes from login. Set to 0 to disable.</p> </div> <button type="button" onclick="saveTrackerSettings()" class="blue-button">Save Tracker Settings</button> <p id="tracker-settings-message" class="status-message" style="color: green;"></p> </fieldset>
+            <fieldset> <legend>Change My Password</legend> <div class="settings-group"> <label for="current-password">Current Password:</label> <input type="password" id="current-password" required autocomplete="current-password"> </div> <div class="settings-group"> <label for="new-password">New Password:</label> <input type="password" id="new-password" required autocomplete="new-password"> </div> <div class="settings-group"> <label for="confirm-new-password">Confirm New Password:</label> <input type="password" id="confirm-new-password" required autocomplete="new-password"> </div> <button type="button" onclick="changeMyPassword()" class="blue-button">Change Password</button> <p id="change-password-message" class="status-message" style="color: green;"></p> </fieldset>
 
-         // --- Dynamic Route ID Setup ---
-         const urlParams = new URLSearchParams(window.location.search);
-         let dynamicRouteId = urlParams.get('route')?.trim().toUpperCase();
+            <fieldset id="admin-user-management" class="hidden"> <legend>User Management (Admin)</legend> <h4>Add New User</h4> <div class="settings-group"> <label for="add-username">New Username:</label> <input type="text" id="add-username" autocomplete="username"> </div> <div class="settings-group"> <label for="add-user-password">Password:</label> <input type="password" id="add-user-password" autocomplete="new-password"> </div> <div class="settings-group"> <label for="add-user-role">Role:</label> <select id="add-user-role"><option value="user">User</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select> </div> <button type="button" onclick="addUser()" class="blue-button">Add User</button> <p id="add-user-message" class="status-message" style="color: green;"></p> <h4 style="margin-top: 30px;">Manage Existing Users</h4> <div id="user-list-container" style="max-height: 300px; overflow-y: auto;"> <table id="user-management-table"> <thead> <tr><th>Username</th><th>Role</th><th>New Password</th><th>Actions</th></tr> </thead> <tbody id="user-management-tbody"></tbody> </table> </div> <p id="user-management-message" class="status-message" style="color: green;"></p> </fieldset>
+        </div>
 
-         // --- Function to handle loading route from INITIAL input ---
-         function loadSelectedRoute() {
-             const input = document.getElementById('route-search-input');
-             const errorP = document.getElementById('route-search-error');
-             if (!input || !errorP) return;
-             const enteredRoute = input.value.trim().toUpperCase();
-             errorP.textContent = '';
-             if (!enteredRoute) { errorP.textContent = 'Please enter a Route ID.'; input.focus(); return; }
-             if (!/^[A-Z0-9]+$/i.test(enteredRoute) || enteredRoute.length > 5) { errorP.textContent = 'Invalid Route ID format entered.'; input.focus(); return; }
-             window.location.href = `tracker.html?route=${enteredRoute}`; // Assumes filename is tracker.html
-         }
+        <div id="data-actions" class="data-actions-container hidden">
+             <h3>Backup & Restore</h3>
+             <button type="button" id="export-button" onclick="exportCurtailments()" class="blue-button">Export ALL Curtailments</button>
+             <button type="button" id="import-button" onclick="document.getElementById('import-file-curtailments').click()" class="blue-button">Import ALL Curtailments</button>
+             <input type="file" id="import-file-curtailments" accept=".json" class="hidden">
+             <p class="description-text">Save or load all curtailment entries to/from a JSON file.</p>
 
-         // --- Function to handle loading route from the TOP search bar ---
-         function loadTopRoute() {
-             const input = document.getElementById('top-route-search-input');
-             const errorP = document.getElementById('top-route-search-error'); // Use the new error paragraph
-             if (!input || !errorP) return;
-             const enteredRoute = input.value.trim().toUpperCase();
-             errorP.textContent = ''; // Clear previous error
-             if (!enteredRoute) { errorP.textContent = 'Please enter a Route ID.'; input.focus(); return; }
-             if (!/^[A-Z0-9]+$/i.test(enteredRoute) || enteredRoute.length > 5) { errorP.textContent = 'Invalid Route ID format.'; input.focus(); return; }
-             // Navigate to the tracker page with the new route ID
-             window.location.href = `tracker.html?route=${enteredRoute}`; // Assumes filename is tracker.html
-         }
+             <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
+                 <button type="button" id="export-tmp-button" onclick="exportTmpMap()" class="blue-button">Export ALL Fleet/TMP</button>
+                 <button type="button" id="import-tmp-button" onclick="document.getElementById('import-file-tmp').click()" class="blue-button">Import ALL Fleet/TMP</button>
+                 <input type="file" id="import-file-tmp" accept=".json" class="hidden">
+                 <p class="description-text">Save or load all Registration -> Fleet/TMP assignments to/from a JSON file.</p>
+             </div>
+             </div>
+
+        <div id="other-actions" class="other-actions-container hidden">
+            <h3>Other Actions</h3>
+            <button type="button" id="reset-tmp-button" onclick="resetTMPMap()" class="reset-button">Reset ALL TMP Assignments</button>
+            <p class="description-text">Clears the stored Registration -> TMP map. Requires password.</p>
+        </div>
+
+        <div style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
+            <button type="button" id="logout-button" onclick="logout()" class="blue-button" style="background-color: #6c757d;">Logout</button>
+        </div>
+    </div>
+
+    <div id="password-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>Confirm Action</h3>
+            <label for="confirm-password">Please enter your password to confirm TMP reset:</label>
+            <input type="password" id="confirm-password" name="confirm-password" required autocomplete="current-password">
+            <p id="password-modal-error" style="color: red; min-height: 1em; margin-top: 5px;"></p>
+            <div class="modal-buttons">
+                <button type="button" onclick="cancelPasswordReset()" class="blue-button cancel-button">Cancel</button>
+                <button type="button" onclick="handlePasswordConfirm()" class="blue-button">Confirm Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="all-curtailments-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>All Stored Curtailments</h3>
+            <div id="all-curtailments-list" class="modal-content">
+                <p>Loading...</p>
+            </div>
+            <div class="modal-buttons">
+                <button type="button" onclick="hideAllCurtailmentsModal()" class="blue-button cancel-button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="auto-tmp-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>Auto-Generated TMP Assignments</h3>
+            <p class="description-text" style="text-align:left; margin-top:0;">This list shows registrations currently assigned an automatic TMP or ERR number. Use the 'Assign / View Manual Fleet' section to assign their real fleet numbers.</p>
+            <div id="auto-tmp-list" class="modal-content" style="font-size: 0.95em;">
+                <p>Loading...</p>
+            </div>
+            <div class="modal-buttons">
+                <button type="button" onclick="hideAutoTmpModal()" class="blue-button cancel-button">Close</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // --- User Auth, Basic Setup, Constants ---
+    const usersStorageKey = 'liveTrackerUsers'; let users = {}; let isLoggedIn = false; let currentUsername = null;
+    const tmpMapKey = "tmpRegistrationMap"; const settingsKey = "trackerGlobalSettings"; const defaultSettings = { debounceMinutes: 60, timeoutMinutes: 30, autoLogoutMinutes: 30 }; const lastExportKey = 'lastCurtailmentExportTimestamp'; const tmpGenerationInfoKey = "tmpGenerationInfo";
+    // REMOVED: const routeDestinationSettingsKey = 'routeDestinationSettings';
+
+    // --- Storage Helpers ---
+    function loadFromStorage(key, defaultValue = {}) { try { const data = localStorage.getItem(key); if (data) { const parsed = JSON.parse(data); if (typeof parsed === 'object' && parsed !== null) return parsed; } return defaultValue; } catch (e) { console.error(`Error loading ${key}:`, e); return defaultValue; } }
+    function saveToStorage(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(`Error saving ${key}:`, e); alert(`Error saving ${key}. Storage might be full.`); } }
+
+    // --- DOM Element Refs (Remove refs for destination editor) ---
+    const loginContainer = document.getElementById('login-container'); const appContainer = document.getElementById('app-container');
+    const loginError = document.getElementById('login-error');
+    const addCurtailmentForm = document.getElementById('add-curtailment-form');
+    const addCurtailmentMessage = document.getElementById('add-curtailment-message');
+    const toggleAddCurtailmentButton = document.getElementById('toggle-add-curtailment');
+    const importCurtailmentsInput = document.getElementById('import-file-curtailments');
+    const manualFleetForm = document.getElementById('manual-fleet-form');
+    const toggleManualFleetButton = document.getElementById('toggle-manual-fleet');
+    const manualRegNumberInput = document.getElementById('manualRegNumber');
+    const manualFleetNumberInput = document.getElementById('manualFleetNumber');
+    const assignStatusElement = document.getElementById('assign-status');
+    const manualAssignmentsDisplay = document.getElementById('manual-assignments-display');
+    const revertRegNumberInput = document.getElementById('revertRegNumber');
+    const revertStatusElement = document.getElementById('revert-status');
+    const settingsForm = document.getElementById('settings-form');
+    const toggleSettingsButton = document.getElementById('toggle-settings');
+    const settingsDebounceInput = document.getElementById('setting-debounce');
+    const settingsTimeoutInput = document.getElementById('setting-timeout');
+    const settingsAutoLogoutInput = document.getElementById('setting-auto-logout');
+    const trackerSettingsMessage = document.getElementById('tracker-settings-message');
+    const currentPasswordInput = document.getElementById('current-password');
+    const newPasswordInput = document.getElementById('new-password');
+    const confirmNewPasswordInput = document.getElementById('confirm-new-password');
+    const changePasswordMessage = document.getElementById('change-password-message');
+    const adminUserManagementSection = document.getElementById('admin-user-management');
+    const addUsernameInput = document.getElementById('add-username');
+    const addUserPasswordInput = document.getElementById('add-user-password');
+    const addUserRoleSelect = document.getElementById('add-user-role');
+    const addUserMessage = document.getElementById('add-user-message');
+    const userManagementTbody = document.getElementById('user-management-tbody');
+    const userManagementMessage = document.getElementById('user-management-message');
+    const welcomeMessageElement = document.getElementById('welcome-message');
+    const passwordModal = document.getElementById('password-modal');
+    const passwordModalInput = document.getElementById('confirm-password');
+    const passwordModalError = document.getElementById('password-modal-error');
+    const allCurtailmentsModal = document.getElementById('all-curtailments-modal');
+    const allCurtailmentsList = document.getElementById('all-curtailments-list');
+    const viewAllCurtailmentsButton = document.getElementById('view-all-curtailments-btn');
+    const dataActionsSection = document.getElementById('data-actions');
+    const exportButton = document.getElementById('export-button');
+    const importButton = document.getElementById('import-button');
+    const otherActionsSection = document.getElementById('other-actions');
+    const resetTmpButton = document.getElementById('reset-tmp-button');
+    const logoutButton = document.getElementById('logout-button');
+    const autoTmpModal = document.getElementById('auto-tmp-modal');
+    const autoTmpList = document.getElementById('auto-tmp-list');
+    const viewAutoTmpBtn = document.getElementById('view-auto-tmp-btn');
+    // ***** DOM Refs for Fleet/TMP Import/Export *****
+    const exportTmpButton = document.getElementById('export-tmp-button');
+    const importTmpButton = document.getElementById('import-tmp-button');
+    const importTmpInput = document.getElementById('import-file-tmp');
+    // ***** END DOM Refs *****
+    // REMOVED: Refs for Final Destinations
 
 
-         // Add listener for Enter key in the initial search input
-         const routeSearchInput = document.getElementById('route-search-input');
-         if (routeSearchInput) { routeSearchInput.addEventListener('keyup', function(event) { if (event.key === 'Enter') { event.preventDefault(); loadSelectedRoute(); } }); }
+    // --- Auth, Timer, Basic UI ---
+    let sessionTimerId = null;
+    function loadUsers() { try{const d=localStorage.getItem(usersStorageKey);if(d){users=JSON.parse(d);if(!users.Ryan||!users.Ryan.pass||!users.Ryan.role){console.warn("User data incomplete or missing 'Ryan' user, resetting.");setDefaultUsers();}}else{setDefaultUsers();}}catch(e){console.error("Err loading users, reset:",e);setDefaultUsers();} }
+    function setDefaultUsers() { users={'Ryan':{pass:'password',role:'admin'}};saveUsersToStorage(); } // *** Default user changed to 'Ryan' ***
+    function saveUsersToStorage() { try{localStorage.setItem(usersStorageKey,JSON.stringify(users));console.log("Users saved.");}catch(e){console.error("Err saving users:",e);alert("Error: Could not save user data.");} }
+    function checkLogin() { loadUsers(); try{const s=localStorage.getItem('loggedInUser');if(localStorage.getItem('isLoggedIn')==='true'&&s&&users[s]){isLoggedIn=true;currentUsername=s;showApp();}else{isLoggedIn=false;currentUsername=null;localStorage.removeItem('isLoggedIn');localStorage.removeItem('loggedInUser');sessionStorage.removeItem('bypassAutoLogout');showLogin();}}catch(e){console.error("Err checkLogin:",e);isLoggedIn=false;currentUsername=null;showLogin();} }
+    function login() { const u=document.getElementById('username'),p=document.getElementById('password'),c=document.getElementById('stayLoggedInCheckbox'),l=document.getElementById('login-error');if(!u||!p){console.error("Login elements missing.");if(l)l.textContent='Login form error.';return;}const n=u.value,s=p.value,t=c?c.checked:false;if(l)l.textContent='';if(users.hasOwnProperty(n)&&users[n].pass===s){localStorage.setItem('isLoggedIn','true');localStorage.setItem('loggedInUser',n);if(t){sessionStorage.setItem('bypassAutoLogout','true');console.log("Bypassing auto-logout.");}else{sessionStorage.removeItem('bypassAutoLogout');}isLoggedIn=true;currentUsername=n;showApp();}else{if(l)l.textContent='Invalid username or password.';isLoggedIn=false;currentUsername=null;sessionStorage.removeItem('bypassAutoLogout');} }
+    function logout() { if(sessionTimerId){clearTimeout(sessionTimerId);sessionTimerId=null;}localStorage.setItem('isLoggedIn','false');localStorage.removeItem('loggedInUser');sessionStorage.removeItem('bypassAutoLogout');isLoggedIn=false;currentUsername=null;showLogin(); }
+    function logoutAfterSession() { if(isLoggedIn){const s=loadFromStorage(settingsKey,defaultSettings),l=s.autoLogoutMinutes||0;alert(`Session expired after ${l} minutes.`);logout();} }
+    function startSessionTimer() { if(sessionTimerId){clearTimeout(sessionTimerId);sessionTimerId=null;}if(!isLoggedIn)return;const b=sessionStorage.getItem('bypassAutoLogout')==='true';if(b)return;const s=loadFromStorage(settingsKey,defaultSettings),l=(typeof s.autoLogoutMinutes==='number'&&s.autoLogoutMinutes>=0)?s.autoLogoutMinutes:defaultSettings.autoLogoutMinutes;if(l<=0)return;const m=l*60*1000;sessionTimerId=setTimeout(logoutAfterSession,m); }
 
-         // Add listener for Enter key in the TOP search input
-         const topRouteSearchInput = document.getElementById('top-route-search-input');
-         if (topRouteSearchInput) { topRouteSearchInput.addEventListener('keyup', function(event) { if (event.key === 'Enter') { event.preventDefault(); loadTopRoute(); } }); }
+    function showApp() {
+         // --- DEBUG LOGS ---
+         // console.log('--- showApp CALLED ---');
+         // console.log('isLoggedIn:', isLoggedIn);
+         // console.log('currentUsername:', currentUsername);
+         // console.log('User Object:', users[currentUsername]);
+         // console.log('User Role:', users[currentUsername]?.role);
+         // --- END DEBUG LOGS ---
+        try {
+            if (!isLoggedIn || !currentUsername || !users[currentUsername]) { logout(); return; }
+            const userRole = users[currentUsername].role;
+
+            if(loginContainer) loginContainer.classList.add('hidden');
+            if(appContainer) appContainer.classList.remove('hidden');
+            // ** UPDATED Welcome Message Logic **
+            if(welcomeMessageElement) {
+                 // Check if the logged-in username is 'Ryan'
+                 if (currentUsername === 'Ryan') {
+                     // If it is 'Ryan', display "Welcome, Ryan!"
+                     welcomeMessageElement.textContent = `Welcome, Ryan!`;
+                 } else {
+                     // Otherwise, display the actual username
+                     welcomeMessageElement.textContent = `Welcome, ${currentUsername}!`;
+                 }
+            }
+
+            // Export reminder logic
+             const reminderElement = document.getElementById('export-reminder'); if (reminderElement) { try { const lastExportTimeStr = localStorage.getItem(lastExportKey); const sevenDaysInMillis = 7 * 24 * 60 * 60 * 1000; const now = Date.now(); let message = ''; let showBox = false; if (lastExportTimeStr) { const lastExportTime = parseInt(lastExportTimeStr, 10); if (!isNaN(lastExportTime)) { const diff = now - lastExportTime; if (diff > sevenDaysInMillis) { const daysSinceExport = Math.floor(diff / (1000 * 60 * 60 * 24)); message = `Reminder: It's been ${daysSinceExport} days since the last curtailment export. Consider backing up soon.`; showBox = true; } } else { message = "Reminder: Could not read last export time. Consider making a backup."; showBox = true; } } else { message = "Reminder: You haven't exported curtailment data before. Consider making an initial backup."; showBox = true; } reminderElement.textContent = message; reminderElement.style.display = showBox ? 'block' : 'none'; } catch (e) { console.error("Error checking last export time:", e); if(reminderElement) reminderElement.style.display = 'none'; } }
+
+            // Reset visibility - Hide everything first
+            const elementsToHide = [ toggleAddCurtailmentButton, toggleManualFleetButton, viewAllCurtailmentsButton, toggleSettingsButton, dataActionsSection, otherActionsSection, settingsForm, addCurtailmentForm, manualFleetForm ];
+            elementsToHide.forEach(el => { if(el) el.classList.add('hidden') });
+
+             // Show elements based on role
+            if (userRole === 'admin' || userRole === 'moderator') {
+                 if(toggleAddCurtailmentButton) toggleAddCurtailmentButton.classList.remove('hidden');
+                 if(toggleManualFleetButton) toggleManualFleetButton.classList.remove('hidden');
+                 if(dataActionsSection) dataActionsSection.classList.remove('hidden'); // Show Backup/Restore section
+            }
+            if (userRole === 'admin') {
+                 if(toggleSettingsButton) toggleSettingsButton.classList.remove('hidden');
+                 if(otherActionsSection) otherActionsSection.classList.remove('hidden'); // Show Other Actions section
+            }
+             if(viewAllCurtailmentsButton) viewAllCurtailmentsButton.classList.remove('hidden'); // View curtailments available to all logged in users
+
+            // Reset button text
+             if(toggleAddCurtailmentButton) toggleAddCurtailmentButton.textContent = 'Add New Curtailment';
+             if(toggleManualFleetButton) toggleManualFleetButton.textContent = 'Assign / View Manual Fleet';
+             if(toggleSettingsButton) toggleSettingsButton.textContent = 'Settings';
+
+            // Ensure modals are closed
+             if (passwordModal) passwordModal.classList.add('hidden');
+             if (allCurtailmentsModal) allCurtailmentsModal.classList.add('hidden');
+             if (autoTmpModal) autoTmpModal.classList.add('hidden');
+
+            // Load settings, display assignments, start timer
+            loadTrackerSettings();
+            displayManualAssignments(); // Display assignments on app load if needed elsewhere
+            startSessionTimer();
+        } catch(e) {
+             console.error("Error in showApp:", e);
+             if(welcomeMessageElement) welcomeMessageElement.textContent = 'Error loading application.';
+        }
+    }
+
+    function showLogin() { try { if (sessionTimerId) clearTimeout(sessionTimerId); sessionStorage.removeItem('bypassAutoLogout'); if(loginContainer)loginContainer.classList.remove('hidden');if(appContainer)appContainer.classList.add('hidden');if(welcomeMessageElement) welcomeMessageElement.textContent = ''; if(loginError) loginError.textContent = ''; const u=document.getElementById('username'); if(u) u.value = ''; const p=document.getElementById('password'); if(p) p.value = ''; const c=document.getElementById('stayLoggedInCheckbox'); if(c) c.checked = false; if (passwordModal) passwordModal.classList.add('hidden'); if (allCurtailmentsModal) allCurtailmentsModal.classList.add('hidden'); if (autoTmpModal) autoTmpModal.classList.add('hidden'); const r = document.getElementById('export-reminder'); if (r) r.style.display = 'none'; } catch(e) { console.error("Error in showLogin:", e); } }
 
 
-         // --- Main Logic Execution ---
-         if (!dynamicRouteId) {
-             // --- NO ROUTE IN URL ---
-             document.title = "Select Route - Live Bus Tracker";
-             if (routeSelectorDiv) routeSelectorDiv.style.display = 'block';
-             if (trackerContentDiv) trackerContentDiv.style.display = 'none';
-             console.log("No route ID in URL, showing selector.");
-         } else {
-             // --- ROUTE FOUND IN URL ---
-              if (routeSelectorDiv) routeSelectorDiv.style.display = 'none';
-              if (trackerContentDiv) trackerContentDiv.style.display = 'block';
-              console.log(`Route ID found: ${dynamicRouteId}. Initializing tracker...`);
+    // --- Curtailment Functions ---
+    function toggleAddCurtailmentForm() { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; } if(addCurtailmentForm) { const isHidden = addCurtailmentForm.classList.toggle('hidden'); if(toggleAddCurtailmentButton) toggleAddCurtailmentButton.textContent = isHidden ? 'Add New Curtailment' : 'Hide Curtailment Form'; if(addCurtailmentMessage) addCurtailmentMessage.textContent = ''; } else { console.error("Add curtailment form not found"); } }
+    function addCurtailment() { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; } const routeInput = document.getElementById('route'); const regNumberInput = document.getElementById('regNumber'); const curtailedDestinationInput = document.getElementById('curtailedDestination'); const timeInput = document.getElementById('curtailmentTimeInput'); if (!routeInput || !regNumberInput || !curtailedDestinationInput || !timeInput || !addCurtailmentMessage) { console.error("Missing curtailment form elements"); alert("Error: Form elements missing."); return; } const route = routeInput.value.trim().toUpperCase(); const regNumber = regNumberInput.value.trim().toUpperCase(); const curtailedDestination = curtailedDestinationInput.value.trim(); const timeString = timeInput.value.trim(); if (route && regNumber && curtailedDestination && timeString) { const routeKey = `curtailedBusesArray_${route}`; let routeCurtailments = loadFromStorage(routeKey, []); if (!Array.isArray(routeCurtailments)) { routeCurtailments = []; console.warn(`Resetting non-array curtailment data for ${routeKey}`); } let logDate = new Date(); const timeParts = timeString.split(':'); if (timeParts.length === 2) { const hours = parseInt(timeParts[0], 10); const minutes = parseInt(timeParts[1], 10); if (!isNaN(hours) && !isNaN(minutes) && hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) { logDate.setHours(hours, minutes, 0, 0); } else { alert("Invalid time format entered. Please use HH:MM (24-hour format)."); timeInput.focus(); return; } } else { alert("Invalid time format entered. Please use HH:MM."); timeInput.focus(); return; } const newCurtailment = { route: route, regNumber: regNumber, curtailedDestination: curtailedDestination, curtailmentTime: logDate.toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'short', timeStyle: 'short'}), timestamp: logDate.getTime() }; routeCurtailments.push(newCurtailment); saveToStorage(routeKey, routeCurtailments); routeInput.value = ""; regNumberInput.value = ""; curtailedDestinationInput.value = ""; timeInput.value = ""; addCurtailmentMessage.textContent = `Curtailment for route ${route} at ${timeString} added successfully!`; addCurtailmentMessage.style.color = 'green'; setTimeout(() => { if(addCurtailmentMessage) addCurtailmentMessage.textContent = ""; }, 3000); routeInput.focus(); } else { alert("Please fill in all curtailment details (Route, Registration, Destination, Time)."); } }
+    function exportCurtailments() { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; } const allData = {}; let keysFound = 0; try { for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith("curtailedBusesArray_")) { const routeNum = key.replace("curtailedBusesArray_", ""); const routeData = loadFromStorage(key, []); if (Array.isArray(routeData)) { allData[routeNum] = routeData; keysFound++; } } } } catch (e) { console.error("Error reading localStorage during export:", e); alert("An error occurred while gathering data for export."); return; } if (keysFound === 0) { alert("No curtailment data found in localStorage to export."); return; } try { const jsonString = JSON.stringify(allData, null, 2); const blob = new Blob([jsonString], { type: "application/json" }); const a = document.createElement("a"); const timestamp = new Date().toISOString().replace(/[:.]/g, '-'); a.href = URL.createObjectURL(blob); a.download = `all_routes_curtailments_${timestamp}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href); alert("Curtailment data exported successfully!"); try { localStorage.setItem(lastExportKey, Date.now().toString()); const reminderElement = document.getElementById('export-reminder'); if (reminderElement) reminderElement.style.display = 'none'; } catch (e) { console.error("Could not save last export timestamp", e); } } catch (e) { console.error("Error creating export file:", e); alert("An error occurred during file creation or download."); } }
+    function handleCurtailmentImport(file) { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); if(importCurtailmentsInput) importCurtailmentsInput.value = ''; return; } if (!file) { alert("No file selected."); return; } if (!file.name.toLowerCase().endsWith('.json')) { alert("Please select a valid JSON file (.json)."); return; } const reader = new FileReader(); reader.onload = function(e) { try { const importedData = JSON.parse(e.target.result); if (typeof importedData !== 'object' || importedData === null) { throw new Error("Imported file is not a valid JSON object."); } if (!confirm("Importing will REPLACE existing curtailment data for the routes found in the file. Are you sure?")) { if(importCurtailmentsInput) importCurtailmentsInput.value = ''; return; } let importedCount = 0; let skippedRoutes = []; let skippedEntriesCount = 0; for (const route in importedData) { if (importedData.hasOwnProperty(route)) { const routeKey = `curtailedBusesArray_${route}`; const routeData = importedData[route]; if (Array.isArray(routeData)) { const validData = routeData.filter(item => item && typeof item.route === 'string' && item.route.trim() !== '' && typeof item.regNumber === 'string' && item.regNumber.trim() !== '' && typeof item.curtailedDestination === 'string' && item.curtailedDestination.trim() !== '' && (typeof item.curtailmentTime === 'string' || typeof item.timestamp === 'number')); if(validData.length !== routeData.length){ skippedEntriesCount += (routeData.length - validData.length); console.warn(`Skipped ${routeData.length - validData.length} invalid entries for route ${route}.`);} validData.forEach(item => { if (!item.timestamp && item.curtailmentTime) { try { const parts = item.curtailmentTime.match(/(\d{2})\/(\d{2})\/(\d{4}),? (\d{2}):(\d{2})/); if(parts) { item.timestamp = new Date(Date.UTC(parts[3], parts[2] - 1, parts[1], parts[4], parts[5], 0)).getTime(); } else { item.timestamp = Date.parse(item.curtailmentTime) || 0; } if(isNaN(item.timestamp)) item.timestamp = 0; } catch { item.timestamp = 0; } } else if (!item.timestamp) { item.timestamp = 0; } }); const finalValidData = validData.filter(item => typeof item.timestamp === 'number' && item.timestamp > 0); if (validData.length !== finalValidData.length) { const skipped = validData.length - finalValidData.length; skippedEntriesCount += skipped; console.warn(`Skipped ${skipped} entries for route ${route} due to timestamp failure.`); } if(finalValidData.length > 0) { saveToStorage(routeKey, finalValidData); importedCount++; console.log(`Imported data for route ${route}.`); } else { console.warn(`No valid entries with timestamps found for route ${route}. Skipping save.`); } } else { skippedRoutes.push(route); console.warn(`Skipping import for route ${route}: data is not an array.`); } } } let alertMessage = `${importedCount} route(s) curtailment data imported successfully! Data for these routes was replaced.\n`; if (skippedRoutes.length > 0) { alertMessage += `Skipped invalid data for routes: ${skippedRoutes.join(', ')}\n`; } if (skippedEntriesCount > 0) { alertMessage += `Skipped ${skippedEntriesCount} invalid/incomplete or timestamp-failed entries within imported routes.`; } alert(alertMessage); } catch (error) { console.error("Error importing curtailments:", error); alert("Error importing curtailments: " + error.message); } finally { if(importCurtailmentsInput) importCurtailmentsInput.value = ''; } }; reader.onerror = function() { alert("Error reading the selected file."); if(importCurtailmentsInput) importCurtailmentsInput.value = ''; }; reader.readAsText(file); }
+    function showAllCurtailmentsModal() { if (!isLoggedIn) { alert('You must be logged in.'); return; } if (!allCurtailmentsModal || !allCurtailmentsList) { console.error("All Curtailments Modal elements missing"); return; } allCurtailmentsList.innerHTML = '<p>Loading...</p>'; allCurtailmentsModal.classList.remove('hidden'); setTimeout(() => { try { let allCurtailmentsHTML = ''; let foundAny = false; let curtailmentEntries = []; for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith("curtailedBusesArray_")) { const routeCurtailments = loadFromStorage(key, []); if (Array.isArray(routeCurtailments) && routeCurtailments.length > 0) { routeCurtailments.forEach(item => { let timestamp = item.timestamp; if (!timestamp && item.curtailmentTime) { try { const parts = item.curtailmentTime.match(/(\d{2})\/(\d{2})\/(\d{4}),? (\d{2}):(\d{2})/); if(parts) { timestamp = new Date(Date.UTC(parts[3], parts[2] - 1, parts[1], parts[4], parts[5], 0)).getTime(); } else { timestamp = Date.parse(item.curtailmentTime) || 0; } if(isNaN(timestamp)) timestamp = 0; } catch { timestamp = 0; } } else if (!timestamp) { timestamp = 0; } if(timestamp > 0) { curtailmentEntries.push({ ...item, timestamp: timestamp, originalKey: key }); foundAny = true; } }); } } } curtailmentEntries.sort((a, b) => b.timestamp - a.timestamp); if (!foundAny) { allCurtailmentsHTML = '<p>No curtailments found.</p>'; } else { const currentUserRole = users[currentUsername]?.role; curtailmentEntries.forEach(item => { const displayTime = new Date(item.timestamp).toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'short', timeStyle: 'short' }); let deleteButtonHTML = ''; if (currentUserRole === 'admin') { deleteButtonHTML = `<button type="button" class="delete-curtailment-btn" onclick="deleteCurtailmentEntry('${item.originalKey}', ${item.timestamp})">Delete</button>`; } allCurtailmentsHTML += `<div> <span><strong>Route:</strong> ${item.route || 'N/A'}</span> <span><strong>Reg:</strong> ${item.regNumber || 'N/A'}</span> <span><strong>Destination:</strong> ${item.curtailedDestination || 'N/A'}</span> <span><strong>Logged:</strong> ${displayTime}</span> ${deleteButtonHTML} </div>`; }); } allCurtailmentsList.innerHTML = allCurtailmentsHTML; } catch (e) { console.error("Error loading curtailments modal:", e); allCurtailmentsList.innerHTML = '<p style="color: red;">Error loading data.</p>'; } }, 10); }
+    function hideAllCurtailmentsModal() { if(allCurtailmentsModal) { allCurtailmentsModal.classList.add('hidden'); } }
+    function deleteCurtailmentEntry(routeKey, timestampToDelete) { if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Access Denied.'); return; } if (!routeKey || !timestampToDelete) { console.error("Missing key/timestamp for deletion."); alert("Error: Cannot identify entry."); return; } let itemDetails = `Entry @ timestamp ${timestampToDelete}`; try { const allCurtailments = loadFromStorage(routeKey, []); const itemToDelete = allCurtailments.find(item => { let itemTimestamp = item.timestamp; if (!itemTimestamp && item.curtailmentTime) { try { const parts = item.curtailmentTime.match(/(\d{2})\/(\d{2})\/(\d{4}),? (\d{2}):(\d{2})/); if (parts) { itemTimestamp = new Date(Date.UTC(parts[3], parts[2] - 1, parts[1], parts[4], parts[5], 0)).getTime(); } else { itemTimestamp = Date.parse(item.curtailmentTime) || 0; } } catch { itemTimestamp = 0; } } return typeof itemTimestamp === 'number' && itemTimestamp === timestampToDelete; }); if (itemToDelete) { itemDetails = `Route: ${itemToDelete.route || 'N/A'}, Reg: ${itemToDelete.regNumber || 'N/A'}, Dest: ${itemToDelete.curtailedDestination || 'N/A'}, Time: ${new Date(timestampToDelete).toLocaleString('en-GB')}`; } } catch (e) { console.warn("Could not get details for confirmation", e); } if (confirm(`DELETE curtailment?\n\n${itemDetails}`)) { try { let routeCurtailments = loadFromStorage(routeKey, []); if (!Array.isArray(routeCurtailments)) { alert("Error loading data."); return; } let initialLength = routeCurtailments.length; const updatedCurtailments = routeCurtailments.filter(item => { let itemTimestamp = item.timestamp; if (!itemTimestamp && item.curtailmentTime) { try { const parts = item.curtailmentTime.match(/(\d{2})\/(\d{2})\/(\d{4}),? (\d{2}):(\d{2})/); if (parts) { itemTimestamp = new Date(Date.UTC(parts[3], parts[2] - 1, parts[1], parts[4], parts[5], 0)).getTime(); } else { itemTimestamp = Date.parse(item.curtailmentTime) || 0; } } catch { itemTimestamp = 0; } } return !(typeof itemTimestamp === 'number' && itemTimestamp === timestampToDelete); }); if (updatedCurtailments.length < initialLength) { saveToStorage(routeKey, updatedCurtailments); alert("Entry deleted."); showAllCurtailmentsModal(); } else { alert("Entry not found. Refreshing."); showAllCurtailmentsModal(); } } catch (e) { console.error("Error deleting entry:", e); alert("Error deleting entry."); } } }
 
-             // --- Constants ---
-             const apiUrl = `https://api.tfl.gov.uk/Line/${dynamicRouteId}/Arrivals`;
-             const curtailedBusesKey = `curtailedBusesArray_${dynamicRouteId}`;
-             const tmpMapKey = "tmpRegistrationMap";
-             const filterStateKey = `arrivalsFilterState_${dynamicRouteId}_all`;
-             const busLastSeenKey = `busLastSeenWithDest_${dynamicRouteId}`;
-             const settingsKey = "trackerGlobalSettings";
-             const defaultSettings = { debounceMinutes: 60, timeoutMinutes: 30 }; // Default timeout is 30 mins
-             const routeDestinationSettingsKey = 'routeDestinationSettings';
-             const tmpGenerationInfoKey = "tmpGenerationInfo";
-             const destinationOverrideKey = 'destinationOverrides';
-
-             // --- Update Title and Headings ---
-             document.title = `Live Tracker - Route ${dynamicRouteId}`;
-             const mainHeading = document.getElementById('main-heading');
-             if(mainHeading) mainHeading.textContent = `Live Tracker for Route ${dynamicRouteId}`;
-             const busCounterElement = document.getElementById('bus-counter');
-             if(busCounterElement) busCounterElement.textContent = `Buses on Route ${dynamicRouteId}: 0`;
-             const curtailmentsHeading = document.getElementById('curtailments-heading');
-              if(curtailmentsHeading) curtailmentsHeading.textContent = `Curtailments Today for Route ${dynamicRouteId}`;
-
-             // --- Storage Functions ---
-             function loadFromStorage(key, defaultValue = {}) { try { const data = localStorage.getItem(key); if (data) { const parsed = JSON.parse(data); if (typeof parsed === 'object' && parsed !== null) return parsed; } return defaultValue; } catch (e) { console.error(`Error loading ${key}:`, e); return defaultValue; } }
-             function saveToStorage(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(`Error saving ${key}:`, e); } }
-
-             // --- Advanced TMP Number Generation ---
-             function generateTMPNumber(registration) { const seed=12345;const combined=registration+seed.toString();let hash=0;if(combined.length===0)return"TMP0000";for(let i=0;i<combined.length;i++){const t=combined.charCodeAt(i);hash=(hash<<5)-hash+t,hash|=0}return`TMP${Math.abs(hash%1e4).toString().padStart(4,"0")}` }
-             function getTMPForRegistration(registration) { if (!registration) return 'TMP????'; let tmpMap = loadFromStorage(tmpMapKey, {}); if (typeof tmpMap !== 'object' || tmpMap === null) tmpMap = {}; if (tmpMap.hasOwnProperty(registration)) { return tmpMap[registration]; } let attempt = 0; let uniqueTMP = null; let generatedTMP; const MAX_ATTEMPTS = 100; const isTMPValueUsed = (map, tmpValue, currentReg) => { for (const reg in map) { if (map.hasOwnProperty(reg) && reg !== currentReg && map[reg] === tmpValue) { return true; } } return false; }; while (uniqueTMP === null && attempt < MAX_ATTEMPTS) { const inputForHash = attempt === 0 ? registration : `${registration}_${attempt}`; generatedTMP = generateTMPNumber(inputForHash); if (!isTMPValueUsed(tmpMap, generatedTMP, registration)) { uniqueTMP = generatedTMP; } else { console.warn(`TMP collision for ${registration}: ${generatedTMP}. Retrying...`); attempt++; } } if (uniqueTMP === null) { console.error(`Could not generate unique TMP for ${registration}.`); uniqueTMP = `ERR${Math.floor(1000 + Math.random() * 9000)}`; } tmpMap[registration] = uniqueTMP; saveToStorage(tmpMapKey, tmpMap); try { let genInfo = loadFromStorage(tmpGenerationInfoKey, {}); if (typeof genInfo !== 'object' || genInfo === null) genInfo = {}; genInfo[registration] = { route: dynamicRouteId, timestamp: Date.now() }; saveToStorage(tmpGenerationInfoKey, genInfo); } catch(e) { console.error(`Failed to save TMP generation info for ${registration}:`, e); } return uniqueTMP; }
+    // --- Manual Fleet Functions ---
+    function toggleManualFleetForm() { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; } if(manualFleetForm) { const isHidden = manualFleetForm.classList.toggle('hidden'); if(toggleManualFleetButton) toggleManualFleetButton.textContent = isHidden ? 'Assign / View Manual Fleet' : 'Hide Manual Fleet Form'; if(assignStatusElement) assignStatusElement.textContent = ''; if(revertStatusElement) revertStatusElement.textContent = ''; if (!isHidden) { displayManualAssignments(); const revertSection = document.querySelector('#manual-fleet-form .revert-section'); if (revertSection) { revertSection.classList.toggle('hidden', users[currentUsername]?.role !== 'admin'); } } } else { console.error("Manual fleet form not found"); } }
+    function displayManualAssignments() { if (!isLoggedIn || !manualAssignmentsDisplay) return; const tmpMap = loadFromStorage(tmpMapKey, {}); manualAssignmentsDisplay.innerHTML = ''; const manualEntries = []; try { if (typeof tmpMap === 'object' && tmpMap !== null) { for (const reg in tmpMap) { if (tmpMap.hasOwnProperty(reg)) { const fleet = tmpMap[reg]; if (typeof fleet === 'string' && !fleet.startsWith('TMP') && !fleet.startsWith('ERR')) { manualEntries.push({ reg: reg, fleet: fleet }); } } } } else { console.warn("TMP Map data is not a valid object."); } } catch (e) { console.error("Error processing TMP Map for display:", e); manualAssignmentsDisplay.innerHTML = '<em style="color: red;">Error loading assignments.</em>'; return; } if (manualEntries.length === 0) { manualAssignmentsDisplay.innerHTML = '<em>No manual assignments found.</em>'; } else { manualEntries.sort((a, b) => a.reg.localeCompare(b.reg)); manualEntries.forEach(entry => { const div = document.createElement('div'); div.innerHTML = `<strong>${entry.reg}:</strong> ${entry.fleet}`; manualAssignmentsDisplay.appendChild(div); }); } }
+    function assignManualFleetNumber() { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; } if (!manualRegNumberInput || !manualFleetNumberInput || !assignStatusElement) { console.error("Missing elements for manual assignment"); return; } const regNumber = manualRegNumberInput.value.trim().toUpperCase(); const realFleetNumber = manualFleetNumberInput.value.trim(); assignStatusElement.textContent = ''; if (!regNumber || !realFleetNumber) { alert('Please enter both Registration and Fleet Number.'); return; } if (realFleetNumber.startsWith('TMP') || realFleetNumber.startsWith('ERR')) { if (!confirm(`Fleet number "${realFleetNumber}" looks auto-generated. Assign manually anyway?`)) { return; } } try { let tmpMap = loadFromStorage(tmpMapKey, {}); if (typeof tmpMap !== 'object' || tmpMap === null) { tmpMap = {}; } tmpMap[regNumber] = realFleetNumber; saveToStorage(tmpMapKey, tmpMap); assignStatusElement.textContent = `Assigned Fleet# ${realFleetNumber} to ${regNumber}.`; assignStatusElement.style.color = 'green'; manualRegNumberInput.value = ''; manualFleetNumberInput.value = ''; displayManualAssignments(); manualRegNumberInput.focus(); setTimeout(() => { if(assignStatusElement) assignStatusElement.textContent = ''; }, 4000); } catch (error) { console.error("Error saving manual fleet assignment:", error); assignStatusElement.textContent = `Error saving assignment: ${error.message}`; assignStatusElement.style.color = 'red'; } }
+    function getTMPForRegistration(registration) { if (!registration) return 'TMP????'; let tmpMap = loadFromStorage(tmpMapKey, {}); if (typeof tmpMap !== 'object' || tmpMap === null) tmpMap = {}; if (tmpMap.hasOwnProperty(registration)) { return tmpMap[registration]; } let attempt = 0; let uniqueTMP = null; let generatedTMP; const MAX_ATTEMPTS = 100; const isTMPValueUsed = (map, tmpValue, currentReg) => { for (const reg in map) { if (map.hasOwnProperty(reg) && reg !== currentReg && map[reg] === tmpValue) { return true; } } return false; }; while (uniqueTMP === null && attempt < MAX_ATTEMPTS) { const inputForHash = attempt === 0 ? registration : `${registration}_${attempt}`; generatedTMP = generateTMPNumber(inputForHash); if (!isTMPValueUsed(tmpMap, generatedTMP, registration)) { uniqueTMP = generatedTMP; } else { console.warn(`TMP collision for ${registration}: ${generatedTMP}. Retrying...`); attempt++; } } if (uniqueTMP === null) { console.error(`Could not generate unique TMP for ${registration}.`); uniqueTMP = `ERR${Math.floor(1000 + Math.random() * 9000)}`; } tmpMap[registration] = uniqueTMP; saveToStorage(tmpMapKey, tmpMap); try { let genInfo = loadFromStorage(tmpGenerationInfoKey, {}); if (typeof genInfo !== 'object' || genInfo === null) genInfo = {}; genInfo[registration] = { route: "N/A", timestamp: Date.now() }; /* Store N/A for route here? Or get it? */ saveToStorage(tmpGenerationInfoKey, genInfo); } catch(e) { console.error(`Failed to save TMP generation info for ${registration}:`, e); } return uniqueTMP; }
+    function generateTMPNumber(registration) { const seed=12345;const combined=registration+seed.toString();let hash=0;if(combined.length===0)return"TMP0000";for(let i=0;i<combined.length;i++){const t=combined.charCodeAt(i);hash=(hash<<5)-hash+t,hash|=0}return`TMP${Math.abs(hash%1e4).toString().padStart(4,"0")}` }
+    function revertToTMP() { if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Access Denied.'); return; } if (!revertRegNumberInput || !revertStatusElement) { console.error("Missing elements for revert function"); return; } const regToRevert = revertRegNumberInput.value.trim().toUpperCase(); if(revertStatusElement) revertStatusElement.textContent = ''; if (!regToRevert) { alert("Please enter Registration to revert."); revertRegNumberInput.focus(); return; } let tmpMap = loadFromStorage(tmpMapKey, {}); if (typeof tmpMap !== 'object' || tmpMap === null) { tmpMap = {}; } if (!tmpMap.hasOwnProperty(regToRevert)) { if(revertStatusElement){ revertStatusElement.textContent = `Registration ${regToRevert} not found.`; revertStatusElement.style.color = 'orange'; setTimeout(() => { if(revertStatusElement) revertStatusElement.textContent = ''; }, 4000); } return; } const currentValue = tmpMap[regToRevert]; if (typeof currentValue === 'string' && (currentValue.startsWith('TMP') || currentValue.startsWith('ERR'))) { if(revertStatusElement){ revertStatusElement.textContent = `${regToRevert} already uses auto TMP/ERR.`; revertStatusElement.style.color = 'orange'; setTimeout(() => { if(revertStatusElement) revertStatusElement.textContent = ''; }, 4000); } return; } if (confirm(`Remove manual fleet number for "${regToRevert}"? System will assign auto TMP later.`)) { try { delete tmpMap[regToRevert]; saveToStorage(tmpMapKey, tmpMap); if(revertStatusElement){ revertStatusElement.textContent = `Manual assignment for ${regToRevert} removed.`; revertStatusElement.style.color = 'green'; } if(revertRegNumberInput) revertRegNumberInput.value = ''; displayManualAssignments(); revertRegNumberInput.focus(); setTimeout(() => { if(revertStatusElement) revertStatusElement.textContent = ''; }, 4000); } catch (error) { console.error("Error reverting TMP assignment:", error); if(revertStatusElement){ revertStatusElement.textContent = `Error reverting: ${error.message}`; revertStatusElement.style.color = 'red';} } } }
+    function showAutoTmpModal() { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; } if (!autoTmpModal || !autoTmpList) { console.error("Auto TMP Modal elements not found!"); return; } autoTmpList.innerHTML = '<p>Loading...</p>'; autoTmpModal.classList.remove('hidden'); try { const tmpMap = loadFromStorage(tmpMapKey, {}); const genInfo = loadFromStorage(tmpGenerationInfoKey, {}); let autoTmpEntries = []; for (const reg in tmpMap) { if (tmpMap.hasOwnProperty(reg)) { const tmpValue = tmpMap[reg]; if (typeof tmpValue === 'string' && (tmpValue.startsWith('TMP') || tmpValue.startsWith('ERR'))) { const info = genInfo[reg]; autoTmpEntries.push({ registration: reg, tmp: tmpValue, route: info?.route || 'N/A', timestamp: info?.timestamp || 0 }); } } } autoTmpEntries.sort((a, b) => a.registration.localeCompare(b.registration)); let listHTML = ''; if (autoTmpEntries.length === 0) { listHTML = '<p>No auto-generated TMP/ERR assignments found.</p>'; } else { autoTmpEntries.forEach(entry => { const timeString = entry.timestamp ? new Date(entry.timestamp).toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'short', timeStyle: 'short' }) : 'N/A'; listHTML += `<div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 5px 15px;"> <span><strong>Reg:</strong> ${entry.registration}</span> <span><strong>Assigned:</strong> ${entry.tmp}</span> <span><strong>Route Seen:</strong> ${entry.route}</span> <span><strong>Time:</strong> ${timeString}</span> </div>`; }); } autoTmpList.innerHTML = listHTML; } catch (e) { console.error("Error loading auto TMP data:", e); autoTmpList.innerHTML = '<p style="color: red;">Error loading data.</p>'; } }
+    function hideAutoTmpModal() { if (autoTmpModal) { autoTmpModal.classList.add('hidden'); } }
+    function resetTMPMap() { if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Access Denied.'); return; } if (confirm('DANGER: Reset ALL TMP assignments? Cannot undo.')) { if (!passwordModal || !passwordModalInput || !passwordModalError) { console.error("Password modal elements missing"); alert("Error: Cannot show password dialog."); return; } passwordModalInput.value = ''; passwordModalError.textContent = ''; passwordModal.classList.remove('hidden'); passwordModalInput.focus(); } }
+    function handlePasswordConfirm() { if (!isLoggedIn || !currentUsername || !users[currentUsername]) { if(passwordModalError) passwordModalError.textContent = 'Error: Cannot verify user.'; return; } if (!passwordModalInput || !passwordModalError || !passwordModal) { return; } const enteredPassword = passwordModalInput.value; const correctPassword = users[currentUsername].pass; if (enteredPassword === correctPassword) { try { localStorage.removeItem(tmpMapKey); localStorage.removeItem(tmpGenerationInfoKey); if (localStorage.getItem(tmpMapKey) === null) { alert('TMP assignment map cleared.'); console.log("SUCCESS: TMP Map cleared by user:", currentUsername); } else { alert('ERROR: Failed to verify map clearance!'); } displayManualAssignments(); passwordModal.classList.add('hidden'); } catch (e) { console.error("Error removing TMP map:", e); if(passwordModalError) passwordModalError.textContent = "Error clearing data."; } } else { passwordModalError.textContent = 'Incorrect password.'; passwordModalInput.focus(); passwordModalInput.select(); } }
+    function cancelPasswordReset() { if(passwordModal) passwordModal.classList.add('hidden'); }
 
 
-             // --- Destination Override Logic ---
-             function getEffectiveDestination(busReg, busDirectionId, originalApiDest) {
-                 const reg = String(busReg || '').toUpperCase();
-                 const routeId = dynamicRouteId;
-                 const directionId = parseInt(busDirectionId, 10); // Expects 1 or 2, or NaN if undefined
-                 const overrides = loadFromStorage(destinationOverrideKey, {});
-                 const globalOverride = overrides['*'] || null;
+    // --- Settings Section Logic ---
+    function toggleSettingsForm() {
+        if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Access Denied.'); return; }
+        if (settingsForm) {
+             const isHidden = settingsForm.classList.toggle('hidden');
+             // Clear relevant status messages when toggling
+             if(trackerSettingsMessage) trackerSettingsMessage.textContent = '';
+             if(changePasswordMessage) changePasswordMessage.textContent = '';
+             if(addUserMessage) addUserMessage.textContent = '';
+             if(userManagementMessage) userManagementMessage.textContent = '';
+             // REMOVED Destination messages clear
 
-                 // 1. Check Specific Bus Override
-                 if (overrides.hasOwnProperty(reg)) {
-                     const regOverride = overrides[reg];
-                     if (typeof regOverride === 'object' && regOverride !== null && regOverride.hasOwnProperty('dir1') && regOverride.hasOwnProperty('dir2')) {
-                         let directionalDest = null;
-                         if (directionId === 1 && regOverride.dir1) directionalDest = regOverride.dir1;
-                         else if (directionId === 2 && regOverride.dir2) directionalDest = regOverride.dir2;
-                         // Only return if directionalDest is non-empty for a valid direction
-                         if (directionalDest && (directionId === 1 || directionId === 2)) { return directionalDest; }
-                     } else if (typeof regOverride === 'string' && regOverride.trim() !== '') {
-                         console.warn(`Applying non-directional (legacy) specific override for ${reg}: "${regOverride}"`);
-                         return regOverride;
+             if (!isHidden) { // If opening settings form
+                 loadTrackerSettings(); // Load general settings
+                 if (adminUserManagementSection) { // Show/populate user mgmt if admin
+                     adminUserManagementSection.classList.remove('hidden');
+                     displayUserManagement();
+                 } else { console.error("Admin user management section element not found!"); }
+                 // REMOVED call to populateDestEditor()
+             } else { // If closing settings form
+                 if (adminUserManagementSection) { adminUserManagementSection.classList.add('hidden'); }
+             }
+             // Ensure other main forms are hidden
+             if (!addCurtailmentForm?.classList.contains('hidden')) { addCurtailmentForm.classList.add('hidden'); if(toggleAddCurtailmentButton) toggleAddCurtailmentButton.textContent = 'Add New Curtailment'; }
+             if (!manualFleetForm?.classList.contains('hidden')) { manualFleetForm.classList.add('hidden'); if(toggleManualFleetButton) toggleManualFleetButton.textContent = 'Assign / View Manual Fleet'; }
+        } else { console.error("Settings form element not found"); }
+    }
+    function loadTrackerSettings() { const s=loadFromStorage(settingsKey,defaultSettings); if(settingsDebounceInput) settingsDebounceInput.value=s.debounceMinutes??defaultSettings.debounceMinutes; if(settingsTimeoutInput) settingsTimeoutInput.value=s.timeoutMinutes??defaultSettings.timeoutMinutes; if(settingsAutoLogoutInput) settingsAutoLogoutInput.value=s.autoLogoutMinutes??defaultSettings.autoLogoutMinutes; }
+    function saveTrackerSettings() { if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Access Denied.'); return; } if(!settingsDebounceInput || !settingsTimeoutInput || !settingsAutoLogoutInput || !trackerSettingsMessage) { return; } const d=parseInt(settingsDebounceInput.value,10),t=parseInt(settingsTimeoutInput.value,10),a=parseInt(settingsAutoLogoutInput.value,10); trackerSettingsMessage.textContent = ''; if(isNaN(d)||d<0){alert("Invalid Debounce Time.");trackerSettingsMessage.textContent="Invalid Debounce Time.";trackerSettingsMessage.style.color="red";return;} if(isNaN(t)||t<1){alert("Invalid Timeout Threshold.");trackerSettingsMessage.textContent="Invalid Timeout Threshold.";trackerSettingsMessage.style.color="red";return;} if(isNaN(a)||a<0){alert("Invalid Auto Logout Time.");trackerSettingsMessage.textContent="Invalid Auto Logout Time.";trackerSettingsMessage.style.color="red";return;} const n={debounceMinutes:d,timeoutMinutes:t,autoLogoutMinutes:a}; saveToStorage(settingsKey,n); trackerSettingsMessage.textContent="Settings saved!"; trackerSettingsMessage.style.color="green"; startSessionTimer(); setTimeout(() => { if(trackerSettingsMessage) trackerSettingsMessage.textContent = ""; }, 3000); }
+    function changeMyPassword() { if(!isLoggedIn||!currentUsername){alert("Not logged in.");return;} if(!currentPasswordInput||!newPasswordInput||!confirmNewPasswordInput||!changePasswordMessage){return;} const c=currentPasswordInput.value,n=newPasswordInput.value,f=confirmNewPasswordInput.value; changePasswordMessage.textContent=''; if(!c||!n||!f){changePasswordMessage.textContent="Fill all fields.";changePasswordMessage.style.color="red";return;} if(n.length<6){changePasswordMessage.textContent="New pass >= 6 chars.";changePasswordMessage.style.color="red";return;} if(n!==f){changePasswordMessage.textContent="New passwords don't match.";changePasswordMessage.style.color="red";return;} if(users[currentUsername].pass!==c){changePasswordMessage.textContent="Incorrect current password.";changePasswordMessage.style.color="red";return;} if(n===c){changePasswordMessage.textContent="New pass same as old.";changePasswordMessage.style.color="red";return;} users[currentUsername].pass=n; saveUsersToStorage(); changePasswordMessage.textContent="Password changed!"; changePasswordMessage.style.color="green"; currentPasswordInput.value='';newPasswordInput.value='';confirmNewPasswordInput.value=''; setTimeout(()=>{if(changePasswordMessage)changePasswordMessage.textContent='';},4000); }
+    function displayUserManagement() { if(!isLoggedIn||users[currentUsername]?.role!=='admin'||!userManagementTbody)return; userManagementTbody.innerHTML='';userManagementMessage.textContent=''; Object.keys(users).forEach(u=>{const r=users[u],t=userManagementTbody.insertRow();t.insertCell().textContent=u;const c=t.insertCell();if(u==='Ryan'){c.textContent=r.role;}else{const s=document.createElement('select');s.id=`role-select-${u}`;s.innerHTML=`<option value="user" ${r.role==='user'?'selected':''}>User</option><option value="moderator" ${r.role==='moderator'?'selected':''}>Moderator</option><option value="admin" ${r.role==='admin'?'selected':''}>Admin</option>`;s.onchange=()=>changeUserRole(u,s.value);c.appendChild(s);}const p=t.insertCell();if(u!=='Ryan'){const i=document.createElement('input');i.type='password';i.id=`new-pass-${u}`;i.placeholder="New password";i.autocomplete="new-password";p.appendChild(i);}else{p.textContent='N/A';}const a=t.insertCell();if(u!=='Ryan'){const b=document.createElement('button');b.textContent='Set Pass';b.className='blue-button';b.type='button';b.onclick=()=>changeOtherUserPassword(u);a.appendChild(b);const d=document.createElement('button');d.textContent='Delete';d.className='danger-button delete-user-btn';d.type='button';d.onclick=()=>deleteUser(u);a.appendChild(d);}}); } // *** Updated to protect 'Ryan' ***
+    function addUser() { if(!isLoggedIn||users[currentUsername]?.role!=='admin'||!addUsernameInput||!addUserPasswordInput||!addUserRoleSelect||!addUserMessage)return; const u=addUsernameInput.value.trim(),p=addUserPasswordInput.value,r=addUserRoleSelect.value; addUserMessage.textContent=''; if(!u||!p){addUserMessage.textContent="Username/pass required.";addUserMessage.style.color="red";return;} if(p.length<6){addUserMessage.textContent="Pass >= 6 chars.";addUserMessage.style.color="red";return;} if(users.hasOwnProperty(u)){addUserMessage.textContent="Username exists.";addUserMessage.style.color="red";return;} if(!['user','admin','moderator'].includes(r)){addUserMessage.textContent="Invalid role.";addUserMessage.style.color="red";return;} users[u]={pass:p,role:r}; saveUsersToStorage(); addUserMessage.textContent=`User "${u}" added.`; addUserMessage.style.color="green"; addUsernameInput.value='';addUserPasswordInput.value='';addUserRoleSelect.value='user'; displayUserManagement(); setTimeout(()=>{if(addUserMessage)addUserMessage.textContent='';},4000); }
+    function changeUserRole(u,r){if(!isLoggedIn||users[currentUsername]?.role!=='admin')return; if(u==='Ryan'){alert("Cannot change Ryan's role.");displayUserManagement();return;} if(!users.hasOwnProperty(u)){alert(`User "${u}" not found.`);return;} if(!['user','admin','moderator'].includes(r)){alert("Invalid role.");return;} if(confirm(`Change role for "${u}" to "${r}"?`)){users[u].role=r;saveUsersToStorage();userManagementMessage.textContent=`Role for "${u}" updated.`;userManagementMessage.style.color="green";displayUserManagement();setTimeout(()=>{if(userManagementMessage)userManagementMessage.textContent='';},4000);}else{displayUserManagement();} } // *** Updated to protect 'Ryan' ***
+    function changeOtherUserPassword(u){if(!isLoggedIn||users[currentUsername]?.role!=='admin'||u==='Ryan')return; if(!users.hasOwnProperty(u)){alert(`User "${u}" not found.`);return;} const p=document.getElementById(`new-pass-${u}`);if(!p)return; const n=p.value; userManagementMessage.textContent=''; if(!n){userManagementMessage.textContent=`Enter password for ${u}.`;userManagementMessage.style.color="red";return;} if(n.length<6){userManagementMessage.textContent="Pass >= 6 chars.";userManagementMessage.style.color="red";return;} if(confirm(`Set new password for "${u}"?`)){users[u].pass=n;saveUsersToStorage();userManagementMessage.textContent=`Password for "${u}" updated.`;userManagementMessage.style.color="green";p.value='';setTimeout(()=>{if(userManagementMessage)userManagementMessage.textContent='';},4000);} } // *** Updated to protect 'Ryan' ***
+    function deleteUser(u){if(!isLoggedIn||users[currentUsername]?.role!=='admin'||u==='Ryan')return; if(!users.hasOwnProperty(u)){alert(`User "${u}" not found.`);return;} if(confirm(`DELETE user "${u}"? Cannot undo.`)){delete users[u];saveUsersToStorage();userManagementMessage.textContent=`User "${u}" deleted.`;userManagementMessage.style.color="green";displayUserManagement();setTimeout(()=>{if(userManagementMessage)userManagementMessage.textContent='';},4000);} } // *** Updated to protect 'Ryan' ***
+
+
+    // --- Fleet/TMP Import/Export Functions (Includes Debugging Logs) ---
+    function exportTmpMap() {
+        if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) {
+            alert('Access Denied.');
+            return;
+        }
+        try {
+            const tmpMap = loadFromStorage(tmpMapKey, {});
+            if (typeof tmpMap !== 'object' || tmpMap === null || Object.keys(tmpMap).length === 0) {
+                alert("No Fleet/TMP assignment data found in localStorage to export.");
+                return;
+            }
+
+            const jsonString = JSON.stringify(tmpMap, null, 2); // Pretty print JSON
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const a = document.createElement("a");
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            a.href = URL.createObjectURL(blob);
+            a.download = `fleet_tmp_assignments_${timestamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+            alert("Fleet/TMP assignments exported successfully!");
+
+        } catch (e) {
+            console.error("Error exporting Fleet/TMP assignments:", e);
+            alert("An error occurred during Fleet/TMP assignment export: " + e.message);
+        }
+    }
+
+    // ***** THIS VERSION INCLUDES DEBUGGING LOGS *****
+    function handleTmpImport(file) {
+        console.log('handleTmpImport function started.'); // <-- ADDED
+
+        if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) {
+            console.log('handleTmpImport: Permission check failed.'); // <-- ADDED
+            alert('Access Denied.');
+            if(importTmpInput) importTmpInput.value = ''; // Clear selection
+            return;
+        }
+        console.log('handleTmpImport: Permission check passed.'); // <-- ADDED
+
+        if (!file) {
+            console.log('handleTmpImport: File validation failed - no file.'); // <-- ADDED
+            alert("No file selected for Fleet/TMP import.");
+            return;
+        }
+        console.log(`handleTmpImport: File object received: name=${file.name}, size=${file.size}, type=${file.type}`); // <-- ADDED
+
+        if (!file.name.toLowerCase().endsWith('.json')) {
+            console.log('handleTmpImport: File validation failed - not .json.'); // <-- ADDED
+            alert("Please select a valid JSON file (.json) for Fleet/TMP import.");
+            if(importTmpInput) importTmpInput.value = ''; // Clear selection
+            return;
+        }
+        console.log('handleTmpImport: File validation passed.'); // <-- ADDED
+
+        try { // Added outer try...catch for reader setup
+            const reader = new FileReader();
+            console.log('handleTmpImport: FileReader created.'); // <-- ADDED
+
+            reader.onload = function(e) {
+                console.log('handleTmpImport: FileReader onload triggered.'); // <-- ADDED
+                try {
+                    console.log('handleTmpImport: Parsing JSON...'); // <-- ADDED
+                    const importedData = JSON.parse(e.target.result);
+                    console.log('handleTmpImport: JSON parsed successfully.'); // <-- ADDED
+
+                    // Basic validation: Ensure it's an object (map) and not null/array
+                    if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) {
+                        console.log('handleTmpImport: Imported data is not a valid object map.'); // <-- ADDED
+                        throw new Error("Imported file is not a valid JSON object map (registration -> fleet/TMP).");
+                    }
+                    console.log('handleTmpImport: Data type validation passed (is object map).'); // <-- ADDED
+
+
+                    // More specific validation (optional but good) - Check if values are strings
+                    let invalidEntries = 0;
+                    console.log('handleTmpImport: Validating entry values...'); // <-- ADDED
+                    for (const key in importedData) {
+                        if (typeof importedData[key] !== 'string') {
+                            console.warn(`handleTmpImport: Invalid non-string value found for key "${key}" during TMP import check. Removing entry.`);
+                            delete importedData[key]; // Remove invalid entry
+                            invalidEntries++;
+                        }
+                    }
+                     if (invalidEntries > 0) {
+                        console.log(`handleTmpImport: Removed ${invalidEntries} invalid entries.`); // <-- ADDED
+                        alert(`Warning: Found and removed ${invalidEntries} entries with non-string values during import validation.`);
                      }
-                 }
 
-                 // 2. Check Route-Wide Override
-                 if (overrides.hasOwnProperty(routeId)) {
-                     const routeOverride = overrides[routeId];
-                     if (typeof routeOverride === 'object' && routeOverride !== null && routeOverride.hasOwnProperty('dir1') && routeOverride.hasOwnProperty('dir2')) {
-                         let directionalDest = null;
-                         if (directionId === 1 && routeOverride.dir1) directionalDest = routeOverride.dir1;
-                         else if (directionId === 2 && routeOverride.dir2) directionalDest = routeOverride.dir2;
-                         // Only return if directionalDest is non-empty for a valid direction
-                         if (directionalDest && (directionId === 1 || directionId === 2)) { return directionalDest; }
-                     } else if (typeof routeOverride === 'string' && routeOverride.trim() !== '') {
-                         console.warn(`Applying non-directional (legacy) route override for Route ${routeId}: "${routeOverride}"`);
-                         return routeOverride;
-                     }
-                 }
+                    if (Object.keys(importedData).length === 0 && invalidEntries > 0) {
+                        console.log('handleTmpImport: No valid entries remaining after validation.'); // <-- ADDED
+                         throw new Error("No valid string entries found in the imported file after validation.");
+                    }
+                    console.log(`handleTmpImport: Entry validation complete. ${Object.keys(importedData).length} valid entries remaining.`); // <-- ADDED
 
-                 // 3. Check Global Override
-                 if (globalOverride && typeof globalOverride === 'string' && globalOverride.trim() !== '') {
-                     return globalOverride;
-                 }
+                    console.log('handleTmpImport: Asking for confirmation...'); // <-- ADDED
+                    if (!confirm("Importing will REPLACE ALL existing Fleet/TMP assignments (Registration -> Fleet/TMP map). Are you sure? This cannot be undone.")) {
+                        console.log('handleTmpImport: User cancelled import.'); // <-- ADDED
+                        if(importTmpInput) importTmpInput.value = ''; // Clear selection
+                        return;
+                    }
+                    console.log('handleTmpImport: User confirmed import.'); // <-- ADDED
 
-                 // 4. Return Original
-                 return String(originalApiDest || 'N/A');
-             }
+                    // Save the validated data, overwriting the existing map
+                    console.log('handleTmpImport: Saving data to storage...'); // <-- ADDED
+                    saveToStorage(tmpMapKey, importedData);
+                    console.log('handleTmpImport: Data saved.'); // <-- ADDED
 
+                    alert(`Fleet/TMP assignments imported successfully! ${Object.keys(importedData).length} assignments loaded. All previous assignments have been replaced.`);
 
-             // --- Curtailment Handling ---
-             function populateCurtailmentsTable() {
-                  const allCurtailments = loadFromStorage(curtailedBusesKey, []); const curtailedBusesTable = document.getElementById("curtailed-buses-table"); if (!curtailedBusesTable) return; curtailedBusesTable.innerHTML = ""; if (!Array.isArray(allCurtailments)) { curtailedBusesTable.innerHTML = `<tr><td colspan="5">Error loading curtailment data.</td></tr>`; return; } const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0); const todayTimestamp = todayStart.getTime(); const todaysCurtailments = allCurtailments.filter(c => c && c.route === dynamicRouteId && c.timestamp >= todayTimestamp); const sortedTodaysCurtailments = todaysCurtailments.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); if (sortedTodaysCurtailments.length > 0) { sortedTodaysCurtailments.forEach(bus => { const fleetNumber = getTMPForRegistration(bus.regNumber); let displayTime = 'N/A'; if (bus.timestamp && !isNaN(bus.timestamp)) { try { const dateObject = new Date(bus.timestamp); displayTime = dateObject.toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' }); } catch (e) { displayTime = bus.curtailmentTime || 'N/A'; } } else if (bus.curtailmentTime) { displayTime = bus.curtailmentTime; } const row = document.createElement("tr"); row.innerHTML = `<td>${bus.route || 'N/A'}</td><td>${fleetNumber}</td><td>${bus.regNumber || 'N/A'}</td><td>${bus.curtailedDestination || 'N/A'}</td><td>${displayTime}</td>`; curtailedBusesTable.appendChild(row); }); } else { curtailedBusesTable.innerHTML = `<tr><td colspan="5">No curtailments recorded for Route ${dynamicRouteId} today.</td></tr>`; }
-             }
+                    // Refresh the display if the manual fleet form is visible
+                    console.log('handleTmpImport: Checking if manual fleet form needs update...'); // <-- ADDED
+                    if (manualFleetForm && !manualFleetForm.classList.contains('hidden')) {
+                        console.log('handleTmpImport: Updating manual assignments display.'); // <-- ADDED
+                        displayManualAssignments();
+                    }
 
-             // --- Live Data Fetching and Processing (with Timeout Fix) ---
-             async function fetchLiveBusData() {
-                  const trackerTable = document.getElementById("tracker-table");
-                  const busCounter = document.getElementById("bus-counter");
-                  const updateTime = document.getElementById("update-time");
-                  const filterFleet = document.getElementById("filter-fleet");
-                  const filterReg = document.getElementById("filter-reg");
-                  const filterDestination = document.getElementById("filter-destination");
-                  const filterStop = document.getElementById("filter-stop");
-                  const filterArrival = document.getElementById("filter-arrival");
+                } catch (error) {
+                    console.error("Error inside handleTmpImport onload:", error); // <-- Enhanced logging
+                    alert("Error processing Fleet/TMP assignments: " + error.message);
+                } finally {
+                    console.log('handleTmpImport: FileReader onload finished.'); // <-- ADDED
+                    if(importTmpInput) importTmpInput.value = ''; // Clear selection in all cases
+                }
+            };
 
-                  if (!trackerTable || !busCounter || !updateTime || !filterFleet || !filterReg || !filterDestination || !filterStop || !filterArrival) {
-                      console.error("One or more essential page elements are missing.");
-                      return;
-                  }
+            reader.onerror = function(err) { // Capture error object
+                console.error('handleTmpImport: FileReader onerror triggered:', err); // <-- Enhanced logging
+                alert("Error reading the selected Fleet/TMP assignment file.");
+                if(importTmpInput) importTmpInput.value = ''; // Clear selection
+            };
 
-                  try {
-                       // Load settings and calculate timeout/debounce in milliseconds
-                       const loadedSettings = loadFromStorage(settingsKey, defaultSettings);
-                       const debounceMinutes = loadedSettings.debounceMinutes || defaultSettings.debounceMinutes;
-                       const timeoutMinutes = loadedSettings.timeoutMinutes || defaultSettings.timeoutMinutes;
-                       const debounceMs = debounceMinutes * 60 * 1000;
-                       const timeoutMs = timeoutMinutes * 60 * 1000;
-                       console.log(`Using timeout: ${timeoutMinutes} mins (${timeoutMs}ms)`); // Log the effective timeout
+            console.log('handleTmpImport: Calling reader.readAsText...'); // <-- ADDED
+            reader.readAsText(file);
+            console.log('handleTmpImport: Called reader.readAsText.'); // <-- ADDED
 
-                       const allDestSettings = loadFromStorage(routeDestinationSettingsKey, {});
-                       const finalDestinations = allDestSettings[dynamicRouteId] || []; // Final destinations for curtailment check
-
-                       // Fetch live data
-                       const response = await fetch(apiUrl);
-                       if (!response.ok) {
-                           if (response.status === 404) {
-                               trackerTable.innerHTML = `<tr><td colspan="5">Error: Route ${dynamicRouteId} not found by API.</td></tr>`;
-                           } else {
-                               trackerTable.innerHTML = `<tr><td colspan="5">Error fetching API data (${response.status}).</td></tr>`;
-                           }
-                           throw new Error(`API error: ${response.status}`);
-                       }
-                       const arrivals = await response.json();
-                       const now = Date.now();
-
-                       // Load persistent data
-                       let busLastSeen = loadFromStorage(busLastSeenKey, {});
-                       let tmpMap = loadFromStorage(tmpMapKey, {}); // Load TMP map for fleet numbers
-                       let allCurtailments = loadFromStorage(curtailedBusesKey, []);
-                       if (!Array.isArray(allCurtailments)) { allCurtailments = []; }
-
-                       const activeBuses = {}; // Buses currently in the API feed with future predictions
-                       let newCurtailmentDetected = false;
-
-                       // Process current arrivals from API
-                       if (arrivals && Array.isArray(arrivals) && arrivals.length > 0) {
-                           arrivals.forEach(bus => {
-                               const regNumber = bus.vehicleId;
-                               if (!regNumber) return; // Skip if no registration
-
-                               const expectedArrivalTime = new Date(bus.expectedArrival).getTime();
-                               const apiDestination = bus.destinationName || "Unknown";
-                               const apiDirectionValue = bus.direction; // 'inbound' or 'outbound' or null/other
-                               let directionId = undefined;
-                               if (apiDirectionValue === 'outbound') { directionId = 1; }
-                               else if (apiDirectionValue === 'inbound') { directionId = 2; }
-
-                               const lastSeenInfo = busLastSeen[regNumber];
-                               const previousDestination = lastSeenInfo?.destination;
-
-                               // Automatic Curtailment Detection Logic (remains the same)
-                               if (previousDestination && apiDestination && apiDestination !== previousDestination && !finalDestinations.includes(apiDestination)) {
-                                   const alreadyLoggedRecently = allCurtailments.some(c =>
-                                       c.regNumber === regNumber &&
-                                       c.curtailedDestination === apiDestination &&
-                                       c.timestamp && (now - c.timestamp) < debounceMs
-                                   );
-                                   if (!alreadyLoggedRecently) {
-                                       const logDate = new Date();
-                                       const newEntry = {
-                                           route: dynamicRouteId,
-                                           regNumber: regNumber,
-                                           curtailedDestination: apiDestination,
-                                           curtailmentTime: logDate.toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'short', timeStyle: 'short'}),
-                                           timestamp: logDate.getTime()
-                                       };
-                                       allCurtailments.push(newEntry);
-                                       newCurtailmentDetected = true;
-                                       console.log(`Auto-detected curtailment for ${regNumber} to ${apiDestination}`);
-                                   }
-                               }
-
-                               // Update last seen time and destination for this bus
-                               busLastSeen[regNumber] = { time: now, destination: apiDestination, direction: directionId }; // Store direction too if available
-
-                               // Add to active list if it has a future prediction
-                               const existingPredictionTime = activeBuses[regNumber]?.expectedArrivalTimeMs;
-                               if (!isNaN(expectedArrivalTime) && expectedArrivalTime >= now) {
-                                   // Only update if this prediction is earlier (more relevant) than one already stored for this bus
-                                   if (!existingPredictionTime || expectedArrivalTime < existingPredictionTime) {
-                                       const fleetNumber = getTMPForRegistration(regNumber);
-                                       const arrivalTimeString = new Date(expectedArrivalTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                       const displayDestination = getEffectiveDestination(regNumber, directionId, apiDestination); // Pass direction ID
-
-                                       activeBuses[regNumber] = {
-                                           fleetNumber: fleetNumber,
-                                           regNumber: regNumber,
-                                           apiDestination: apiDestination,
-                                           displayDestination: displayDestination,
-                                           stopName: bus.stationName || "Unknown",
-                                           stopArrivalTime: arrivalTimeString,
-                                           expectedArrivalTimeMs: expectedArrivalTime,
-                                           isGhost: false // Mark as active
-                                       };
-                                   }
-                               }
-                           });
-                       }
-
-                       // --- TIMEOUT FIX START ---
-                       const displayBuses = Object.values(activeBuses); // Start with buses currently active
-
-                       // Now check buses seen previously but NOT in the current active list
-                       for (const reg in busLastSeen) {
-                           if (!activeBuses[reg]) { // If not currently active...
-                               const lastSeenTime = busLastSeen[reg]?.time || 0;
-                               if (now - lastSeenTime < timeoutMs) { // ...but seen within the timeout period...
-                                   const lastDest = busLastSeen[reg]?.destination || 'Unknown';
-                                   const lastDirId = busLastSeen[reg]?.direction; // Get last known direction
-                                   const lastSeenDate = new Date(lastSeenTime);
-                                   const lastSeenTimeString = lastSeenDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-                                   // Create a "ghost" entry for display
-                                   const ghostBus = {
-                                       fleetNumber: getTMPForRegistration(reg), // Get fleet/TMP no.
-                                       regNumber: reg,
-                                       apiDestination: lastDest, // Store last known API dest
-                                       displayDestination: getEffectiveDestination(reg, lastDirId, lastDest), // Attempt override with last known direction
-                                       stopName: `(Last seen ${lastSeenTimeString})`, // Indicate status
-                                       stopArrivalTime: 'N/A', // No current ETA
-                                       expectedArrivalTimeMs: 0, // Sorts to bottom/irrelevant for time sorting
-                                       isGhost: true // Mark as ghost
-                                   };
-                                   displayBuses.push(ghostBus);
-                                   console.log(`Including ghost bus ${reg} (last seen ${lastSeenTimeString})`);
-                               }
-                           }
-                       }
-                       // --- TIMEOUT FIX END ---
+        } catch (readerSetupError) {
+            console.error('handleTmpImport: Error setting up FileReader:', readerSetupError); // <-- Added outer catch
+            alert('A critical error occurred trying to read the file.');
+            if (importTmpInput) importTmpInput.value = '';
+        }
+    }
+    // ***** END DEBUGGING VERSION *****
 
 
-                       // Update curtailments table if new ones were detected
-                       if (newCurtailmentDetected) {
-                           saveToStorage(curtailedBusesKey, allCurtailments);
-                           populateCurtailmentsTable();
-                       }
+    // --- REMOVED Manage Final Destinations Logic ---
 
-                       // Cleanup logic for buses *truly* timed out (older than timeoutMs)
-                       // This part remains mostly the same, it cleans up localStorage
-                       tmpMap = loadFromStorage(tmpMapKey, {}); // Reload TMP map in case it changed
-                       let updatedTmpMap = false;
-                       let busLastSeenUpdated = false;
-                       for (const reg in busLastSeen) {
-                           // Remove from busLastSeen if ACTUALLY timed out (older than threshold)
-                           if (now - (busLastSeen[reg]?.time || 0) > timeoutMs) {
-                               console.log(`Permanently removing timed out bus ${reg} [${dynamicRouteId}] from storage...`);
-                               delete busLastSeen[reg];
-                               busLastSeenUpdated = true;
-                               // Also remove auto-generated TMP if it exists
-                               if (tmpMap[reg] && (tmpMap[reg].startsWith('TMP') || tmpMap[reg].startsWith('ERR'))) {
-                                   delete tmpMap[reg];
-                                   updatedTmpMap = true;
-                                   // Remove generation info as well
-                                   try {
-                                       let genInfo = loadFromStorage(tmpGenerationInfoKey, {});
-                                       if (genInfo[reg]) {
-                                           delete genInfo[reg];
-                                           saveToStorage(tmpGenerationInfoKey, genInfo);
-                                           console.log(`Removed timed-out TMP generation info for ${reg}`);
-                                       }
-                                   } catch(e){ console.error(`Error removing gen info for ${reg}`, e); }
-                               }
-                           }
-                       }
-                       // Save persistent data if changes were made
-                       if (busLastSeenUpdated) {
-                           saveToStorage(busLastSeenKey, busLastSeen);
-                       }
-                       if (updatedTmpMap) {
-                           saveToStorage(tmpMapKey, tmpMap);
-                       }
+    // --- Event Listeners (Includes Debugging Logs) ---
+    if(document.getElementById('import-file-curtailments')) {
+        document.getElementById('import-file-curtailments').addEventListener('change', function() {
+            if (this.files && this.files.length > 0) { handleCurtailmentImport(this.files[0]); }
+        });
+    }
+    // ***** Listener for Fleet/TMP Import (Includes Debugging Logs) *****
+    if(importTmpInput) { // Check if the element exists
+        console.log("Attempting to add 'change' listener to importTmpInput"); // <-- ADD THIS LINE
+        importTmpInput.addEventListener('change', function() {
+            console.log("File input 'change' event triggered for TMP import."); // <-- ADD THIS LINE
+            if (this.files && this.files.length > 0) {
+                console.log("File selected:", this.files[0].name); // <-- ADD THIS LINE
+                handleTmpImport(this.files[0]);
+            } else {
+                console.log("File input event triggered, but no files found."); // <-- ADD THIS LINE
+            }
+        });
+    } else {
+        console.error("Could not find importTmpInput element to attach listener."); // <-- ADD THIS LINE
+    }
+    // ***** END Listener *****
 
+    if(document.getElementById('confirm-password')) {
+        document.getElementById('confirm-password').addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handlePasswordConfirm();
+            }
+        });
+    }
+    // REMOVED Listeners for Destination Settings
 
-                       // Sort the final list for display (e.g., by Fleet No.)
-                       // Ghosts will intermingle based on fleet no. but status is clear in the table
-                       const sortedBuses = displayBuses.sort((a, b) => (a.fleetNumber || '').localeCompare(b.fleetNumber || ''));
+    // --- Initial Load ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const loginContainerRef = document.getElementById('login-container'); const appContainerRef = document.getElementById('app-container'); if (!loginContainerRef || !appContainerRef) { console.error("CRITICAL ERROR: Containers missing."); document.body.innerHTML = '<p style="color: red;">Page loading error.</p>'; return; }
+        checkLogin();
+    });
 
-                       // Update Filter Options (using the combined displayBuses list)
-                       const options = { fleet: new Set(), reg: new Set(), destination: new Set(), stop: new Set(), arrival: new Set() };
-                       sortedBuses.forEach(bus => {
-                           options.fleet.add(bus.fleetNumber);
-                           options.reg.add(bus.regNumber);
-                           options.destination.add(bus.displayDestination);
-                           options.stop.add(bus.stopName); // Includes "(Last seen...)" for ghosts
-                           options.arrival.add(bus.stopArrivalTime); // Includes "N/A" for ghosts
-                       });
-                       const filters = [filterFleet, filterReg, filterDestination, filterStop, filterArrival];
-                       const currentFilterValues = { fleet: filterFleet.value, reg: filterReg.value, destination: filterDestination.value, stop: filterStop.value, arrival: filterArrival.value };
-                       // Clear existing options (except "All")
-                       filters.forEach(f => { if(f) while (f.options.length > 1) f.remove(1); });
-                       // Add new options from the combined list
-                       [...options.fleet].sort().forEach(val => filterFleet?.add(new Option(val, val)));
-                       [...options.reg].sort().forEach(val => filterReg?.add(new Option(val, val)));
-                       [...options.destination].sort().forEach(val => filterDestination?.add(new Option(val, val)));
-                       [...options.stop].sort().forEach(val => filterStop?.add(new Option(val, val))); // Filter by status string too
-                       [...options.arrival].sort().forEach(val => filterArrival?.add(new Option(val, val))); // Filter by ETA string too
-                       // Restore previously selected filter values if they still exist
-                       const restoreFilterValue = (el, val) => { if (el && val && [...el.options].some(opt => opt.value === val)) el.value = val; else if (el) el.value = ""; };
-                       restoreFilterValue(filterFleet, currentFilterValues.fleet);
-                       restoreFilterValue(filterReg, currentFilterValues.reg);
-                       restoreFilterValue(filterDestination, currentFilterValues.destination);
-                       restoreFilterValue(filterStop, currentFilterValues.stop);
-                       restoreFilterValue(filterArrival, currentFilterValues.arrival);
-
-                       // Populate Tracker Table (using the combined displayBuses list)
-                       trackerTable.innerHTML = ""; // Clear previous rows
-                       if (sortedBuses.length === 0) {
-                           trackerTable.innerHTML = `<tr><td colspan="5">No buses currently tracking or recently seen on Route ${dynamicRouteId}.</td></tr>`;
-                       } else {
-                           sortedBuses.forEach(bus => {
-                               const row = document.createElement("tr");
-                               // Add class for styling ghost buses
-                               if (bus.isGhost) {
-                                   row.classList.add('ghost-bus');
-                               }
-                               row.innerHTML = `
-                                   <td>${bus.fleetNumber || 'N/A'}</td>
-                                   <td>${bus.regNumber || 'N/A'}</td>
-                                   <td>${bus.displayDestination}</td>
-                                   <td>${bus.stopName || 'N/A'}</td>
-                                   <td>${bus.stopArrivalTime || 'N/A'}</td>`;
-                               trackerTable.appendChild(row);
-                           });
-                       }
-
-                       // Update counters and timestamp
-                       const busCounterElem = document.getElementById('bus-counter');
-                       if(busCounterElem) busCounterElem.textContent = `Buses on Route ${dynamicRouteId}: ${sortedBuses.length}`;
-                       if(updateTime) updateTime.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-
-                       // Apply filters to the newly populated table
-                       filterArrivalsTable();
-
-                  } catch (error) {
-                      console.error(`Error fetching/processing [${dynamicRouteId}]:`, error);
-                      // Avoid overwriting specific API error messages
-                      if (!trackerTable.innerHTML.includes("Error")) {
-                           trackerTable.innerHTML = `<tr><td colspan="5">Error updating data. Check console.</td></tr>`;
-                      }
-                  }
-             } // --- End fetchLiveBusData ---
-
-             // --- Filter Application Logic (no changes needed here) ---
-             const filterFleet = document.getElementById("filter-fleet");
-             const filterReg = document.getElementById("filter-reg");
-             const filterDestination = document.getElementById("filter-destination");
-             const filterStop = document.getElementById("filter-stop");
-             const filterArrival = document.getElementById("filter-arrival");
-             const arrivalsTableBody = document.getElementById("tracker-table");
-             function saveFilterState() { const filterState = { fleet: filterFleet ? filterFleet.value : "", reg: filterReg ? filterReg.value : "", destination: filterDestination ? filterDestination.value : "", stop: filterStop ? filterStop.value : "", arrival: filterArrival ? filterArrival.value : "" }; saveToStorage(filterStateKey, filterState); }
-             function filterArrivalsTable() { if (!arrivalsTableBody || !filterFleet || !filterReg || !filterDestination || !filterStop || !filterArrival) return; const fleetFilter = filterFleet.value; const regFilter = filterReg.value; const destinationFilter = filterDestination.value; const stopFilter = filterStop.value; const arrivalFilter = filterArrival.value; let visibleRowCount = 0; const rows = arrivalsTableBody.querySelectorAll("tr"); rows.forEach(row => { if (row.cells.length < 5) { if (fleetFilter || regFilter || destinationFilter || stopFilter || arrivalFilter) { row.style.display = "none"; } else { row.style.display = ""; } return; } const fleet = row.cells[0].textContent; const reg = row.cells[1].textContent; const destination = row.cells[2].textContent; const stop = row.cells[3].textContent; // This now includes "(Last seen...)" status
-                 const arrival = row.cells[4].textContent; // This now includes "N/A"
-                 const fleetMatch = !fleetFilter || fleet === fleetFilter; const regMatch = !regFilter || reg === regFilter; const destinationMatch = !destinationFilter || destination === destinationFilter; const stopMatch = !stopFilter || stop === stopFilter; const arrivalMatch = !arrivalFilter || arrival === arrivalFilter; const showRow = fleetMatch && regMatch && destinationMatch && stopMatch && arrivalMatch; row.style.display = showRow ? "" : "none"; if (showRow) { visibleRowCount++; } }); }
-
-             // --- Attach Event Listeners (no changes needed here) ---
-             if (filterFleet) filterFleet.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); });
-             if (filterReg) filterReg.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); });
-             if (filterDestination) filterDestination.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); });
-             if (filterStop) filterStop.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); });
-             if (filterArrival) filterArrival.addEventListener("change", () => { saveFilterState(); filterArrivalsTable(); });
-
-             // --- Initial Load Logic (no changes needed here) ---
-             function initialize() {
-                 console.log(`Initializing full tracker for route: ${dynamicRouteId}`);
-                 populateCurtailmentsTable(); // Populate curtailment table
-                 // Restore filters before first data fetch
-                 const initialFilterState = loadFromStorage(filterStateKey, {});
-                 if (initialFilterState && typeof initialFilterState === 'object' && Object.keys(initialFilterState).length > 0) {
-                     if (filterFleet) filterFleet.value = initialFilterState.fleet || "";
-                     if (filterReg) filterReg.value = initialFilterState.reg || "";
-                     if (filterDestination) filterDestination.value = initialFilterState.destination || "";
-                     if (filterStop) filterStop.value = initialFilterState.stop || "";
-                     if (filterArrival) filterArrival.value = initialFilterState.arrival || "";
-                 }
-                 fetchLiveBusData(); // Initial data fetch
-                 setInterval(fetchLiveBusData, 30000); // Set interval (30 seconds)
-             }
-
-             // --- Run Initialization ---
-              if (document.readyState === 'loading') {
-                  document.addEventListener('DOMContentLoaded', initialize);
-              } else {
-                   initialize(); // Run immediately if DOM already loaded
-              }
-
-         } // End of the main 'else' block (if dynamicRouteId was valid)
-
-     </script>
+    console.log('--- SCRIPT END REACHED ---'); // Check if script parses fully
+</script>
 </body>
 </html>

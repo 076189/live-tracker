@@ -3,51 +3,55 @@
 <head>
     <title>Mobitec Barcode Generator</title>
     <style>
+        /* --- CSS --- */
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             text-align: center;
         }
         h1, .input-container, #errorMessage, #barcodeContainer, #simplicityIndex, #explanation {
-            display: none; /* Hidden until loading finishes */
+           visibility: hidden; /* Hide initially, but keep space */
         }
         .loading-message {
             font-size: 18px;
             color: #007BFF;
             margin: 20px 0;
         }
+        .content-visible h1,
+        .content-visible .input-container,
+        .content-visible #errorMessage,
+        .content-visible #barcodeContainer,
+        .content-visible #simplicityIndex,
+        .content-visible #explanation {
+            visibility: visible; /* Make visible when body gets class */
+        }
+
         .input-container {
             width: 100%;
-            background-color: #f9f9f9; /* Light background for better visibility */
+            background-color: #f9f9f9;
             border-bottom: 1px solid #ddd;
             padding: 10px 0;
             box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
         }
-        .input-container input, .input-container button {
+        .input-container input /* Removed button selector here */ {
             font-size: 16px;
             padding: 10px;
             margin: 5px;
         }
-        .input-container button {
-            background-color: #007BFF;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .input-container button:hover {
-            background-color: #0056b3;
-        }
+        /* Removed button-specific styles */
+
         #errorMessage {
             color: red;
             margin-top: 20px;
+            min-height: 1.2em; /* Reserve space for error message */
         }
         .barcode {
             display: flex;
-            flex-direction: column-reverse; /* Stack bars from bottom to top */
+            flex-direction: column-reverse;
             align-items: center;
             justify-content: center;
-            margin: 20px auto; /* Centering barcode content */
+            margin: 20px auto;
+            min-height: 260px; /* Approx height: 2*40 + 9*20 + 10*2 margin */
         }
         .bar {
             width: 70px;
@@ -61,20 +65,18 @@
         }
         #simplicityIndex, #explanation {
             margin-top: 20px;
+             min-height: 1.2em; /* Reserve space */
         }
+        /* --- END OF CSS --- */
     </style>
 </head>
-<body>
-    <!-- Loading Screen -->
-    <div id="loadingMessage" class="loading-message">Self testing. Loading...</div>
+<body class=""> <div id="loadingMessage" class="loading-message">Self testing. Loading...</div>
 
-    <!-- Main Content -->
     <h1>Mobitec Barcode Generator</h1>
     <div class="input-container">
         <label for="numberInput">Enter a number:</label>
-        <input type="text" id="numberInput" placeholder="Enter a number (e.g., 172)" oninput="validateNumber()" />
-        <button onclick="generateBarcode()">Generate Barcode</button>
-    </div>
+        <input type="text" id="numberInput" placeholder="Enter a number (e.g., 172)" oninput="validateAndGenerate()" />
+        </div>
     <div id="errorMessage"></div>
     <div class="barcode" id="barcodeContainer"></div>
     <div id="simplicityIndex"></div>
@@ -83,100 +85,127 @@
 
     <script>
         const loadingMessage = document.getElementById("loadingMessage");
-        const mainContent = [
-            document.querySelector("h1"),
-            ...document.querySelectorAll(".input-container, #errorMessage, #barcodeContainer, #simplicityIndex, #explanation")
-        ];
         const audioPlayer = document.getElementById("audioPlayer");
 
-        // Ensure loading screen doesn't get stuck
-        let loadingTimeout = setTimeout(() => {
-            loadingMessage.style.display = "none";
-            mainContent.forEach(element => {
-                element.style.display = "block";
-            });
-        }, 5000); // Fallback maximum delay (5 seconds)
-
-        // Wait for audio to be ready
-        audioPlayer.addEventListener("canplaythrough", () => {
-            clearTimeout(loadingTimeout); // Cancel fallback timer
-            setTimeout(() => {
-                loadingMessage.style.display = "none"; // Hide loading screen
-                mainContent.forEach(element => {
-                    element.style.display = "block"; // Show main content
-                });
-                audioPlayer.play(); // Play the audio
-            }, 3000); // Minimum loading delay
-        });
-
-        // Validate input to allow only numeric values
-        function validateNumber() {
-            const inputField = document.getElementById("numberInput");
-            const nonNumericRegex = /[^0-9]/g; // Match non-numeric characters
-            inputField.value = inputField.value.replace(nonNumericRegex, ""); // Remove non-numeric characters
+        function showMainContent() {
+            if (loadingMessage) loadingMessage.style.display = "none";
+            document.body.classList.add('content-visible');
         }
 
-        // Add Enter key functionality
-        document.getElementById("numberInput").addEventListener("keydown", function (event) {
-            if (event.key === "Enter") {
-                generateBarcode();
-            }
-        });
+        let loadingTimeout = setTimeout(showMainContent, 5000);
 
-        // Barcode Generation Functionality
+        if (audioPlayer) {
+             audioPlayer.addEventListener("canplaythrough", () => {
+                 clearTimeout(loadingTimeout);
+                 setTimeout(() => {
+                     showMainContent();
+                     audioPlayer.play().catch(e => console.error("Audio play failed:", e));
+                 }, 3000);
+             });
+
+             audioPlayer.addEventListener('error', (e) => {
+                 console.error("Audio failed to load:", e);
+                 if (!document.body.classList.contains('content-visible')) {
+                      clearTimeout(loadingTimeout);
+                      loadingTimeout = setTimeout(showMainContent, 100);
+                  }
+             });
+        } else {
+             console.log("Audio player element not found, using fallback timeout.");
+             clearTimeout(loadingTimeout);
+             loadingTimeout = setTimeout(showMainContent, 100);
+        }
+
+        function validateAndGenerate() {
+            const inputField = document.getElementById("numberInput");
+            const nonNumericRegex = /[^0-9]/g;
+            if (inputField) {
+                 const start = inputField.selectionStart;
+                 const end = inputField.selectionEnd;
+                 const originalLength = inputField.value.length;
+
+                 inputField.value = inputField.value.replace(nonNumericRegex, "");
+
+                 const newLength = inputField.value.length;
+                 const diff = originalLength - newLength;
+                 if (diff > 0 && start !== null && end !== null) { // Check if start/end are numbers
+                    // Ensure cursor doesn't go below 0
+                    const newCursorPos = Math.max(0, start - diff);
+                    inputField.setSelectionRange(newCursorPos, newCursorPos);
+                 }
+
+                 generateBarcode(); // Generate barcode after validation
+             }
+        }
+
+         const numberInputField = document.getElementById("numberInput");
+         if (numberInputField) {
+             numberInputField.addEventListener("keydown", function (event) {
+                 if (event.key === "Enter") {
+                     generateBarcode();
+                 }
+             });
+         }
+
         function generateBarcode() {
             const container = document.getElementById("barcodeContainer");
             const errorMessage = document.getElementById("errorMessage");
             const simplicityIndex = document.getElementById("simplicityIndex");
             const explanation = document.getElementById("explanation");
-            const number = parseInt(document.getElementById("numberInput").value);
+            const numberInput = document.getElementById("numberInput");
 
-            // Validation: Ensure valid number
-            if (isNaN(number)) {
-                errorMessage.textContent = "Please enter a valid number!";
-                return;
+             if (!container || !errorMessage || !simplicityIndex || !explanation || !numberInput) {
+                  return;
+             }
+
+            const numberStr = numberInput.value;
+
+            if (numberStr === "") {
+                 errorMessage.textContent = "";
+                 container.innerHTML = "";
+                 simplicityIndex.innerHTML = "";
+                 explanation.innerHTML = "";
+                 return;
             }
-            if ((number < 0 || number > 255) && number !== 511) {
-                errorMessage.textContent = "Invalid number! Enter between 0–255, or 511.";
-                return;
-            }
-            if (number.toString().length > 3) {
-                errorMessage.textContent = "Please enter a maximum of 3 digits!";
-                return;
-            }
 
-            errorMessage.textContent = ""; // Clear error message
-            container.innerHTML = ""; // Clear previous barcode
-            simplicityIndex.innerHTML = ""; // Clear simplicity index
-            explanation.innerHTML = ""; // Clear explanation
+             const number = parseInt(numberStr);
 
-            // Generate Barcode
-            const binary = number.toString(2).padStart(9, "0").split("").reverse(); // Reverse binary for correct order
+             if (number < 0 || (number > 255 && number !== 511)) {
+                 errorMessage.textContent = "Invalid number! Enter between 0–255, or 511.";
+                  container.innerHTML = "";
+                  simplicityIndex.innerHTML = "";
+                  explanation.innerHTML = "";
+                 return;
+             }
 
-            // Add bars from bottom to top in reversed order
-            addBar(container, "black", "thick-bar"); // Bottom Alignment Bar
-            binary.forEach((bit) => {
-                const colorClass = bit === "1" ? "black" : "white";
-                addBar(container, colorClass, "small-bar");
-            });
-            addBar(container, "black", "small-bar"); // Top Alignment Bar
+            errorMessage.textContent = "";
+            container.innerHTML = "";
+            simplicityIndex.innerHTML = "";
+            explanation.innerHTML = "";
 
-            // Simplicity Index
-            const simplicityScore = binary.filter(bit => bit === "1").length;
+             const binaryArray = number.toString(2).padStart(9, "0").split("");
+             const reversedBinaryArray = [...binaryArray].reverse();
+
+            addBar(container, "black", "thick-bar");
+             reversedBinaryArray.forEach((bit) => {
+                 const colorClass = bit === "1" ? "black" : "white";
+                 addBar(container, colorClass, "small-bar");
+             });
+            addBar(container, "black", "small-bar");
+
+             const simplicityScore = binaryArray.filter(bit => bit === "1").length;
             simplicityIndex.textContent = `Simplicity Index: ${simplicityScore}/9`;
-
-            // Explanation of Binary Conversion
-            explanation.textContent = `The number ${number} converts to binary as ${binary.reverse().join("")}.`;
+             explanation.textContent = `The number ${number} converts to binary as ${binaryArray.join("")}.`;
         }
 
-        // Helper Function to Add Bars
         function addBar(container, colorClass, sizeClass) {
             const bar = document.createElement("div");
             bar.className = `bar ${sizeClass}`;
             bar.style.backgroundColor = colorClass === "black" ? "black" : "white";
             container.appendChild(bar);
-            return bar;
         }
+
     </script>
+
 </body>
 </html>

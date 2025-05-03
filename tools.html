@@ -2139,7 +2139,482 @@ function handleSequenceHeadingsImport(file) { if (!isLoggedIn || users[currentUs
 function exportFinalDestinations() { if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Admin Denied.'); return; } if (finalDestBackupStatus) finalDestBackupStatus.textContent = ''; try { const data = loadFromStorage(routeDestinationSettingsKey, {}); if (Object.keys(data).length === 0) { if (finalDestBackupStatus) finalDestBackupStatus.textContent = 'No data.'; alert("No final destination data to export."); return; }
     const now = new Date(); const day = now.getDate().toString().padStart(2, '0'); const month = (now.getMonth() + 1).toString().padStart(2, '0'); const year = now.getFullYear().toString().slice(-2); const hours = now.getHours().toString().padStart(2, '0'); const minutes = now.getMinutes().toString().padStart(2, '0'); const seconds = now.getSeconds().toString().padStart(2, '0'); const ts = `${day}${month}${year}-${hours}${minutes}${seconds}`;
     const json = JSON.stringify(data, null, 2); const blob = new Blob([json], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `ToolsBackup_FinalDests_${ts}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); logAdminAction("Data Exported", { type: "Final Destinations", count: Object.keys(data).length }); if (finalDestBackupStatus) { finalDestBackupStatus.textContent = 'Exported!'; setTimeout(() => finalDestBackupStatus.textContent = '', 4000); } } catch (e) { if (finalDestBackupStatus) finalDestBackupStatus.textContent = 'Export error.'; alert("Error exporting."); } }
-function handleFinalDestinationsImport(file) { if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Denied.'); if (importFinalDestInput) importFinalDestInput.value = ''; return; } if (!file) { alert("No file selected."); return; } if (finalDestBackupStatus) finalDestBackupStatus.textContent = ''; if (!file.name.toLowerCase().endsWith('.json')) { alert("Invalid file type. Please select a JSON file."); if (importFinalDestInput) importFinalDestInput.value = ''; return; } const r = new FileReader(); r.onload = function (e) { try { const data = JSON.parse(e.target.result); if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error("Not valid map/object format."); let routes = 0; for (const rt in data) { if (Object.prototype.hasOwnProperty.call(data, rt)) { routes++; if (!Array.isArray(data[rt]) || !data[rt].every(d => typeof d === 'string')) throw new Error(`Invalid data format for route ${rt}. Expecting array of strings.`); } } if (routes === 0) throw new Error("No routes found in the imported file."); if (!confirm(`Importing will REPLACE ALL existing final destinations (${routes} routes found in file). Continue?`)) { if (importFinalDestInput) importFinalDestInput.value = ''; return; } saveToStorage(routeDestinationSettingsKey, data); logAdminAction("Data Imported", { type: "Final Destinations", count: routes, fileName: file.name }); if (finalDestBackupStatus) { finalDestBackupStatus.textContent = 'Imported!'; setTimeout(() => finalDestBackupStatus.textContent = '', 4000); } alert(`Imported final destinations for ${routes} routes.`); if (settingsForm && !settingsForm.classList.contains('hidden') && typeof populateDestEditor === 'function') { populateDestEditor(); } } catch (err) { if (finalDestBackupStatus) { finalDestBackupStatus.textContent = `Import Error: ${err.message}`; } alert("Import error: " + err.message); } finally { if (importFinalDestInput) importFinalDestInput.value = ''; } }; r.onerror = function () { if (finalDestBackupStatus) { finalDestBackupStatus.textContent = 'File Read Error.'; } alert("Error reading file."); if (importFinalDestInput) importFinalDestInput.value = ''; }; r.readAsText(file); }
+// --- REPLACE the existing handleCurtailmentImport function ---
+function handleCurtailmentImport(file) {
+    if (!isLoggedIn || users[currentUsername]?.role !== 'admin') {
+        alert('Admin Denied.');
+        if (importCurtailmentsInput) importCurtailmentsInput.value = '';
+        return;
+    }
+    if (!file) { alert("No file selected."); return; }
+    if (curtailmentsBackupStatus) curtailmentsBackupStatus.textContent = '';
+    if (!file.name.toLowerCase().endsWith('.json')) {
+        alert("Invalid file type. Please select a JSON file.");
+        return;
+    }
+    const r = new FileReader();
+    r.onload = function (e) {
+        try {
+            const imp = JSON.parse(e.target.result);
+            if (typeof imp !== 'object' || imp === null || Array.isArray(imp)) { // Must be route -> array map
+                throw new Error("Not valid JSON object (expecting Route -> Array mapping).");
+            }
+
+            // *** MERGE LOGIC START ***
+            if (!confirm("Importing will MERGE curtailment data for routes found in the file.\nNew entries will be added, duplicate timestamps will be ignored.\nContinue?")) {
+                if (importCurtailmentsInput) importCurtailmentsInput.value = '';
+                return;
+            }
+
+            let impC = 0;
+            let addedCount = 0;
+            let skippedDupes = 0;
+            let skippedInvalid = 0;
+            let routesProcessed = 0;
+            const impKeys = Object.keys(imp);
+
+            for (const route of impKeys) {
+                const key = `curtailedBusesArray_${route}`;
+                const importedRouteData = imp[route];
+
+                if (!Array.isArray(importedRouteData)) {
+                    console.warn(`Skipping route ${route} in import file: data is not an array.`);
+                    continue; // Skip this route
+                }
+                routesProcessed++;
+
+                // 1. Load existing data
+                let existingData = loadFromStorage(key, []);
+                if (!Array.isArray(existingData)) {
+                     console.warn(`Existing data for route ${route} (key ${key}) is not an array. Starting fresh for this route.`);
+                     existingData = [];
+                }
+                const existingTimestamps = new Set(existingData.map(item => item.timestamp));
+
+                // 2. Validate and process imported data for this route
+                const validImportedEntries = [];
+                importedRouteData.forEach(item => {
+                    // Basic validation
+                    if (item && item.route && item.regNumber && item.curtailedDestination && (item.curtailmentTime || item.timestamp)) {
+                        // Ensure timestamp exists and is valid
+                        if (!item.timestamp || typeof item.timestamp !== 'number' || isNaN(item.timestamp) || item.timestamp <= 0) {
+                            if (item.curtailmentTime) {
+                                try {
+                                     // Attempt to parse timestamp from old string format if needed
+                                     const parts = item.curtailmentTime.match(/(\d{2})\/(\d{2})\/(\d{4}),?\s*(\d{2}):(\d{2})/);
+                                     item.timestamp = parts ? new Date(Date.UTC(parts[3], parts[2] - 1, parts[1], parts[4], parts[5])).getTime() : (Date.parse(item.curtailmentTime) || 0);
+                                     if (isNaN(item.timestamp) || item.timestamp <= 0) {
+                                        console.warn(`Skipping imported entry for route ${route}: Invalid parsed timestamp from ${item.curtailmentTime}`, item);
+                                        skippedInvalid++;
+                                        return; // Skip this item
+                                     }
+                                } catch (parseError) {
+                                    console.warn(`Skipping imported entry for route ${route}: Error parsing timestamp from ${item.curtailmentTime}`, item, parseError);
+                                    skippedInvalid++;
+                                    return; // Skip this item
+                                }
+                            } else {
+                                 console.warn(`Skipping imported entry for route ${route}: Missing or invalid timestamp`, item);
+                                 skippedInvalid++;
+                                 return; // Skip this item
+                            }
+                        }
+                        // Add if timestamp is valid and unique
+                        if (existingTimestamps.has(item.timestamp)) {
+                            skippedDupes++;
+                        } else {
+                            validImportedEntries.push(item);
+                            existingTimestamps.add(item.timestamp); // Add to set to prevent duplicates within the import file itself
+                        }
+                    } else {
+                        skippedInvalid++;
+                         console.warn(`Skipping invalid imported entry for route ${route}:`, item);
+                    }
+                });
+
+                 // 3. Combine and Save if new entries were added
+                 if (validImportedEntries.length > 0) {
+                    const mergedData = [...existingData, ...validImportedEntries];
+                    // Optional: Sort merged data by timestamp descending
+                    mergedData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                    saveToStorage(key, mergedData);
+                    addedCount += validImportedEntries.length;
+                 }
+                 impC++; // Count routes processed, even if no new data was added
+            }
+            // *** MERGE LOGIC END ***
+
+            let msg = `Merge complete for ${impC} route(s) found in file.\n`;
+            msg += `Added ${addedCount} new unique curtailment(s).\n`;
+            if (skippedDupes > 0) msg += `Skipped ${skippedDupes} duplicate entry/entries (based on timestamp).\n`;
+            if (skippedInvalid > 0) msg += `Skipped ${skippedInvalid} invalid/incomplete entry/entries.\n`;
+
+            logAdminAction("Data Merged", { type: "Curtailments", routesProcessed: impC, added: addedCount, skippedDupes: skippedDupes, skippedInvalid: skippedInvalid, fileName: file.name });
+
+            if (curtailmentsBackupStatus) {
+                curtailmentsBackupStatus.textContent = 'Merge complete.';
+                setTimeout(() => curtailmentsBackupStatus.textContent = '', 4000);
+            }
+            alert(msg);
+            if (manageCurtailmentsSection && !manageCurtailmentsSection.classList.contains('hidden')) {
+                populateManageCurtailmentsTable(); // Refresh table if visible
+            }
+
+        } catch (err) {
+            console.error("Curtailment Import/Merge Error:", err);
+            if (curtailmentsBackupStatus) {
+                curtailmentsBackupStatus.textContent = `Import Error: ${err.message}`;
+            }
+            alert("Import Error: " + err.message);
+        } finally {
+            if (importCurtailmentsInput) importCurtailmentsInput.value = ''; // Clear file input
+        }
+    };
+    r.onerror = function () {
+        if (curtailmentsBackupStatus) { curtailmentsBackupStatus.textContent = 'File Read Error.'; }
+        alert("Error reading file.");
+        if (importCurtailmentsInput) importCurtailmentsInput.value = '';
+    };
+    r.readAsText(file);
+}
+
+
+// --- REPLACE the existing handleTmpImport function ---
+function handleTmpImport(file) {
+    if (!isLoggedIn || users[currentUsername]?.role !== 'admin') {
+        alert('Admin Denied.');
+        if (importTmpInput) importTmpInput.value = '';
+        return;
+    }
+    if (!file) { alert("No file selected."); return; }
+    if (tmpBackupStatus) tmpBackupStatus.textContent = '';
+    if (!file.name.toLowerCase().endsWith('.json')) {
+        alert("Invalid file type. Please select a JSON file.");
+        if (importTmpInput) importTmpInput.value = '';
+        return;
+    }
+    const r = new FileReader();
+    r.onload = function (e) {
+        try {
+            let importedData = JSON.parse(e.target.result);
+            if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) {
+                throw new Error("Not valid map/object format.");
+            }
+
+            // Validate imported data (remove entries with non-string values)
+            let invalid = 0;
+            let importedCount = 0;
+            for (const k in importedData) {
+                if (Object.prototype.hasOwnProperty.call(importedData, k)) {
+                    if (typeof importedData[k] !== 'string') {
+                        console.warn(`Removing invalid value for key ${k} during TMP import.`);
+                        delete importedData[k];
+                        invalid++;
+                    } else {
+                        importedCount++;
+                    }
+                }
+            }
+             if (invalid > 0) {
+                 alert(`Warning: Removed ${invalid} invalid entries (non-string values) from the imported file.`);
+             }
+             if (importedCount === 0) {
+                 throw new Error("No valid Reg -> Fleet entries found in file.");
+             }
+
+            // *** MERGE LOGIC START ***
+            if (!confirm(`Importing will MERGE the Fleet/TMP map.\nAssignments from the file will be added or will OVERWRITE existing assignments for the same registration.\n(${importedCount} valid entries found in file).\nContinue?`)) {
+                if (importTmpInput) importTmpInput.value = '';
+                return;
+            }
+
+            // 1. Load existing map
+            let existingMap = loadFromStorage(tmpMapKey, {});
+            if (typeof existingMap !== 'object' || existingMap === null) { // Ensure it's an object
+                 console.warn("Existing TMP Map was not an object. Starting fresh.");
+                 existingMap = {};
+            }
+
+            // 2. Merge imported data into existing map (imported values overwrite existing ones for the same key)
+            const mergedMap = Object.assign({}, existingMap, importedData);
+            const finalCount = Object.keys(mergedMap).length;
+
+            // 3. Save merged map
+            saveToStorage(tmpMapKey, mergedMap);
+            // *** MERGE LOGIC END ***
+
+            logAdminAction("Data Merged", { type: "Fleet/TMP", importedCount: importedCount, finalCount: finalCount, fileName: file.name });
+
+            if (tmpBackupStatus) {
+                tmpBackupStatus.textContent = 'Merge complete!';
+                setTimeout(() => tmpBackupStatus.textContent = '', 4000);
+            }
+            alert(`Merged ${importedCount} assignments. Total assignments now: ${finalCount}.`);
+            if (manualFleetForm && !manualFleetForm.classList.contains('hidden')) {
+                displayManualAssignments(); // Refresh display if visible
+            }
+
+        } catch (err) {
+             console.error("TMP Import/Merge Error:", err);
+             if (tmpBackupStatus) { tmpBackupStatus.textContent = `Import Error: ${err.message}`; }
+             alert("Import error: " + err.message);
+        } finally {
+             if (importTmpInput) importTmpInput.value = '';
+        }
+    };
+    r.onerror = function () {
+        if (tmpBackupStatus) { tmpBackupStatus.textContent = 'File Read Error.'; }
+        alert("Error reading file.");
+        if (importTmpInput) importTmpInput.value = '';
+    };
+    r.readAsText(file);
+}
+
+// --- REPLACE the existing handleSequenceHeadingsImport function ---
+function handleSequenceHeadingsImport(file) {
+    if (!isLoggedIn || users[currentUsername]?.role !== 'admin') {
+        alert('Admin Denied.');
+        if (importSeqHeadingsInput) importSeqHeadingsInput.value = '';
+        return;
+    }
+    if (!file) { alert("No file selected."); return; }
+    if (seqHeadingsBackupStatus) seqHeadingsBackupStatus.textContent = '';
+    if (!file.name.toLowerCase().endsWith('.json')) {
+        alert("Invalid file type. Please select a JSON file.");
+        if (importSeqHeadingsInput) importSeqHeadingsInput.value = '';
+        return;
+    }
+    const r = new FileReader();
+    r.onload = function (e) {
+        try {
+            let importedData = JSON.parse(e.target.result);
+            if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) {
+                throw new Error("Not valid map/object format (expecting Route -> {outbound, inbound} mapping).");
+            }
+
+            // Validate imported data structure
+            let validRoutes = 0;
+            let invalidRoutes = 0;
+            for (const rt in importedData) {
+                if (Object.prototype.hasOwnProperty.call(importedData, rt)) {
+                    const d = importedData[rt];
+                    // Expecting an object with at least one string property (outbound or inbound)
+                    if (typeof d === 'object' && d !== null && (typeof d.outbound === 'string' || typeof d.inbound === 'string')) {
+                        // Ensure properties are strings if they exist
+                        if (d.outbound !== undefined && typeof d.outbound !== 'string') d.outbound = String(d.outbound);
+                         if (d.inbound !== undefined && typeof d.inbound !== 'string') d.inbound = String(d.inbound);
+                         validRoutes++;
+                    } else {
+                         console.warn(`Removing invalid sequence heading data for route ${rt} during import.`);
+                         delete importedData[rt];
+                         invalidRoutes++;
+                    }
+                }
+            }
+
+             if (invalidRoutes > 0) {
+                  alert(`Warning: Skipped ${invalidRoutes} invalid route entries from the imported file (expected format like {"184": {"outbound":"DestA", "inbound":"DestB"}}).`);
+             }
+             if (validRoutes === 0) {
+                 throw new Error("No valid sequence heading entries found in file.");
+             }
+
+            // *** MERGE LOGIC START ***
+            if (!confirm(`Importing will MERGE sequence heading overrides.\nHeadings from the file will OVERWRITE existing headings for the same route.\n(${validRoutes} valid route entries found in file).\nContinue?`)) {
+                if (importSeqHeadingsInput) importSeqHeadingsInput.value = '';
+                return;
+            }
+
+            let routesMerged = 0;
+            for (const rt in importedData) {
+                 if (Object.prototype.hasOwnProperty.call(importedData, rt)) {
+                    const key = sequenceHeadingOverrideBaseKey + rt;
+                    const importedRouteHeadings = importedData[rt];
+
+                    // 1. Load existing headings for this route
+                    let existingHeadings = loadFromStorage(key, {});
+                    if (typeof existingHeadings !== 'object' || existingHeadings === null) {
+                         existingHeadings = {};
+                    }
+
+                    // 2. Merge - imported values overwrite existing ones
+                    const mergedHeadings = Object.assign({}, existingHeadings, importedRouteHeadings);
+
+                     // Optional: Clean up - remove if both are empty after merge
+                     if ((!mergedHeadings.outbound || mergedHeadings.outbound.trim() === '') && (!mergedHeadings.inbound || mergedHeadings.inbound.trim() === '')) {
+                         localStorage.removeItem(key);
+                         console.log(`Removed empty heading override for route ${rt} after merge.`);
+                     } else {
+                         saveToStorage(key, mergedHeadings);
+                         routesMerged++;
+                     }
+                }
+            }
+            // *** MERGE LOGIC END ***
+
+            logAdminAction("Data Merged", { type: "Sequence Headings", routesProcessed: validRoutes, routesSaved: routesMerged, fileName: file.name });
+
+            if (seqHeadingsBackupStatus) {
+                seqHeadingsBackupStatus.textContent = 'Merge complete!';
+                setTimeout(() => seqHeadingsBackupStatus.textContent = '', 4000);
+            }
+            alert(`Merged sequence headings for ${routesMerged} route(s).`);
+            if (sequenceHeadingSection && !sequenceHeadingSection.classList.contains('hidden')) {
+                 displayActiveSequenceHeadings(); // Refresh list if visible
+            }
+
+        } catch (err) {
+             console.error("Sequence Heading Import/Merge Error:", err);
+             if (seqHeadingsBackupStatus) { seqHeadingsBackupStatus.textContent = `Import Error: ${err.message}`; }
+             alert("Import error: " + err.message);
+        } finally {
+             if (importSeqHeadingsInput) importSeqHeadingsInput.value = '';
+        }
+    };
+    r.onerror = function () {
+        if (seqHeadingsBackupStatus) { seqHeadingsBackupStatus.textContent = 'File Read Error.'; }
+        alert("Error reading file.");
+        if (importSeqHeadingsInput) importSeqHeadingsInput.value = '';
+    };
+    r.readAsText(file);
+}
+
+
+// --- REPLACE the existing handleFinalDestinationsImport function ---
+function handleFinalDestinationsImport(file) {
+    if (!isLoggedIn || users[currentUsername]?.role !== 'admin') {
+        alert('Admin Denied.');
+        if (importFinalDestInput) importFinalDestInput.value = '';
+        return;
+    }
+    if (!file) { alert("No file selected."); return; }
+    if (finalDestBackupStatus) finalDestBackupStatus.textContent = '';
+    if (!file.name.toLowerCase().endsWith('.json')) {
+        alert("Invalid file type. Please select a JSON file.");
+        if (importFinalDestInput) importFinalDestInput.value = '';
+        return;
+    }
+    const r = new FileReader();
+    r.onload = function (e) {
+        try {
+            const importedData = JSON.parse(e.target.result);
+            if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) {
+                throw new Error("Not valid map/object format (expecting Route -> Array of strings).");
+            }
+
+            // Validate imported data structure
+            let validRoutes = 0;
+            let invalidRoutes = 0;
+            let invalidEntries = 0;
+            for (const rt in importedData) {
+                if (Object.prototype.hasOwnProperty.call(importedData, rt)) {
+                    if (!Array.isArray(importedData[rt])) {
+                        console.warn(`Removing invalid final destination data for route ${rt} during import: Not an array.`);
+                        delete importedData[rt];
+                        invalidRoutes++;
+                    } else {
+                         // Filter out non-string or empty destinations within the array
+                         const originalLength = importedData[rt].length;
+                         importedData[rt] = importedData[rt].filter(dest => typeof dest === 'string' && dest.trim().length > 0);
+                         const removedCount = originalLength - importedData[rt].length;
+                         if (removedCount > 0) {
+                             invalidEntries += removedCount;
+                             console.warn(`Removed ${removedCount} invalid/empty destinations for route ${rt}.`);
+                         }
+                         if (importedData[rt].length > 0) {
+                             validRoutes++;
+                         } else {
+                              console.warn(`Removing route ${rt} as it has no valid destinations after filtering.`);
+                              delete importedData[rt]; // Remove route if it becomes empty
+                              invalidRoutes++; // Count it as an invalid route if it's now empty
+                         }
+                    }
+                }
+            }
+
+            if (invalidRoutes > 0 || invalidEntries > 0) {
+                 alert(`Warning: Skipped ${invalidRoutes} invalid route entries and ${invalidEntries} invalid/empty destination entries from the imported file.`);
+            }
+            if (validRoutes === 0) {
+                throw new Error("No valid Route -> Destination Array entries found in file.");
+            }
+
+            // *** MERGE LOGIC START ***
+            if (!confirm(`Importing will MERGE final destinations.\nDestinations from the file will be added to existing lists for the same route (duplicates ignored).\n(${validRoutes} valid route entries found in file).\nContinue?`)) {
+                if (importFinalDestInput) importFinalDestInput.value = '';
+                return;
+            }
+
+            // 1. Load existing settings
+            let existingSettings = loadFromStorage(routeDestinationSettingsKey, {});
+            if (typeof existingSettings !== 'object' || existingSettings === null) {
+                 existingSettings = {};
+            }
+
+            let routesTouched = 0;
+            let destinationsAdded = 0;
+
+            // 2. Iterate through imported routes and merge destinations
+            for (const routeId in importedData) {
+                 if (Object.prototype.hasOwnProperty.call(importedData, routeId)) {
+                     routesTouched++;
+                     const importedDests = importedData[routeId]; // Already validated as non-empty array of strings
+
+                     const existingDests = existingSettings[routeId] || [];
+                     if (!Array.isArray(existingDests)) { // Sanity check
+                          console.warn(`Existing data for route ${routeId} was not an array. Overwriting.`);
+                          existingSettings[routeId] = importedDests; // Replace if existing is invalid
+                          destinationsAdded += importedDests.length;
+                          continue;
+                     }
+
+                     // Combine and de-duplicate (case-insensitive)
+                     const combinedSet = new Set(existingDests.map(d => d.toLowerCase()));
+                     let addedForRoute = 0;
+                     importedDests.forEach(impDest => {
+                         if (!combinedSet.has(impDest.toLowerCase())) {
+                             existingDests.push(impDest); // Add the original casing
+                             combinedSet.add(impDest.toLowerCase());
+                             addedForRoute++;
+                         }
+                     });
+                     destinationsAdded += addedForRoute;
+
+                     // Sort the final list for consistency
+                     existingSettings[routeId] = existingDests.sort((a,b) => a.localeCompare(b));
+                 }
+            }
+
+            // 3. Save the merged settings object
+            saveToStorage(routeDestinationSettingsKey, existingSettings);
+             // *** MERGE LOGIC END ***
+
+            logAdminAction("Data Merged", { type: "Final Destinations", routesProcessed: validRoutes, routesTouched: routesTouched, destinationsAdded: destinationsAdded, fileName: file.name });
+
+            if (finalDestBackupStatus) {
+                finalDestBackupStatus.textContent = 'Merge complete!';
+                setTimeout(() => finalDestBackupStatus.textContent = '', 4000);
+            }
+            alert(`Merged final destinations. Added ${destinationsAdded} new unique destinations across ${routesTouched} route(s).`);
+            if (finalDestinationsSection && !finalDestinationsSection.classList.contains('hidden')) {
+                 populateDestEditor(); // Refresh editor if visible
+            }
+
+        } catch (err) {
+             console.error("Final Destination Import/Merge Error:", err);
+             if (finalDestBackupStatus) { finalDestBackupStatus.textContent = `Import Error: ${err.message}`; }
+             alert("Import error: " + err.message);
+        } finally {
+             if (importFinalDestInput) importFinalDestInput.value = '';
+        }
+    };
+    r.onerror = function () {
+        if (finalDestBackupStatus) { finalDestBackupStatus.textContent = 'File Read Error.'; }
+        alert("Error reading file.");
+        if (importFinalDestInput) importFinalDestInput.value = '';
+    };
+    r.readAsText(file);
+}
 
 // --- Event Listeners ---
 console.log("DEBUG: Adding event listeners.");

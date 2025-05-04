@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Mobitec Barcode Generator</title>
-    <link rel="manifest" href="manifest-barcode.json"> <link rel="apple-touch-icon" href="assets/mb-180.png">
+    <link rel="apple-touch-icon" href="assets/mb-180.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -35,15 +35,30 @@
         /* --- Bar CSS using MARGIN for spacing + BORDER for faint lines --- */
         .bar {
             width: 70px;
+            /* USE MARGIN for spacing, like in your reference code */
             margin: 2px 0;
             flex-shrink: 0;
+            /* Remove default border used for spacing */
             border: none;
-            box-sizing: border-box;
+            box-sizing: border-box; /* Good practice */
         }
+        /* No :first-child margin override needed with margin: 2px 0 */
+
+        /* Style white bars to ADD the faint top line */
         .bar.white-bar {
-             border-top: 1px solid #eee;
+             border-top: 1px solid #eee; /* Apply the light grey border */
+             /* Background color is set by inline style from JS */
+             /* Margin already applied by base .bar rule */
         }
-        .bar.black-bar { }
+
+        /* Style black bars (no border needed) */
+        .bar.black-bar {
+             /* border: none; /* Already default */
+             /* Background color is set by inline style from JS */
+             /* Margin already applied by base .bar rule */
+        }
+
+        /* Heights remain the same */
         .small-bar { height: 20px; }
         .thick-bar { height: 40px; }
         /* --- End of Bar CSS --- */
@@ -74,86 +89,48 @@
         const numberInputField = document.getElementById("numberInput");
 
         // --- Function called 5 seconds after button click ---
-        function finishLoadingAndPlaySound() {
+        function finishLoadingAndPlaySound() { // Renaming might be good if audio stays out, but fine for test
             console.log("5 second loading timer finished.");
 
-            // 1. Play the sound (Section Commented Out)
+            // --- AUDIO PLAYBACK SECTION COMMENTED OUT ---
             /*
-            if (audioPlayer) {
-                audioPlayer.currentTime = 0;
-                audioPlayer.play()
-                  .then(() => console.log("Audio playback started."))
-                  .catch(e => console.error("Audio play failed:", e));
-            } else {
-                console.log("Audio player not found.");
-            }
+            if (audioPlayer) { // ... play audio ... }
             */
 
-            // 2. Hide loading message
-            if (loadingMessage) {
-                loadingMessage.style.display = 'none';
-            }
-
-            // 3. Show main content area
+            // --- Keep UI logic ---
+            if (loadingMessage) { loadingMessage.style.display = 'none'; }
             document.body.classList.add('content-visible');
             console.log("Main content shown.");
-
-            // 4. Generate the initial barcode frame (empty input state)
-            generateBarcode();
-
-            // 5. Optional: focus the input field
-            if(numberInputField) {
-                numberInputField.focus();
-            }
+            generateBarcode(); // Generate initial frame
+            if(numberInputField) { numberInputField.focus(); }
         }
 
         // --- Main Function triggered by button click ---
         function startSiteEntry() {
-            // 1. Hide the button
             if (enterButton) enterButton.style.display = 'none';
-
-            // 2. Show the loading message
             if (loadingMessage) loadingMessage.style.display = 'block';
             console.log("Loading message shown.");
 
-            // 3. Try to "claim" audio permission (Section Commented Out)
+            // --- AUDIO PREP SECTION COMMENTED OUT ---
             /*
-            if (audioPlayer) {
-                audioPlayer.load(); // Encourage loading early
-                let promise = audioPlayer.play();
-                if (promise !== undefined) {
-                    promise.then(_ => {
-                        audioPlayer.pause();
-                        console.log("Audio permission likely obtained silently.");
-                    }).catch(error => {
-                        console.warn("Initial silent play/pause failed (might be okay):", error);
-                    });
-                }
-            }
+            if (audioPlayer) { // ... prep audio ... }
             */
 
-            // 4. Start the fixed 5-second timer for the loading period
             console.log("Starting 5 second loading timer...");
             setTimeout(finishLoadingAndPlaySound, 5000);
         }
 
         // --- Attach Event Listener to the Enter Button ---
-        if (enterButton) {
-            enterButton.addEventListener('click', startSiteEntry);
-        } else {
-             console.error("Enter button not found!");
-        }
+        if (enterButton) { enterButton.addEventListener('click', startSiteEntry); }
+        else { console.error("Enter button not found!"); }
 
-        // --- Function to validate input and regenerate barcode ---
+        // --- Other JS Functions (validateAndGenerate, generateBarcode, addBar) ---
+        // (These functions are unchanged and should still be here)
         function validateAndGenerate() {
             const inputField = document.getElementById("numberInput"); const nonNumericRegex = /[^0-9]/g;
             if (inputField) { let v=inputField.value; if(nonNumericRegex.test(v)){ const s=inputField.selectionStart; const e=inputField.selectionEnd; const o=v.length; inputField.value=v.replace(nonNumericRegex,""); const n=inputField.value.length; const d=o-n; if(d>0&&s!==null&&e!==null){ const nc=Math.max(0,s-d); setTimeout(()=>{inputField.setSelectionRange(nc,nc);},0);}} generateBarcode(); }
         }
-
-        // --- Regenerate barcode on Enter key press ---
         if (numberInputField) { numberInputField.addEventListener("keydown", function (event) { if (event.key === "Enter") { event.preventDefault(); generateBarcode(); numberInputField.blur(); } }); }
-
-        // --- Generate Barcode Function (Handles empty/invalid/valid) ---
         function generateBarcode() {
             const container = document.getElementById("barcodeContainer"); const errorMessage = document.getElementById("errorMessage"); const simplicityIndex = document.getElementById("simplicityIndex"); const explanation = document.getElementById("explanation"); const numberInput = document.getElementById("numberInput");
             if (!container) { console.error("Barcode container not found!"); return; }
@@ -171,8 +148,6 @@
             if (addWhiteBars) { for (let i = 0; i < 9; i++) { addBar(container, "white", "small-bar"); } } // DEFAULT WHITE BARS
             addBar(container, "black", "small-bar"); // TOP
         }
-
-        // --- addBar Function (Adds class for CSS targeting) ---
         function addBar(container, color, sizeClass) {
             const bar = document.createElement("div");
             const colorClass = (color === 'white') ? 'white-bar' : 'black-bar';

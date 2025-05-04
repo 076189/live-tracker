@@ -12,8 +12,30 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap" rel="stylesheet">
     <style>
+        /* --- ADD @font-face rules at the TOP --- */
+        @font-face {
+          font-family: 'NJFont Medium Web'; /* Name for CSS */
+          /* Adjust filename if yours is different */
+          src: url('fonts/NJFont-Medium.ttf') format('truetype');
+          font-weight: 500; /* Assuming Medium is 500 */
+          font-style: normal;
+          font-display: swap; /* Show fallback while loading */
+        }
+
+        @font-face {
+          font-family: 'Gill Sans MT Web'; /* Name for CSS */
+          /* Adjust filename if yours is different */
+          src: url('fonts/GillSansMT.ttf') format('truetype');
+          font-weight: normal; /* Assuming regular weight */
+          font-style: normal;
+          font-display: swap;
+        }
+        /* --- End of @font-face --- */
+
         body {
-            font-family: 'Inter', sans-serif; background-color: #e5e7eb; /* gray-200 */
+            /* Use Inter as the base/fallback */
+            font-family: 'Inter', sans-serif;
+            background-color: #e5e7eb; /* gray-200 */
             display: flex; flex-direction: column; align-items: center;
             min-height: 100vh; padding: 1rem;
         }
@@ -32,57 +54,29 @@
 
         /* --- Styles for the SCALABLE Display --- */
         .display-container {
-            /* Use viewport units for responsive width */
-            width: 90vmin; /* 90% of the smaller viewport dimension */
-            /* Use aspect-ratio to maintain shape; height becomes automatic */
-            aspect-ratio: 190 / 138;
-            /* Optional max physical width to prevent it getting HUGE on large monitors */
-            max-width: 760px;
-
-            margin: 1rem auto;
-            /* Use relative padding */
-            padding: 2vmin 4vmin; /* Adjust as needed */
-            background-color: rgb(255, 242, 0); /* Yellow background */
-            border: 1px dashed #999;
-            display: flex;
-            flex-direction: row;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden; /* Hide overflow */
-            box-sizing: border-box;
+            width: 90vmin; aspect-ratio: 190 / 138; height: auto;
+            max-width: 760px; /* Optional max physical size */
+            margin: 1rem auto; padding: 2vmin 4vmin; /* Scalable padding */
+            background-color: rgb(255, 242, 0); border: 1px dashed #999;
+            display: flex; flex-direction: row; justify-content: center; align-items: center;
+            overflow: hidden; box-sizing: border-box;
         }
          #garageCodeDisplay {
-            /* Font set by JS */
-            /* Use viewport units for font size - NEEDS TESTING/ADJUSTMENT */
-            font-size: 10vmin; /* STARTING GUESS - Adjust this value */
-            font-weight: 700;
-            color: black;
-            line-height: 1;
-            text-align: right;
-            margin-right: 0.1em; /* Keep small gap */
-            margin-top: 0;
-            margin-bottom: 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: clip;
-            flex-shrink: 0; /* Prevent shrinking if container gets too small */
+            /* Font family is now set dynamically by JS */
+            font-size: 10vmin; /* NEEDS ADJUSTMENT */ font-weight: 700; color: black;
+            line-height: 1; text-align: right; margin-right: 0.1em; margin-top: 0; margin-bottom: 0;
+            white-space: nowrap; overflow: hidden; text-overflow: clip; flex-shrink: 0;
          }
          #runningNumberDisplay {
-             /* Font set by JS */
-             /* Use viewport units for font size - NEEDS TESTING/ADJUSTMENT */
-             font-size: 28vmin; /* STARTING GUESS (kept ratio approx) - Adjust this value */
-             font-weight: 700;
-             text-align: left;
-             color: black;
-             line-height: 1;
-             margin-top: 0;
-             white-space: nowrap;
-             overflow: hidden;
-             text-overflow: clip;
+             /* Font family is now set dynamically by JS */
+             font-size: 28vmin; /* NEEDS ADJUSTMENT */ font-weight: 700; text-align: left;
+             color: black; line-height: 1; margin-top: 0;
+             white-space: nowrap; overflow: hidden; text-overflow: clip;
          }
 
         /* --- Print Styles (Remain Unchanged using fixed units) --- */
         @media print {
+            /* Default print font set on body */
             body { background-color: white !important; margin: 0; padding: 0; display: block; }
             .input-container, button { display: none !important; }
             .display-container {
@@ -91,6 +85,7 @@
                 align-items: center; display: flex; flex-direction: row; page-break-after: always;
                 overflow: visible; background-color: white !important;
             }
+            /* JS will set font-family on these for print via body */
             #garageCodeDisplay {
                 font-size: 104.543pt !important; font-weight: 700; color: black !important;
                 line-height: 1; text-align: right; margin-right: 0.1em; margin-top: 0; margin-bottom: 0;
@@ -117,8 +112,8 @@
         <div class="input-group">
             <label for="fontSelect">Font:</label>
             <select id="fontSelect">
-                <option value="'NJFont Medium', 'Inter', sans-serif">NJFont Medium</option>
-                <option value="'Gill Sans MT', 'Gill Sans', 'Inter', sans-serif">Gill Sans MT</option>
+                <option value="'NJFont Medium Web', 'Inter', sans-serif">NJFont Medium</option>
+                <option value="'Gill Sans MT Web', 'Inter', sans-serif">Gill Sans MT</option>
                 <option value="'Inter', sans-serif">Inter (Web Safe Fallback)</option>
             </select>
         </div>
@@ -128,7 +123,9 @@
     </div>
 
     <div class="display-container">
-        <div id="garageCodeDisplay">RP</div> <div id="runningNumberDisplay">204</div> </div>
+        <div id="garageCodeDisplay"></div>
+        <div id="runningNumberDisplay"></div>
+    </div>
 
     <script>
         const garageCodeInput = document.getElementById('garageCodeInput');
@@ -140,19 +137,20 @@
 
         // Function to update display
         function updateDisplay() {
-            // Update Garage Code
-            garageCodeDisplay.textContent = garageCodeInput.value.toUpperCase() || ''; // Use default if empty
+            garageCodeDisplay.textContent = garageCodeInput.value.toUpperCase() || '';
+            displayElement.textContent = inputElement.value || '---';
 
-            // Update Running Number
-            displayElement.textContent = inputElement.value || '---'; // Use placeholder if empty
-
-            // Update Font for BOTH elements AND body (for print)
+            // Get the selected font stack from the dropdown value
             const selectedFontFamily = fontSelect.value;
+
+            // Apply the selected font stack to display elements AND body
+            // NOTE: Applying to body ensures it's available for @media print styles
             displayElement.style.fontFamily = selectedFontFamily;
             garageCodeDisplay.style.fontFamily = selectedFontFamily;
-            bodyElement.style.fontFamily = selectedFontFamily; // Apply to body for print
+            bodyElement.style.fontFamily = selectedFontFamily;
 
-            // Ensure bold weight is applied (useful if font has multiple weights)
+            // Ensure bold weight is applied if needed (Inter has 700 loaded)
+            // For custom fonts, this relies on the @font-face rule having the correct weight
             displayElement.style.fontWeight = '700';
             garageCodeDisplay.style.fontWeight = '700';
         }
@@ -162,7 +160,7 @@
         inputElement.addEventListener('input', updateDisplay);
         fontSelect.addEventListener('change', updateDisplay);
 
-        // Initial display update on page load to set default/placeholder values
+        // Initial display update on page load
         document.addEventListener('DOMContentLoaded', updateDisplay);
     </script>
 

@@ -5,13 +5,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        /* Import custom fonts */
+        @font-face {
+            font-family: 'NJFont-Medium';
+            src: url('fonts/NJFont-Medium.ttf') format('truetype');
+        }
+
+        @font-face {
+            font-family: 'NJFont-Book';
+            src: url('fonts/NJFont-Book.ttf') format('truetype');
+        }
+
+        /* General styles */
         body, html { margin: 0; padding: 0; box-sizing: border-box; }
         *, *:before, *:after { box-sizing: inherit; }
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9f9f9; }
-        h1 { text-align: center; margin-bottom: 20px; }
+        body { font-family: 'NJFont-Medium', Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9f9f9; }
+        h1 { text-align: center; margin-bottom: 20px; font-family: 'NJFont-Medium', Arial, sans-serif; }
+
+        /* Search bar styles */
         #top-live-search-container { text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; position: relative; }
-        #top-live-search-input { width: 80%; max-width: 350px; padding: 10px; font-size: 1.1em; border: 1px solid #ccc; border-radius: 4px; vertical-align: middle; }
-        #top-live-search-results {
+        #search-input { width: 80%; max-width: 350px; padding: 10px; font-size: 1.1em; border: 1px solid #ccc; border-radius: 4px; vertical-align: middle; }
+
+        /* Search results dropdown */
+        #results {
             display: none;
             position: absolute;
             background-color: white;
@@ -24,14 +40,21 @@
             z-index: 10; text-align: left;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        #top-live-search-results div { padding: 8px 10px; border-bottom: 1px dotted #ccc; cursor: pointer; background-color: white; }
-        #top-live-search-results div:last-child { border-bottom: none; }
-        #top-live-search-results div:hover { background-color: #f0f0f0; }
-        #top-live-search-results strong { color: #0056b3; }
+        #results div { padding: 8px 10px; border-bottom: 1px dotted #ccc; cursor: pointer; background-color: white; }
+        #results div:last-child { border-bottom: none; }
+        #results div:hover { background-color: #f0f0f0; }
+        #results strong { color: #0056b3; }
+
+        /* Countdown content styles */
         #countdown-content { margin: 20px 0; }
         #countdown-content table { width: 100%; border-collapse: collapse; }
-        #countdown-content th, #countdown-content td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        #countdown-content th { background-color: #f4f4f4; }
+        #countdown-content th, #countdown-content td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            font-family: 'NJFont-Book', Arial, sans-serif;
+        }
+        #countdown-content th { background-color: #f4f4f4; font-family: 'NJFont-Medium', Arial, sans-serif; }
         #countdown-content tr:nth-child(even) { background-color: #f9f9f9; }
     </style>
 </head>
@@ -67,29 +90,9 @@
         let currentStopId = null;
         let updateInterval = null;
 
-        // Restore state from localStorage
-        window.addEventListener('load', () => {
-            const savedStopId = localStorage.getItem('currentStopId');
-            const savedStopName = localStorage.getItem('currentStopName');
-            const savedInput = localStorage.getItem('searchInput');
-
-            if (savedInput) {
-                searchInput.value = savedInput;
-            }
-
-            if (savedStopId && savedStopName) {
-                currentStopId = savedStopId;
-                stopNameHeader.textContent = savedStopName;
-                fetchArrivals();
-                updateInterval = setInterval(fetchArrivals, 30000); // Update every 30 seconds
-            }
-        });
-
         // Search for stops
         searchInput.addEventListener('input', async () => {
             const query = searchInput.value.trim();
-            localStorage.setItem('searchInput', query); // Save search input to localStorage
-
             if (query.length < 3) {
                 resultsDiv.innerHTML = '';
                 resultsDiv.style.display = 'none';
@@ -128,13 +131,7 @@
         // Select a stop
         window.selectStop = async (stopId, stopName, towards) => {
             currentStopId = stopId;
-            const displayName = `${stopName} ${towards ? `towards ${towards}` : ''}`;
-            stopNameHeader.textContent = displayName;
-
-            // Save the selected stop details to localStorage
-            localStorage.setItem('currentStopId', stopId);
-            localStorage.setItem('currentStopName', displayName);
-
+            stopNameHeader.textContent = `${stopName} ${towards ? `towards ${towards}` : ''}`;
             resultsDiv.innerHTML = '';
             resultsDiv.style.display = 'none';
             arrivalsTable.style.display = 'none';

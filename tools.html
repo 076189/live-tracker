@@ -1540,82 +1540,31 @@ function checkLogin() {
     console.log("DEBUG: --- checkLogin finished ---");
 }
 function login() {
-    console.log("DEBUG: --- login ---");
-    const usernameInputEl = getElement('username');
-    const passwordInputEl = getElement('password');
-    const stayLoggedInCheckbox = getElement('stayLoggedInCheckbox');
-    const loginErrorEl = getElement('login-error');
+  const email = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
 
-    // Basic validation of elements
-    if (!usernameInputEl || !passwordInputEl || !stayLoggedInCheckbox || !loginErrorEl) {
-        console.error("DEBUG: Login form elements missing.");
-        if (loginErrorEl) loginErrorEl.textContent = 'Login UI error.'; return;
-    }
-
-    const usernameInput = usernameInputEl.value.trim();
-    const passwordInput = passwordInputEl.value; // Don't trim password
-    const stayLoggedIn = stayLoggedInCheckbox.checked;
-
-    loginErrorEl.textContent = ''; // Clear previous errors
-
-    // Ensure users are loaded
-    if (Object.keys(users).length === 0) {
-        console.log("DEBUG: Users object empty, attempting reload.");
-        loadUsers();
-        if (Object.keys(users).length === 0) {
-            loginErrorEl.textContent = 'Login service unavailable. Cannot load users.';
-            console.error("DEBUG: Cannot login, users object still empty after reload."); return;
-        }
-    }
-
-    // Check if user exists
-    if (!Object.prototype.hasOwnProperty.call(users, usernameInput)) {
-        loginErrorEl.textContent = 'Invalid username or password.';
-        const tempUsernameForLog = usernameInput || 'Empty Username'; // Avoid logging null/empty directly
-        logAdminAction("Login Failed (Unknown User)", { targetUser: tempUsernameForLog });
-        isLoggedIn = false; currentUsername = null; return;
-    }
-
-    const userData = users[usernameInput];
-
-    // Check password
-    if (userData.pass === passwordInput) {
-        // Check suspension status
-        if (userData.isSuspended) {
-            loginErrorEl.textContent = 'Account suspended. Please contact an administrator.';
-            logAdminAction("Login Failed (Suspended)", { targetUser: usernameInput });
-            isLoggedIn = false; currentUsername = null; return;
-        }
-
-        // Login successful
-        console.log(`DEBUG: Login successful for user: ${usernameInput}`);
-        isLoggedIn = true; currentUsername = usernameInput;
-        logAdminAction("Login Success");
-
-        // Set persistent login state in localStorage
-        localStorage.setItem('isLoggedIn', 'true'); localStorage.setItem('loggedInUser', usernameInput);
-
-        // Handle "Stay logged in" - affects session timer
-        if (stayLoggedIn) {
-            console.log("DEBUG: Setting bypassAutoLogout flag in sessionStorage.");
-            sessionStorage.setItem('bypassAutoLogout', 'true');
-        } else {
-            console.log("DEBUG: Removing bypassAutoLogout flag from sessionStorage.");
-            sessionStorage.removeItem('bypassAutoLogout');
-        }
-
-        showApp(); // Show the main application
-
-    } else {
-        // Incorrect password
-        loginErrorEl.textContent = 'Invalid username or password.';
-        logAdminAction("Login Failed (Password)", { targetUser: usernameInput });
-        isLoggedIn = false; currentUsername = null;
-        // Ensure bypass flag is removed on failed attempt
-        sessionStorage.removeItem('bypassAutoLogout');
-    }
-    console.log("DEBUG: --- login finished ---");
+  firebase.auth().signInWithEmailAndPassword(email, password)
+    .then((userCredential) => {
+      console.log("User logged in:", userCredential.user);
+      document.getElementById('login-container').classList.add('hidden');
+      document.getElementById('app-container').classList.remove('hidden');
+    })
+    .catch((error) => {
+      console.error("Login error:", error);
+      document.getElementById('login-error').textContent = "Invalid login credentials.";
+    });
 }
+firebase.auth().onAuthStateChanged((user) => {
+  if (user) {
+    console.log("User is logged in:", user);
+    document.getElementById('login-container').classList.add('hidden');
+    document.getElementById('app-container').classList.remove('hidden');
+  } else {
+    document.getElementById('login-container').classList.remove('hidden');
+    document.getElementById('app-container').classList.add('hidden');
+  }
+});
+
 function logout() {
     console.log("DEBUG: --- logout ---");
     if (isLoggedIn && currentUsername) { logAdminAction("Logout"); }
@@ -2063,77 +2012,25 @@ function addCurtailment() {
         setTimeout(() => { if (addCurtailmentMessage) addCurtailmentMessage.textContent = ''; }, 3000);
     } catch (e) { console.error("DEBUG: Error saving curtailment:", e); alert('An error occurred while saving the curtailment.'); addCurtailmentMessage.textContent = 'Error saving curtailment.'; addCurtailmentMessage.style.color = 'red'; }
 }
-function populateManageCurtailmentsTable() {
-    console.log("DEBUG: populateManageCurtailmentsTable called.");
-    if (!isLoggedIn || !manageCurtailmentsTableBody) { console.warn("DEBUG: Cannot populate curtailments table - not logged in or table body missing."); if (manageCurtailmentsTableBody) manageCurtailmentsTableBody.innerHTML = '<tr><td colspan="6">Error: Table cannot be loaded.</td></tr>'; return; }
-    manageCurtailmentsTableBody.innerHTML = '<tr><td colspan="6">Loading curtailment data...</td></tr>';
-    if (manageCurtailmentsMessage) manageCurtailmentsMessage.textContent = '';
+function populateCurtailmentsTable() {
+  firebase.database().ref('curtailments').on('value', (snapshot) => {
+    const curtailments = snapshot.val();
+    const tableBody = document.getElementById('manage-curtailments-tbody');
+    if (!tableBody) return;
 
-    setTimeout(() => { // Allow UI update before potentially long loop
-        try {
-            let allCurtailmentEntries = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith("curtailedBusesArray_")) {
-                    const routeData = loadFromStorage(key, []);
-                    if (Array.isArray(routeData)) {
-                        routeData.forEach(item => {
-                            if (item && typeof item === 'object' && item.regNumber) {
-                                // Ensure timestamp is valid number, attempt parse if needed
-                                if (typeof item.timestamp !== 'number' || item.timestamp <= 0) {
-                                    try {
-                                        if (item.curtailmentTime) { // Attempt to parse from old string format
-                                            const parts = item.curtailmentTime.match(/(\d{2})\/(\d{2})\/(\d{4}),?\s*(\d{2}):(\d{2})/);
-                                            item.timestamp = parts ? new Date(Date.UTC(parts[3], parts[2] - 1, parts[1], parts[4], parts[5])).getTime() : (Date.parse(item.curtailmentTime) || 0);
-                                        } else { item.timestamp = 0; }
-                                        if(isNaN(item.timestamp)) item.timestamp = 0; // Ensure it's a number or 0
-                                    } catch (parseError) { console.warn(`Error parsing date for curtailment item:`, item, parseError); item.timestamp = 0; }
-                                }
-                                // Add only if timestamp is valid
-                                if (typeof item.timestamp === 'number' && item.timestamp > 0) { allCurtailmentEntries.push({ ...item, originalKey: key }); }
-                                else { console.warn("Skipping curtailment entry due to invalid/missing timestamp:", item); }
-                            } else { console.warn("Skipping invalid curtailment entry:", item); }
-                        });
-                    } else { console.warn(`DEBUG: Data for key ${key} was not an array.`); }
-                }
-            }
-            allCurtailmentEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); // Sort newest first
-
-            let tableHtml = ''; const canManage = ['admin', 'moderator'].includes(users[currentUsername]?.role);
-            const escapeHtml = (unsafe) => { if (unsafe === null || typeof unsafe === 'undefined') return 'N/A'; return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); };
-
-            if (allCurtailmentEntries.length === 0) { tableHtml = '<tr><td colspan="6">No curtailments recorded.</td></tr>'; }
-            else {
-                allCurtailmentEntries.forEach(item => {
-                    const displayTime = item.timestamp ? new Date(item.timestamp).toLocaleString('en-GB', {}) : 'Invalid Date';
-                    let fleetNumber = 'N/A'; if (typeof getTMPForRegistration === 'function') { fleetNumber = getTMPForRegistration(item.regNumber); }
-                    // Conditionally show checkbox based on role
-                    const checkboxCell = canManage ? `<td><input type="checkbox" class="curtailment-checkbox" data-key="${escapeHtml(item.originalKey)}" data-timestamp="${item.timestamp}"></td>` : '<td></td>'; // Empty cell if not manager
-                    tableHtml += `<tr>${checkboxCell}<td>${escapeHtml(item.route)}</td><td>${escapeHtml(fleetNumber)}</td><td>${escapeHtml(item.regNumber)}</td><td>${escapeHtml(item.curtailedDestination)}</td><td>${escapeHtml(displayTime)}</td></tr>`;
-                });
-            }
-            manageCurtailmentsTableBody.innerHTML = tableHtml;
-
-            // Show/hide management controls based on role and data presence
-            const showManagementControls = canManage && allCurtailmentEntries.length > 0;
-            if (selectAllCheckbox) { selectAllCheckbox.classList.toggle('hidden', !showManagementControls); selectAllCheckbox.checked = false; selectAllCheckbox.disabled = !showManagementControls; const headerCell = selectAllCheckbox.closest('th'); if (headerCell) headerCell.style.visibility = showManagementControls ? 'visible' : 'hidden'; }
-            if (deleteSelectedButton) { deleteSelectedButton.classList.toggle('hidden', !showManagementControls); deleteSelectedButton.disabled = true; } // Start disabled until items selected
-            if (deleteSelectedContainer) { deleteSelectedContainer.classList.toggle('hidden', !showManagementControls); }
-            // Ensure checkbox cells visibility matches header
-             manageCurtailmentsTableBody.querySelectorAll('tr td:first-child').forEach(td => { td.style.visibility = canManage ? 'visible' : 'hidden'; });
-             // Add event listeners to enable/disable delete button
-             if(canManage) {
-                 manageCurtailmentsTableBody.querySelectorAll('.curtailment-checkbox').forEach(cb => {
-                     cb.addEventListener('change', () => {
-                         const anyChecked = manageCurtailmentsTableBody.querySelectorAll('.curtailment-checkbox:checked').length > 0;
-                         if(deleteSelectedButton) deleteSelectedButton.disabled = !anyChecked;
-                         if(selectAllCheckbox) selectAllCheckbox.checked = manageCurtailmentsTableBody.querySelectorAll('.curtailment-checkbox:not(:checked)').length === 0;
-                     });
-                 });
-             }
-
-        } catch (e) { console.error("DEBUG: Error populating curtailments table:", e); manageCurtailmentsTableBody.innerHTML = '<tr><td colspan="6" style="color:red;">Error loading curtailment data. Please try again.</td></tr>'; }
-    }, 10);
+    if (curtailments) {
+      tableBody.innerHTML = Object.values(curtailments).map(curtailment => `
+        <tr>
+          <td>${curtailment.route}</td>
+          <td>${curtailment.regNumber}</td>
+          <td>${curtailment.curtailedDestination}</td>
+          <td>${curtailment.curtailmentTime}</td>
+        </tr>
+      `).join('');
+    } else {
+      tableBody.innerHTML = '<tr><td colspan="4">No curtailments found.</td></tr>';
+    }
+  });
 }
 function handleSelectAllCurtailments() {
      if (!selectAllCheckbox || !manageCurtailmentsTableBody) { console.warn("DEBUG: Cannot handle select all - checkbox or table body missing."); return; }
@@ -2141,6 +2038,13 @@ function handleSelectAllCurtailments() {
      if(deleteSelectedButton) deleteSelectedButton.disabled = !isChecked; // Enable/disable delete based on select all
      console.log(`DEBUG: Set all curtailment checkboxes to ${isChecked}.`);
 }
+function saveUserToFirebase(username, password, role) {
+  const userData = { username, password, role }; // Hash passwords in production!
+  firebase.database().ref(`users/${username}`).set(userData)
+    .then(() => console.log(`User ${username} saved successfully.`))
+    .catch(error => console.error("Error saving user:", error));
+}
+
 // --- Modify deleteSelectedCurtailments ---
 function deleteSelectedCurtailments() {
     // *** ADD Permission Check ***
@@ -2814,46 +2718,25 @@ function displayUserManagement() { // Populates the user management table
     });
 }
 // --- Modify addUser function ---
-function addUser() {
-    if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert("Admin privileges required."); return;}
-    if (!addUsernameInput || !addUserPasswordInput || !addUserRoleSelect || !addUserMessage) { console.error("Add user elements missing."); return;}
-    const newU = addUsernameInput.value.trim(), newP = addUserPasswordInput.value, newR = addUserRoleSelect.value;
-    addUserMessage.textContent = ''; // Clear status
+function fetchUsersFromFirebase() {
+  firebase.database().ref('users').on('value', (snapshot) => {
+    const users = snapshot.val();
+    const tableBody = document.getElementById('user-management-tbody');
+    if (!tableBody) return;
 
-    if (!newU || !newP) { addUserMessage.textContent = "Username and Password required."; addUserMessage.style.color='red'; return; }
-    if (newP.length < 6) { addUserMessage.textContent = "Password must be at least 6 characters."; addUserMessage.style.color='red'; return; }
-    if (Object.prototype.hasOwnProperty.call(users, newU)) { addUserMessage.textContent = "Username already exists."; addUserMessage.style.color='red'; return; }
-    if (!['user', 'admin', 'moderator'].includes(newR)) { addUserMessage.textContent = "Invalid role selected."; addUserMessage.style.color='red'; return; }
-
-    // *** ADDED: Initialize permissions object ***
-    const initialPermissions = {};
-    PERMISSIONS_LIST.forEach(perm => {
-        // Optionally grant some permissions by default based on role
-        // Example: Grant curtailment management to new moderators/admins
-        if (perm.key === 'canManageCurtailments' && (newR === 'admin' || newR === 'moderator')) {
-             initialPermissions[perm.key] = true;
-        } else {
-             initialPermissions[perm.key] = false; // Default to false
-        }
-        // Add more role-based defaults here if needed
-    });
-    // *** END ADDED ***
-
-    // Add user with permissions
-    users[newU] = {
-        pass: newP,
-        role: newR,
-        permissions: initialPermissions, // Use initialized permissions
-        isSuspended: false
-    };
-    saveUsersToStorage(); // Save updated user list
-    logAdminAction("User Added", { newUser: newU, role: newR }); // Log action
-
-    addUserMessage.textContent = `User "${newU}" added successfully.`; addUserMessage.style.color = "green";
-    // Clear form and refresh table
-    addUsernameInput.value = ''; addUserPasswordInput.value = ''; addUserRoleSelect.value = 'user';
-    displayUserManagement(); // Refresh the user list table
-    setTimeout(() => { if(addUserMessage) addUserMessage.textContent = ''; }, 4000);
+    if (users) {
+      tableBody.innerHTML = Object.values(users).map(user => `
+        <tr>
+          <td>${user.username}</td>
+          <td>${user.role}</td>
+          <td>Active</td>
+          <td><!-- Add action buttons here --></td>
+        </tr>
+      `).join('');
+    } else {
+      tableBody.innerHTML = '<tr><td colspan="4">No users found.</td></tr>';
+    }
+  });
 }
 function changeUserRole(username, newRole) {
      if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert("Admin privileges required."); return; }

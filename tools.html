@@ -862,6 +862,28 @@
              </div>
          </div>
     </div>
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyBke752zFDK9NPtqA-K0AHxSO7VN5NpCfI",
+    authDomain: "tracker-9af4c.firebaseapp.com",
+    projectId: "tracker-9af4c",
+    storageBucket: "tracker-9af4c.firebasestorage.app",
+    messagingSenderId: "549969560615",
+    appId: "1:549969560615:web:835c0981bd72e1c459ba02"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+</script>
+<script src="https://www.gstatic.com/firebasejs/9.16.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.16.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.16.0/firebase-auth-compat.js"></script>
 
     <script>
     /* jshint esversion: 11, browser: true */ // Add JSHint directives
@@ -936,6 +958,72 @@ function hasPermission(permissionKey) {
  * Opens the modal for setting a new password for a specific user.
  * @param {string} username - The username of the user to modify.
  */
+function addCurtailmentToFirebase(route, regNumber, curtailedDestination, curtailmentTime) {
+  const curtailmentData = {
+    route,
+    regNumber,
+    curtailedDestination,
+    curtailmentTime
+  };
+  firebase.database().ref('curtailments').push(curtailmentData)
+    .then(() => {
+      console.log("Curtailment added successfully.");
+    })
+    .catch((error) => {
+      console.error("Error adding curtailment:", error);
+    });
+}
+function fetchCurtailmentsFromFirebase() {
+  firebase.database().ref('curtailments').on('value', (snapshot) => {
+    const curtailments = snapshot.val();
+    if (curtailments) {
+      console.log("Curtailments fetched:", curtailments);
+      // Populate the curtailments table in tools.html
+    } else {
+      console.log("No curtailments found.");
+    }
+  });
+}
+function addBusDataToFirebase(busData) {
+  firebase.database().ref(`busTracking/${busData.regNumber}`).set(busData)
+    .then(() => {
+      console.log("Bus data added successfully.");
+    })
+    .catch((error) => {
+      console.error("Error adding bus data:", error);
+    });
+}
+function fetchBusDataFromFirebase() {
+  firebase.database().ref('busTracking').on('value', (snapshot) => {
+    const buses = snapshot.val();
+    if (buses) {
+      console.log("Bus data fetched:", buses);
+      // Update the bus tracking table in tracker.html
+    } else {
+      console.log("No bus data found.");
+    }
+  });
+}
+function loginUser(email, password) {
+  firebase.auth().signInWithEmailAndPassword(email, password)
+    .then((userCredential) => {
+      console.log("User signed in:", userCredential.user);
+      // Show the tools section
+    })
+    .catch((error) => {
+      console.error("Error signing in:", error);
+    });
+}
+firebase.auth().onAuthStateChanged((user) => {
+  if (user) {
+    console.log("User is logged in:", user);
+    // Show restricted sections
+  } else {
+    console.log("No user is logged in.");
+    // Redirect to login page
+  }
+});
+
 function openSetPasswordModal(username) {
     console.log(`DEBUG: openSetPasswordModal called for user: ${username}`);
     // Permission Check (redundant if button is disabled, but good practice)
@@ -1075,57 +1163,62 @@ function confirmSetPassword() {
 }
 
 // --- Storage Helpers (from tools.html) ---
-function loadFromStorage(key, defaultValue = {}) {
-    // console.log(`DEBUG: loadFromStorage called for key: ${key}`);
-    try {
-        const data = localStorage.getItem(key);
-        if (data) {
-            const parsed = JSON.parse(data);
-            if (key === auditLogKey && !Array.isArray(parsed)) { console.warn(`Audit log data for key ${key} is not an array...`); return defaultValue; }
-            // Improved type checking
-            if ((typeof parsed === typeof defaultValue && parsed !== null) || (Array.isArray(parsed) && Array.isArray(defaultValue)) || (defaultValue === null && parsed === null)) {
-                return parsed;
-            } else {
-                console.warn(`DEBUG: Data type mismatch or unexpected null for key ${key}. Expected type similar to default (${typeof defaultValue}), got ${typeof parsed}. Returning default.`);
-                return defaultValue;
-            }
-        }
-        return defaultValue;
-    } catch (e) {
-        console.error(`DEBUG: Error loading ${key}:`, e);
-        // Specific handling for audit log which expects an array
-        if (key === auditLogKey && Array.isArray(defaultValue)) { return []; }
-        return defaultValue;
-    }
+function loadFromFirebase(key, callback) {
+  firebase.database().ref(key).once('value')
+    .then((snapshot) => {
+      callback(snapshot.val());
+    })
+    .catch((error) => {
+      console.error(`Error loading ${key} from Firebase:`, error);
+    });
 }
-function saveToStorage(key, data) {
-    // console.log(`DEBUG: saveToStorage called for key: ${key}`);
-    try {
-        const stringifiedData = JSON.stringify(data);
-        localStorage.setItem(key, stringifiedData);
-    } catch (e) {
-        console.error(`DEBUG: Error saving ${key}:`, e);
-        // Avoid alerting for audit log errors
-        if (key !== auditLogKey) {
-            alert(`Error saving data for ${key}. Data might be lost or storage might be full.`);
-        } else {
-             console.error("Could not save audit log entry.");
-        }
-    }
+function saveToFirebase(key, data) {
+  firebase.database().ref(key).set(data)
+    .then(() => {
+      console.log(`${key} saved successfully to Firebase.`);
+    })
+    .catch((error) => {
+      console.error(`Error saving ${key} to Firebase:`, error);
+    });
 }
-function saveUsersToStorage() { // Specific user saving function
-    console.log("DEBUG: saveUsersToStorage function called.");
-    try {
-        if (typeof users === 'object' && users !== null) {
-            localStorage.setItem(usersStorageKey, JSON.stringify(users));
-        } else {
-            console.error("DEBUG: Attempted to save non-object as users. Resetting to default.");
-            setDefaultUsers(); // Fallback to ensure valid structure
-        }
-    } catch (e) {
-        console.error("DEBUG: Error saving users:", e);
-        alert("Error: Could not save user data.");
-    }
+function saveUserToFirebase(username, password, role) {
+  const userData = {
+    username: username,
+    password: password, // Ideally, hash the password before saving it
+    role: role
+  };
+
+  // Save user data under the 'users' node in Firebase
+  firebase.database().ref(`users/${username}`).set(userData)
+    .then(() => {
+      console.log(`User ${username} saved successfully.`);
+      displayStatusMessage("User saved successfully.", "success");
+    })
+    .catch((error) => {
+      console.error("Error saving user:", error);
+      displayStatusMessage("Failed to save user. Please try again.", "error");
+    });
+}
+
+// Example usage when adding a new user
+function addUser() {
+  const username = document.getElementById('add-username').value.trim();
+  const password = document.getElementById('add-user-password').value.trim();
+  const role = document.getElementById('add-user-role').value;
+
+  if (!username || !password || !role) {
+    displayStatusMessage("Please fill out all fields.", "error");
+    return;
+  }
+
+  saveUserToFirebase(username, password, role);
+}
+
+// Utility function to display status messages
+function displayStatusMessage(message, type) {
+  const statusElement = document.getElementById('add-user-message');
+  statusElement.textContent = message;
+  statusElement.style.color = type === "success" ? "green" : "red";
 }
 
 // --- Audit Log Function (from tools.html) ---

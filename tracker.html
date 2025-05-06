@@ -4,9 +4,9 @@
     <title>Live Bus Tracker</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="manifest" href="manifest-tracker.json">
-    <link rel="apple-touch-icon" href="assets/apple-icon-180.png">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/apple-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
     <style>
         /* Basic Reset & Font */
         body, html { margin: 0; padding: 0; box-sizing: border-box; }
@@ -585,31 +585,7 @@ if (!dynamicRouteId) {
               if(inHeadUpd) updateSequenceHeading('inbound', null);
 
               // Save updated last seen data
-              // *** START Replacement Block ***
-if (busSeenMod) {
-    try {
-        // Log the data we are TRYING to save
-        console.log('DEBUG: busSeenMod is true. Attempting to save busLastSeen:', JSON.stringify(busLastSeen));
-
-        // The corrected save call
-        saveToStorage(busLastSeenKey, busLastSeen);
-
-        // Log that the call was made (doesn't guarantee success yet)
-        console.log(`DEBUG: Successfully CALLED saveToStorage for key: ${busLastSeenKey}.`);
-
-        // Optional: Check localStorage immediately after trying to save
-        const checkVal = localStorage.getItem(busLastSeenKey);
-        console.log(`DEBUG: Value in localStorage for ${busLastSeenKey} immediately after save attempt: ${checkVal ? '[Data Found]' : '[Data NOT Found]'}`);
-
-    } catch (saveError) {
-        // Log if the saveToStorage function itself throws an error
-        console.error(`DEBUG: ERROR calling saveToStorage for ${busLastSeenKey}:`, saveError);
-    }
-} else {
-    // Log if we skipped saving because nothing changed
-    console.log(`DEBUG: busSeenMod is false. Skipping save for ${busLastSeenKey}.`);
-}
-// *** END Replacement Block ***
+              if(busSeenMod) saveToStorage(busLastSeenKey, busSeenMod);
 
               // Add ghost buses
               const displayBuses = Object.values(activeBuses);
@@ -619,7 +595,7 @@ if (busSeenMod) {
                       if(now-t < timeoutMs){
                           const dest=d?.destination||'?'; const dir=d?.direction; const stop=d?.lastStopName||'?';
                           const timeStr=new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-                          const ghost={fleetNumber:getTMPForRegistration(reg),regNumber:reg,apiDestination:dest,displayDestination:getEffectiveDestination(reg,dir,dest),stopName:stop,stopArrivalTime:`(Last Seen ${timeStr})`,expectedArrivalTimeMs:0,isGhost:true, vehicleId: reg, naptanId: null}; // Use reg as vehicleId for ghosts
+                          const ghost={fleetNumber:getTMPForRegistration(reg),regNumber:reg,apiDestination:dest,displayDestination:getEffectiveDestination(reg,dir,dest),stopName:stop,stopArrivalTime:`(Seen ${timeStr})`,expectedArrivalTimeMs:0,isGhost:true, vehicleId: reg, naptanId: null}; // Use reg as vehicleId for ghosts
                           displayBuses.push(ghost);
                       }
                   }
@@ -690,7 +666,7 @@ if (busSeenMod) {
          });
 
          if (filteredBuses.length === 0) {
-             arrivalsTableBody.innerHTML = `<tr><td colspan="5">No buses available to show at this current time.</td></tr>`;
+             arrivalsTableBody.innerHTML = `<tr><td colspan="5">No buses match the current filter criteria.</td></tr>`;
          } else {
              filteredBuses.forEach(bus => {
                  const row = document.createElement("tr");
@@ -766,17 +742,6 @@ if (busSeenMod) {
 console.log('--- DEBUG: SCRIPT END REACHED (tracker.html - Destination Normalization) ---');
 // --- End of JavaScript ---
     </script>
-    <script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/live-tracker/service-worker.js', { scope: '/live-tracker/' })
-      .then((registration) => {
-        console.log('Service Worker registered with scope:', registration.scope);
-      })
-      .catch((error) => {
-        console.error('Service Worker registration failed:', error);
-      });
-  }
-</script>
 
 </body>
 </html>

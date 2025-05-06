@@ -5,46 +5,84 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script type="module">
-        // Import Firebase SDKs
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+    import { getDatabase, ref, set, update } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-        // Firebase configuration
-        const firebaseConfig = {
-  apiKey: "AIzaSyBke752zFDK9NPtqA-K0AHxSO7VN5NpCfI",
-  authDomain: "tracker-9af4c.firebaseapp.com",
-  databaseURL: "https://tracker-9af4c-default-rtdb.firebaseio.com",
-  projectId: "tracker-9af4c",
-  storageBucket: "tracker-9af4c.firebasestorage.app",
-  messagingSenderId: "549969560615",
-  appId: "1:549969560615:web:835c0981bd72e1c459ba02"
-        };
+    // Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyBke752zFDK9NPtqA-K0AHxSO7VN5NpCfI",
+        authDomain: "tracker-9af4c.firebaseapp.com",
+        databaseURL: "https://console.firebase.google.com/project/tracker-9af4c/database/tracker-9af4c-default-rtdb/data/~2F",
+        projectId: "tracker-9af4c",
+        storageBucket: "tracker-9af4c.appspot.com",
+        messagingSenderId: "549969560615",
+        appId: "1:549969560615:web:835c0981bd72e1c459ba02"
+    };
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const database = getDatabase(app);
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+    const toolsPageRef = ref(database, 'toolsPage');
 
-        // Reference to the data
-        const dataRef = ref(database, 'sharedData');
+    // Sync Main Input and Additional Info
+    function syncInputs() {
+        const mainInput = document.getElementById('input').value;
+        const additionalInfo = document.getElementById('additional-info').value;
 
-        // Update data in the database
-        function updateData(newValue) {
-            set(dataRef, {
-                value: newValue
-            });
-        }
-
-        // Listen to changes in the database
-        onValue(dataRef, (snapshot) => {
-            const data = snapshot.val();
-            document.getElementById('output').innerText = data ? data.value : 'No data';
+        update(toolsPageRef, {
+            mainInput,
+            additionalInfo,
+            timestamp: new Date().toISOString()
         });
+    }
 
-        // Update data on button click
-        function handleButtonClick() {
-            const newValue = document.getElementById('input').value;
-            updateData(newValue);
-        }
+    // Sync Curtailments
+    function addCurtailment() {
+        const route = document.getElementById('route').value;
+        const fleet = document.getElementById('regNumber').value;
+        const destination = document.getElementById('curtailedDestination').value;
+        const time = document.getElementById('curtailmentTimeInput').value;
+        const curtailment = { route, fleet, destination, time };
+
+        update(toolsPageRef, {
+            curtailments: [curtailment],
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    // Sync TMP Assignments
+    function syncTMP() {
+        const route = document.getElementById('manualRegNumber').value;
+        const fleet = document.getElementById('manualFleetNumber').value;
+
+        update(toolsPageRef, {
+            TMP: { [route]: { registration: route, fleet } },
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    // Sync Sequence Headings
+    function syncSequenceHeadings() {
+        const route = document.getElementById('seq-heading-route-id').value;
+        const outbound = document.getElementById('seq-heading-outbound').value;
+        const inbound = document.getElementById('seq-heading-inbound').value;
+
+        update(toolsPageRef, {
+            sequenceHeadings: { [route]: { outbound, inbound } },
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    // Sync Destinations
+    function syncDestinations() {
+        const route = document.getElementById('add-dest-route').value;
+        const destination = document.getElementById('bulk-dest-input').value.split('\n');
+
+        update(toolsPageRef, {
+            destinations: { [route]: destination },
+            timestamp: new Date().toISOString()
+        });
+    }
     </script>
     <link rel="manifest" href="manifest-tools.json">
 <link rel="apple-touch-icon" href="icons/apple-icon-180.png"> <meta name="apple-mobile-web-app-capable" content="yes">

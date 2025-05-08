@@ -1189,6 +1189,24 @@ function logAdminAction(action, details = {}) {
     }
 }
 
+// --- ADD THIS HELPER FUNCTION ---
+// (Place it near other helpers like getElement, loadFromStorage, etc.)
+
+function escapeHtml(unsafe) {
+    // Handle null or undefined input gracefully
+    if (unsafe === null || typeof unsafe === 'undefined') {
+        return ''; // Return an empty string
+    }
+    // Ensure the input is treated as a string before replacing
+    const str = String(unsafe);
+    // Perform HTML escaping
+    return str.replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;");
+}
+// --- END of escapeHtml function ---
 
 // --- DOM Element Refs (Merged List) ---
 console.log("DEBUG: Getting Combined DOM refs");
@@ -2869,25 +2887,35 @@ function toggleUserSuspension(username) {
 
 
 
-console.log("TEST LOG: Defining showSection NOW");
+// Ensure this function is defined in your <script> block
+
+console.log("TEST LOG: Defining showSection NOW"); // Keeping your existing console logs
 console.log("TEST LOG --- Defining showSection Function ---");
 function showSection(sectionId) {
     console.log(`DEBUG: --- showSection called for sectionId: ${sectionId} ---`);
-    // Initial login/suspension checks (unchanged)
+
+    // 1. Initial login/suspension checks
     if (!isLoggedIn || !currentUsername || !users[currentUsername] || users[currentUsername].isSuspended) {
-        /* ... logout etc ... */ return;
+        console.warn("DEBUG: showSection called but login state is invalid or user suspended. Forcing logout.");
+        logout(); // Ensure logout if state is bad
+        return;
     }
 
-    // Get section element (unchanged)
+    // 2. Get the target section element
     const sectionElement = getElement(sectionId);
-    if (!sectionElement) { /* ... error handling ... */ return; }
+    if (!sectionElement) {
+        console.error(`DEBUG: showSection - Target section element with ID '${sectionId}' not found.`);
+        alert(`Error: The section '${sectionId}' could not be found. Please check the HTML or contact support.`);
+        goBackToMainView(); // Go to a safe state
+        return;
+    }
 
-    // --- UPDATED: Access rules based on permissions ---
+    // 3. Define access rules for sections (permissions)
     const sectionAccessRules = {
         // Public / View-only sections (visible to all logged-in users)
         'manage-curtailments-section': () => true,
-        'view-auto-tmp-section': () => true,
-        'settings-form': () => true, // The page itself is visible, content inside is permissioned
+        'view-auto-tmp-section': () => true, // <<< This is the section for your request
+        'settings-form': () => true,         // The settings page itself is visible; content within is permissioned
 
         // Permission-controlled sections
         'add-curtailment-form': () => hasPermission('canManageCurtailments'),
@@ -2897,113 +2925,160 @@ function showSection(sectionId) {
         'sequence-heading-section': () => hasPermission('canManageSeqHeadings'),
         'final-destinations-section': () => hasPermission('canManageFinalDests')
     };
-    // --- END UPDATED RULES ---
 
-    // Check access using the rules (unchanged logic)
+    // 4. Check if the user can access the requested section
     let canAccess = false;
     if (sectionAccessRules.hasOwnProperty(sectionId)) {
         canAccess = sectionAccessRules[sectionId]();
         console.log(`DEBUG: showSection - Access check for ${sectionId}: Allowed = ${canAccess}`);
-    } else { /* ... unknown section handling ... */ return; }
-    if (!canAccess) { /* ... access denied handling ... */ return; }
+    } else {
+        console.warn(`DEBUG: showSection - No access rule defined for sectionId: ${sectionId}. Denying access by default.`);
+        alert(`Error: Access rules for section '${sectionId}' are not defined. Please contact support.`);
+        goBackToMainView(); // Go to a safe state
+        return;
+    }
 
-    // Hide main menu, show section (unchanged)
+    if (!canAccess) {
+        console.warn(`DEBUG: showSection - Access DENIED for sectionId: ${sectionId} by user ${currentUsername}.`);
+        const friendlySectionName = sectionId.replace(/-/g, ' ').replace(/\b(section|form)\b/gi, '').trim();
+        alert(`Access Denied: You do not have permission to view the '${friendlySectionName}' page.`);
+        // If access is denied, we don't necessarily want to navigate away from the current view if they are already in a section.
+        // The button triggering this should ideally be hidden/disabled by `updateElementRoles` if there's no permission.
+        return;
+    }
+
+    // 5. Hide the main menu buttons container
     if (mainActionsContainer) mainActionsContainer.classList.add('hidden');
-    const allSections = [ /* ... list of all section variables ... */ ];
-    allSections.forEach(sec => { if (sec) sec.classList.add('hidden'); });
+
+    // 6. *** KEY CHANGE: Explicitly hide ALL other main sections ***
+    // This list should include all variables pointing to your main section divs
+    const allKnownMainSections = [
+        addCurtailmentForm, manualFleetForm, settingsForm, dataActionsSection,
+        manageCurtailmentsSection, viewAutoTmpSection, // viewAutoTmpSection is in this list
+        tempOverridesSection, sequenceHeadingSection, finalDestinationsSection
+    ];
+
+    allKnownMainSections.forEach(sec => {
+        if (sec && sec.id !== sectionId) { // Important: Don't hide the section we are about to show
+            sec.classList.add('hidden');
+        }
+    });
+    // *** END OF KEY CHANGE ***
+
+    // 7. Show the target section and the "Go Back" button
     sectionElement.classList.remove('hidden');
     if (goBackButton) goBackButton.classList.remove('hidden');
 
-    // Update controls *within* the section (unchanged)
+    // 8. Update UI elements (like button disabled states) within the now-visible section based on roles/permissions
     updateElementRoles(sectionElement);
 
-    console.log(`DEBUG: Initialising content for section ${sectionId}.`);
-    // Clear status messages (unchanged)
-    const statusMessages = [ /* ... list of all status message variables ... */ ];
+    // 9. Clear status messages from all relevant areas to prevent stale messages
+    const statusMessages = [
+        addCurtailmentMessage, assignStatusElement, revertStatusElement,
+        manageCurtailmentsMessage, autoTmpTableMessage,
+        curtailmentsBackupStatus, tmpBackupStatus, seqHeadingsBackupStatus, finalDestBackupStatus, pruneStatusMessage, exportAllStatus,
+        trackerSettingsMessage, changePasswordMessage, addUserMessage, userManagementMessage, auditLogMessage,
+        specificStatusMsg, routeStatusMsg, globalStatusMsg,
+        seqHeadingStatusMsg, removeHeadingsStatusMsg, destEditorMessage, bulkDestStatus
+    ];
     statusMessages.forEach(el => { if (el) el.textContent = ''; });
 
-    // Section-specific initialization
+    // 10. Perform section-specific initialization (e.g., populate tables, clear forms)
+    console.log(`DEBUG: Initialising content for section ${sectionId}.`);
     try {
         switch (sectionId) {
-            // ... other cases like 'add-curtailment-form', etc. ...
-
-                 case 'manual-fleet-form':
-                 displayManualAssignments(); // Always display list if section is accessed
-                 // Show/hide revert/reset sections based on permission
-                 if (revertSection) revertSection.classList.toggle('hidden', !hasPermission('canManageFleet'));
-                 if (resetAllSection) resetAllSection.classList.toggle('hidden', !hasPermission('canManageFleet'));
-                 // Clear inputs only if user has permission
-                 if (hasPermission('canManageFleet')) 
-                    /* ... clear inputs ... */
-                 break;
-
-                case 'manage-curtailments-section':
-                populateManageCurtailmentsTable(); // Call the function to load the table
-                break;
-
-                case 'view-auto-tmp-section':
-                populateAutoTmpTable(); // Call the function to load this table
-                break;
-
-                case 'settings-form':
-                // Always show "Change My Password"
-                if (changeMyPasswordSection) { changeMyPasswordSection.classList.remove('hidden')
+            case 'add-curtailment-form':
+                if (hasPermission('canManageCurtailments')) {
+                    if(routeInput) routeInput.value = '';
+                    if(regNumberInput) regNumberInput.value = '';
+                    if(curtailedDestinationInput) curtailedDestinationInput.value = '';
+                    if(curtailmentTimeInput) curtailmentTimeInput.value = '';
+                    if(routeInput) routeInput.focus();
                 }
-                // Get admin status once
-                const isAdmin = users[currentUsername]?.role === 'admin';
-
-                // Show/Hide Global Settings based on permission
+                break;
+            case 'manual-fleet-form':
+                displayManualAssignments();
+                if (revertSection) revertSection.classList.toggle('hidden', !hasPermission('canManageFleet'));
+                if (resetAllSection) resetAllSection.classList.toggle('hidden', !hasPermission('canManageFleet'));
+                if (hasPermission('canManageFleet')) {
+                    if(manualRegNumberInput) manualRegNumberInput.value = '';
+                    if(manualFleetNumberInput) manualFleetNumberInput.value = '';
+                    if(revertRegNumberInput) revertRegNumberInput.value = '';
+                    if(manualRegNumberInput) manualRegNumberInput.focus();
+                }
+                break;
+            case 'manage-curtailments-section':
+                populateManageCurtailmentsTable();
+                break;
+            case 'view-auto-tmp-section': // <<< For your request
+                populateAutoTmpTable();   // This populates the Auto TMP table
+                break;
+            case 'settings-form':
+                if (changeMyPasswordSection) changeMyPasswordSection.classList.remove('hidden');
+                // Show/hide subsections based on permissions
                 if (trackerSettingsSection) trackerSettingsSection.classList.toggle('hidden', !hasPermission('canManageSettings'));
-                // Show/Hide User Management based on permission
                 if (adminUserManagementSection) adminUserManagementSection.classList.toggle('hidden', !hasPermission('canManageUsers'));
-                // Show/Hide Audit Log based on permission
                 if (adminAuditLogSection) adminAuditLogSection.classList.toggle('hidden', !hasPermission('canViewAuditLog'));
 
-                // Load/Display content ONLY if the relevant permission is granted
-                if (hasPermission('canManageSettings')) {
-                     console.log("DEBUG: Loading tracker settings data.");
-                     loadTrackerSettings(); // Assumes loadTrackerSettings itself doesn't need admin check inside
-                 }
-                 if (hasPermission('canManageUsers')) {
-                     console.log("DEBUG: Calling displayUserManagement.");
-                     displayUserManagement(); // Assumes displayUserManagement handles internal states correctly
-                     // Clear Add User form fields only if section is visible
-                     if (addUsernameInput) addUsernameInput.value = '';
-                     if (addUserPasswordInput) addUserPasswordInput.value = '';
-                     if (addUserRoleSelect) addUserRoleSelect.value = 'user';
-                 }
-                 if (hasPermission('canViewAuditLog')) {
-                     console.log("DEBUG: Calling displayAuditLog.");
-                     displayAuditLog(); // Assumes displayAuditLog doesn't need admin check inside
-                 }
+                // Load data for subsections only if permission is granted
+                if (hasPermission('canManageSettings')) { loadTrackerSettings(); }
+                if (hasPermission('canManageUsers')) {
+                    displayUserManagement();
+                    if (addUsernameInput) addUsernameInput.value = '';
+                    if (addUserPasswordInput) addUserPasswordInput.value = '';
+                    if (addUserRoleSelect) addUserRoleSelect.value = 'user';
+                }
+                if (hasPermission('canViewAuditLog')) { displayAuditLog(); }
+                console.log("--- Checking Settings Sub-sections (from showSection) ---"); // Your log
+                console.log("Element trackerSettingsSection:", trackerSettingsSection);
+                console.log("Element adminUserManagementSection:", adminUserManagementSection);
+                console.log("Element adminAuditLogSection:", adminAuditLogSection);
+                console.log("Permission canManageSettings:", hasPermission('canManageSettings'));
+                console.log("Permission canManageUsers:", hasPermission('canManageUsers'));
+                console.log("Permission canViewAuditLog:", hasPermission('canViewAuditLog'));
+                console.log("--- End Settings Checks (from showSection) ---");
                 break;
-
-console.log("--- Checking Settings Sub-sections ---");
-    console.log("Element trackerSettingsSection:", trackerSettingsSection); // Should show the HTML element, not null
-    console.log("Element adminUserManagementSection:", adminUserManagementSection); // Should show the HTML element, not null
-    console.log("Element adminAuditLogSection:", adminAuditLogSection); // Should show the HTML element, not null
-    console.log("Permission canManageSettings:", hasPermission('canManageSettings')); // Should be true for admin
-    console.log("Permission canManageUsers:", hasPermission('canManageUsers'));       // Should be true for admin
-    console.log("Permission canViewAuditLog:", hasPermission('canViewAuditLog'));     // Should be true for admin
-    console.log("--- End Checks ---");
-                
-                case 'temp-overrides-section':
+            case 'data-actions':
+                updatePruneButtonState(); // Update prune button based on role and time
+                break;
+            case 'temp-overrides-section':
                 displayOverrides();
+                if(filterInput) filterInput.value = ''; // Clear temp overrides filter input
+                if (hasPermission('canManageOverrides')) { // Clear input fields
+                    if(regInput) regInput.value = '';
+                    if(specificDestDir1Input) specificDestDir1Input.value = '';
+                    if(specificDestDir2Input) specificDestDir2Input.value = '';
+                    if(routeIdInput) routeIdInput.value = ''; // This is 'route-override-id'
+                    if(routeDestDir1Input) routeDestDir1Input.value = '';
+                    if(routeDestDir2Input) routeDestDir2Input.value = '';
+                    if(globalDestInput) globalDestInput.value = '';
+                }
                 break;
-
-                case 'sequence-heading-section':
+            case 'sequence-heading-section':
                 displayActiveSequenceHeadings();
+                if (hasPermission('canManageSeqHeadings')) { // Clear input fields
+                    if(seqHeadingRouteIdInput) seqHeadingRouteIdInput.value = '';
+                    if(seqHeadingOutboundInput) seqHeadingOutboundInput.value = '';
+                    if(seqHeadingInboundInput) seqHeadingInboundInput.value = '';
+                }
                 break;
- 
-                case 'final-destinations-section':
+            case 'final-destinations-section':
                 populateDestEditor();
+                if(destFilterInput) destFilterInput.value = ''; // Clear dest editor filter input
+                setDestFilterState('all'); // Reset dest editor button filter to 'All'
+                if (hasPermission('canManageFinalDests')) { // Clear input fields
+                    if(addDestRouteInput) addDestRouteInput.value = '';
+                    if(bulkDestInput) bulkDestInput.value = '';
+                }
                 break;
-
-        } // End of switch
+            default:
+                console.warn(`DEBUG: showSection - No specific initialization logic defined for sectionId: ${sectionId}`);
+        }
     } catch (initError) {
-        console.error(`DEBUG: Error initializing section ${sectionId}:`, initError);
-        alert(`An error occurred while loading the ${sectionId} section. Please try again or contact support.`);
-        goBackToMainView();
+        console.error(`DEBUG: Error during initialization of section ${sectionId}:`, initError);
+        const friendlySectionName = sectionId.replace(/-/g, ' ').replace(/\b(section|form)\b/gi, '').trim();
+        alert(`An error occurred while loading the ${friendlySectionName} page. Please try again or contact support.`);
+        goBackToMainView(); // Attempt to return to a stable main menu view
     }
     console.log(`DEBUG: --- showSection for ${sectionId} finished successfully ---`);
 }

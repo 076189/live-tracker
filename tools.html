@@ -894,49 +894,20 @@ const auditLogKey = 'actionAuditLog'; // From tools.html
 const MAX_AUDIT_LOG_ENTRIES = 500; // From tools.html
 const lastCurtailmentPruneTimestampKey = 'lastCurtailmentPruneTimestamp'; // From tools.html
 
-// --- Add/Replace near other Constants ---
+// --- Add near other Constants ---
 
-// Define the night schedule window FOR EACH DAY OF THE WEEK for each route
-// Day 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-// TIMES ARE IN HH:MM (24-hour format). Start is inclusive, End is inclusive (up to :59).
-// *** YOU MUST POPULATE THIS ACCURATELY FOR EACH DAY & ROUTE ***
-const ROUTE_NIGHT_WINDOW_PER_DAY = {
-    '149': { // Example for Route 149
-        0: { start: '00:10', end: '06:30' }, // Sunday Night / Early Mon Morning Window
-        1: { start: '00:05', end: '05:30' }, // Monday Night / Early Tue Morning Window
-        2: { start: '00:05', end: '05:30' }, // Tuesday Night / Early Wed Morning Window
-        3: { start: '00:05', end: '05:30' }, // Wednesday Night / Early Thu Morning Window
-        4: { start: '00:05', end: '05:30' }, // Thursday Night / Early Fri Morning Window
-        5: { start: '00:05', end: '06:30' }, // Friday Night / Early Sat Morning Window
-        6: { start: '00:10', end: '06:30' }  // Saturday Night / Early Sun Morning Window
-    },
-    '188': { // Example for Route 188 (Spans Midnight)
-        0: { start: '23:30', end: '05:45' }, // Sun Night / Mon Morning
-        1: { start: '23:45', end: '05:15' }, // Mon Night / Tue Morning
-        2: { start: '23:45', end: '05:15' }, // Tue Night / Wed Morning
-        3: { start: '23:45', end: '05:15' }, // Wed Night / Thu Morning
-        4: { start: '23:45', end: '05:15' }, // Thu Night / Fri Morning
-        5: { start: '23:30', end: '05:45' }, // Fri Night / Sat Morning
-        6: { start: '23:30', end: '05:45' }  // Sat Night / Sun Morning
-    },
-    // ... Add entries for ALL other relevant 24-hour routes ...
-    // Make sure each route entry has sub-entries for keys 0, 1, 2, 3, 4, 5, 6
+// Define the night schedule window FOR EACH 24-HOUR ROUTE
+// NOTE: Times are in HH:MM (24-hour format). Start is inclusive, End is inclusive (up to :59).
+// *** YOU MUST VERIFY AND POPULATE THIS LIST ACCURATELY ***
+const ROUTE_NIGHT_WINDOW = {
+    // Examples - Replace with actual operational night windows
+    '6':   { start: '00:00', end: '05:59' }, // Midnight to 5:59 AM
+    '149': { start: '00:05', end: '05:30' }, // 12:05 AM to 5:30 AM
+    '188': { start: '23:45', end: '05:15' }, // 11:45 PM to 5:15 AM (Spans midnight)
+    '390': { start: '23:30', end: '06:00' }, // 11:30 PM to 6:00 AM
+    // ... ADD ALL OTHER RELEVANT 24-HOUR ROUTES HERE ...
+    // (Only include routes that run 24hrs but DON'T already have an 'N' prefix)
 };
-
-// --- You still need the timeToMinutes helper function ---
-/**
- * Converts HH:MM time string to minutes past midnight.
- * @param {string} timeStr - Time string like "HH:MM".
- * @returns {number} Minutes past midnight (0-1439) or NaN if invalid.
- */
-function timeToMinutes(timeStr) {
-    if (!timeStr || !/^\d{2}:\d{2}$/.test(timeStr)) return NaN;
-    const parts = timeStr.split(':');
-    const hours = parseInt(parts[0], 10);
-    const minutes = parseInt(parts[1], 10);
-    if (isNaN(hours) || hours < 0 || hours > 23 || isNaN(minutes) || minutes < 0 || minutes > 59) return NaN;
-    return hours * 60 + minutes;
-}
 
 // --- Add Helper Functions ---
 
@@ -956,8 +927,7 @@ function timeToMinutes(timeStr) {
 
 /**
  * Prefixes a route ID with 'N' if it runs 24hrs and the time falls
- * within its specific defined night schedule window (HH:MM) for that specific day of the week.
- * Uses ROUTE_NIGHT_WINDOW_PER_DAY configuration.
+ * within its specific defined night schedule window (HH:MM from ROUTE_NIGHT_WINDOW).
  * @param {string} routeId - The original route ID.
  * @param {number} [timestamp=Date.now()] - The timestamp (milliseconds) to check.
  * @returns {string} The potentially prefixed route ID.
@@ -972,50 +942,39 @@ function getNightRouteId(routeId, timestamp = Date.now()) {
         return upperRouteId; // Already a night route
     }
 
-    // Check if this route has specific night hours defined in the per-day config
-    const routeNightInfo = ROUTE_NIGHT_WINDOW_PER_DAY[upperRouteId];
-
-    if (routeNightInfo) { // Check if route exists in config
+    // Check if this route has specific night hours defined
+    const nightInfo = ROUTE_NIGHT_WINDOW[upperRouteId];
+    if (nightInfo && nightInfo.start && nightInfo.end) {
         const date = new Date(timestamp);
-        const dayOfWeek = date.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
         const currentMinutes = date.getHours() * 60 + date.getMinutes(); // Current time in minutes past midnight
 
-        // Get the schedule specifically for this day of the week
-        const scheduleForToday = routeNightInfo[dayOfWeek];
+        const startMinutes = timeToMinutes(nightInfo.start);
+        const endMinutes = timeToMinutes(nightInfo.end);
 
-        if (scheduleForToday && scheduleForToday.start && scheduleForToday.end) { // Check if schedule exists for *this day*
-            const startMinutes = timeToMinutes(scheduleForToday.start);
-            const endMinutes = timeToMinutes(scheduleForToday.end);
-
-            // Check for invalid start/end times in config
-            if (isNaN(startMinutes) || isNaN(endMinutes)) {
-                 console.warn(`Invalid start/end time defined for route ${upperRouteId} Day ${dayOfWeek}.`);
-                 return upperRouteId; // Don't apply prefix if config is bad
-            }
-
-            let isNightTime = false;
-            if (startMinutes <= endMinutes) { // Window does not span midnight (e.g., 00:05 to 05:30)
-                // Check if current time is within the window (inclusive start/end minute)
-                isNightTime = currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-            } else { // Window spans midnight (e.g., 23:45 to 05:15)
-                // Check if current time is after start time OR up to/including end time
-                isNightTime = currentMinutes >= startMinutes || currentMinutes <= endMinutes;
-            }
-
-            if (isNightTime) {
-                console.log(`DEBUG: Applying 'N' prefix to route ${upperRouteId} based on schedule for day ${dayOfWeek} (${scheduleForToday.start}-${scheduleForToday.end}).`);
-                return 'N' + upperRouteId; // Add the prefix!
-            } else {
-                 console.log(`DEBUG: Current time ${date.getHours()}:${date.getMinutes()} is outside night window (${scheduleForToday.start}-${scheduleForToday.end}) for route ${upperRouteId} Day ${dayOfWeek}.`);
-            }
-        } else {
-             console.log(`DEBUG getNightRouteId: No specific schedule defined for route ${upperRouteId} for day ${dayOfWeek}.`);
+        // Check for invalid start/end times in config
+        if (isNaN(startMinutes) || isNaN(endMinutes)) {
+             console.warn(`Invalid start/end time defined for route ${upperRouteId} in ROUTE_NIGHT_WINDOW.`);
+             return upperRouteId; // Don't apply prefix if config is bad
         }
-    } else {
-         // console.log(`DEBUG getNightRouteId: Route ${upperRouteId} not found in ROUTE_NIGHT_WINDOW_PER_DAY.`); // Optional log
+
+        let isNightTime = false;
+        if (startMinutes <= endMinutes) {
+            // Standard window (e.g., 00:05 to 05:30) -> 5 to 330 minutes
+            // Check if current time is within the window (inclusive end minute)
+             isNightTime = currentMinutes >= startMinutes && currentMinutes <= endMinutes; // Use <= for endHour
+        } else {
+            // Window spans midnight (e.g., 23:45 to 05:15) -> 1425 to 315 minutes
+            // Check if current time is after start OR before/at end
+            isNightTime = currentMinutes >= startMinutes || currentMinutes <= endMinutes; // Use <= for endHour
+        }
+
+        if (isNightTime) {
+            console.log(`DEBUG: Applying 'N' prefix to route ${upperRouteId} based on its specific night window (${nightInfo.start}-${nightInfo.end}).`);
+            return 'N' + upperRouteId; // Add the prefix
+        }
     }
 
-    // If route not in config, or no schedule for today, or not currently night time
+    // If not defined in ROUTE_NIGHT_WINDOW or not currently night time for that route
     return upperRouteId;
 }
 
@@ -2143,10 +2102,6 @@ function assignManualFleetNumber() {
         setTimeout(() => { if (assignStatusElement) assignStatusElement.textContent = ''; }, 4000); // Clear message after delay
     } catch (err) { console.error("DEBUG: Error assigning manual fleet number:", err); alert(`An error occurred: ${err.message}`); assignStatusElement.textContent = `Error saving assignment: ${err.message}`; assignStatusElement.style.color = 'red'; }
 }
-function generateTMPNumber(reg) { const s = 12345, c = reg + s.toString(); let h = 0; if (c.length === 0) return "TMP0000"; for (let i = 0; i < c.length; i++) { const t = c.charCodeAt(i); h = ((h << 5) - h) + t; h |= 0; } return `TMP${Math.abs(h % 10000).toString().padStart(4, "0")}`; } /* jshint bitwise: true */
-
-function isTMPValueUsed(map, val, currReg) { for (const r in map) { if (Object.prototype.hasOwnProperty.call(map, r) && r !== currReg && map[r] === val) { return true; } } return false; }
-
 function getTMPForRegistration(registration) { // Used by curtailment table, needs to work
     if (!registration || typeof registration !== 'string' || registration.trim() === '') { return 'TMP????'; } // Default if invalid input
     const cleanReg = registration.trim().toUpperCase();
@@ -2183,6 +2138,10 @@ function getTMPForRegistration(registration) { // Used by curtailment table, nee
     } catch (e) { console.error(`DEBUG: Error in getTMPForRegistration for '${cleanReg}':`, e); return 'ERR????'; // Error fallback
     }
 }
+
+function generateTMPNumber(reg) { const s = 12345, c = reg + s.toString(); let h = 0; if (c.length === 0) return "TMP0000"; for (let i = 0; i < c.length; i++) { const t = c.charCodeAt(i); h = ((h << 5) - h) + t; h |= 0; } return `TMP${Math.abs(h % 10000).toString().padStart(4, "0")}`; } /* jshint bitwise: true */
+
+function isTMPValueUsed(map, val, currReg) { for (const r in map) { if (Object.prototype.hasOwnProperty.call(map, r) && r !== currReg && map[r] === val) { return true; } } return false; }
 
 function revertToTMP() {
      if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin permissions required to revert.'); return; } if (!revertRegNumberInput || !revertStatusElement) { console.error("Revert UI elements missing."); return; } const reg = revertRegNumberInput.value.trim().toUpperCase(); if (revertStatusElement) revertStatusElement.textContent = ''; if (!reg) { alert("Please enter a Registration number to revert."); return; } let map = loadFromStorage(tmpMapKey, {}); if (typeof map !== 'object' || map === null) map = {}; if (!Object.prototype.hasOwnProperty.call(map, reg)) { if (revertStatusElement) { revertStatusElement.textContent = `${reg} not found in the assignment map.`; revertStatusElement.style.color='orange'; setTimeout(() => revertStatusElement.textContent = '', 4000); } return; } const current = map[reg]; // Check if it's ALREADY auto-generated

@@ -329,6 +329,90 @@ const watchedBusesStorageKey = `watchedBuses_${dynamicRouteId}`; // Key for watc
 const ROUTE_SEQUENCE_CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const ALERT_CACHE_DURATION_MS = 15 * 60 * 1000; // 15 minutes for alerts
 
+// --- Add near other Constants ---
+
+// Define the night schedule window FOR EACH 24-HOUR ROUTE
+// NOTE: Times are in HH:MM (24-hour format). Start is inclusive, End is inclusive (up to :59).
+// *** YOU MUST VERIFY AND POPULATE THIS LIST ACCURATELY ***
+const ROUTE_NIGHT_WINDOW = {
+    // Examples - Replace with actual operational night windows
+    '6':   { start: '00:00', end: '05:59' }, // Midnight to 5:59 AM
+    '149': { start: '00:05', end: '05:30' }, // 12:05 AM to 5:30 AM
+    '188': { start: '23:45', end: '05:15' }, // 11:45 PM to 5:15 AM (Spans midnight)
+    '390': { start: '23:30', end: '06:00' }, // 11:30 PM to 6:00 AM
+    // ... ADD ALL OTHER RELEVANT 24-HOUR ROUTES HERE ...
+    // (Only include routes that run 24hrs but DON'T already have an 'N' prefix)
+};
+
+// --- Add Helper Functions ---
+
+/**
+ * Converts HH:MM time string to minutes past midnight.
+ * @param {string} timeStr - Time string like "HH:MM".
+ * @returns {number} Minutes past midnight (0-1439) or NaN if invalid.
+ */
+function timeToMinutes(timeStr) {
+    if (!timeStr || !/^\d{2}:\d{2}$/.test(timeStr)) return NaN;
+    const parts = timeStr.split(':');
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+    if (isNaN(hours) || hours < 0 || hours > 23 || isNaN(minutes) || minutes < 0 || minutes > 59) return NaN;
+    return hours * 60 + minutes;
+}
+
+/**
+ * Prefixes a route ID with 'N' if it runs 24hrs and the time falls
+ * within its specific defined night schedule window (HH:MM from ROUTE_NIGHT_WINDOW).
+ * @param {string} routeId - The original route ID.
+ * @param {number} [timestamp=Date.now()] - The timestamp (milliseconds) to check.
+ * @returns {string} The potentially prefixed route ID.
+ */
+function getNightRouteId(routeId, timestamp = Date.now()) {
+    if (!routeId || typeof routeId !== 'string') {
+        return routeId; // Return original if invalid input
+    }
+    const upperRouteId = routeId.toUpperCase();
+
+    if (upperRouteId.startsWith('N')) {
+        return upperRouteId; // Already a night route
+    }
+
+    // Check if this route has specific night hours defined
+    const nightInfo = ROUTE_NIGHT_WINDOW[upperRouteId];
+    if (nightInfo && nightInfo.start && nightInfo.end) {
+        const date = new Date(timestamp);
+        const currentMinutes = date.getHours() * 60 + date.getMinutes(); // Current time in minutes past midnight
+
+        const startMinutes = timeToMinutes(nightInfo.start);
+        const endMinutes = timeToMinutes(nightInfo.end);
+
+        // Check for invalid start/end times in config
+        if (isNaN(startMinutes) || isNaN(endMinutes)) {
+             console.warn(`Invalid start/end time defined for route ${upperRouteId} in ROUTE_NIGHT_WINDOW.`);
+             return upperRouteId; // Don't apply prefix if config is bad
+        }
+
+        let isNightTime = false;
+        if (startMinutes <= endMinutes) {
+            // Standard window (e.g., 00:05 to 05:30) -> 5 to 330 minutes
+            // Check if current time is within the window (inclusive end minute)
+             isNightTime = currentMinutes >= startMinutes && currentMinutes <= endMinutes; // Use <= for endHour
+        } else {
+            // Window spans midnight (e.g., 23:45 to 05:15) -> 1425 to 315 minutes
+            // Check if current time is after start OR before/at end
+            isNightTime = currentMinutes >= startMinutes || currentMinutes <= endMinutes; // Use <= for endHour
+        }
+
+        if (isNightTime) {
+            console.log(`DEBUG: Applying 'N' prefix to route ${upperRouteId} based on its specific night window (${nightInfo.start}-${nightInfo.end}).`);
+            return 'N' + upperRouteId; // Add the prefix
+        }
+    }
+
+    // If not defined in ROUTE_NIGHT_WINDOW or not currently night time for that route
+    return upperRouteId;
+}
+
 // --- Helper Functions ---
 
 /**
@@ -479,7 +563,86 @@ if (!dynamicRouteId) {
      // --- TMP Number Generation ---
      function generateTMPNumber(registration) { const seed=12345;const combined=registration+seed.toString();let hash=0;if(combined.length===0)return"TMP0000";for(let i=0;i<combined.length;i++){const t=combined.charCodeAt(i);hash=(hash<<5)-hash+t;hash|=0;} return `TMP${Math.abs(hash%1e4).toString().padStart(4,"0")}`; }
      function isTMPValueUsed(map, tmpValue, currentReg) { for (const reg in map) { if (Object.prototype.hasOwnProperty.call(map, reg) && reg !== currentReg && map[reg] === tmpValue) { return true; } } return false; }
-     function getTMPForRegistration(registration) { if (!registration) return 'TMP????'; let tmpMap = loadFromStorage(tmpMapKey, {}); if (typeof tmpMap !== 'object' || tmpMap === null) tmpMap = {}; if (Object.prototype.hasOwnProperty.call(tmpMap, registration)) { return tmpMap[registration]; } let attempt = 0; let uniqueTMP = null; let generatedTMP; const MAX_ATTEMPTS = 100; while (uniqueTMP === null && attempt < MAX_ATTEMPTS) { const inputForHash = attempt === 0 ? registration : `${registration}_${attempt}`; generatedTMP = generateTMPNumber(inputForHash); if (!isTMPValueUsed(tmpMap, generatedTMP, registration)) { uniqueTMP = generatedTMP; } else { console.warn(`TMP collision for ${registration}: ${generatedTMP}. Retrying...`); attempt++; } } if (uniqueTMP === null) { console.error(`Could not generate unique TMP for ${registration}.`); uniqueTMP = `ERR${Math.floor(1000 + Math.random() * 9000)}`; } tmpMap[registration] = uniqueTMP; saveToStorage(tmpMapKey, tmpMap); try { let genInfo = loadFromStorage(tmpGenerationInfoKey, {}); if (typeof genInfo !== 'object' || genInfo === null) genInfo = {}; genInfo[registration] = { route: dynamicRouteId, timestamp: Date.now() }; saveToStorage(tmpGenerationInfoKey, genInfo); } catch(e) { console.error(`Failed to save TMP generation info for ${registration}:`, e); } return uniqueTMP; }
+     function getTMPForRegistration(registration) {
+    // Check for invalid input
+    if (!registration || typeof registration !== 'string' || registration.trim() === '') {
+        return 'TMP????'; // Return default TMP if registration is invalid
+    }
+    const cleanReg = registration.trim().toUpperCase(); // Use consistent cleaned registration
+
+    try {
+        // *** Load the existing TMP map - THIS PART WAS MISSING ***
+        let tmpMap = loadFromStorage(tmpMapKey, {});
+        if (typeof tmpMap !== 'object' || tmpMap === null) {
+             console.warn(`DEBUG: Invalid tmpMap loaded in getTMPForRegistration for key ${tmpMapKey}. Resetting.`);
+             tmpMap = {};
+        }
+        console.log("DEBUG getTMP: tmpMap variable created. Value:", tmpMap);
+
+        // 1. Check if registration already exists in the map
+        if (Object.prototype.hasOwnProperty.call(tmpMap, cleanReg)) {
+            console.log(`DEBUG getTMP: Found existing entry for ${cleanReg}: ${tmpMap[cleanReg]}`);
+            return tmpMap[cleanReg]; // Return existing value
+        }
+
+        // 2. Generate a new TMP/ERR number if not found - THIS PART WAS MISSING
+        console.log(`DEBUG getTMP: No existing entry for ${cleanReg}. Generating new TMP/ERR...`);
+        let attempt = 0;
+        const maxAttempts = 100;
+        let uniqueTMP = null;
+        let finalValueToAssign = null; // Initialize here
+
+        while (uniqueTMP === null && attempt < maxAttempts) {
+            const inputForHash = attempt === 0 ? cleanReg : `${cleanReg}_${attempt}`;
+            let generatedValue = generateTMPNumber(inputForHash); // Assume generateTMPNumber is defined
+            if (!isTMPValueUsed(tmpMap, generatedValue, cleanReg)) { // Assume isTMPValueUsed is defined
+                uniqueTMP = generatedValue;
+                finalValueToAssign = uniqueTMP; // Assign the successful TMP
+                console.log(`DEBUG getTMP: Generated unique TMP ${finalValueToAssign} for ${cleanReg}`);
+            } else {
+                console.warn(`DEBUG getTMP: TMP collision for ${cleanReg} (${generatedValue}). Retrying attempt ${attempt + 1}...`);
+                attempt++;
+            }
+        }
+
+        // Fallback if too many collisions - THIS PART WAS MISSING
+        if (finalValueToAssign === null) {
+            console.warn(`DEBUG getTMP: Max TMP generation attempts reached for ${cleanReg}. Assigning fallback ERR number.`);
+            finalValueToAssign = `ERR${Math.floor(1000 + Math.random() * 9000)}`;
+            if (isTMPValueUsed(tmpMap, finalValueToAssign, cleanReg)) {
+                 finalValueToAssign = `ERR${Math.floor(1000 + Math.random() * 9000)}`;
+            }
+            console.log(`DEBUG getTMP: Assigned fallback ERR ${finalValueToAssign} for ${cleanReg}`);
+        }
+
+        // 3. Save the newly generated TMP/ERR to the map (This part you had)
+        console.log(`DEBUG getTMP: Saving ${finalValueToAssign} for ${cleanReg} to tmpMap.`);
+        tmpMap[cleanReg] = finalValueToAssign; // Now tmpMap exists
+        saveToStorage(tmpMapKey, tmpMap);
+
+        // 4. Save generation info (This part you had, including getNightRouteId call)
+        try {
+            let genInfo = loadFromStorage(tmpGenerationInfoKey, {});
+            if (typeof genInfo !== 'object' || genInfo === null) genInfo = {};
+            const effectiveRoute = getNightRouteId(dynamicRouteId, Date.now());
+            genInfo[cleanReg] = {
+                type: finalValueToAssign.startsWith('TMP') ? 'TMP' : (finalValueToAssign.startsWith('ERR') ? 'ERR' : 'Manual'),
+                route: effectiveRoute,
+                timestamp: Date.now()
+            };
+            console.log(`DEBUG getTMP: Saving generation info for ${cleanReg}:`, genInfo[cleanReg]);
+            saveToStorage(tmpGenerationInfoKey, genInfo);
+        } catch(e) {
+            console.error(`DEBUG getTMP: Failed to save TMP generation info for ${cleanReg}:`, e);
+        }
+
+        return finalValueToAssign; // Return the generated value
+
+    } catch (e) {
+        console.error(`DEBUG: Error in getTMPForRegistration for '${cleanReg}':`, e);
+        return 'ERR????'; // Return error fallback
+    }
+} // <<< Make sure the function closes here
 
      // --- Destination Override Logic ---
      function getEffectiveDestination(busReg, busDirectionId, originalApiDest) { const reg = String(busReg || '').toUpperCase(); const routeId = dynamicRouteId; const directionId = parseInt(busDirectionId, 10); const overrides = loadFromStorage(destinationOverrideKey, {}); const globalOverride = overrides['*'] || null; if (Object.prototype.hasOwnProperty.call(overrides, reg)) { const o = overrides[reg]; if (typeof o === 'object' && o !== null && o.dir1 !== undefined && o.dir2 !== undefined) { let d=null; if(directionId===1&&o.dir1)d=o.dir1; else if(directionId===2&&o.dir2)d=o.dir2; if(d&&(directionId===1||directionId===2)) return d;} else if (typeof o === 'string' && o.trim() !== '') {return o;} } if (Object.prototype.hasOwnProperty.call(overrides, routeId)) { const o = overrides[routeId]; if (typeof o === 'object' && o !== null && o.dir1 !== undefined && o.dir2 !== undefined) { let d=null; if(directionId===1&&o.dir1)d=o.dir1; else if(directionId===2&&o.dir2)d=o.dir2; if(d&&(directionId===1||directionId===2)) return d;} else if (typeof o === 'string' && o.trim() !== '') {return o;} } if (globalOverride && typeof globalOverride === 'string' && globalOverride.trim() !== '') return globalOverride; return String(originalApiDest || 'N/A'); }

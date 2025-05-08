@@ -2102,6 +2102,10 @@ function assignManualFleetNumber() {
         setTimeout(() => { if (assignStatusElement) assignStatusElement.textContent = ''; }, 4000); // Clear message after delay
     } catch (err) { console.error("DEBUG: Error assigning manual fleet number:", err); alert(`An error occurred: ${err.message}`); assignStatusElement.textContent = `Error saving assignment: ${err.message}`; assignStatusElement.style.color = 'red'; }
 }
+function generateTMPNumber(reg) { const s = 12345, c = reg + s.toString(); let h = 0; if (c.length === 0) return "TMP0000"; for (let i = 0; i < c.length; i++) { const t = c.charCodeAt(i); h = ((h << 5) - h) + t; h |= 0; } return `TMP${Math.abs(h % 10000).toString().padStart(4, "0")}`; } /* jshint bitwise: true */
+
+function isTMPValueUsed(map, val, currReg) { for (const r in map) { if (Object.prototype.hasOwnProperty.call(map, r) && r !== currReg && map[r] === val) { return true; } } return false; }
+
 function getTMPForRegistration(registration) { // Used by curtailment table, needs to work
     if (!registration || typeof registration !== 'string' || registration.trim() === '') { return 'TMP????'; } // Default if invalid input
     const cleanReg = registration.trim().toUpperCase();
@@ -2138,8 +2142,7 @@ function getTMPForRegistration(registration) { // Used by curtailment table, nee
     } catch (e) { console.error(`DEBUG: Error in getTMPForRegistration for '${cleanReg}':`, e); return 'ERR????'; // Error fallback
     }
 }
-/* jshint bitwise: false */ function generateTMPNumber(reg) { const s = 12345, c = reg + s.toString(); let h = 0; if (c.length === 0) return "TMP0000"; for (let i = 0; i < c.length; i++) { const t = c.charCodeAt(i); h = ((h << 5) - h) + t; h |= 0; } return `TMP${Math.abs(h % 10000).toString().padStart(4, "0")}`; } /* jshint bitwise: true */
-function isTMPValueUsed(map, val, currReg) { for (const r in map) { if (Object.prototype.hasOwnProperty.call(map, r) && r !== currReg && map[r] === val) { return true; } } return false; }
+
 function revertToTMP() {
      if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin permissions required to revert.'); return; } if (!revertRegNumberInput || !revertStatusElement) { console.error("Revert UI elements missing."); return; } const reg = revertRegNumberInput.value.trim().toUpperCase(); if (revertStatusElement) revertStatusElement.textContent = ''; if (!reg) { alert("Please enter a Registration number to revert."); return; } let map = loadFromStorage(tmpMapKey, {}); if (typeof map !== 'object' || map === null) map = {}; if (!Object.prototype.hasOwnProperty.call(map, reg)) { if (revertStatusElement) { revertStatusElement.textContent = `${reg} not found in the assignment map.`; revertStatusElement.style.color='orange'; setTimeout(() => revertStatusElement.textContent = '', 4000); } return; } const current = map[reg]; // Check if it's ALREADY auto-generated
       if (typeof current === 'string' && (current.startsWith('TMP') || current.startsWith('ERR'))) { if (revertStatusElement) { revertStatusElement.textContent = `${reg} already has an auto-generated number (${current}). No action taken.`; revertStatusElement.style.color='orange'; setTimeout(() => revertStatusElement.textContent = '', 4000); } return; } if (confirm(`This will remove the manual fleet number for ${reg} and allow an automatic TMP/ERR number to be generated next time it's needed. Continue?`)) { try { const removedValue = map[reg]; delete map[reg]; // Remove the manual entry

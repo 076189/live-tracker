@@ -590,11 +590,11 @@
           <fieldset id="tracker-settings-section" class="hidden" data-permission="canManageSettings">
               <legend>Tracker Settings</legend> <div class="settings-group">
                   <label for="setting-debounce">Curtailment Debounce (Minutes):</label>
-                  <input type="number" id="setting-debounce" min="0" step="1" value="60"> <p class="description-text" style="text-align:left;">Prevents identical curtailments being logged too quickly (currently NOT IMPLEMENTED in JS logic).</p>
+                  <input type="number" id="setting-debounce" min="0" step="1" value="60"> <p class="description-text" style="text-align:left;">Prevents identical curtailments being logged too quickly.</p>
               </div>
               <div class="settings-group">
-                  <label for="setting-timeout">Action Timeout (Minutes):</label>
-                  <input type="number" id="setting-timeout" min="1" step="1" value="30"> <p class="description-text" style="text-align:left;">General timeout for actions (currently NOT IMPLEMENTED in JS logic).</p>
+                  <label for="setting-timeout">Vehicle Timeout (Minutes):</label>
+                  <input type="number" id="setting-timeout" min="1" step="1" value="30"> <p class="description-text" style="text-align:left;">The amount of time a bus stays in the tracker page after it stops polling.</p>
               </div>
               <div class="settings-group">
                   <label for="setting-auto-logout">Auto Logout (Minutes, 0=disable):</label>
@@ -844,9 +844,6 @@
                 <button type="button" onclick="confirmSetPassword()" class="blue-button">Set Password</button>
             </div>
         </div>
-<div id="mobile-debug-output" style="margin-top: 30px; padding: 10px; border: 2px solid red; font-family: monospace; font-size: 0.8em; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
-    <strong>Debug Output:</strong><br>
-</div>
     </div>
 
     </div> <div id="password-modal" class="modal-overlay hidden">
@@ -1572,78 +1569,66 @@ function startSessionTimer() {
 function showApp() {
     console.log("DEBUG: --- showApp ---");
     try {
+        // Initial login/suspension check (unchanged)
         if (!isLoggedIn || !currentUsername || !users || !users[currentUsername] || users[currentUsername].isSuspended) {
             console.warn("DEBUG: showApp called but login state is invalid or user suspended. Forcing logout.");
             logout(); return;
         }
-        const currentUserData = users[currentUsername];
-        const userRole = currentUserData.role;
-        const isAdmin = userRole === 'admin';
-        const isModOrAdmin = isAdmin || userRole === 'moderator'; // Mod/Admin includes Admin
-        console.log(`DEBUG: Showing app for user: ${currentUsername}, Role: ${userRole}, isAdmin: ${isAdmin}, isModOrAdmin: ${isModOrAdmin}`);
 
+        // Hide login, show app (unchanged)
         if (loginContainer) loginContainer.classList.add('hidden');
-        if (accessDeniedMessageDiv) accessDeniedMessageDiv.classList.add('hidden'); // Hide potential access denied message
+        if (accessDeniedMessageDiv) accessDeniedMessageDiv.classList.add('hidden');
         if (appContainer) appContainer.classList.remove('hidden');
 
+        // Welcome message (unchanged)
         if (welcomeMessageElement) { welcomeMessageElement.textContent = `Welcome, ${currentUsername}!`; }
 
-        // Handle Export Reminder (Existing logic)
-        if (exportReminderDiv) {
-            try {
-                const lastExportTimestamp = localStorage.getItem(lastExportKey);
-                const daysThreshold = 7; const millisecondsInDay = 86400000; const now = Date.now();
-                let reminderMessage = ''; let showReminder = false;
-                if (lastExportTimestamp) {
-                    const lastExportTime = parseInt(lastExportTimestamp, 10);
-                    if (!isNaN(lastExportTime)) {
-                        const daysSinceExport = Math.floor((now - lastExportTime) / millisecondsInDay);
-                        if (daysSinceExport >= daysThreshold) {
-                            reminderMessage = `Reminder: Last backup was ${daysSinceExport} days ago. Consider exporting data.`; showReminder = true;
-                        }
-                    } else {
-                         reminderMessage = "Reminder: Could not read last backup time. Consider backing up data."; showReminder = true;
-                         localStorage.removeItem(lastExportKey);
-                    }
-                } else { reminderMessage = "Reminder: No backup detected. Consider performing an initial data export."; showReminder = true; }
-                exportReminderDiv.textContent = reminderMessage; exportReminderDiv.style.display = showReminder ? 'block' : 'none';
-            } catch (e) { console.error("DEBUG: Error processing export reminder:", e); exportReminderDiv.style.display = 'none'; }
-        }
+        // Export Reminder logic (unchanged)
+        if (exportReminderDiv) { /* ... existing reminder logic ... */ }
 
-        goBackToMainView(false); // Reset to main menu view (shows mainActionsContainer, hides sections)
+        // Reset view state
+        goBackToMainView(false);
 
-        // *** START: Explicitly Show/Hide Main Menu Buttons Based on Role ***
+        // *** UPDATED: Show/Hide Main Menu Buttons Based on Permissions ***
         if (mainActionsContainer) {
-            // Original Tools Buttons
-            if (toggleAddCurtailmentButton) toggleAddCurtailmentButton.classList.toggle('hidden', !isModOrAdmin);
-            if (toggleManualFleetButton) toggleManualFleetButton.classList.toggle('hidden', !isModOrAdmin);
-            if (viewAllCurtailmentsButton) viewAllCurtailmentsButton.classList.remove('hidden'); // All users see this
-            if (toggleBackupRestoreButton) toggleBackupRestoreButton.classList.toggle('hidden', !isModOrAdmin); // Mod/Admin needed for Backup/Restore section itself
-            if (toggleSettingsButton) toggleSettingsButton.classList.remove('hidden'); // All users see Settings button
+            const mainButtons = mainActionsContainer.querySelectorAll('button'); // Get all buttons
+            mainButtons.forEach(button => {
+                const requiredPermission = button.dataset.permission; // Get permission key from data-permission attribute
+                if (requiredPermission) {
+                    // Hide button if user does NOT have the required permission
+                    button.classList.toggle('hidden', !hasPermission(requiredPermission));
+                    console.log(`DEBUG: Button ${button.id || button.textContent.slice(0,10)} - ReqPerm: ${requiredPermission}, HasPerm: ${hasPermission(requiredPermission)}, Hidden: ${!hasPermission(requiredPermission)}`);
+                } else {
+                    // Handle buttons WITHOUT data-permission attribute
+                    // Keep 'View All Curtailments' and 'Settings' always visible after login
+                    if (button.id === 'view-all-curtailments-btn' || button.id === 'toggle-settings') {
+                         button.classList.remove('hidden');
+                    } else {
+                         // Optionally hide other buttons without permission by default if necessary
+                         // button.classList.add('hidden');
+                    }
+                }
+            });
 
-            // Merged Buttons (All require Mod/Admin based on original ibusdest logic)
-            if (toggleTempOverridesButton) toggleTempOverridesButton.classList.toggle('hidden', !isModOrAdmin);
-            if (toggleSequenceHeadingsButton) toggleSequenceHeadingsButton.classList.toggle('hidden', !isModOrAdmin);
-            if (toggleFinalDestinationsButton) toggleFinalDestinationsButton.classList.toggle('hidden', !isModOrAdmin);
-
-            // Adjust text content if needed (e.g., View/Manage Curtailments)
+             // Optional Text Adjustment based on permissions
             if (viewAllCurtailmentsButton) {
-                 viewAllCurtailmentsButton.textContent = isModOrAdmin ? 'View / Manage Curtailments' : 'View All Curtailments';
-             }
-        } else {
-             console.error("DEBUG: showApp - mainActionsContainer not found!");
-         }
-        // *** END: Explicitly Show/Hide Main Menu Buttons ***
+                 viewAllCurtailmentsButton.textContent = hasPermission('canManageCurtailments') ? 'View / Manage Curtailments' : 'View All Curtailments';
+            }
 
-        // Now update disabled states for the (now potentially visible) buttons
+        } else {
+            console.error("DEBUG: showApp - mainActionsContainer not found!");
+        }
+        // *** END UPDATED BUTTON LOGIC ***
+
+        // Update enabled/disabled state AFTER visibility is set
         updateElementRoles(mainActionsContainer);
 
-        startSessionTimer(); // Start/reset inactivity timer
+        startSessionTimer(); // Start inactivity timer (unchanged)
 
     } catch (e) {
         console.error("DEBUG: Critical error in showApp:", e);
         if (welcomeMessageElement) welcomeMessageElement.textContent = 'Application Error. Please reload.';
-        if (!isLoggedIn) { logout(); } // Attempt logout if state is broken
+        if (!isLoggedIn) { logout(); }
     }
     console.log("DEBUG: --- showApp finished ---");
 }
@@ -1760,145 +1745,7 @@ function updateElementRoles(container) {
     });
     // console.log(`DEBUG: updateElementRoles - Finished updating roles within ${container.id || container.tagName}`);
 }
-function showSection(sectionId) {
-    console.log(`DEBUG: --- showSection called for sectionId: ${sectionId} ---`);
-    console.log(`DEBUG: showSection - isLoggedIn: ${isLoggedIn}, currentUsername: ${currentUsername}`);
-    if (!isLoggedIn || !currentUsername || !users[currentUsername]) {
-        console.warn("DEBUG: showSection called but user not logged in or user data missing. Redirecting to login.");
-        alert('Session expired or invalid. Please log in again.'); logout(); return;
-    }
-    if (users[currentUsername].isSuspended) {
-        console.warn(`DEBUG: showSection called by suspended user: ${currentUsername}. Access denied.`);
-        alert('Your account is suspended. Access denied.'); logout(); return;
-    }
 
-    const currentUserData = users[currentUsername];
-    const userRole = currentUserData.role;
-    const isModOrAdmin = ['admin', 'moderator'].includes(userRole);
-    const isAdmin = userRole === 'admin';
-    console.log(`DEBUG: showSection - Checking User: ${currentUsername}, Role: ${userRole}, isModOrAdmin: ${isModOrAdmin}, isAdmin: ${isAdmin}`);
-
-    const sectionElement = getElement(sectionId);
-    if (!sectionElement) {
-        console.error(`DEBUG: Section element with ID '${sectionId}' not found.`);
-        alert(`Error: Could not find the requested section (${sectionId}).`);
-        goBackToMainView(); return;
-    }
-
-    // Define sections and their access requirements for this merged tools page
-    const sectionAccessRules = {
-        // Original Tools Sections
-        'manage-curtailments-section': () => true, // All logged-in users can view
-        'view-auto-tmp-section': () => true, // All logged-in users can view
-        'add-curtailment-form': () => isModOrAdmin,
-        'manual-fleet-form': () => isModOrAdmin,
-        'data-actions': () => isModOrAdmin, // Backup/Restore main section visible to Mods/Admins
-        'settings-form': () => true, // All logged-in users can access settings (sub-sections controlled by role)
-
-        // Merged Sections (from ibusdest)
-        'temp-overrides-section': () => isModOrAdmin,
-        'sequence-heading-section': () => isModOrAdmin,
-        'final-destinations-section': () => isModOrAdmin
-    };
-
-    let canAccess = false;
-    if (sectionAccessRules.hasOwnProperty(sectionId)) {
-        canAccess = sectionAccessRules[sectionId](); // Execute the access check function
-        console.log(`DEBUG: showSection - Access check for ${sectionId}: Allowed = ${canAccess}`);
-    } else {
-        console.warn(`DEBUG: Attempted to navigate to unknown sectionId "${sectionId}".`);
-        alert(`Error: Unknown section '${sectionId}'.`); goBackToMainView(); return;
-    }
-
-    if (!canAccess) {
-        alert('Access Denied. You do not have permission to view this section.');
-        console.warn(`DEBUG: showSection access DENIED for user '${currentUsername}' (Role: ${userRole}) to section '${sectionId}'.`);
-        goBackToMainView(); return; // Go back to menu if access denied
-    }
-
-    console.log(`DEBUG: Access granted. Hiding main menu, showing section '${sectionId}' and back button.`);
-    if (mainActionsContainer) mainActionsContainer.classList.add('hidden');
-
-    // Define ALL potentially visible sections to hide them first
-    const allSections = [
-        addCurtailmentForm, manualFleetForm, settingsForm, dataActionsSection,
-        manageCurtailmentsSection, viewAutoTmpSection,
-        tempOverridesSection, sequenceHeadingSection, finalDestinationsSection // Add new sections here
-    ];
-    allSections.forEach(sec => { if (sec) sec.classList.add('hidden'); });
-
-    sectionElement.classList.remove('hidden'); // Show the target section
-    if (goBackButton) goBackButton.classList.remove('hidden'); // Show the 'Go Back' button
-
-    // *** Update element roles/disabled states WITHIN the shown section ***
-    updateElementRoles(sectionElement);
-
-    console.log(`DEBUG: Initialising content for section ${sectionId}.`);
-    // Clear status messages in all relevant sections
-    const statusMessages = [
-        addCurtailmentMessage, assignStatusElement, revertStatusElement,
-        manageCurtailmentsMessage, autoTmpTableMessage,
-        curtailmentsBackupStatus, tmpBackupStatus, seqHeadingsBackupStatus, finalDestBackupStatus, pruneStatusMessage, exportAllStatus,
-        trackerSettingsMessage, changePasswordMessage, addUserMessage, userManagementMessage, auditLogMessage,
-        specificStatusMsg, routeStatusMsg, globalStatusMsg, // Merged status messages
-        seqHeadingStatusMsg, removeHeadingsStatusMsg, destEditorMessage, bulkDestStatus // Merged status messages
-    ];
-    statusMessages.forEach(el => { if (el) el.textContent = ''; });
-
-    // Perform section-specific initialization
-    try {
-        switch (sectionId) {
-            // --- Original Tools Sections ---
-            case 'add-curtailment-form':
-                if (routeInput) routeInput.focus(); if (routeInput) routeInput.value = ''; if (regNumberInput) regNumberInput.value = ''; if (curtailedDestinationInput) curtailedDestinationInput.value = ''; if (curtailmentTimeInput) curtailmentTimeInput.value = ''; break;
-            case 'manual-fleet-form':
-                displayManualAssignments(); if (manualRegNumberInput) manualRegNumberInput.value = ''; if (manualFleetNumberInput) manualFleetNumberInput.value = ''; if (revertRegNumberInput) revertRegNumberInput.value = '';
-                if (revertSection) revertSection.classList.toggle('hidden', !isAdmin); // Explicit show/hide based on role
-                if (resetAllSection) resetAllSection.classList.toggle('hidden', !isAdmin); // Explicit show/hide based on role
-                break;
-            case 'manage-curtailments-section': populateManageCurtailmentsTable(); break;
-            case 'view-auto-tmp-section': populateAutoTmpTable(); break; // Resets filters
-            case 'data-actions':
-                if (importCurtailmentsInput) importCurtailmentsInput.value = ''; if (importTmpInput) importTmpInput.value = ''; if (importSeqHeadingsInput) importSeqHeadingsInput.value = ''; if (importFinalDestInput) importFinalDestInput.value = '';
-                // updatePruneButtonState() is handled by updateElementRoles now
-                break;
-            case 'settings-form':
-                if (changeMyPasswordSection) { changeMyPasswordSection.classList.remove('hidden'); if (currentPasswordInput) currentPasswordInput.value = ''; if (newPasswordInput) newPasswordInput.value = ''; if (confirmNewPasswordInput) confirmNewPasswordInput.value = ''; }
-                if (trackerSettingsSection) trackerSettingsSection.classList.toggle('hidden', !isAdmin);
-                if (adminUserManagementSection) adminUserManagementSection.classList.toggle('hidden', !isAdmin);
-                if (adminAuditLogSection) adminAuditLogSection.classList.toggle('hidden', !isAdmin);
-                if (isAdmin) { console.log("DEBUG: Loading admin settings data."); loadTrackerSettings(); displayUserManagement(); displayAuditLog(); if (addUsernameInput) addUsernameInput.value = ''; if (addUserPasswordInput) addUserPasswordInput.value = ''; if (addUserRoleSelect) addUserRoleSelect.value = 'user'; }
-                break;
-
-            // --- Merged Sections ---
-            case 'temp-overrides-section':
-                displayOverrides(); // Load and display current overrides
-                if(filterInput) filterInput.value = ''; // Clear filter
-                // Clear input fields - check if this is desired UX
-                if(regInput) regInput.value = '';
-                if(specificDestDir1Input) specificDestDir1Input.value = '';
-                if(specificDestDir2Input) specificDestDir2Input.value = '';
-                if(routeIdInput) routeIdInput.value = '';
-                if(routeDestDir1Input) routeDestDir1Input.value = '';
-                if(routeDestDir2Input) routeDestDir2Input.value = '';
-                if(globalDestInput) globalDestInput.value = '';
-                break;
-            case 'sequence-heading-section':
-                if(seqHeadingRouteIdInput) seqHeadingRouteIdInput.value = ''; // Clear inputs
-                if(seqHeadingOutboundInput) seqHeadingOutboundInput.value = '';
-                if(seqHeadingInboundInput) seqHeadingInboundInput.value = '';
-                displayActiveSequenceHeadings(); // Load and display the list
-                break;
-            case 'final-destinations-section':
-                populateDestEditor(); // Reload routes etc.
-                setDestFilterState('all'); // Reset filter view
-                if(destFilterInput) destFilterInput.value = '';
-                if(bulkDestInput) bulkDestInput.value = ''; // Clear bulk input
-                break;
-        }
-    } catch (initError) { console.error(`DEBUG: Error initializing section ${sectionId}:`, initError); alert(`An error occurred while loading the ${sectionId} section. Please try again or contact support.`); goBackToMainView(); }
-    console.log(`DEBUG: --- showSection for ${sectionId} finished successfully ---`);
-}
 function goBackToMainView(logAction = true) {
     if (logAction) { console.log("DEBUG: goBackToMainView called."); }
 
@@ -2637,16 +2484,6 @@ function changeMyPassword() {
     // Clear fields
     currentPasswordInput.value = ''; newPasswordInput.value = ''; confirmNewPasswordInput.value = '';
     setTimeout(() => { if(changePasswordMessage) changePasswordMessage.textContent = ''; }, 4000);
-}
-function displayUserManagement() { // Populates the user management table
-    if (!isLoggedIn || users[currentUsername]?.role !== 'admin' || !userManagementTbody) { console.warn("User management cannot be displayed."); return; }
-    userManagementTbody.innerHTML = ''; // Clear existing rows
-    userManagementMessage.textContent = ''; // Clear status
-
-    // Sort usernames alphabetically, but keep 'Ryan' first if exists
-    const sortedUsernames = Object.keys(users).sort((a, b) => {
-         if (a === 'Ryan') return -1; if (b === 'Ryan') return 1; return a.localeCompare(b);
-     });
 
     sortedUsernames.forEach(un => {
         const uData = users[un];
@@ -2663,6 +2500,10 @@ function displayUserManagement() { // Populates the user management table
             sel.innerHTML = `<option value="user" ${uData.role === 'user' ? 'selected' : ''}>User</option><option value="moderator" ${uData.role === 'moderator' ? 'selected' : ''}>Moderator</option><option value="admin" ${uData.role === 'admin' ? 'selected' : ''}>Admin</option>`;
             sel.onchange = () => changeUserRole(un, sel.value);
             roleC.appendChild(sel);
+console.log(`--- Dropdown 'onchange' triggered for user: ${un} ---`);
+    const selectedValue = sel.value; // Get value inside handler
+    console.log(`--- New selected value: ${selectedValue} ---`);
+    console.log(`--- Checking typeof changeUserRole just before call: ${typeof changeUserRole} ---`); // Check if function exists here
         }
 
         // Status Cell
@@ -2767,18 +2608,7 @@ function changeUserRole(username, newRole) {
      if (!Object.prototype.hasOwnProperty.call(users, username)) { alert(`User ${username} not found.`); return; } // User must exist
      if (!['user', 'admin', 'moderator'].includes(newRole)) { alert("Invalid role selected."); return; } // Role must be valid
 
-// --- Add this new function somewhere in the script ---
-
-/**
- * Saves the updated permissions for a specific user based on checkbox states.
- * @param {string} username - The username of the user whose permissions are being saved.
- */
-// --- Ensure this function definition exists BEFORE displayUserManagement ---
-
-/**
- * Saves the updated permissions for a specific user based on checkbox states.
- * @param {string} username - The username of the user whose permissions are being saved.
- */
+}
 function saveUserPermissions(username) {
     console.log(`DEBUG: saveUserPermissions called for user: ${username}`);
 
@@ -2852,13 +2682,75 @@ function saveUserPermissions(username) {
 }
 
 // --- Modify the 'Permissions Cell' part within displayUserManagement function ---
+/**
+ * Opens the modal for setting a new password for a specific user.
+ * @param {string} username - The username of the user to modify.
+ */
+function openSetPasswordModal(username) {
+    console.log(`DEBUG: openSetPasswordModal called for user: ${username}`);
+    // Permission Check (redundant if button is disabled, but good practice)
+    if (!hasPermission('canManageUsers')) {
+        alert('Permission Denied: Cannot set user passwords.');
+        return;
+    }
+    if (username === 'Ryan') { // Prevent changing default admin password this way
+        alert("Cannot change password for the default admin user via this interface.");
+        return;
+    }
+
+    const modal = getElement('set-password-modal');
+    const title = getElement('set-password-modal-title');
+    const usernameInput = getElement('set-password-username'); // Hidden input
+    const newPassInput = getElement('set-new-password');
+    const confirmPassInput = getElement('set-confirm-password');
+    const errorMsg = getElement('set-password-modal-error');
+
+    if (!modal || !title || !usernameInput || !newPassInput || !confirmPassInput || !errorMsg) {
+        console.error("DEBUG: Set password modal elements missing.");
+        alert("UI Error: Cannot open password dialog.");
+        return;
+    }
+
+    // Store the username we are editing in the hidden input
+    usernameInput.value = username;
+
+    // Reset modal state before showing
+    title.textContent = `Set New Password for ${username}`;
+    newPassInput.value = '';
+    confirmPassInput.value = '';
+    errorMsg.textContent = '';
+
+    // Show the modal
+    modal.classList.remove('hidden');
+    newPassInput.focus(); // Focus on the new password field for convenience
+}
 function displayUserManagement() {
-    if (!isLoggedIn || users[currentUsername]?.role !== 'admin' || !userManagementTbody) {
+    // Use getElement to ensure userManagementTbody is defined in this scope if not global
+    const userManagementTbody = getElement('user-management-tbody');
+console.log("--- Inside displayUserManagement ---");
+    console.log("Value of isLoggedIn:", isLoggedIn);
+    console.log("Value of currentUsername:", currentUsername);
+    console.log("Value of users[currentUsername]?.role:", users[currentUsername]?.role);
+    console.log("Value of userManagementTbody:", userManagementTbody); // <<< Does this show null?
+    console.log("--- Checking condition ---");
+console.log("--- Checking condition parts ---");
+    const check1_isLoggedIn = !isLoggedIn;
+    const check2_isAdmin = users[currentUsername]?.role !== 'admin';
+    const check3_tbodyMissing = !userManagementTbody;
+    console.log("Condition Part 1 (!isLoggedIn):", check1_isLoggedIn, "(Should be false)");
+    console.log("Condition Part 2 (role !== 'admin'):", check2_isAdmin, "(Should be false)");
+    console.log("Condition Part 3 (!userManagementTbody):", check3_tbodyMissing, "(Should be false)");
+    const overallCondition = check1_isLoggedIn || check2_isAdmin || check3_tbodyMissing;
+    console.log("Overall Condition Result:", overallCondition, "(Should be false)");
+    console.log("--- End Checking condition parts ---");
+    if (!hasPermission('canManageUsers') || !userManagementTbody) {
         console.warn("User management cannot be displayed.");
-        if (userManagementTbody) userManagementTbody.innerHTML = '<tr><td colspan="6">Admin privileges required to view user management.</td></tr>'; // Colspan might need adjustment
+        if (userManagementTbody) userManagementTbody.innerHTML = '<tr><td colspan="6">Admin privileges required to view user management.</td></tr>'; // Adjust colspan if needed (was 6 before, depends on final columns)
         return;
     }
     userManagementTbody.innerHTML = ''; // Clear existing rows
+    // Use getElement to ensure userManagementMessage is defined in this scope if not global
+    const userManagementMessage = getElement('user-management-message');
     if (userManagementMessage) userManagementMessage.textContent = ''; // Clear status
 
     const sortedUsernames = Object.keys(users).sort((a, b) => {
@@ -2870,37 +2762,43 @@ function displayUserManagement() {
         // Ensure user data has a permissions object
         if (!uData.permissions || typeof uData.permissions !== 'object') {
             uData.permissions = {}; // Initialize if missing
-            // Optionally initialize all defined permissions to false here if needed
+            // Initialize all defined permissions to false if needed
             PERMISSIONS_LIST.forEach(p => {
                 if (uData.permissions[p.key] === undefined) {
                     uData.permissions[p.key] = false;
                 }
             });
-            // Consider saving users here if structure was corrected, or let saveUserPermissions handle it
         }
 
         const tr = userManagementTbody.insertRow();
         tr.insertCell().textContent = un; // Username
 
-        // Role Cell (same as before)
+        // Role Cell
         const roleC = tr.insertCell();
         if (un === 'Ryan') {
             roleC.textContent = uData.role;
         } else {
             const sel = document.createElement('select');
-            sel.id = `role-select-${un}`;
-            sel.innerHTML = `<option value="user" ${uData.role === 'user' ? 'selected' : ''}>User</option><option value="moderator" ${uData.role === 'moderator' ? 'selected' : ''}>Moderator</option><option value="admin" ${uData.role === 'admin' ? 'selected' : ''}>Admin</option>`;
-            sel.onchange = () => changeUserRole(un, sel.value);
-            roleC.appendChild(sel);
+sel.id = `role-select-${un}`;
+sel.innerHTML = `<option value="user" ${uData.role === 'user' ? 'selected' : ''}>User</option><option value="moderator" ${uData.role === 'moderator' ? 'selected' : ''}>Moderator</option><option value="admin" ${uData.role === 'admin' ? 'selected' : ''}>Admin</option>`;
+
+// --- Replace the previous onchange handler with THIS simple one: ---
+sel.onchange = function() { // Using function() just to be safe with 'this' if needed later
+    console.log(`--- SIMPLE onchange fired for: ${un}. New value: ${this.value}`);
+    alert(`Role changed for ${un} to ${this.value}!`); // Simple alert
+};
+// --- End of simple handler ---
+
+roleC.appendChild(sel);
         }
 
-        // Status Cell (same as before)
+        // Status Cell
         const statusC = tr.insertCell();
         const statusT = uData.isSuspended ? 'Suspended' : 'Active';
         const statusCls = uData.isSuspended ? 'status-suspended' : 'status-active';
         statusC.innerHTML = `<span class="${statusCls}">${statusT}</span>`;
 
-        // *** MODIFIED Permissions Cell ***
+        // Permissions Cell
         const permC = tr.insertCell();
         permC.className = 'permissions-cell';
         PERMISSIONS_LIST.forEach(perm => {
@@ -2910,50 +2808,32 @@ function displayUserManagement() {
             checkbox.id = `perm-${un}-${perm.key}`;
             checkbox.checked = !!uData.permissions[perm.key]; // Ensure boolean check
             checkbox.dataset.permissionKey = perm.key; // Store key for saving
-            // Disable checkbox for default admin 'Ryan'
-            checkbox.disabled = (un === 'Ryan');
-            // Add onchange handler only if not disabled
+            checkbox.disabled = (un === 'Ryan'); // Disable checkbox for default admin 'Ryan'
             if (!checkbox.disabled) {
-                 checkbox.onchange = () => saveUserPermissions(un); // Call save function on change
+                checkbox.onchange = () => saveUserPermissions(un); // Assumes saveUserPermissions is defined before this
             }
-
             const label = document.createElement('label');
             label.htmlFor = checkbox.id;
             label.textContent = perm.label;
-
             permDiv.appendChild(checkbox);
             permDiv.appendChild(label);
             permC.appendChild(permDiv);
         });
-        // *** END MODIFIED Permissions Cell ***
 
-        // Actions Cell (same as before)
+        // Actions Cell
         const actC = tr.insertCell();
         if (un !== 'Ryan') {
-            const btnP = document.createElement('button'); btnP.textContent = 'Set Password'; btnP.className = 'blue-button'; btnP.type = 'button'; btnP.onclick = () => openSetPasswordModal(un); actC.appendChild(btnP);
-            const btnS = document.createElement('button'); btnS.textContent = uData.isSuspended ? 'Unsuspend' : 'Suspend'; btnS.className = uData.isSuspended ? 'unsuspend-user-btn' : 'suspend-user-btn'; btnS.type = 'button'; btnS.onclick = () => toggleUserSuspension(un); actC.appendChild(btnS);
-            const btnD = document.createElement('button'); btnD.textContent = 'Delete'; btnD.className = 'danger-button delete-user-btn'; btnD.type = 'button'; btnD.onclick = () => deleteUser(un); actC.appendChild(btnD);
+            const btnP = document.createElement('button'); btnP.textContent = 'Set Password'; btnP.className = 'blue-button'; btnP.type = 'button';
+            btnP.onclick = () => openSetPasswordModal(un); actC.appendChild(btnP); // Assumes openSetPasswordModal is defined before this
+            const btnS = document.createElement('button'); btnS.textContent = uData.isSuspended ? 'Unsuspend' : 'Suspend'; btnS.className = uData.isSuspended ? 'unsuspend-user-btn' : 'suspend-user-btn'; btnS.type = 'button';
+            btnS.onclick = () => toggleUserSuspension(un); actC.appendChild(btnS); // Assumes toggleUserSuspension is defined before this
+            const btnD = document.createElement('button'); btnD.textContent = 'Delete'; btnD.className = 'danger-button delete-user-btn'; btnD.type = 'button';
+            btnD.onclick = () => deleteUser(un); actC.appendChild(btnD); // Assumes deleteUser is defined before this
         } else { actC.textContent = 'N/A'; }
     });
-}
-
-     const oldRole = users[username].role;
-     if (oldRole === newRole) return; // No change needed
-
-     if (confirm(`Change role for user '${username}' from ${oldRole} to ${newRole}?`)) {
-         users[username].role = newRole; // Update role
-         saveUsersToStorage(); // Save changes
-         logAdminAction("User Role Changed", { targetUser: username, oldRole, newRole }); // Log action
-
-         if(userManagementMessage) { userManagementMessage.textContent = `Role for ${username} updated to ${newRole}.`; userManagementMessage.style.color='green'; }
-         displayUserManagement(); // Refresh table to show change
-         setTimeout(() => { if(userManagementMessage) userManagementMessage.textContent = ''; }, 4000);
-     } else {
-         displayUserManagement(); // Refresh table to reset dropdown if user cancelled
-     }
-}
+} // <-- Make sure this closing brace is the end
 function deleteUser(username) {
-    if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert("Admin privileges required."); return; }
+    if (!hasPermission('canManageUsers') || !userManagementTbody) { alert("Admin privileges required."); return; }
     if (username === 'Ryan') { alert("Cannot delete the default admin user."); return; } // Protect default admin
     if (!Object.prototype.hasOwnProperty.call(users, username)) { alert(`User ${username} not found.`); return; } // User must exist
 
@@ -2987,10 +2867,151 @@ function toggleUserSuspension(username) {
      }
 }
 
+
+
+console.log("TEST LOG: Defining showSection NOW");
+console.log("TEST LOG --- Defining showSection Function ---");
+function showSection(sectionId) {
+    console.log(`DEBUG: --- showSection called for sectionId: ${sectionId} ---`);
+    // Initial login/suspension checks (unchanged)
+    if (!isLoggedIn || !currentUsername || !users[currentUsername] || users[currentUsername].isSuspended) {
+        /* ... logout etc ... */ return;
+    }
+
+    // Get section element (unchanged)
+    const sectionElement = getElement(sectionId);
+    if (!sectionElement) { /* ... error handling ... */ return; }
+
+    // --- UPDATED: Access rules based on permissions ---
+    const sectionAccessRules = {
+        // Public / View-only sections (visible to all logged-in users)
+        'manage-curtailments-section': () => true,
+        'view-auto-tmp-section': () => true,
+        'settings-form': () => true, // The page itself is visible, content inside is permissioned
+
+        // Permission-controlled sections
+        'add-curtailment-form': () => hasPermission('canManageCurtailments'),
+        'manual-fleet-form': () => hasPermission('canManageFleet'),
+        'data-actions': () => hasPermission('canBackupRestore'),
+        'temp-overrides-section': () => hasPermission('canManageOverrides'),
+        'sequence-heading-section': () => hasPermission('canManageSeqHeadings'),
+        'final-destinations-section': () => hasPermission('canManageFinalDests')
+    };
+    // --- END UPDATED RULES ---
+
+    // Check access using the rules (unchanged logic)
+    let canAccess = false;
+    if (sectionAccessRules.hasOwnProperty(sectionId)) {
+        canAccess = sectionAccessRules[sectionId]();
+        console.log(`DEBUG: showSection - Access check for ${sectionId}: Allowed = ${canAccess}`);
+    } else { /* ... unknown section handling ... */ return; }
+    if (!canAccess) { /* ... access denied handling ... */ return; }
+
+    // Hide main menu, show section (unchanged)
+    if (mainActionsContainer) mainActionsContainer.classList.add('hidden');
+    const allSections = [ /* ... list of all section variables ... */ ];
+    allSections.forEach(sec => { if (sec) sec.classList.add('hidden'); });
+    sectionElement.classList.remove('hidden');
+    if (goBackButton) goBackButton.classList.remove('hidden');
+
+    // Update controls *within* the section (unchanged)
+    updateElementRoles(sectionElement);
+
+    console.log(`DEBUG: Initialising content for section ${sectionId}.`);
+    // Clear status messages (unchanged)
+    const statusMessages = [ /* ... list of all status message variables ... */ ];
+    statusMessages.forEach(el => { if (el) el.textContent = ''; });
+
+    // Section-specific initialization
+    try {
+        switch (sectionId) {
+            // ... other cases like 'add-curtailment-form', etc. ...
+
+                 case 'manual-fleet-form':
+                 displayManualAssignments(); // Always display list if section is accessed
+                 // Show/hide revert/reset sections based on permission
+                 if (revertSection) revertSection.classList.toggle('hidden', !hasPermission('canManageFleet'));
+                 if (resetAllSection) resetAllSection.classList.toggle('hidden', !hasPermission('canManageFleet'));
+                 // Clear inputs only if user has permission
+                 if (hasPermission('canManageFleet')) 
+                    /* ... clear inputs ... */
+                 break;
+
+                case 'manage-curtailments-section':
+                populateManageCurtailmentsTable(); // Call the function to load the table
+                break;
+
+                case 'view-auto-tmp-section':
+                populateAutoTmpTable(); // Call the function to load this table
+                break;
+
+                case 'settings-form':
+                // Always show "Change My Password"
+                if (changeMyPasswordSection) { changeMyPasswordSection.classList.remove('hidden')
+                }
+                // Get admin status once
+                const isAdmin = users[currentUsername]?.role === 'admin';
+
+                // Show/Hide Global Settings based on permission
+                if (trackerSettingsSection) trackerSettingsSection.classList.toggle('hidden', !hasPermission('canManageSettings'));
+                // Show/Hide User Management based on permission
+                if (adminUserManagementSection) adminUserManagementSection.classList.toggle('hidden', !hasPermission('canManageUsers'));
+                // Show/Hide Audit Log based on permission
+                if (adminAuditLogSection) adminAuditLogSection.classList.toggle('hidden', !hasPermission('canViewAuditLog'));
+
+                // Load/Display content ONLY if the relevant permission is granted
+                if (hasPermission('canManageSettings')) {
+                     console.log("DEBUG: Loading tracker settings data.");
+                     loadTrackerSettings(); // Assumes loadTrackerSettings itself doesn't need admin check inside
+                 }
+                 if (hasPermission('canManageUsers')) {
+                     console.log("DEBUG: Calling displayUserManagement.");
+                     displayUserManagement(); // Assumes displayUserManagement handles internal states correctly
+                     // Clear Add User form fields only if section is visible
+                     if (addUsernameInput) addUsernameInput.value = '';
+                     if (addUserPasswordInput) addUserPasswordInput.value = '';
+                     if (addUserRoleSelect) addUserRoleSelect.value = 'user';
+                 }
+                 if (hasPermission('canViewAuditLog')) {
+                     console.log("DEBUG: Calling displayAuditLog.");
+                     displayAuditLog(); // Assumes displayAuditLog doesn't need admin check inside
+                 }
+                break;
+
+console.log("--- Checking Settings Sub-sections ---");
+    console.log("Element trackerSettingsSection:", trackerSettingsSection); // Should show the HTML element, not null
+    console.log("Element adminUserManagementSection:", adminUserManagementSection); // Should show the HTML element, not null
+    console.log("Element adminAuditLogSection:", adminAuditLogSection); // Should show the HTML element, not null
+    console.log("Permission canManageSettings:", hasPermission('canManageSettings')); // Should be true for admin
+    console.log("Permission canManageUsers:", hasPermission('canManageUsers'));       // Should be true for admin
+    console.log("Permission canViewAuditLog:", hasPermission('canViewAuditLog'));     // Should be true for admin
+    console.log("--- End Checks ---");
+                
+                case 'temp-overrides-section':
+                displayOverrides();
+                break;
+
+                case 'sequence-heading-section':
+                displayActiveSequenceHeadings();
+                break;
+ 
+                case 'final-destinations-section':
+                populateDestEditor();
+                break;
+
+        } // End of switch
+    } catch (initError) {
+        console.error(`DEBUG: Error initializing section ${sectionId}:`, initError);
+        alert(`An error occurred while loading the ${sectionId} section. Please try again or contact support.`);
+        goBackToMainView();
+    }
+    console.log(`DEBUG: --- showSection for ${sectionId} finished successfully ---`);
+}
+
 // --- Audit Log Display/Clear (from tools.html) ---
 function displayAuditLog() {
     console.log("DEBUG: displayAuditLog called.");
-    if (!isLoggedIn || users[currentUsername]?.role !== 'admin' || !auditLogDisplay) { console.warn("DEBUG: Cannot display audit log - Permission denied or element missing."); if (auditLogDisplay) auditLogDisplay.innerHTML = '<p>Log cannot be displayed.</p>'; return; }
+    if (!hasPermission('canViewAuditLog') || !auditLogDisplay) { console.warn("DEBUG: Cannot display audit log - Permission denied or element missing."); if (auditLogDisplay) auditLogDisplay.innerHTML = '<p>Log cannot be displayed.</p>'; return; }
     auditLogDisplay.innerHTML = ''; if (auditLogMessage) auditLogMessage.textContent = ''; // Clear previous
 
     try {

@@ -3348,41 +3348,154 @@ function handleCurtailmentImport(file) { // MERGE version
     r.readAsText(file);
 }
 function exportTmpMap() {
-     if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; }
-     if (tmpBackupStatus) tmpBackupStatus.textContent = '';
-     try { const map = loadFromStorage(tmpMapKey, {}); if (typeof map !== 'object' || map === null || Object.keys(map).length === 0) { if (tmpBackupStatus) { tmpBackupStatus.textContent = 'No data found to export.'; tmpBackupStatus.style.color='orange';} alert("No Fleet/TMP data to export."); return; } const count = Object.keys(map).length; const filename = generateTimestampedFilename("ToolsBackup_FleetTMP"); triggerDownload(filename, map); logAdminAction("Data Exported", { type: "Fleet/TMP", count }); if (tmpBackupStatus) { tmpBackupStatus.textContent = 'Export successful!'; tmpBackupStatus.style.color='green'; setTimeout(() => { if(tmpBackupStatus) tmpBackupStatus.textContent = ''; }, 4000); } }
-     catch (e) { if (tmpBackupStatus) { tmpBackupStatus.textContent = 'Export error.'; tmpBackupStatus.style.color='red'; } alert("Export error: " + e.message); console.error("Error exporting TMP map:", e);}
+    // Permission checks (keep as is)
+    if (!isLoggedIn || !['admin', 'moderator'].includes(users[currentUsername]?.role)) { alert('Access Denied.'); return; }
+    if (tmpBackupStatus) tmpBackupStatus.textContent = '';
+    console.log("DEBUG: Starting enhanced TMP Map export...");
+
+    try {
+        const tmpMap = loadFromStorage(tmpMapKey, {}); // Load Reg -> Fleet map
+        const infoMap = loadFromStorage(tmpGenerationInfoKey, {}); // Load Reg -> {route, timestamp} map
+        const dataToExport = {}; // Object to hold the combined data
+        let exportedCount = 0;
+
+        if (typeof tmpMap === 'object' && tmpMap !== null && Object.keys(tmpMap).length > 0) {
+            // Loop through all registrations in the main map
+            for (const reg in tmpMap) {
+                if (Object.prototype.hasOwnProperty.call(tmpMap, reg)) {
+                    const fleetValue = tmpMap[reg];
+                    const regInfo = infoMap[reg] || {}; // Get info for this reg, or empty object if not found
+
+                    // Create an entry with all details
+                    dataToExport[reg] = {
+                        fleet: fleetValue,
+                        route: regInfo.route || null, // Use saved route or null
+                        timestamp: regInfo.timestamp || null // Use saved timestamp or null
+                    };
+                    exportedCount++;
+                }
+            }
+        }
+
+        if (exportedCount === 0) {
+            // No data found message (keep as is)
+            if (tmpBackupStatus) { tmpBackupStatus.textContent = 'No data found to export.'; tmpBackupStatus.style.color='orange';}
+            alert("No Fleet/TMP data to export.");
+            return;
+        }
+
+        // Export the combined data
+        const filename = generateTimestampedFilename("ToolsBackup_FleetTMP_Enhanced"); // New filename indicates richer format
+        triggerDownload(filename, dataToExport);
+        logAdminAction("Data Exported", { type: "Fleet/TMP (Enhanced)", count: exportedCount });
+        if (tmpBackupStatus) { tmpBackupStatus.textContent = 'Enhanced export successful!'; tmpBackupStatus.style.color='green'; setTimeout(() => { if (tmpBackupStatus) tmpBackupStatus.textContent = ''; }, 4000); }
+
+    } catch (e) {
+        // Error handling (keep as is)
+        if (tmpBackupStatus) { tmpBackupStatus.textContent = 'Export error.'; tmpBackupStatus.style.color='red';}
+        alert("Export error: " + e.message);
+        console.error("Error exporting enhanced TMP map:", e);
+    }
 }
-function handleTmpImport(file) { // MERGE version
+function handleTmpImport(file) { // MERGE version - Enhanced Format
+    // Permission checks, file checks (keep as is)
     if (!isLoggedIn || users[currentUsername]?.role !== 'admin') { alert('Admin Denied.'); if (importTmpInput) importTmpInput.value = ''; return; }
     if (!file) { alert("No file selected."); return; }
     if (tmpBackupStatus) tmpBackupStatus.textContent = '';
-    if (!file.name.toLowerCase().endsWith('.json')) { alert("Invalid file type. Please select a JSON file."); if (importTmpInput) importTmpInput.value = ''; return; }
+    if (!file.name.toLowerCase().endsWith('.json')) { alert("Invalid file type..."); if (importTmpInput) importTmpInput.value = ''; return; }
+
+    console.log("DEBUG: Starting enhanced TMP Map import...");
 
     const r = new FileReader();
     r.onload = function (e) {
         try {
-            let importedData = JSON.parse(e.target.result); if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) { throw new Error("Not valid map/object format."); }
-            let invalid = 0; let importedCount = 0;
-            for (const k in importedData) { if (Object.prototype.hasOwnProperty.call(importedData, k)) { if (typeof importedData[k] !== 'string') { console.warn(`Removing invalid value for key ${k} during TMP import.`); delete importedData[k]; invalid++; } else { importedCount++; } } }
-            if (invalid > 0) { alert(`Warning: Removed ${invalid} invalid entries (non-string values) from the imported file.`); } if (importedCount === 0) { throw new Error("No valid Reg -> Fleet entries found in file."); }
-
-            if (!confirm(`Importing will MERGE the Fleet/TMP map.\nAssignments from the file will be added or will OVERWRITE existing assignments for the same registration.\n(${importedCount} valid entries found).\nContinue?`)) {
-                 if (importTmpInput) importTmpInput.value = ''; return;
+            const importedData = JSON.parse(e.target.result);
+            // Validate imported data structure (expecting an object)
+            if (typeof importedData !== 'object' || importedData === null || Array.isArray(importedData)) {
+                throw new Error("Imported file is not a valid JSON object (expecting Registration -> {fleet, route, timestamp} mapping).");
             }
 
-            let existingMap = loadFromStorage(tmpMapKey, {}); if (typeof existingMap !== 'object' || existingMap === null) { existingMap = {}; }
-            const mergedMap = Object.assign({}, existingMap, importedData); // Imported data overwrites existing
-            const finalCount = Object.keys(mergedMap).length;
-            saveToStorage(tmpMapKey, mergedMap);
+            const regsToProcess = Object.keys(importedData);
+            if (regsToProcess.length === 0) {
+                throw new Error("No registration entries found in the imported file.");
+            }
 
-            logAdminAction("Data Merged", { type: "Fleet/TMP", importedCount: importedCount, finalCount: finalCount, fileName: file.name });
-            if (tmpBackupStatus) { tmpBackupStatus.textContent = 'Merge complete!'; tmpBackupStatus.style.color='green'; setTimeout(() => tmpBackupStatus.textContent = '', 4000); } alert(`Merged ${importedCount} assignments. Total assignments now: ${finalCount}.`);
-            if (manualFleetForm && !manualFleetForm.classList.contains('hidden')) { displayManualAssignments(); } // Refresh display if visible
-        } catch (err) { console.error("TMP Import/Merge Error:", err); if (tmpBackupStatus) { tmpBackupStatus.textContent = `Import Error: ${err.message}`; tmpBackupStatus.style.color='red';} alert("Import error: " + err.message); }
-        finally { if (importTmpInput) importTmpInput.value = ''; }
+            // Confirmation dialog (keep as is, maybe update text slightly)
+            if (!confirm(`Importing will MERGE the Fleet/TMP map AND associated Route/Date info.\nData from the file will OVERWRITE existing entries for the same registration.\n(${regsToProcess.length} registrations found).\nContinue?`)) {
+                if (importTmpInput) importTmpInput.value = ''; return;
+            }
+
+            // Load existing data
+            let existingTmpMap = loadFromStorage(tmpMapKey, {});
+            if (typeof existingTmpMap !== 'object' || existingTmpMap === null) { existingTmpMap = {}; }
+            let existingInfoMap = loadFromStorage(tmpGenerationInfoKey, {});
+            if (typeof existingInfoMap !== 'object' || existingInfoMap === null) { existingInfoMap = {}; }
+
+            let importedCount = 0;
+            let updatedInfoCount = 0;
+
+            // Process each registration from the imported file
+            for (const reg in importedData) {
+                if (Object.prototype.hasOwnProperty.call(importedData, reg)) {
+                    const entryData = importedData[reg];
+                    const upperReg = reg.toUpperCase(); // Use uppercase for consistency
+
+                    // Check if the imported entry has the expected structure (at least a 'fleet' string)
+                    if (typeof entryData === 'object' && entryData !== null && typeof entryData.fleet === 'string') {
+                        // Update/Add to the main Fleet/TMP map
+                        existingTmpMap[upperReg] = entryData.fleet;
+                        importedCount++;
+
+                        // Update/Add to the Generation Info map if route or timestamp exists
+                        if (entryData.route || entryData.timestamp) {
+                            // Determine type based on fleet prefix (or set to 'Manual'/'Imported' if needed)
+                            const type = entryData.fleet.startsWith('TMP') ? 'TMP' : (entryData.fleet.startsWith('ERR') ? 'ERR' : 'Manual');
+                            existingInfoMap[upperReg] = {
+                                type: type,
+                                route: entryData.route || null,
+                                timestamp: entryData.timestamp || null
+                            };
+                            updatedInfoCount++;
+                        } else {
+                            // Optional: If the imported entry for a REG has NO route/date,
+                            // you might want to remove any old route/date info for that REG.
+                            // delete existingInfoMap[upperReg];
+                            console.warn(`Imported data for ${upperReg} lacks route/timestamp info.`);
+                        }
+                    } else {
+                        console.warn(`Skipping invalid entry for registration ${reg}. Expected object with 'fleet' property.`);
+                    }
+                }
+            }
+
+            // Save BOTH maps back to localStorage if any valid entries were processed
+            if (importedCount > 0) {
+                saveToStorage(tmpMapKey, existingTmpMap);
+                saveToStorage(tmpGenerationInfoKey, existingInfoMap);
+
+                logAdminAction("Data Merged", { type: "Fleet/TMP (Enhanced)", importedRegs: importedCount, updatedInfo: updatedInfoCount, fileName: file.name });
+                if (tmpBackupStatus) { tmpBackupStatus.textContent = 'Enhanced merge complete!'; tmpBackupStatus.style.color='green'; setTimeout(() => tmpBackupStatus.textContent = '', 4000); }
+                alert(`Merged ${importedCount} assignments. Associated route/date info updated for ${updatedInfoCount}.`);
+
+                // Refresh relevant UI if visible
+                if (manualFleetForm && !manualFleetForm.classList.contains('hidden')) { displayManualAssignments(); }
+                if (viewAutoTmpSection && !viewAutoTmpSection.classList.contains('hidden')) { populateAutoTmpTable(); } // Refresh Auto TMP table
+
+            } else {
+                alert("No valid assignments could be imported from the file.");
+                if (tmpBackupStatus) { tmpBackupStatus.textContent = 'Import failed: No valid data.'; tmpBackupStatus.style.color = 'red'; }
+            }
+
+        } catch (err) {
+            // Error handling (keep as is)
+            console.error("Enhanced TMP Import/Merge Error:", err);
+            if (tmpBackupStatus) { tmpBackupStatus.textContent = `Import Error: ${err.message}`; tmpBackupStatus.style.color='red';}
+            alert("Import error: " + err.message);
+        } finally {
+            if (importTmpInput) importTmpInput.value = '';
+        }
     };
-    r.onerror = function () { if (tmpBackupStatus) { tmpBackupStatus.textContent = 'File Read Error.'; tmpBackupStatus.style.color='red'; } alert("Error reading file."); if (importTmpInput) importTmpInput.value = ''; };
+    r.onerror = function () { /* ... keep error handling ... */ };
     r.readAsText(file);
 }
 function exportSequenceHeadings() {

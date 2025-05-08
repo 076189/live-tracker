@@ -894,6 +894,90 @@ const auditLogKey = 'actionAuditLog'; // From tools.html
 const MAX_AUDIT_LOG_ENTRIES = 500; // From tools.html
 const lastCurtailmentPruneTimestampKey = 'lastCurtailmentPruneTimestamp'; // From tools.html
 
+// --- Add near other Constants ---
+
+// Define the night schedule window FOR EACH 24-HOUR ROUTE
+// NOTE: Times are in HH:MM (24-hour format). Start is inclusive, End is inclusive (up to :59).
+// *** YOU MUST VERIFY AND POPULATE THIS LIST ACCURATELY ***
+const ROUTE_NIGHT_WINDOW = {
+    // Examples - Replace with actual operational night windows
+    '6':   { start: '00:00', end: '05:59' }, // Midnight to 5:59 AM
+    '149': { start: '00:05', end: '05:30' }, // 12:05 AM to 5:30 AM
+    '188': { start: '23:45', end: '05:15' }, // 11:45 PM to 5:15 AM (Spans midnight)
+    '390': { start: '23:30', end: '06:00' }, // 11:30 PM to 6:00 AM
+    // ... ADD ALL OTHER RELEVANT 24-HOUR ROUTES HERE ...
+    // (Only include routes that run 24hrs but DON'T already have an 'N' prefix)
+};
+
+// --- Add Helper Functions ---
+
+/**
+ * Converts HH:MM time string to minutes past midnight.
+ * @param {string} timeStr - Time string like "HH:MM".
+ * @returns {number} Minutes past midnight (0-1439) or NaN if invalid.
+ */
+function timeToMinutes(timeStr) {
+    if (!timeStr || !/^\d{2}:\d{2}$/.test(timeStr)) return NaN;
+    const parts = timeStr.split(':');
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+    if (isNaN(hours) || hours < 0 || hours > 23 || isNaN(minutes) || minutes < 0 || minutes > 59) return NaN;
+    return hours * 60 + minutes;
+}
+
+/**
+ * Prefixes a route ID with 'N' if it runs 24hrs and the time falls
+ * within its specific defined night schedule window (HH:MM from ROUTE_NIGHT_WINDOW).
+ * @param {string} routeId - The original route ID.
+ * @param {number} [timestamp=Date.now()] - The timestamp (milliseconds) to check.
+ * @returns {string} The potentially prefixed route ID.
+ */
+function getNightRouteId(routeId, timestamp = Date.now()) {
+    if (!routeId || typeof routeId !== 'string') {
+        return routeId; // Return original if invalid input
+    }
+    const upperRouteId = routeId.toUpperCase();
+
+    if (upperRouteId.startsWith('N')) {
+        return upperRouteId; // Already a night route
+    }
+
+    // Check if this route has specific night hours defined
+    const nightInfo = ROUTE_NIGHT_WINDOW[upperRouteId];
+    if (nightInfo && nightInfo.start && nightInfo.end) {
+        const date = new Date(timestamp);
+        const currentMinutes = date.getHours() * 60 + date.getMinutes(); // Current time in minutes past midnight
+
+        const startMinutes = timeToMinutes(nightInfo.start);
+        const endMinutes = timeToMinutes(nightInfo.end);
+
+        // Check for invalid start/end times in config
+        if (isNaN(startMinutes) || isNaN(endMinutes)) {
+             console.warn(`Invalid start/end time defined for route ${upperRouteId} in ROUTE_NIGHT_WINDOW.`);
+             return upperRouteId; // Don't apply prefix if config is bad
+        }
+
+        let isNightTime = false;
+        if (startMinutes <= endMinutes) {
+            // Standard window (e.g., 00:05 to 05:30) -> 5 to 330 minutes
+            // Check if current time is within the window (inclusive end minute)
+             isNightTime = currentMinutes >= startMinutes && currentMinutes <= endMinutes; // Use <= for endHour
+        } else {
+            // Window spans midnight (e.g., 23:45 to 05:15) -> 1425 to 315 minutes
+            // Check if current time is after start OR before/at end
+            isNightTime = currentMinutes >= startMinutes || currentMinutes <= endMinutes; // Use <= for endHour
+        }
+
+        if (isNightTime) {
+            console.log(`DEBUG: Applying 'N' prefix to route ${upperRouteId} based on its specific night window (${nightInfo.start}-${nightInfo.end}).`);
+            return 'N' + upperRouteId; // Add the prefix
+        }
+    }
+
+    // If not defined in ROUTE_NIGHT_WINDOW or not currently night time for that route
+    return upperRouteId;
+}
+
 // --- Global Variables ---
 let users = {};
 let isLoggedIn = false;
@@ -1794,45 +1878,37 @@ function goBackToMainView(logAction = true) {
 
 // --- Curtailment Functions (from tools.html) ---
 function addCurtailment() {
-    // *** ADD Permission Check ***
-    if (!hasPermission('canManageCurtailments')) {
-        alert('Permission Denied: Cannot add curtailments.');
-        console.warn(`DEBUG: addCurtailment denied for user '${currentUsername}'. Missing permission 'canManageCurtailments'.`);
-        return;
-    }
-    // Element check
-    if (!routeInput || !regNumberInput || !curtailedDestinationInput || !curtailmentTimeInput || !addCurtailmentMessage) { alert('Error: Could not find necessary form elements.'); console.error("DEBUG: addCurtailment missing required DOM elements."); return; }
-    // Input values
-    const route = routeInput.value.trim().toUpperCase(); const regNumber = regNumberInput.value.trim().toUpperCase();
-    const destination = curtailedDestinationInput.value.trim(); const timeString = curtailmentTimeInput.value.trim();
-    addCurtailmentMessage.textContent = ''; // Clear status
+    if (!hasPermission('canManageCurtailments')) { /* ... permission denied ... */ return; }
+    if (!routeInput || !regNumberInput /*... check other elements ...*/) { /* ... error ... */ return; }
 
-    // Validation
-    if (!route || !regNumber || !destination || !timeString) { alert('Please fill in all fields: Route, Registration, Destination, and Time.'); addCurtailmentMessage.textContent = 'All fields are required.'; addCurtailmentMessage.style.color = 'red'; return; }
+    const route = routeInput.value.trim().toUpperCase();
+    const regNumber = regNumberInput.value.trim().toUpperCase();
+    const destination = curtailedDestinationInput.value.trim();
+    const timeString = curtailmentTimeInput.value.trim();
+    // ... validation for empty fields ...
 
-    // Time parsing
-    let logDate = new Date(); const timeParts = timeString.match(/^(\d{2}):(\d{2})$/);
-    if (timeParts) {
-        const hours = parseInt(timeParts[1], 10); const minutes = parseInt(timeParts[2], 10);
-        if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) { logDate.setHours(hours, minutes, 0, 0); }
-        else { alert('Invalid Time.'); addCurtailmentMessage.textContent = 'Invalid time format.'; addCurtailmentMessage.style.color = 'red'; return; }
-    } else { alert('Invalid Time Format.'); addCurtailmentMessage.textContent = 'Invalid time format (HH:MM).'; addCurtailmentMessage.style.color = 'red'; return; }
+    let logDate = new Date(); // Use current date as base
+    // ... (your time parsing logic using timeString to set logDate's hours/minutes) ...
+    // Make sure logDate accurately reflects the time the curtailment happened
 
-    const storageKey = `curtailedBusesArray_${route}`;
-    const newEntry = { route: route, regNumber: regNumber, curtailedDestination: destination, curtailmentTime: logDate.toLocaleString('en-GB', {}), timestamp: logDate.getTime() };
+    // *** Get the effective route ID using the helper ***
+    const effectiveRoute = getNightRouteId(route, logDate.getTime());
 
-    // Save logic
+    // Use effectiveRoute when creating the entry and logging
+    const storageKey = `curtailedBusesArray_${effectiveRoute}`; // Maybe still use original 'route' for key? Your choice. Using effectiveRoute here.
+    const newEntry = { route: effectiveRoute, regNumber: regNumber, curtailedDestination: destination, curtailmentTime: logDate.toLocaleString('en-GB', {}), timestamp: logDate.getTime() };
+
     try {
-        let curtailments = loadFromStorage(storageKey, []); if (!Array.isArray(curtailments)) { console.warn(`DEBUG: Data for key ${storageKey} was not an array. Resetting.`); curtailments = []; }
-        curtailments.push(newEntry); saveToStorage(storageKey, curtailments);
+        let curtailments = loadFromStorage(storageKey, []);
+        // ... validation for curtailments array ...
+        curtailments.push(newEntry);
+        saveToStorage(storageKey, curtailments);
 
-        logAdminAction("Curtailment Added", { route: route, reg: regNumber, dest: destination, time: newEntry.curtailmentTime });
+        // *** Use effectiveRoute in the log action ***
+        logAdminAction("Curtailment Added", { route: effectiveRoute, reg: regNumber, dest: destination, time: newEntry.curtailmentTime });
 
-        addCurtailmentMessage.textContent = `Curtailment for ${regNumber} on route ${route} added successfully!`; addCurtailmentMessage.style.color = 'green';
-        // Clear inputs
-        routeInput.value = ''; regNumberInput.value = ''; curtailedDestinationInput.value = ''; curtailmentTimeInput.value = ''; routeInput.focus();
-        setTimeout(() => { if (addCurtailmentMessage) addCurtailmentMessage.textContent = ''; }, 3000);
-    } catch (e) { console.error("DEBUG: Error saving curtailment:", e); alert('An error occurred while saving the curtailment.'); addCurtailmentMessage.textContent = 'Error saving curtailment.'; addCurtailmentMessage.style.color = 'red'; }
+        // ... (success message, clear inputs) ...
+    } catch (e) { /* ... error handling ... */ }
 }
 function populateManageCurtailmentsTable() {
     console.log("DEBUG: populateManageCurtailmentsTable called.");

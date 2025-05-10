@@ -610,22 +610,19 @@
         try {
             return licensesJson ? JSON.parse(licensesJson) : [];
         } catch (e) {
-            console.error("EDITOR: Error parsing licenses from localStorage:", e);
+            console.error("Error parsing licenses from localStorage:", e); // Keeping this one as it's an actual error condition
             return [];
         }
     }
 
-    // --- MLK Activation Logic for Smartblind Editor (WITH CORRECTED PARSING and CONSOLE LOGS) ---
+    // --- MLK Activation Logic for Smartblind Editor (CONSOLE LOGS REMOVED) ---
     function handleMlkActivationEditor() {
-        console.log("EDITOR: handleMlkActivationEditor called.");
-
         if (!mlkFileInputElementEditor || !mlkFileInputElementEditor.files || !mlkFileInputElementEditor.files.length === 0) {
             if (mlkStatusMessageEditor) {
                 mlkStatusMessageEditor.textContent = 'Please select an .mlk file.';
                 mlkStatusMessageEditor.style.color = '#dc3545';
             }
             showToast('Please select an .mlk file.', 'error');
-            console.error("EDITOR: No file selected for MLK activation.");
             return;
         }
 
@@ -634,7 +631,6 @@
             mlkStatusMessageEditor.textContent = 'Processing license...';
             mlkStatusMessageEditor.style.color = '#333';
         }
-        console.log("EDITOR: Processing .mlk file:", file.name);
 
         if (!file.name.toLowerCase().endsWith('.mlk')) {
             if (mlkStatusMessageEditor) {
@@ -643,50 +639,30 @@
             }
             showToast('Invalid file type for license. Must be .mlk', 'error');
             if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
-            console.error("EDITOR: Invalid file type, not .mlk.");
             return;
         }
 
         const reader = new FileReader();
         reader.onload = function(event) {
             const fileContent = event.target.result;
-            console.log("EDITOR: --- .MLK File Raw Content ---");
-            console.log(fileContent); // Log 1: Raw content
             let mlkDataFromFile = {};
 
             const lines = fileContent.split(/\r?\n/);
-            console.log("EDITOR: --- .MLK File Parsed Lines (Count: " + lines.length + ") ---"); // Log 2: Line array
             lines.forEach((line, index) => {
                 const trimmedLine = line.trim();
-                if (!trimmedLine) {
-                    // console.log(`EDITOR: Line ${index}: (empty or whitespace, skipped)`); // Optional: log skipped lines
-                    return; 
-                }
+                if (!trimmedLine) return; 
 
-                const parts = trimmedLine.split(/:(.+)/); // Split by the first colon, capture the rest
-                console.log(`EDITOR: Line ${index}: "${trimmedLine}" -> Parts Length: ${parts.length}, Parts Content:`, JSON.stringify(parts)); // Log 3: How each line splits
-
-                if (parts.length > 1 && parts[0]) { // Check if there's a key part and a value part (parts[1])
+                const parts = trimmedLine.split(/:(.+)/);
+                if (parts.length > 1 && parts[0]) {
                     const key = parts[0].trim();
-                    // parts[1] will contain everything captured after the first colon.
-                    // If parts[1] is undefined (e.g., "Key:"), value becomes empty string.
                     const value = parts[1] ? parts[1].trim() : ""; 
-
-                    if (key) { // Ensure key is not empty after trim
-                        console.log(`EDITOR:   -> Parsed Key: "${key}", Value: "${value}"`); // Log 4: Key-Value
+                    if (key) {
                         mlkDataFromFile[key] = value;
-                    } else {
-                        console.log(`EDITOR:   -> Line ${index} ("${trimmedLine}") resulted in an empty key after trim.`);
                     }
-                } else {
-                    console.log(`EDITOR:   -> Line ${index} ("${trimmedLine}") did NOT parse correctly into key:value (parts.length: ${parts.length}, or no key found).`);
                 }
             });
-            console.log("EDITOR: --- Parsed .MLK Data Object from File (mlkDataFromFile) ---");
-            console.log(JSON.stringify(mlkDataFromFile, null, 2)); // Log 5: The final object
 
-            const activationCodeFromFile = mlkDataFromFile['ActivationCode']; // Key is case-sensitive!
-            console.log(`EDITOR: Activation Code extracted from .MLK file: "${activationCodeFromFile}" (Type: ${typeof activationCodeFromFile})`); // Log 6: The extracted code
+            const activationCodeFromFile = mlkDataFromFile['ActivationCode'];
 
             if (!activationCodeFromFile || activationCodeFromFile.trim() === "") {
                 if (mlkStatusMessageEditor) {
@@ -695,18 +671,11 @@
                 }
                 showToast('Activation failed: Malformed license file (no code).', 'error');
                 if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
-                console.error("EDITOR: ERROR - Activation code is missing or empty in parsed data from .mlk file.");
                 return;
             }
 
-            console.log("EDITOR: Attempting to read all managed licenses from localStorage using key:", LOCAL_STORAGE_LICENSES_KEY_FROM_GENERATOR);
             const allManagedLicenses = getManagedLicensesFromGeneratorStorage();
-            console.log("EDITOR: --- All Licenses from localStorage ---");
-            console.log(JSON.stringify(allManagedLicenses, null, 2));
-
             const foundLicenseInStorage = allManagedLicenses.find(lic => lic.activationCode === activationCodeFromFile);
-            console.log("EDITOR: --- License found in localStorage for the code from file? ---");
-            console.log(foundLicenseInStorage ? JSON.stringify(foundLicenseInStorage, null, 2) : "EDITOR: No matching license found in localStorage.");
 
             if (!foundLicenseInStorage) {
                 if (mlkStatusMessageEditor) {
@@ -715,15 +684,12 @@
                 }
                 showToast('Activation failed: Invalid or unrecognized activation code.', 'error');
                 if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
-                console.error("EDITOR: Code from .mlk file not found in localStorage licenses.");
                 return;
             }
 
             const authoritativeLicenseeName = foundLicenseInStorage.licenseeName;
             const authoritativeStatus = foundLicenseInStorage.status;
-            const authoritativeExpiryDateStr = foundLicenseInStorage.expiryDate; // Expected DD/MM/YYYY
-
-            console.log(`EDITOR: Validating with data from localStorage: Name: "${authoritativeLicenseeName}", Status: "${authoritativeStatus}", Expiry: "${authoritativeExpiryDateStr}"`);
+            const authoritativeExpiryDateStr = foundLicenseInStorage.expiryDate;
 
             if (authoritativeStatus.toLowerCase() !== 'active') {
                 if (mlkStatusMessageEditor) {
@@ -732,12 +698,10 @@
                 }
                 showToast(`Activation failed: License (code: ${activationCodeFromFile}) is currently ${authoritativeStatus}.`, 'error');
                 if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
-                console.error("EDITOR: Validation Failed - Status from localStorage is not Active:", authoritativeStatus);
                 return;
             }
 
             const expiryDateObj = parseDDMMYYYY(authoritativeExpiryDateStr);
-            console.log("EDITOR: Parsed Expiry Date Object from localStorage data:", expiryDateObj ? expiryDateObj.toISOString() : null);
             if (!expiryDateObj) {
                 if (mlkStatusMessageEditor) {
                     mlkStatusMessageEditor.textContent = 'Activation failed: Corrupted expiry date in stored license record.';
@@ -745,17 +709,13 @@
                 }
                 showToast('Activation failed: Invalid license data in storage (expiry date).', 'error');
                 if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
-                console.error("EDITOR: Validation Failed - Expiry date string from localStorage ('"+ authoritativeExpiryDateStr +"') is invalid or unparsable.");
                 return;
             }
 
-            const currentDateContext = new Date("2025-05-10T00:00:00Z"); // Current date context: May 10, 2025
-            // For actual current date for production:
+            const currentDateContext = new Date("2025-05-10T00:00:00Z");
+            // For actual current date:
             // const currentDateContext = new Date();
             // currentDateContext.setUTCHours(0, 0, 0, 0);
-            console.log("EDITOR: Current Date Context for Expiry Check:", currentDateContext.toISOString());
-            console.log("EDITOR: Expiry Date Object for Comparison:", expiryDateObj.toISOString());
-
 
             if (expiryDateObj < currentDateContext) {
                 if (mlkStatusMessageEditor) {
@@ -764,11 +724,9 @@
                 }
                 showToast('Activation failed: This license has expired.', 'error');
                 if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
-                console.error("EDITOR: Validation Failed - License expired. Expiry:", expiryDateObj.toISOString(), "vs Current Context:", currentDateContext.toISOString());
                 return;
             }
 
-            console.log("EDITOR: All validations passed!");
             currentLicenseeName = authoritativeLicenseeName;
 
             if (mlkStatusMessageEditor) {
@@ -808,34 +766,15 @@
             }
             showToast('Error reading the license file.', 'error');
             if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
-            console.error("EDITOR: FileReader onerror triggered while reading .mlk file.");
+            console.error("EDITOR: FileReader onerror triggered while reading .mlk file."); // Keeping this one error log
         };
         reader.readAsText(file);
     }
 
 
-    // --- Original Editor Functions ( 그대로 유지 ) ---
-    // ... (All your other functions: updateSaveStatusIcon, setHasUnsavedChanges, showToast,
-    //      initializeDefaultData, updateSideIsViaCheckboxes, handleGlobalSideIsViaChange,
-    //      handleGlobalCapsChange, clearAllData, getRouteSortDetails, sortRoutesForSummaryTable,
-    //      scrollToRouteInMainTable, deleteEntriesForRoute, renderRouteSummaryTable,
-    //      updateIcuTextPrefix, readTableDataToMemory, handleDriverTextKeyDown,
-    //      checkDuplicateLine, confirmDeleteRow, quickAddSelectedRow, handleRowDrop,
-    //      renderTable, addRow, convertDataToTSV, triggerTextFileDownload,
-    //      getOutputFilename, saveData, parseTSVData (for editor data, not .mlk),
-    //      handleFileImport (for editor data, not .mlk), exportToPDF,
-    //      isLikelyMobileDevice, setupHelpModal, initializeMainApplication,
-    //      handleStartNewDataset) ...
-    
-    // [ensure all the original functions are here as per the previous full script you had]
-    // For brevity, I am not re-listing ALL of them, but they should be identical to the
-    // last full script, EXCEPT for the `handleMlkActivationEditor` and the addition of
-    // `parseDDMMYYYY`, `getManagedLicensesFromGeneratorStorage`, `updateLicenseeDisplayOnMainPage`,
-    // and the global `LOCAL_STORAGE_LICENSES_KEY_FROM_GENERATOR`.
-
-    // --- Make sure all your original editor functions from the previous "full script" are included below ---
-    // --- Starting from updateSaveStatusIcon down to the end of the script.---
-    // --- The following is a placeholder, ensure you have the actual functions ---
+    // --- Original Editor Functions ---
+    // (Removed console.log debugging lines from these as well if any were specific to our recent debug)
+    // The structure and logic of these functions remain the same as the last full script.
 
     function updateSaveStatusIcon(isSaved) {
         if (saveStatusIconElement) {
@@ -2031,7 +1970,7 @@
                     preventOnFilter: true,
                     onEnd: function (evt) { handleRowDrop(evt); }
                 });
-            } catch (e) { console.warn("SortableJS error:", e); }
+            } catch (e) { console.warn("SortableJS error:", e); } // Kept this useful warning
         }
         updateSaveStatusIcon(!hasUnsavedChanges);
     }
@@ -2113,7 +2052,8 @@
 
             activateMlkFileButtonEditor.addEventListener('click', handleMlkActivationEditor);
         } else {
-            console.warn("EDITOR: MLK Activation screen elements not found. Proceeding to initial choice / main app if available.");
+            // Kept this useful warning for structural issues
+            console.warn("EDITOR: MLK Activation screen elements not found for the editor. Proceeding to initial choice / main app if available.");
             if (initialChoiceModalOverlayElement) {
                 initialChoiceModalOverlayElement.style.display = 'flex';
                 setTimeout(() => initialChoiceModalOverlayElement.classList.add('show'), 10);

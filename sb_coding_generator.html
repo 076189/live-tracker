@@ -615,7 +615,7 @@
         }
     }
 
-    // --- MLK Activation Logic for Smartblind Editor (WITH DETAILED CONSOLE LOGS) ---
+    // --- MLK Activation Logic for Smartblind Editor (WITH CORRECTED PARSING and CONSOLE LOGS) ---
     function handleMlkActivationEditor() {
         console.log("EDITOR: handleMlkActivationEditor called.");
 
@@ -651,28 +651,42 @@
         reader.onload = function(event) {
             const fileContent = event.target.result;
             console.log("EDITOR: --- .MLK File Raw Content ---");
-            console.log(fileContent);
+            console.log(fileContent); // Log 1: Raw content
             let mlkDataFromFile = {};
 
             const lines = fileContent.split(/\r?\n/);
-            console.log("EDITOR: --- .MLK File Parsed Lines ---");
+            console.log("EDITOR: --- .MLK File Parsed Lines (Count: " + lines.length + ") ---"); // Log 2: Line array
             lines.forEach((line, index) => {
-                const parts = line.split(/:(.+)/); // Split by the first colon
-                console.log(`EDITOR: Line ${index}: "${line}" -> Parts Length: ${parts.length}, Parts Content:`, JSON.stringify(parts));
-                if (parts.length === 2) {
+                const trimmedLine = line.trim();
+                if (!trimmedLine) {
+                    // console.log(`EDITOR: Line ${index}: (empty or whitespace, skipped)`); // Optional: log skipped lines
+                    return; 
+                }
+
+                const parts = trimmedLine.split(/:(.+)/); // Split by the first colon, capture the rest
+                console.log(`EDITOR: Line ${index}: "${trimmedLine}" -> Parts Length: ${parts.length}, Parts Content:`, JSON.stringify(parts)); // Log 3: How each line splits
+
+                if (parts.length > 1 && parts[0]) { // Check if there's a key part and a value part (parts[1])
                     const key = parts[0].trim();
-                    const value = parts[1].trim();
-                    console.log(`EDITOR:   -> Parsed Key: "${key}", Value: "${value}"`);
-                    mlkDataFromFile[key] = value;
+                    // parts[1] will contain everything captured after the first colon.
+                    // If parts[1] is undefined (e.g., "Key:"), value becomes empty string.
+                    const value = parts[1] ? parts[1].trim() : ""; 
+
+                    if (key) { // Ensure key is not empty after trim
+                        console.log(`EDITOR:   -> Parsed Key: "${key}", Value: "${value}"`); // Log 4: Key-Value
+                        mlkDataFromFile[key] = value;
+                    } else {
+                        console.log(`EDITOR:   -> Line ${index} ("${trimmedLine}") resulted in an empty key after trim.`);
+                    }
                 } else {
-                    console.log(`EDITOR:   -> Line ${index} ("${line}") did NOT parse correctly into key:value (parts.length is ${parts.length})`);
+                    console.log(`EDITOR:   -> Line ${index} ("${trimmedLine}") did NOT parse correctly into key:value (parts.length: ${parts.length}, or no key found).`);
                 }
             });
             console.log("EDITOR: --- Parsed .MLK Data Object from File (mlkDataFromFile) ---");
-            console.log(JSON.stringify(mlkDataFromFile, null, 2));
+            console.log(JSON.stringify(mlkDataFromFile, null, 2)); // Log 5: The final object
 
             const activationCodeFromFile = mlkDataFromFile['ActivationCode']; // Key is case-sensitive!
-            console.log(`EDITOR: Activation Code extracted from .MLK file: "${activationCodeFromFile}" (Type: ${typeof activationCodeFromFile})`);
+            console.log(`EDITOR: Activation Code extracted from .MLK file: "${activationCodeFromFile}" (Type: ${typeof activationCodeFromFile})`); // Log 6: The extracted code
 
             if (!activationCodeFromFile || activationCodeFromFile.trim() === "") {
                 if (mlkStatusMessageEditor) {
@@ -738,8 +752,10 @@
             const currentDateContext = new Date("2025-05-10T00:00:00Z"); // Current date context: May 10, 2025
             // For actual current date for production:
             // const currentDateContext = new Date();
-            // currentDateContext.setUTCHours(0, 0, 0, 0); // Compare against start of today UTC
+            // currentDateContext.setUTCHours(0, 0, 0, 0);
             console.log("EDITOR: Current Date Context for Expiry Check:", currentDateContext.toISOString());
+            console.log("EDITOR: Expiry Date Object for Comparison:", expiryDateObj.toISOString());
+
 
             if (expiryDateObj < currentDateContext) {
                 if (mlkStatusMessageEditor) {
@@ -798,7 +814,29 @@
     }
 
 
-    // --- Original Editor Functions ---
+    // --- Original Editor Functions ( 그대로 유지 ) ---
+    // ... (All your other functions: updateSaveStatusIcon, setHasUnsavedChanges, showToast,
+    //      initializeDefaultData, updateSideIsViaCheckboxes, handleGlobalSideIsViaChange,
+    //      handleGlobalCapsChange, clearAllData, getRouteSortDetails, sortRoutesForSummaryTable,
+    //      scrollToRouteInMainTable, deleteEntriesForRoute, renderRouteSummaryTable,
+    //      updateIcuTextPrefix, readTableDataToMemory, handleDriverTextKeyDown,
+    //      checkDuplicateLine, confirmDeleteRow, quickAddSelectedRow, handleRowDrop,
+    //      renderTable, addRow, convertDataToTSV, triggerTextFileDownload,
+    //      getOutputFilename, saveData, parseTSVData (for editor data, not .mlk),
+    //      handleFileImport (for editor data, not .mlk), exportToPDF,
+    //      isLikelyMobileDevice, setupHelpModal, initializeMainApplication,
+    //      handleStartNewDataset) ...
+    
+    // [ensure all the original functions are here as per the previous full script you had]
+    // For brevity, I am not re-listing ALL of them, but they should be identical to the
+    // last full script, EXCEPT for the `handleMlkActivationEditor` and the addition of
+    // `parseDDMMYYYY`, `getManagedLicensesFromGeneratorStorage`, `updateLicenseeDisplayOnMainPage`,
+    // and the global `LOCAL_STORAGE_LICENSES_KEY_FROM_GENERATOR`.
+
+    // --- Make sure all your original editor functions from the previous "full script" are included below ---
+    // --- Starting from updateSaveStatusIcon down to the end of the script.---
+    // --- The following is a placeholder, ensure you have the actual functions ---
+
     function updateSaveStatusIcon(isSaved) {
         if (saveStatusIconElement) {
             if (isSaved) {
@@ -1798,7 +1836,7 @@
 
                 initializeMainApplication();
                 renderTable();
-                updateLicenseeDisplayOnMainPage(); // Update after main app is visible
+                updateLicenseeDisplayOnMainPage();
                 setHasUnsavedChanges(true);
 
                 let importMsg = `Data file processed. Added ${importedEditableData.length} editable row(s).`;
@@ -1809,7 +1847,7 @@
 
             } catch (error) {
                 showToast(`Error during data import: ${error.message}`, 'error');
-                if (initialChoiceModalOverlayElement && initialChoiceModalOverlayElement.style.display === 'none' && getElement('initial-import-button')?.offsetParent !== null) { // Check if button is part of displayed DOM
+                if (initialChoiceModalOverlayElement && initialChoiceModalOverlayElement.style.display === 'none' && getElement('initial-import-button')?.offsetParent !== null) {
                      initialChoiceModalOverlayElement.style.display = 'flex';
                      initialChoiceModalOverlayElement.classList.add('show');
                      document.body.style.overflow = 'hidden';
@@ -2043,7 +2081,7 @@
         // MLK Activation Screen elements FOR THIS EDITOR
         mlkActivationModalOverlayElementEditor = getElement('mlk-activation-modal-overlay');
         mlkFileInputElementEditor = getElement('mlk-file-input');
-        activateMlkFileButtonEditor = getElement('activate-mlk-file-button');
+        activateMlkFileButtonEditor = getElement('activate-mlk-file-button'); // Make sure ID matches your HTML
         mlkStatusMessageEditor = getElement('mlk-status-message-editor');
 
 
@@ -2075,7 +2113,7 @@
 
             activateMlkFileButtonEditor.addEventListener('click', handleMlkActivationEditor);
         } else {
-            console.warn("MLK Activation screen elements not found for the editor. Proceeding to initial choice / main app if available.");
+            console.warn("EDITOR: MLK Activation screen elements not found. Proceeding to initial choice / main app if available.");
             if (initialChoiceModalOverlayElement) {
                 initialChoiceModalOverlayElement.style.display = 'flex';
                 setTimeout(() => initialChoiceModalOverlayElement.classList.add('show'), 10);

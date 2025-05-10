@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>.mlk License Manager & Generator (DD/MM/YYYY)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            min-height: 100vh;
+        }
+        .container, .licenses-container {
+            background-color: #fff;
+            padding: 25px 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 780px; /* Wider for table */
+            margin: 20px auto; /* Center containers */
+        }
+        h2, h3 {
+            text-align: center;
+            color: #007bff;
+            margin-top: 0;
+            margin-bottom: 25px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="text"], select {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1em;
+        }
+        input[readonly] {
+            background-color: #e9ecef;
+            cursor: default;
+        }
+        .input-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .input-group input[type="text"] {
+            flex-grow: 1;
+            margin-bottom: 0;
+        }
+        .input-group button {
+            margin-left: 10px;
+            padding: 10px 12px;
+        }
+        textarea {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: monospace;
+            font-size: 0.95em;
+            background-color: #f9f9f9;
+            min-height: 100px;
+        }
+        button {
+            padding: 8px 15px; /* Slightly smaller default padding */
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em; /* Slightly smaller font */
+            transition: background-color 0.2s ease;
+            margin: 2px;
+        }
+        .blue-button { background-color: #007bff; }
+        .blue-button:hover { background-color: #0056b3; }
+        .secondary-button { background-color: #6c757d; }
+        .secondary-button:hover { background-color: #5a6268; }
+        .danger-button { background-color: #dc3545; }
+        .danger-button:hover { background-color: #c82333; }
+        .warning-button { background-color: #ffc107; color: #212529; }
+        .warning-button:hover { background-color: #e0a800; }
+
+        .button-group-main { text-align: center; margin-bottom: 20px; }
+        .button-group-main button { font-size: 1em; padding: 10px 18px; margin: 0 5px; }
+
+        #status-message, #licenses-status-message {
+            text-align: center;
+            min-height: 1.5em;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        .success-message { color: #28a745; }
+        .error-message { color: #dc3545; }
+        .warning-message { color: #ffc107; }
+
+        /* Styles for the licenses table */
+        .licenses-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        .licenses-table th, .licenses-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            word-break: break-all; /* For long codes */
+        }
+        .licenses-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .licenses-table tr.status-Suspended td { background-color: #fff3cd; } /* Yellowish */
+        .licenses-table tr.status-Blocked td { background-color: #f8d7da; } /* Reddish */
+        .licenses-table tr.status-Deleted td { background-color: #e2e3e5; text-decoration: line-through; color: #6c757d; } /* Greyed out */
+
+        .action-buttons button {
+            margin-right: 5px;
+            margin-bottom: 5px; /* For wrapping */
+        }
+        .filter-controls { margin-bottom: 15px; text-align: right; }
+        .filter-controls label { margin-right: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>.mlk File Generator</h2>
+
+        <div>
+            <label for="licensee-name">Licensee Name:</label>
+            <input type="text" id="licensee-name" placeholder="Enter licensee's full name">
+        </div>
+
+        <label for="activation-code">Activation Code:</label>
+        <div class="input-group">
+            <input type="text" id="activation-code" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" readonly>
+            <button id="generate-random-code-button" class="secondary-button" title="Generate a random code">Generate New Code</button>
+        </div>
+
+        <div>
+            <label for="expiry-duration">License Duration:</label>
+            <select id="expiry-duration">
+                <option value="1">1 Year</option>
+                <option value="2">2 Years</option>
+                <option value="5">5 Years</option>
+                <option value="indefinite">Indefinite (Expires 31/12/9999)</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="license-status">Initial License Status:</label>
+            <select id="license-status">
+                <option value="Active" selected>Active</option>
+                <option value="Suspended">Suspended</option>
+                </select>
+        </div>
+
+        <div class="button-group-main">
+            <button id="generate-mlk-content-button" class="blue-button">Generate & Add to List</button>
+            <button id="download-mlk-file-button" class="secondary-button" style="display: none;">Download Generated .mlk File</button>
+        </div>
+
+        <div>
+            <label for="generated-mlk-textarea">Generated .mlk Content for Download/Copy:</label>
+            <textarea id="generated-mlk-textarea" readonly rows="5"></textarea>
+        </div>
+
+        <p id="status-message"></p>
+    </div>
+
+    <div class="licenses-container">
+        <h3>Managed Licenses (Stored in this Browser)</h3>
+        <div class="filter-controls">
+            <label for="status-filter">Filter by Status:</label>
+            <select id="status-filter">
+                <option value="AllNonDeleted" selected>Active & Suspended & Blocked</option>
+                <option value="Active">Active Only</option>
+                <option value="Suspended">Suspended Only</option>
+                <option value="Blocked">Blocked Only</option>
+                <option value="Deleted">Deleted Only</option>
+                <option value="AllIncludingDeleted">All (incl. Deleted)</option>
+            </select>
+        </div>
+        <table class="licenses-table">
+            <thead>
+                <tr>
+                    <th>Licensee</th>
+                    <th>Activation Code</th>
+                    <th>Expiry (DD/MM/YYYY)</th>
+                    <th>Status</th>
+                    <th>Generated (DD/MM/YYYY)</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="licenses-table-body">
+                </tbody>
+        </table>
+        <p id="licenses-status-message" style="text-align:center; margin-top:10px;"></p>
+    </div>
+
+    <p style="font-size: 0.8em; text-align: center; margin: 20px auto; max-width: 750px; color: #777;">
+        <strong>Important Note:</strong> All license data is stored locally in this browser's `localStorage`. It will be lost if browser data is cleared or if you use a different browser/computer. This tool does not guarantee global code uniqueness or provide real-time status enforcement for your main application.
+    </p>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const licenseeNameInput = document.getElementById('licensee-name');
+            const activationCodeInput = document.getElementById('activation-code');
+            const expiryDurationSelect = document.getElementById('expiry-duration');
+            const licenseStatusSelect = document.getElementById('license-status');
+            const generateRandomCodeButton = document.getElementById('generate-random-code-button');
+            const generateMlkContentButton = document.getElementById('generate-mlk-content-button');
+            const downloadMlkFileButton = document.getElementById('download-mlk-file-button');
+            const generatedMlkTextarea = document.getElementById('generated-mlk-textarea');
+            const statusMessageElement = document.getElementById('status-message');
+
+            const licensesTableBody = document.getElementById('licenses-table-body');
+            const licensesStatusMessageElement = document.getElementById('licenses-status-message');
+            const statusFilterSelect = document.getElementById('status-filter');
+
+            const LOCAL_STORAGE_LICENSES_KEY = 'mlkGenerator_managedLicenses_v4';
+
+            function formatDateToDDMMYYYY(dateObj) {
+                if (!dateObj || isNaN(dateObj.getTime())) return "Invalid Date";
+                const day = dateObj.getDate().toString().padStart(2, '0');
+                const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+                const year = dateObj.getFullYear();
+                return `${day}/${month}/${year}`;
+            }
+
+            function getManagedLicenses() {
+                const licensesJson = localStorage.getItem(LOCAL_STORAGE_LICENSES_KEY);
+                try {
+                    return licensesJson ? JSON.parse(licensesJson) : [];
+                } catch (e) {
+                    console.error("Error parsing licenses from localStorage:", e);
+                    return [];
+                }
+            }
+
+            function saveManagedLicenses(licenses) {
+                localStorage.setItem(LOCAL_STORAGE_LICENSES_KEY, JSON.stringify(licenses));
+                renderLicensesTable();
+            }
+
+            function generateFormattedRandomCode() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                const groupLength = 4;
+                const numGroups = 10;
+                let code = '';
+                for (let i = 0; i < numGroups; i++) {
+                    for (let j = 0; j < groupLength; j++) {
+                        code += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    if (i < numGroups - 1) {
+                        code += '-';
+                    }
+                }
+                return code;
+            }
+
+            generateRandomCodeButton.addEventListener('click', () => {
+                let newCode;
+                let attempts = 0;
+                const maxAttempts = 50;
+                const managedLicenses = getManagedLicenses();
+                const existingCodes = managedLicenses.map(lic => lic.activationCode);
+
+                do {
+                    newCode = generateFormattedRandomCode();
+                    attempts++;
+                } while (existingCodes.includes(newCode) && attempts < maxAttempts);
+
+                if (existingCodes.includes(newCode)) {
+                    statusMessageElement.textContent = 'Could not generate a unique code (based on local storage). Please try again or clear some old codes if space is an issue.';
+                    statusMessageElement.className = 'warning-message';
+                } else {
+                     statusMessageElement.textContent = 'New random code generated.';
+                     statusMessageElement.className = 'success-message';
+                }
+                activationCodeInput.value = newCode;
+                generatedMlkTextarea.value = '';
+                downloadMlkFileButton.style.display = 'none';
+            });
+
+            generateMlkContentButton.addEventListener('click', () => {
+                const name = licenseeNameInput.value.trim();
+                const code = activationCodeInput.value.trim();
+                const selectedDuration = expiryDurationSelect.value;
+                const initialStatus = licenseStatusSelect.value;
+
+                statusMessageElement.textContent = '';
+                statusMessageElement.className = '';
+                generatedMlkTextarea.value = '';
+                downloadMlkFileButton.style.display = 'none';
+
+                if (!name || !code) {
+                    statusMessageElement.textContent = 'Licensee Name and Activation Code are required. Generate a code if needed.';
+                    statusMessageElement.className = 'error-message';
+                    return;
+                }
+
+                const codeFormatRegex = /^([A-Z0-9]{4}-){9}[A-Z0-9]{4}$/;
+                if (!codeFormatRegex.test(code)) {
+                    statusMessageElement.textContent = 'Activation Code format is invalid. Generate a new code.';
+                    statusMessageElement.className = 'error-message';
+                    return;
+                }
+
+                let expiryDateValue;
+                const baseCalculationDate = new Date("2025-05-10T00:00:00Z"); // Current date for calculation
+                // To use actual current system date:
+                // const baseCalculationDate = new Date();
+                // baseCalculationDate.setHours(0,0,0,0);
+
+
+                if (selectedDuration === "indefinite") {
+                    expiryDateValue = "31/12/9999";
+                } else {
+                    const yearsToAdd = parseInt(selectedDuration);
+                    const expiryDateObj = new Date(baseCalculationDate);
+                    expiryDateObj.setFullYear(expiryDateObj.getFullYear() + yearsToAdd);
+                    expiryDateValue = formatDateToDDMMYYYY(expiryDateObj);
+                }
+
+                const managedLicenses = getManagedLicenses();
+                const existingLicense = managedLicenses.find(lic => lic.activationCode === code);
+
+                if (existingLicense) {
+                    statusMessageElement.textContent = `Error: Activation code "${code}" already exists in this browser's managed list (Status: ${existingLicense.status}). Please generate a new code.`;
+                    statusMessageElement.className = 'error-message';
+                    return;
+                }
+
+                const mlkContent = `LicenseeName: ${name}\nActivationCode: ${code}\nExpiryDate: ${expiryDateValue}\nStatus: ${initialStatus}`;
+                generatedMlkTextarea.value = mlkContent;
+
+                const newLicense = {
+                    licenseeName: name,
+                    activationCode: code,
+                    expiryDate: expiryDateValue,
+                    status: initialStatus,
+                    generatedDate: new Date().toISOString()
+                };
+                managedLicenses.push(newLicense);
+                saveManagedLicenses(managedLicenses);
+
+                downloadMlkFileButton.style.display = 'inline-block';
+                statusMessageElement.textContent = 'Content generated and added to managed list! Review then download.';
+                statusMessageElement.className = 'success-message';
+            });
+
+            downloadMlkFileButton.addEventListener('click', () => {
+                const content = generatedMlkTextarea.value;
+                if (!content) {
+                    statusMessageElement.textContent = 'No content to download. Please generate and add first.';
+                    statusMessageElement.className = 'error-message';
+                    return;
+                }
+                let filenameBase = licenseeNameInput.value.trim().toLowerCase().replace(/[^a-z0-9_]+/gi, '_');
+                if (!filenameBase) {
+                    const codeForFile = activationCodeInput.value.trim().substring(0,8);
+                    filenameBase = codeForFile || 'license';
+                }
+                const filename = filenameBase + '.mlk';
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                statusMessageElement.textContent = `File '${filename}' download initiated.`;
+                statusMessageElement.className = 'success-message';
+            });
+
+            function renderLicensesTable() {
+                const licenses = getManagedLicenses();
+                licensesTableBody.innerHTML = '';
+                licensesStatusMessageElement.textContent = '';
+                const filterValue = statusFilterSelect.value;
+
+                const filteredLicenses = licenses.filter(lic => {
+                    if (filterValue === "AllIncludingDeleted") return true;
+                    if (filterValue === "AllNonDeleted") return lic.status !== 'Deleted';
+                    return lic.status === filterValue;
+                });
+
+                if (filteredLicenses.length === 0) {
+                    licensesStatusMessageElement.textContent = 'No licenses found matching the criteria.';
+                    return;
+                }
+                filteredLicenses.sort((a,b) => new Date(b.generatedDate).getTime() - new Date(a.generatedDate).getTime());
+
+                filteredLicenses.forEach(lic => {
+                    const row = licensesTableBody.insertRow();
+                    row.className = `status-${lic.status}`;
+
+                    row.insertCell().textContent = lic.licenseeName;
+                    row.insertCell().textContent = lic.activationCode;
+                    row.insertCell().textContent = lic.expiryDate; // Already DD/MM/YYYY
+                    row.insertCell().textContent = lic.status;
+                    
+                    const generatedDateObj = new Date(lic.generatedDate);
+                    row.insertCell().textContent = formatDateToDDMMYYYY(generatedDateObj);
+
+                    const actionsCell = row.insertCell();
+                    actionsCell.className = 'action-buttons';
+
+                    if (lic.status !== "Deleted") { // Don't show actions for "Deleted" other than perhaps "Restore" if needed
+                        if (lic.status !== "Active") {
+                            const activateBtn = document.createElement('button');
+                            activateBtn.textContent = 'Set Active';
+                            activateBtn.className = 'blue-button';
+                            activateBtn.onclick = () => updateLicenseStatus(lic.activationCode, 'Active');
+                            actionsCell.appendChild(activateBtn);
+                        }
+                        if (lic.status !== "Suspended") {
+                            const suspendBtn = document.createElement('button');
+                            suspendBtn.textContent = 'Suspend';
+                            suspendBtn.className = 'warning-button';
+                            suspendBtn.onclick = () => updateLicenseStatus(lic.activationCode, 'Suspended');
+                            actionsCell.appendChild(suspendBtn);
+                        }
+                        if (lic.status !== "Blocked") {
+                            const blockBtn = document.createElement('button');
+                            blockBtn.textContent = 'Block';
+                            blockBtn.className = 'danger-button';
+                            blockBtn.onclick = () => updateLicenseStatus(lic.activationCode, 'Blocked');
+                            actionsCell.appendChild(blockBtn);
+                        }
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.textContent = 'Delete';
+                        deleteBtn.title = "Marks as 'Deleted'; code remains tracked to prevent re-generation.";
+                        deleteBtn.className = 'secondary-button';
+                        deleteBtn.style.backgroundColor = '#555';
+                        deleteBtn.onclick = () => {
+                            if (confirm(`Are you sure you want to mark code ${lic.activationCode} as 'Deleted'? This code will still be tracked to prevent re-generation.`)) {
+                                updateLicenseStatus(lic.activationCode, 'Deleted');
+                            }
+                        };
+                        actionsCell.appendChild(deleteBtn);
+                    } else {
+                        actionsCell.textContent = "-"; // Or a "Restore (Set Active)" button could be added
+                    }
+                });
+            }
+
+            function updateLicenseStatus(codeToUpdate, newStatus) {
+                const licenses = getManagedLicenses();
+                const licenseIndex = licenses.findIndex(lic => lic.activationCode === codeToUpdate);
+                if (licenseIndex > -1) {
+                    licenses[licenseIndex].status = newStatus;
+                    licenses[licenseIndex].generatedDate = new Date().toISOString(); // Update "last modified" sort key
+                    saveManagedLicenses(licenses); // This also calls renderLicensesTable
+                    statusMessageElement.textContent = `License ${codeToUpdate} status updated to ${newStatus}. Table refreshed.`;
+                    statusMessageElement.className = 'success-message';
+                } else {
+                    statusMessageElement.textContent = `Error: License ${codeToUpdate} not found.`;
+                    statusMessageElement.className = 'error-message';
+                }
+            }
+
+            statusFilterSelect.addEventListener('change', renderLicensesTable);
+            renderLicensesTable(); // Initial render
+        });
+    </script>
+</body>
+</html>

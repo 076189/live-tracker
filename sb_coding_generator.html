@@ -1,0 +1,2096 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mobi Info Edit Smartblind Coding Editor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        /* Basic Reset & Font */
+        body, html { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { font-family: Arial, sans-serif; padding: 0; background-color: #f4f4f4; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); margin: 20px auto; width: 95%; max-width: 1200px; }
+        h1, h2 { text-align: center; color: #333; margin-top: 0; margin-bottom: 20px;}
+        p { text-align: center; font-size: 0.9em; color: #666; margin: 10px 0; }
+        p.instructions { text-align: left; margin-bottom: 5px;}
+
+        /* Table Styles */
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; table-layout: fixed; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; word-wrap: break-word; }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            text-align: center;
+            vertical-align: middle;
+        }
+        th.col-action-header, td.col-action-cell {
+            text-align: center;
+            vertical-align: middle;
+        }
+        tbody tr:nth-child(even) { background-color: #f9f9f9; }
+        tbody input[type="text"], tbody input[type="number"] {
+            width: 95%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-family: inherit; font-size: inherit;
+        }
+        tbody input:disabled { background-color: #eee; border: 1px solid #ddd; cursor: not-allowed; color: #555; }
+        tbody input.input-error { border-color: red !important; background-color: #fff0f0; }
+        td.drag-handle-cell {
+            width: 35px;
+            text-align: center;
+            vertical-align: middle;
+            background-color: #f8f8f8;
+            border-left: 2px solid #ddd;
+            padding: 0 5px;
+       }
+        .drag-handle span { cursor: grab; font-size: 1.4em; color: #555; display: inline-block; line-height: 1; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
+        .drag-handle span:active { cursor: grabbing; }
+        tbody tr.sortable-ghost { opacity: 0.4; background: #c8ebfb; }
+        tbody tr.sortable-chosen { background: #f0f8ff; }
+        tr.highlight-scroll {
+            background-color: #fff8c4 !important;
+            transition: background-color 1s ease-out 0.5s;
+        }
+
+        /* Button Styles */
+        .blue-button, .reset-button, .danger-button, .secondary-button, button { padding: 8px 15px; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; margin: 5px; display: inline-block; vertical-align: middle; background-color: #007bff; transition: background-color 0.2s ease; }
+        button:hover, .blue-button:hover { background-color: #0056b3; }
+        .reset-button { background-color: #ffc107; color: black; border: 1px solid #d39e00; } .reset-button:hover { background-color: #e0a800; }
+        .danger-button { background-color: #dc3545; } .danger-button:hover { background-color: #c82333; }
+        .clear-data-button { background-color: #fd7e14; color: white; } .clear-data-button:hover { background-color: #e66800; }
+        .secondary-button { background-color: #6c757d; } .secondary-button:hover { background-color: #5a6268; }
+        button:disabled { background-color: #cccccc !important; border-color: #cccccc !important; color: #666666 !important; cursor: not-allowed; opacity: 0.7; }
+        button:disabled:hover { background-color: #cccccc !important; border-color: #cccccc !important; color: #666666 !important; }
+        .small-danger-button {
+            padding: 3px 8px;
+            font-size: 0.85em;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-left: 0px;
+        }
+        .small-danger-button:hover { background-color: #c82333; }
+        #save-status-icon { margin-right: 5px; font-style: normal; display: inline-block; width: 1.2em; text-align: center; position: relative;}
+
+        /* Controls Area */
+        .controls { margin-top: 20px; text-align: center; padding-top: 15px; border-top: 1px solid #eee;}
+        #table-top-controls {
+            margin-bottom: 15px; padding: 10px; background-color: #f9f9f9; border-radius: 4px;
+            display: flex; gap: 25px; align-items: center; flex-wrap: wrap; justify-content: center;
+            border: 1px solid #e3e3e3;
+        }
+        #table-top-controls div, .bottom-controls-toggles div { display: flex; align-items: center; gap: 5px; }
+        .bottom-controls-toggles { margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; display: flex; justify-content: center; gap: 25px; flex-wrap: wrap;}
+
+        /* Column Widths */
+        col.col-route { width: 12%; }
+        col.col-counter { width: 10%; }
+        col.col-front-dest { width: 10%; }
+        col.col-route-code { width: 10%; }
+        col.col-front-dest-code { width: 10%; }
+        col.col-via-code { width: 10%; }
+        col.col-icu-text { width: auto; }
+        col.col-action { width: 80px; }
+        col.col-handle { width: 35px; }
+
+        td.col-action-cell { width: 80px; text-align: center; vertical-align: middle; }
+        .hidden { display: none; }
+
+        #route-summary-container { margin-top: 20px; }
+        #route-summary-container table { width: auto; min-width: 350px; max-width: 60%; margin: 0 auto 20px auto; font-size: 0.9em; border: 1px solid #ccc; }
+        #route-summary-container th, #route-summary-container td { text-align: center; padding: 6px; }
+        #route-summary-table .col-action-header, #route-summary-table td:last-child { width: 80px; text-align: center;}
+        #route-summary-table tbody tr { cursor: pointer; }
+        #route-summary-table tbody tr:hover { background-color: #e9ecef; }
+
+        /* Toast Notification Styles */
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 10001; display: flex; flex-direction: column; gap: 10px; align-items: flex-end;}
+        .toast-message {
+            padding: 12px 18px; border-radius: 5px; color: white; font-size: 0.95em;
+            opacity: 0; transform: translateX(110%);
+            transition: opacity 0.4s ease-in-out, transform 0.4s ease-in-out;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.2); min-width: 250px; max-width: 400px;
+        }
+        .toast-message.show { opacity: 1; transform: translateX(0); }
+        .toast-message.success { background-color: #28a745; }
+        .toast-message.error   { background-color: #dc3545; }
+        .toast-message.warning { background-color: #ffc107; color: #333; }
+        .toast-message.info    { background-color: #17a2b8; }
+
+        /* Help Modal Styles */
+        #help-modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.6); z-index: 10002;
+            justify-content: center; align-items: center; display: flex;
+            visibility: hidden; opacity: 0; transition: visibility 0s 0.3s, opacity 0.3s ease-in-out;
+        }
+        #help-modal-overlay.show { visibility: visible; opacity: 1; transition-delay: 0s; }
+        #help-modal-content {
+            background-color: white; padding: 25px 30px; border-radius: 8px;
+            width: 90%; max-width: 700px; max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3); position: relative;
+            transform: scale(0.95); transition: transform 0.3s ease-in-out;
+        }
+        #help-modal-overlay.show #help-modal-content { transform: scale(1); }
+        #help-modal-content h2 { margin-top: 0; color: #007bff; }
+        #help-modal-content h3 { margin-top: 20px; margin-bottom: 5px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        #help-modal-content p, #help-modal-content li { text-align: left; font-size: 0.9em; line-height: 1.6; color: #333;}
+        #help-modal-content ul { padding-left: 20px; margin-top: 5px; }
+        #close-help-modal {
+            position: absolute; top: 10px; right: 15px; font-size: 2em;
+            color: #aaa; background: none; border: none; cursor: pointer; padding: 0; line-height: 1;
+        }
+        #close-help-modal:hover { color: #777; }
+
+        /* ICU Text Composite Input Styles */
+        .icu-text-composite-input {
+            display: flex;
+            align-items: center;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 0;
+            background-color: #fff;
+            width: 95%;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: inherit;
+        }
+        .icu-text-composite-input.input-error {
+            border-color: red !important;
+            background-color: #fff0f0;
+        }
+        .icu-text-composite-input.disabled-composite {
+             background-color: #eee;
+             cursor: not-allowed;
+             border-color: #ddd;
+        }
+        .icu-text-prefix {
+            padding: 4px 2px 4px 4px;
+            white-space: nowrap;
+            color: #555;
+            background-color: #f0f0f0;
+            border-right: 1px solid #ccc;
+            margin-right: 0px;
+        }
+        .icu-text-composite-input.disabled-composite .icu-text-prefix {
+             background-color: #e9e9e9;
+             border-right-color: #ddd;
+        }
+        .icu-text-editable-part {
+            flex-grow: 1;
+            border: none;
+            padding: 4px;
+            outline: none;
+            background-color: transparent;
+            font-family: inherit;
+            font-size: inherit;
+            width: 10px;
+        }
+        .icu-text-editable-part:disabled {
+            background-color: #eee;
+            color: #555;
+            cursor: not-allowed;
+        }
+
+        /* Initial Choice Modal Styles */
+        #initial-choice-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.65);
+            z-index: 10005;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            visibility: hidden; /* Initially hidden, controlled by JS */
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out, visibility 0s 0.3s;
+        }
+        #initial-choice-modal-overlay.show {
+            visibility: visible;
+            opacity: 1;
+            transition-delay: 0s;
+        }
+        #initial-choice-modal-content {
+            background-color: white;
+            padding: 25px 35px 30px 35px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 550px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.35);
+            text-align: center;
+            transform: scale(0.95);
+            transition: transform 0.3s ease-in-out;
+        }
+        #initial-choice-modal-overlay.show #initial-choice-modal-content {
+            transform: scale(1);
+        }
+        #initial-choice-modal-content h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #007bff;
+        }
+        #initial-choice-modal-content h3 {
+            margin-top: 15px;
+            margin-bottom: 12px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+        }
+        #initial-choice-modal-content p {
+            text-align: center;
+            font-size: 0.95em;
+            color: #444;
+            margin-bottom: 15px;
+        }
+        #initial-choice-modal-content .initial-choice-section {
+            margin-bottom: 10px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        #initial-choice-modal-content .initial-choice-section label{
+            display: block;
+            text-align: left;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        #initial-choice-modal-content .initial-choice-section input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 0.95em;
+        }
+        #initial-choice-modal-content .initial-choice-section input[type="text"]:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+        }
+        #initial-choice-modal-content button {
+            padding: 10px 18px;
+            font-size: 1em;
+            min-width: 150px;
+        }
+        #initial-choice-modal-content .initial-choice-separator p {
+            font-size: 0.9em;
+            color: #777;
+            margin: 15px 0;
+        }
+
+        /* MLK Activation Modal Styles for Main Editor */
+        #mlk-activation-modal-overlay { /* Ensure this ID matches JS */
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.75); /* Darker overlay */
+            z-index: 10010; /* Higher than other modals */
+            display: flex; /* Will be set by JS */
+            justify-content: center;
+            align-items: center;
+            visibility: hidden; /* Initially hidden */
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out, visibility 0s 0.3s;
+        }
+        #mlk-activation-modal-overlay.show {
+            visibility: visible;
+            opacity: 1;
+            transition-delay: 0s;
+        }
+        #mlk-activation-modal-overlay > div { /* Targeting the inner content div */
+            background-color: white;
+            padding: 30px 40px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.4);
+            text-align: center;
+            transform: scale(0.95);
+            transition: transform 0.3s ease-in-out;
+        }
+        #mlk-activation-modal-overlay.show > div {
+            transform: scale(1);
+        }
+        /* Other specific styles for MLK modal elements if needed */
+        #mlk-activation-modal-overlay h2 { color: #007bff; }
+        #mlk-activation-modal-overlay p { color: #444; }
+        #mlk-status-message-editor.success-message { color: #28a745; } /* For editor's MLK status */
+        #mlk-status-message-editor.error-message { color: #dc3545; }
+
+    </style>
+</head>
+<body>
+
+    <div id="mlk-activation-modal-overlay" style="display: none;">
+        <div style="background-color: white; padding: 30px 40px; border-radius: 8px; width: 90%; max-width: 500px; text-align: center;">
+            <h2 style="margin-top: 0; margin-bottom: 15px; color: #007bff;">Editor Activation</h2>
+            <p style="text-align: center; font-size: 0.95em; color: #444; margin-bottom: 20px;">
+                Please import your .mlk license file to activate the editor.
+            </p>
+            <div style="margin-bottom: 20px;">
+                <label for="mlk-file-input" style="display:block; text-align: left; margin-bottom:8px; font-weight:bold;">License File (.mlk):</label>
+                <input type="file" id="mlk-file-input" accept=".mlk" style="width: calc(100% - 22px); padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 0.9em;">
+            </div>
+            <button id="activate-mlk-file-button" class="blue-button" style="padding: 10px 20px; font-size: 1em; min-width: 120px;">Activate License</button>
+            <p id="mlk-status-message-editor" style="margin-top: 15px; min-height: 1.5em; font-weight: bold;"></p>
+            <small style="display: block; margin-top: 20px; color: #777; text-align:center; font-size:0.8em;">
+                The editor features will be available after successful activation.
+            </small>
+        </div>
+    </div>
+
+    <div id="initial-choice-modal-overlay">
+        <div id="initial-choice-modal-content">
+            <h2>Welcome to Mobi Info Edit Smartblind Coding Editor</h2>
+            <p>How would you like to start?</p>
+
+            <div class="initial-choice-section">
+                <h3>Start New Smartblind Mapping</h3>
+                <label for="initial-out-filename" style="font-weight: bold; margin-right: 8px;">OUT File name:</label>
+                <input type="text" id="initial-out-filename" placeholder="Enter a name (e.g., DART SD NOV 15)" style="width: calc(100% - 20px); padding: 8px; margin-bottom:10px; border: 1px solid #ccc; border-radius: 3px;">
+                <button id="start-new-dataset-button" class="blue-button">Start New</button>
+            </div>
+
+            <div class="initial-choice-separator">
+                <p style="margin:10px 0; font-weight: bold;">OR</p>
+            </div>
+
+            <div class="initial-choice-section">
+                <h3>Import Existing File</h3>
+                <p style="text-align:left; font-size: 0.85em; color: #555; margin-bottom: 10px;">Import data from a previously saved .txt or .csv file.</p>
+                <button id="initial-import-button" class="blue-button">Import File</button>
+            </div>
+            <small style="display: block; margin-top: 20px; color: #777; text-align:center; font-size:0.8em;">The main editor will load after making a selection.</small>
+        </div>
+    </div>
+
+    <div class="container" style="display: none;">
+        <h1>Mobi Info Edit Smartblind Coding Editor</h1>
+        <p id="licensee-display-area" style="text-align: center; color: #007bff; font-size: 1em; font-weight: bold; margin-bottom: 15px; min-height: 1.2em;"></p>
+        <div style="text-align: center; margin-bottom: 20px; padding: 10px; background-color: #f9f9f9; border-radius: 4px;">
+            <label for="out-filename" style="font-weight: bold; margin-right: 8px;">OUT File name:</label>
+            <input type="text" id="out-filename" placeholder="Enter a name (e.g., Cam SD 2011)" style="width: 350px; padding: 6px; border: 1px solid #ccc; border-radius: 3px;">
+            <small style="display: block; margin-top: 5px; color: #777;">(Required for Save / Export. Extensions .txt or .pdf will be added automatically)</small>
+        </div>
+
+        <p style="text-align: centre; font-size: 0.9em; color: #666;">Use this editor to prepare data for Mobi Info Edit (MIE). Ensure "ICU Controller Text" matches MIE requirements. Press TAB in the last "ICU Controller Text" field of an editable row to add a new row. "Save Data to File" generates a `.txt` file for MIE.</p>
+
+        <div id="route-summary-container">
+            <h2 style="margin-bottom: 5px;">Route Destination Counts</h2>
+            <table id="route-summary-table">
+                <thead>
+                    <tr>
+                        <th>Route</th>
+                        <th>Destination Count</th>
+                        <th class="col-action-header">Action</th>
+                    </tr>
+                </thead>
+                <tbody><tr><td colspan="3" style="text-align:center;">Initializing summary...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div id="table-top-controls">
+            <div>
+                <input type="checkbox" id="globalCapsToggle" title="Toggle 'Black Blank' case for the first row (Row 1)">
+                <label for="globalCapsToggle">CAPS for 'Black Blank' (Row 1)</label>
+            </div>
+            <div>
+                <input type="checkbox" id="globalSideIsViaToggleTop" title="CHECKED: 'Side Display Code' is for a repeating 'Via' point (copied on Quick Add if same route). UNCHECKED (default): It's for a unique 'Side Destination' (cleared on Quick Add).">
+                <label for="globalSideIsViaToggleTop">Side Display is 'Via Point'?</label>
+            </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+            <table id="smartblind-table">
+                <colgroup>
+                    <col class="col-route">
+                    <col class="col-counter">
+                    <col class="col-front-dest">
+                    <col class="col-route-code">
+                    <col class="col-front-dest-code">
+                    <col class="col-via-code">
+                    <col class="col-icu-text">
+                    <col class="col-action">
+                    <col class="col-handle">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Route</th>
+                        <th>Destination<br>Number</th>
+                        <th>ICU Selection<br>Number</th>
+                        <th>Route<br>Code</th>
+                        <th>Front<br>Destination Code</th>
+                        <th>Side Via<br>Code</th>
+                        <th>ICU Controller Text</th>
+                        <th class="col-action-header">Actions</th>
+                        <th></th> </tr>
+                </thead>
+                <tbody id="smartblind-tbody"><tr><td colspan="9">Initializing...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="controls">
+            <button onclick="addRow()">Add Row</button>
+            <button onclick="quickAddSelectedRow()" id="quick-add-row-button" title="Duplicates the currently focused or last edited row with some smart defaults. Ensure a row has focus or was edited first." class="secondary-button" style="background-color: #5cb85c; border-color: #4cae4c;">
+                <span style="font-size: 1.1em; margin-right: 3px;">✨</span>Quick Add Row
+            </button>
+            <button onclick="saveData()" id="save-data-button">
+                <span id="save-status-icon">💾</span>Save Data to File
+            </button>
+            <button onclick="document.getElementById('import-file-smartblind').click()" id="main-import-button">Import File</button>
+            <button onclick="exportToPDF()" class="secondary-button">Export to PDF</button>
+            <button onclick="clearAllData()" class="clear-data-button">Clear All Data</button>
+            <button id="show-help-button" class="secondary-button" style="background-color: #5bc0de; border-color: #46b8da;">Help</button>
+            <input type="file" id="import-file-smartblind" accept=".csv, .txt" class="hidden" onchange="handleFileImport(this.files[0])">
+
+            <div class="bottom-controls-toggles">
+                 <div>
+                    <input type="checkbox" id="globalSideIsViaToggleBottom" title="CHECKED: 'Side Display Code' is for a repeating 'Via' point (copied on Quick Add if same route). UNCHECKED (default): It's for a unique 'Side Destination' (cleared on Quick Add).">
+                    <label for="globalSideIsViaToggleBottom">Side Display is 'Via Point'?</label>
+                </div>
+            </div>
+        </div>
+    </div> <div id="toast-container"></div>
+
+    <div id="help-modal-overlay">
+        <div id="help-modal-content">
+            <button id="close-help-modal" title="Close help">&times;</button>
+            <h2>Mobi Info Edit Smartblind Coding Editor Help</h2>
+            <h3>Overview</h3>
+            <p>This tool helps you create and edit data for Mobi Info Edit (MIE). The data you enter here can be saved as a text file (.txt) which is then imported into MIE to generate the final .OUT file for the ICU controller.</p>
+            <h3>Global Toggles (Above Table)</h3>
+            <ul>
+                <li><strong>CAPS for 'Black Blank' (Row 1):</strong> Toggles the first row's "ICU Controller Text" between "BLACK BLANK" (all caps) and "Black Blank" (title case).</li>
+                <li><strong>Side Display is 'Via Point'?:</strong>
+                    <ul>
+                        <li>If UNCHECKED (Default): The "Side Via Code" field is treated as being for a Side Ultimate Blind. When using "Quick Add Row", this code will be cleared in the new row. The "Route Code" will be copied from the source row.</li>
+                        <li>If CHECKED: The "Side Via Code" field is treated as being a Side Via Blind. When using "Quick Add Row" for the same route, both the "Side Via Code" and the "Route Code" from the first instance of that route that possesses those codes will be copied to the new row. If the first instance doesn't have a code, the source row's code (for Route Code) or blank (for Side Via Code) will be used / cleared.</li>
+                        <li>This setting is an editor aid and does not change the exported file format. The duplicate of this toggle is also available in the bottom controls area for convenience.</li>
+                    </ul>
+                </li>
+            </ul>
+            <h3>Input Fields (Main Table)</h3>
+            <ul>
+                <li><strong>Route:</strong> Route number (e.g., "123", "N89"). Use "0" for non-route displays. Max 4 chars. Auto-prefixes "ICU Controller Text" if not "0".</li>
+                <li><strong>Destination Number:</strong> Auto-generated global sequential number.</li>
+                <li><strong>ICU Selection Number:</strong> Auto-generated sequential number per route group. For correct numbering, keep all entries for the same route together.</li>
+                <li><strong>Route Code:</strong> Binary barcode number (0-255) for front / rear route display.</li>
+                <li><strong>Front Destination Code:</strong> Binary barcode number (0-255) for front destination display.</li>
+                <li><strong>Side Via Code:</strong> Binary barcode number (0-255) for side display. Its interpretation (Side Via or Side Ultimate) is guided by the global "Side Display is 'Via Point'?" toggle.</li>
+                <li><strong>ICU Controller Text:</strong> Text for the driver's ICU controller. If a route is set, the "Route, " part (including the comma and space) is non-editable. The part after this prefix is editable by the user to input the destination name.</li>
+            </ul>
+            <h3>Actions & Controls</h3>
+            <ul>
+                <li><strong>Add Row:</strong> Adds a new, blank editable row to the table end.</li>
+                <li><strong><span style="font-size: 1.1em; margin-right: 0px;">✨</span>Quick Add Row:</strong> Duplicates the currently focused / last edited editable row with smart modifications (see Global Toggles section in Help).</li>
+                <li><strong><span id="save-status-icon-help" style="display: inline-block; width: 1.2em; text-align:center; position: relative;">💾</span> Save Data to File:</strong> Validates and downloads a .txt (TSV) file. Requires "OUT File name". The icon changes to ✔️ when no unsaved changes exist (the asterisk * on the floppy indicates unsaved changes).</li>
+                <li><strong>Import File:</strong> Loads data from a .txt (TSV) or .csv file, replacing current data.</li>
+                <li><strong>Export to PDF:</strong> Generates a PDF summary. Requires "OUT File name".</li>
+                <li><strong>Clear All Data:</strong> Resets editor to default. Irreversible.</li>
+                <li><strong>Delete (per row):</strong> Deletes the specific editable row.</li>
+                <li><strong>Drag Handle (&#9776;):</strong> Reorder editable rows.</li>
+            </ul>
+            <h3>Route Destination Counts Table</h3>
+            <ul>
+                <li>Summarizes unique routes and their current max ICU Selection Number.</li>
+                <li>Clicking a route scrolls the main table to its last entry, aiding addition of new destinations.</li>
+                <li>"Delete" button here removes all editable entries for that route.</li>
+            </ul>
+            <h3>Important Notes</h3>
+            <ul>
+                <li>The "OUT File name" is used for downloaded .txt and .pdf files.</li>
+                <li>A warning will prompt you to save if you have unsaved changes and try to leave the page.</li>
+                <li>This tool generates a text file for MIE; MIE software is still needed for the final binary .OUT file for the Smartblinds.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div id="mobile-notice-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #22252a; z-index: 9999; color: white; text-align: center; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: Arial, sans-serif;">
+        <div style="background-color: #2c3e50; padding: 30px; border-radius: 10px; max-width: 90%; box-shadow: 0 0 15px rgba(0,0,0,0.5);">
+            <h2 style="color: #ecf0f1; margin-top: 0;">Mobile Device Detected</h2>
+            <p style="color: #bdc3c7; line-height: 1.6;">The Smartblind Coding Editor is designed for optimal performance and usability on desktop or laptop computers.</p>
+            <p style="color: #bdc3c7; line-height: 1.6;">Functionality and layout may be limited on mobile devices or smaller screens. For the best experience, please access this page using a desktop browser. Application features have been disabled on this device.</p>
+        </div>
+    </div>
+
+    <script>
+    let currentSmartblindData = [];
+    let suppressDuplicateLineWarning = false;
+    let hasUnsavedChanges = false;
+    let saveStatusIconElement = null;
+    let toastContainerElement = null;
+    let helpModalOverlayElement = null;
+    let closeHelpModalButton = null;
+    let showHelpButton = null;
+    let globalCapsToggleElement = null;
+    let globalSideIsViaToggleTopElement = null;
+    let globalSideIsViaToggleBottomElement = null;
+    let globalIsSideViaMode = false;
+    let lastFocusedEditableRowIndex = -1;
+
+    // For Initial Choice Modal (Welcome Screen)
+    let initialChoiceModalOverlayElement = null;
+    let initialOutFilenameInputElement = null;
+    let startNewDatasetButtonElement = null;
+    let initialImportButtonElement = null;
+
+    // For Main Application
+    let mainAppContainerElement = null;
+    let mainOutFilenameInputElement = null;
+
+    // For MLK Activation (in this main editor file)
+    let currentLicenseeName = null;
+    let mlkActivationModalOverlayElementEditor = null;
+    let mlkFileInputElementEditor = null;
+    let activateMlkFileButtonEditor = null;
+    let mlkStatusMessageEditor = null;
+
+    // Key for localStorage, must match the key used in mlk_generator.html
+    const LOCAL_STORAGE_LICENSES_KEY_FROM_GENERATOR = 'mlkGenerator_managedLicenses_v4';
+
+
+    const tableBody = document.getElementById('smartblind-tbody');
+
+    const standardOutOfServiceTexts = [
+        "BLACK BLANK", "NOT IN SERVICE", "OUT OF SERVICE",
+        "RAIL REPLACEMENT", "PRIVATE HIRE", "SORRY NOT IN SERVICE",
+        "SPECIAL SERVICE"
+    ].map(s => s.toUpperCase());
+
+    function getElement(id) { return document.getElementById(id); }
+    const escapeHtml = (unsafe) => { if (unsafe === null || typeof unsafe === 'undefined') return ''; return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); };
+
+    // --- Date Parsing Helper (DD/MM/YYYY) ---
+    function parseDDMMYYYY(dateStr) {
+        if (!dateStr || typeof dateStr !== 'string') return null;
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1; // JavaScript months are 0-indexed
+            const year = parseInt(parts[2], 10);
+
+            if (!isNaN(day) && day > 0 && day <= 31 &&
+                !isNaN(month) && month >= 0 && month < 12 &&
+                !isNaN(year) && year > 1000 && year < 10000) {
+                const dateObj = new Date(Date.UTC(year, month, day));
+                if (dateObj.getUTCFullYear() === year &&
+                    dateObj.getUTCMonth() === month &&
+                    dateObj.getUTCDate() === day) {
+                    return dateObj;
+                }
+            }
+        }
+        return null;
+    }
+
+    // --- Licensee Name Display Function ---
+    function updateLicenseeDisplayOnMainPage() {
+        const displayElement = getElement('licensee-display-area');
+        if (displayElement) {
+            if (currentLicenseeName) {
+                displayElement.textContent = `Licensed to: ${currentLicenseeName}`;
+            } else {
+                displayElement.textContent = '';
+            }
+        }
+    }
+
+    // --- Helper to get managed licenses from localStorage (same as in generator) ---
+    function getManagedLicensesFromGeneratorStorage() {
+        const licensesJson = localStorage.getItem(LOCAL_STORAGE_LICENSES_KEY_FROM_GENERATOR);
+        try {
+            return licensesJson ? JSON.parse(licensesJson) : [];
+        } catch (e) {
+            console.error("Error parsing licenses from localStorage:", e);
+            return [];
+        }
+    }
+
+    // --- UPDATED MLK Activation Logic for Smartblind Editor (using localStorage) ---
+    function handleMlkActivationEditor() {
+        if (!mlkFileInputElementEditor || !mlkFileInputElementEditor.files || !mlkFileInputElementEditor.files.length === 0) {
+            if (mlkStatusMessageEditor) {
+                mlkStatusMessageEditor.textContent = 'Please select an .mlk file.';
+                mlkStatusMessageEditor.style.color = '#dc3545';
+            }
+            showToast('Please select an .mlk file.', 'error');
+            return;
+        }
+
+        const file = mlkFileInputElementEditor.files[0];
+        if (mlkStatusMessageEditor) {
+            mlkStatusMessageEditor.textContent = 'Processing license...';
+            mlkStatusMessageEditor.style.color = '#333';
+        }
+
+        if (!file.name.toLowerCase().endsWith('.mlk')) {
+            if (mlkStatusMessageEditor) {
+                mlkStatusMessageEditor.textContent = 'Invalid file type. Please select a .mlk file.';
+                mlkStatusMessageEditor.style.color = '#dc3545';
+            }
+            showToast('Invalid file type for license. Must be .mlk', 'error');
+            mlkFileInputElementEditor.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const fileContent = event.target.result;
+            let mlkDataFromFile = {}; // To store data parsed from the .mlk file
+
+            // Parse the uploaded .mlk file content
+            const lines = fileContent.split(/\r?\n/);
+            lines.forEach(line => {
+                const parts = line.split(/:(.+)/);
+                if (parts.length === 2) {
+                    mlkDataFromFile[parts[0].trim()] = parts[1].trim();
+                }
+            });
+
+            const activationCodeFromFile = mlkDataFromFile['ActivationCode'];
+
+            if (!activationCodeFromFile) {
+                if (mlkStatusMessageEditor) {
+                    mlkStatusMessageEditor.textContent = 'Activation failed: Activation code missing in .mlk file.';
+                    mlkStatusMessageEditor.style.color = '#dc3545';
+                }
+                showToast('Activation failed: Malformed license file (no code).', 'error');
+                mlkFileInputElementEditor.value = '';
+                return;
+            }
+
+            // --- Get all managed licenses from localStorage ---
+            const allManagedLicenses = getManagedLicensesFromGeneratorStorage();
+            const foundLicenseInStorage = allManagedLicenses.find(lic => lic.activationCode === activationCodeFromFile);
+
+            if (!foundLicenseInStorage) {
+                if (mlkStatusMessageEditor) {
+                    mlkStatusMessageEditor.textContent = 'Activation failed: License code not found or not recognized.';
+                    mlkStatusMessageEditor.style.color = '#dc3545';
+                }
+                showToast('Activation failed: Invalid or unrecognized activation code.', 'error');
+                mlkFileInputElementEditor.value = '';
+                return;
+            }
+
+            // --- Use details from `foundLicenseInStorage` for definitive validation ---
+            const authoritativeLicenseeName = foundLicenseInStorage.licenseeName;
+            const authoritativeStatus = foundLicenseInStorage.status;
+            const authoritativeExpiryDateStr = foundLicenseInStorage.expiryDate; // This is DD/MM/YYYY
+
+            // --- Validate Status from localStorage record ---
+            if (authoritativeStatus.toLowerCase() !== 'active') {
+                if (mlkStatusMessageEditor) {
+                    mlkStatusMessageEditor.textContent = `Activation failed: License status is "${authoritativeStatus}". Only "Active" licenses are permitted.`;
+                    mlkStatusMessageEditor.style.color = '#dc3545';
+                }
+                showToast(`Activation failed: License (code: ${activationCodeFromFile}) is currently ${authoritativeStatus}.`, 'error');
+                mlkFileInputElementEditor.value = '';
+                return;
+            }
+
+            // --- Validate Expiry Date from localStorage record ---
+            const expiryDateObj = parseDDMMYYYY(authoritativeExpiryDateStr);
+            if (!expiryDateObj) {
+                if (mlkStatusMessageEditor) {
+                    mlkStatusMessageEditor.textContent = 'Activation failed: Corrupted expiry date in stored license record.';
+                    mlkStatusMessageEditor.style.color = '#dc3545';
+                }
+                showToast('Activation failed: Invalid license data in storage.', 'error'); // Changed message slightly
+                mlkFileInputElementEditor.value = '';
+                return;
+            }
+
+            const currentDateContext = new Date("2025-05-10T00:00:00Z"); // Current date context: May 10, 2025
+            // For actual current date for production:
+            // const currentDateContext = new Date();
+            // currentDateContext.setUTCHours(0, 0, 0, 0);
+
+
+            if (expiryDateObj < currentDateContext) {
+                if (mlkStatusMessageEditor) {
+                    mlkStatusMessageEditor.textContent = `Activation failed: License for ${authoritativeLicenseeName} expired on ${authoritativeExpiryDateStr}.`;
+                    mlkStatusMessageEditor.style.color = '#dc3545';
+                }
+                showToast('Activation failed: This license has expired.', 'error');
+                mlkFileInputElementEditor.value = '';
+                return;
+            }
+
+            // --- Activation Successful ---
+            currentLicenseeName = authoritativeLicenseeName; // Store for display
+
+            if (mlkStatusMessageEditor) {
+                mlkStatusMessageEditor.textContent = `Activation successful for ${authoritativeLicenseeName}! Expires: ${authoritativeExpiryDateStr}. Loading editor...`;
+                mlkStatusMessageEditor.style.color = '#28a745';
+            }
+            showToast(`Editor activated for ${authoritativeLicenseeName}. Expires: ${authoritativeExpiryDateStr}`, 'success', 4000);
+
+            setTimeout(() => {
+                if (mlkActivationModalOverlayElementEditor) {
+                    mlkActivationModalOverlayElementEditor.classList.remove('show');
+                    setTimeout(() => { if(mlkActivationModalOverlayElementEditor) mlkActivationModalOverlayElementEditor.style.display = 'none'; }, 300);
+                }
+
+                if (initialChoiceModalOverlayElement) {
+                    initialChoiceModalOverlayElement.style.display = 'flex';
+                    setTimeout(() => { if(initialChoiceModalOverlayElement) initialChoiceModalOverlayElement.classList.add('show'); }, 10);
+                    document.body.style.overflow = 'hidden';
+                    document.body.style.padding = '0';
+                } else {
+                    if (mainAppContainerElement) mainAppContainerElement.style.display = 'block';
+                    if (document.body) {
+                        document.body.style.padding = '20px';
+                        document.body.style.overflow = 'auto';
+                    }
+                    initializeDefaultData();
+                    renderTable();
+                    initializeMainApplication();
+                }
+                updateLicenseeDisplayOnMainPage(); // Update licensee name on main page
+            }, 1500);
+        };
+        reader.onerror = function() {
+            if (mlkStatusMessageEditor) {
+                mlkStatusMessageEditor.textContent = 'Error reading the license file.';
+                mlkStatusMessageEditor.style.color = '#dc3545';
+            }
+            showToast('Error reading the license file.', 'error');
+            if (mlkFileInputElementEditor) mlkFileInputElementEditor.value = '';
+        };
+        reader.readAsText(file);
+    }
+
+
+    // --- Original Editor Functions ---
+    function updateSaveStatusIcon(isSaved) {
+        if (saveStatusIconElement) {
+            if (isSaved) {
+                saveStatusIconElement.innerHTML = '✔️';
+                saveStatusIconElement.title = 'No unsaved changes';
+            } else {
+                saveStatusIconElement.innerHTML = '💾<span style="color:orange;position:absolute;font-size:0.7em;top:-0.5em;left:0.6em;font-weight:bold;">*</span>';
+                saveStatusIconElement.title = 'Unsaved changes exist';
+            }
+        }
+    }
+
+    function setHasUnsavedChanges(status) {
+        if (hasUnsavedChanges !== status) {
+            hasUnsavedChanges = status;
+            updateSaveStatusIcon(!status);
+        }
+    }
+
+    function showToast(message, type = 'info', duration = 7000) {
+        if (!toastContainerElement) {
+            alert(message);
+            return;
+        }
+        const toast = document.createElement('div');
+        toast.className = `toast-message ${type}`;
+        toast.textContent = message;
+        toastContainerElement.appendChild(toast);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                 toast.classList.add('show');
+            });
+        });
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                if (toast.parentNode === toastContainerElement) {
+                    toastContainerElement.removeChild(toast);
+                }
+            }, 500);
+        }, duration);
+    }
+
+    function initializeDefaultData() {
+        currentSmartblindData = [
+            { line: "0", dest: 1, counter: 1, lineCode: 0, destCode: 0, sideViaCode: 0, driverText: "Black Blank", isEditable: false, isCaps: false },
+        ];
+        if (globalCapsToggleElement) globalCapsToggleElement.checked = false;
+        globalIsSideViaMode = false;
+        updateSideIsViaCheckboxes(globalIsSideViaMode);
+        lastFocusedEditableRowIndex = -1;
+    }
+
+    function updateSideIsViaCheckboxes(newState) {
+        if (globalSideIsViaToggleTopElement) globalSideIsViaToggleTopElement.checked = newState;
+        if (globalSideIsViaToggleBottomElement) globalSideIsViaToggleBottomElement.checked = newState;
+    }
+
+    function handleGlobalSideIsViaChange(event) {
+        globalIsSideViaMode = event.target.checked;
+        updateSideIsViaCheckboxes(globalIsSideViaMode);
+        showToast(`Side Display mode set to: ${globalIsSideViaMode ? "'Via Point'" : "'Unique Destination'"}. Affects 'Quick Add'.`, 'info', 4000);
+    }
+
+    function handleGlobalCapsChange() {
+        if (currentSmartblindData && currentSmartblindData.length > 0 &&
+            currentSmartblindData[0] && currentSmartblindData[0].isEditable === false) {
+            const isCapsChecked = globalCapsToggleElement.checked;
+            currentSmartblindData[0].isCaps = isCapsChecked;
+            currentSmartblindData[0].driverText = isCapsChecked ? "BLACK BLANK" : "Black Blank";
+
+            const firstRowElement = tableBody.querySelector('tr[data-index="0"]');
+            if (firstRowElement) {
+                const compositeInputDiv = firstRowElement.querySelector('.icu-text-composite-input');
+                if (compositeInputDiv) {
+                    const editablePart = compositeInputDiv.querySelector('.icu-text-editable-part');
+                    if (editablePart) {
+                        editablePart.value = currentSmartblindData[0].driverText;
+                    }
+                }
+            }
+            setHasUnsavedChanges(true);
+            showToast(`First row 'Black Blank' text set to ${isCapsChecked ? 'ALL CAPS' : 'Title Case'}.`, 'info');
+        }
+    }
+
+    function clearAllData() {
+        if (confirm("Are you sure you want to clear all data and reset to the default state? This cannot be undone.")) {
+            initializeDefaultData();
+            if(mainOutFilenameInputElement) mainOutFilenameInputElement.value = '';
+            renderTable();
+            setHasUnsavedChanges(false);
+            showToast('Data cleared and reset to default.', 'warning');
+        }
+    }
+
+    function getRouteSortDetails(routeStr) {
+        const normalizedRouteStr = String(routeStr).toUpperCase();
+        let prefix = ""; let numberPart = Infinity; let suffix = "";
+        const mainPattern = /^([A-Z]*)(\d+)([A-Z]*)$/;
+        const match = normalizedRouteStr.match(mainPattern);
+        if (match) {
+            prefix = match[1] || ""; numberPart = parseInt(match[2], 10); suffix = match[3] || "";
+        } else { prefix = normalizedRouteStr; }
+        return { prefix, number: numberPart, suffix, originalStr: routeStr };
+    }
+
+    function sortRoutesForSummaryTable(aKey, bKey) {
+        const detailsA = getRouteSortDetails(aKey); const detailsB = getRouteSortDetails(bKey);
+        const typeA = detailsA.number === Infinity ? 2 : (detailsA.prefix === "" ? 0 : 1);
+        const typeB = detailsB.number === Infinity ? 2 : (detailsB.prefix === "" ? 0 : 1);
+        if (typeA !== typeB) return typeA - typeB;
+        if (typeA === 0) {
+            if (detailsA.number !== detailsB.number) return detailsA.number - detailsB.number;
+            return detailsA.suffix.localeCompare(detailsB.suffix);
+        }
+        if (typeA === 1) {
+            if (detailsA.prefix !== detailsB.prefix) return detailsA.prefix.localeCompare(detailsB.prefix);
+            if (detailsA.number !== detailsB.number) return detailsA.number - detailsB.number;
+            return detailsA.suffix.localeCompare(detailsB.suffix);
+        }
+        if (typeA === 2) return detailsA.prefix.localeCompare(detailsB.prefix);
+        return aKey.localeCompare(bKey);
+    }
+
+    function scrollToRouteInMainTable(routeKey) {
+        if (!tableBody) return;
+        const upperRouteKey = String(routeKey).toUpperCase();
+        let lastMatchingRowElement = null;
+        let lastMatchingRowIndex = -1;
+        let firstMatchingRowIndexForDisplay = -1;
+
+        for (let i = currentSmartblindData.length - 1; i >= 0; i--) {
+            const rowData = currentSmartblindData[i];
+            if (String(rowData.line ?? '').toUpperCase() === upperRouteKey) {
+                lastMatchingRowIndex = i;
+                if (firstMatchingRowIndexForDisplay === -1) {
+                    firstMatchingRowIndexForDisplay = i;
+                }
+                break;
+            }
+        }
+
+        if (lastMatchingRowIndex !== -1) {
+            const rows = tableBody.querySelectorAll('tr[data-index]');
+            for (let i = 0; i < rows.length; i++) {
+                if (parseInt(rows[i].dataset.index, 10) === lastMatchingRowIndex) {
+                    lastMatchingRowElement = rows[i];
+                    break;
+                }
+            }
+        }
+
+        const displayRouteName = (firstMatchingRowIndexForDisplay !== -1 && currentSmartblindData[firstMatchingRowIndexForDisplay])
+                                 ? currentSmartblindData[firstMatchingRowIndexForDisplay].line
+                                 : routeKey;
+
+        if (lastMatchingRowElement) {
+            lastMatchingRowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const originalBg = lastMatchingRowElement.style.backgroundColor;
+            lastMatchingRowElement.classList.add('highlight-scroll');
+            setTimeout(() => {
+                lastMatchingRowElement.classList.remove('highlight-scroll');
+                lastMatchingRowElement.style.backgroundColor = originalBg;
+            }, 2500);
+            showToast(`Scrolled to last entry for route "${displayRouteName}".`, 'info');
+        } else {
+            window.scrollTo(0, document.body.scrollHeight);
+            showToast(`Route "${displayRouteName}" not found in table. Scrolled to bottom to add new entries.`, 'warning');
+        }
+    }
+
+    function deleteEntriesForRoute(routeToDeleteUpper) {
+        if (!routeToDeleteUpper && routeToDeleteUpper !== "0") {
+            showToast('Error: Invalid route specified for deletion.', 'error');
+            return;
+        }
+        const routeDisplayForMessage = currentSmartblindData.find(d => String(d.line ?? '').trim().toUpperCase() === routeToDeleteUpper)?.line || routeToDeleteUpper;
+        let deletedCount = 0;
+        currentSmartblindData = currentSmartblindData.filter(rowData => {
+            if (rowData.isEditable === false) return true;
+            const modelRouteKey = String(rowData.line ?? '').trim().toUpperCase();
+            if (modelRouteKey === routeToDeleteUpper) { deletedCount++; return false; }
+            return true;
+        });
+        if (deletedCount > 0) {
+            renderTable(); setHasUnsavedChanges(true);
+            showToast(`Deleted ${deletedCount} entries for route "${routeDisplayForMessage}".`, 'warning');
+        } else {
+            showToast(`No editable entries found for route "${routeDisplayForMessage}" to delete.`, 'info');
+        }
+    }
+
+    function renderRouteSummaryTable() {
+        const summaryTableBody = document.querySelector('#route-summary-table tbody');
+        const summaryTableHeader = document.querySelector('#route-summary-table thead tr');
+        if (!summaryTableBody || !summaryTableHeader) { return; }
+        if (!summaryTableHeader.querySelector('.col-action-header')) {
+            const actionTh = document.createElement('th'); actionTh.textContent = 'Action'; actionTh.className = 'col-action-header';
+            summaryTableHeader.appendChild(actionTh);
+        }
+        const initialMsgCell = summaryTableBody.querySelector('td[colspan]');
+        if (initialMsgCell && summaryTableHeader.cells.length === 3 && initialMsgCell.getAttribute('colspan') !== "3") {
+            initialMsgCell.setAttribute('colspan', '3');
+        }
+        const routeSummaries = {};
+        currentSmartblindData.forEach((rowData) => {
+            const routeKey = String(rowData.line ?? '').trim().toUpperCase();
+            if (!routeKey && routeKey !== "0") return;
+            const perRouteCountForSummary = parseInt(rowData.counter, 10);
+            if (!isNaN(perRouteCountForSummary) && perRouteCountForSummary > 0) {
+                if (!routeSummaries[routeKey] || perRouteCountForSummary > routeSummaries[routeKey]) {
+                     routeSummaries[routeKey] = perRouteCountForSummary;
+                }
+            } else if (!routeSummaries[routeKey]) { routeSummaries[routeKey] = 0; }
+        });
+        if (routeSummaries.hasOwnProperty("0")) {
+            const zeroEntries = currentSmartblindData.filter(d => String(d.line ?? '').trim().toUpperCase() === "0");
+            const editableZeroEntries = zeroEntries.filter(d => d.isEditable);
+            if (editableZeroEntries.length > 0) {
+                 routeSummaries["0"] = editableZeroEntries.reduce((max, item) => Math.max(max, parseInt(item.counter,10) || 0 ), 0);
+                 if(routeSummaries["0"] === 0 && editableZeroEntries.length > 0) routeSummaries["0"] = 1;
+            } else if (currentSmartblindData.length > 0 && currentSmartblindData[0].driverText && zeroEntries.some(d => !d.isEditable && currentSmartblindData[0].driverText.toUpperCase().includes("BLANK"))) {
+                routeSummaries["0"] = Math.max(routeSummaries["0"] || 0, 1);
+            } else if (zeroEntries.length > 0 && (routeSummaries["0"] === 0 || routeSummaries["0"] === undefined)) {
+                 routeSummaries["0"] = 1;
+            }
+        } else if (currentSmartblindData.length === 1 && !currentSmartblindData[0].isEditable && String(currentSmartblindData[0].line).toUpperCase() === "0") {
+            routeSummaries["0"] = 1;
+        }
+
+        summaryTableBody.innerHTML = '';
+        const uniqueRouteKeys = Object.keys(routeSummaries);
+        const filteredRouteKeys = uniqueRouteKeys.filter(rKey => {
+            if (routeSummaries[rKey] > 0) return true;
+            const hasAnyEntries = currentSmartblindData.some(d => String(d.line ?? '').trim().toUpperCase() === rKey);
+            if (hasAnyEntries) return true;
+            if (rKey === "0" && currentSmartblindData.some(d => !d.isEditable && String(d.line ?? '').trim().toUpperCase() === "0")) {
+                if(routeSummaries["0"] === 1) return true;
+            }
+            return false;
+        });
+        const sortedRouteKeys = filteredRouteKeys.sort(sortRoutesForSummaryTable);
+
+        if (sortedRouteKeys.length === 0) {
+            summaryTableBody.innerHTML = `<tr><td colspan="${summaryTableHeader.cells.length}" style="text-align:center;">No route data to summarize.</td></tr>`;
+        } else {
+            sortedRouteKeys.forEach(originalRouteKeyFromSummary => {
+                const routeDisplayKey = currentSmartblindData.find(d => String(d.line ?? '').trim().toUpperCase() === originalRouteKeyFromSummary)?.line || originalRouteKeyFromSummary;
+                let count = routeSummaries[originalRouteKeyFromSummary];
+                if (count === 0 && currentSmartblindData.some(d => String(d.line ?? '').trim().toUpperCase() === originalRouteKeyFromSummary)) count = 1;
+
+                const tr = summaryTableBody.insertRow();
+                tr.title = `Click to scroll to entries for route ${routeDisplayKey}`;
+                tr.addEventListener('click', (event) => {
+                    if (event.target.tagName === 'BUTTON' || event.target.closest('button')) return;
+                    scrollToRouteInMainTable(originalRouteKeyFromSummary);
+                });
+
+                tr.insertCell().textContent = routeDisplayKey;
+                tr.insertCell().textContent = count;
+                const actionCell = tr.insertCell();
+                let canDeleteRoute = true;
+                if (originalRouteKeyFromSummary === "0") {
+                    const editableZeroEntries = currentSmartblindData.filter(d => d.isEditable && String(d.line ?? '').trim().toUpperCase() === "0");
+                    if (editableZeroEntries.length === 0) canDeleteRoute = false;
+                }
+
+                if (canDeleteRoute) {
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = 'Delete'; deleteButton.classList.add('small-danger-button');
+                    deleteButton.dataset.route = originalRouteKeyFromSummary;
+                    deleteButton.title = `Delete all editable entries for route ${routeDisplayKey}`;
+                    deleteButton.addEventListener('click', function(event) {
+                        event.stopPropagation();
+                        const routeKeyForDeletion = this.dataset.route;
+                        if (confirm(`Are you sure you want to delete all editable entries for route "${routeDisplayKey}"?`)) {
+                            deleteEntriesForRoute(routeKeyForDeletion);
+                        }
+                    });
+                    actionCell.appendChild(deleteButton);
+                } else { actionCell.innerHTML = "&nbsp;"; }
+            });
+             if (summaryTableBody.rows.length === 0) {
+                 summaryTableBody.innerHTML = `<tr><td colspan="${summaryTableHeader.cells.length}" style="text-align:center;">No route data to summarize.</td></tr>`;
+            }
+        }
+    }
+
+    function updateIcuTextPrefix(event) {
+        const lineInput = event.target;
+        const tr = lineInput.closest('tr');
+        if (!tr || !tr.dataset.index) return;
+        const index = parseInt(tr.dataset.index, 10);
+
+        if (isNaN(index) || index === 0 || index < 0 || index >= currentSmartblindData.length || !currentSmartblindData[index]?.isEditable) return;
+
+        const compositeInputDiv = tr.querySelector('.icu-text-composite-input');
+        if (!compositeInputDiv) return;
+        const prefixSpan = compositeInputDiv.querySelector('.icu-text-prefix');
+        const editablePartInput = compositeInputDiv.querySelector('.icu-text-editable-part');
+        if (!prefixSpan || !editablePartInput) return;
+
+        const newLineNumStr = lineInput.value.trim().toUpperCase();
+        const currentEditableText = editablePartInput.value;
+
+        let newPrefix = "";
+        if (newLineNumStr !== "" && newLineNumStr !== "0") {
+            newPrefix = newLineNumStr + ", ";
+        }
+        prefixSpan.textContent = newPrefix;
+
+        if (currentSmartblindData[index]) {
+            let combinedModelText;
+            if (newPrefix && currentEditableText.trim() === "") {
+                combinedModelText = newPrefix;
+            } else if (newPrefix && currentEditableText.trim() !== "") {
+                combinedModelText = (newPrefix + currentEditableText).trim();
+            } else {
+                combinedModelText = currentEditableText.trim();
+            }
+            currentSmartblindData[index].icuText = combinedModelText;
+            setHasUnsavedChanges(true);
+        }
+    }
+
+    function readTableDataToMemory() {
+        const rows = tableBody.querySelectorAll('tr');
+        rows.forEach((tr) => {
+            const index = parseInt(tr.dataset.index, 10);
+            if (isNaN(index) || index < 0 || index >= currentSmartblindData.length || !currentSmartblindData[index]) return;
+            const dataEntry = currentSmartblindData[index];
+
+            tr.querySelectorAll('input[data-col], .icu-text-editable-part').forEach(inputElement => {
+                inputElement.onfocus = () => {
+                    if (dataEntry.isEditable) lastFocusedEditableRowIndex = index;
+                };
+
+                if (inputElement.disabled && !(index === 0 && inputElement.classList.contains('icu-text-editable-part'))) return;
+
+                let col;
+                let value;
+
+                if (inputElement.classList.contains('icu-text-editable-part')) {
+                     if (index === 0 && !dataEntry.isEditable) return;
+                    col = 'icuText';
+                    const prefixSpan = inputElement.parentNode.querySelector('.icu-text-prefix');
+                    const prefixText = prefixSpan ? prefixSpan.textContent : "";
+                    value = (prefixText + inputElement.value).trim();
+                } else {
+                    col = inputElement.dataset.col;
+                    value = inputElement.value;
+                }
+
+                if (index === 0 && col === 'icuText' && dataEntry.hasOwnProperty('driverText')) {
+                    return;
+                }
+
+                if (col === 'line') value = value.trim().toUpperCase();
+                else if (['lineCode', 'destCode', 'sideViaCode'].includes(col)) value = (value.trim() === '') ? "" : (isNaN(parseInt(value, 10)) ? "" : parseInt(value, 10));
+                else if (col === 'icuText') value = value.trim();
+
+                if (dataEntry.hasOwnProperty(col)) {
+                    if (dataEntry[col] !== value) { dataEntry[col] = value; }
+                } else if (value !== "") {
+                     dataEntry[col] = value;
+                }
+            });
+        });
+        currentSmartblindData = currentSmartblindData.filter(row => row !== undefined && row !== null);
+        if (currentSmartblindData.length > 0 && currentSmartblindData[0].isEditable === false) currentSmartblindData[0].line = "0";
+        else if (currentSmartblindData.length === 0 || (currentSmartblindData.length > 0 && currentSmartblindData[0].isEditable !== false) ) { /* Potentially problematic state */ }
+    }
+
+    function handleDriverTextKeyDown(event) {
+        const targetInput = event.target;
+        const isIcuEditablePart = targetInput.classList.contains('icu-text-editable-part');
+        const dataCol = isIcuEditablePart ? 'icuText' : targetInput.dataset.col;
+
+        if (event.key === 'Tab' && !event.shiftKey) {
+            const tr = targetInput.closest('tr');
+            if (!tr || !tr.dataset.index) return;
+            const index = parseInt(tr.dataset.index, 10);
+            const editableDataRows = currentSmartblindData.filter(r => r.isEditable);
+            if (editableDataRows.length > 0 && currentSmartblindData[index] === editableDataRows[editableDataRows.length - 1]) {
+                 if (dataCol === 'icuText' && currentSmartblindData[index]?.isEditable) {
+                    event.preventDefault(); addRow();
+                }
+            }
+        }
+    }
+
+    function checkDuplicateLine(event) {
+        if (suppressDuplicateLineWarning) return;
+        const lineInput = event.target; const tr = lineInput.closest('tr');
+        if (!tr || !tr.dataset.index) return;
+        const currentIndex = parseInt(tr.dataset.index, 10);
+        if (isNaN(currentIndex) || !currentSmartblindData[currentIndex]?.isEditable) return;
+        const currentLineValue = lineInput.value.trim().toUpperCase();
+        if (currentLineValue === "" || currentLineValue === "0") return;
+        let lastAppearanceIndex = -1;
+        for (let i = currentIndex - 1; i >= 0; i--) {
+            if (currentSmartblindData[i]?.isEditable) {
+                const existingLineValue = String(currentSmartblindData[i].line ?? '').trim().toUpperCase();
+                if (existingLineValue === currentLineValue) { lastAppearanceIndex = i; break; }
+            }
+        }
+        if (lastAppearanceIndex !== -1) {
+            let foundDifferentInterveningRoute = false;
+            for (let i = lastAppearanceIndex + 1; i < currentIndex; i++) {
+                if (currentSmartblindData[i]?.isEditable) {
+                    const interveningLineValue = String(currentSmartblindData[i].line ?? '').trim().toUpperCase();
+                    if (interveningLineValue !== "" && interveningLineValue !== currentLineValue) { foundDifferentInterveningRoute = true; break; }
+                }
+            }
+            if (foundDifferentInterveningRoute) {
+                if (confirm(`Warning: Route '${currentLineValue}' was used earlier. For correct ICU Selection Numbering, group same routes together.\n\nPress OK to stop this warning for this session?`)) {
+                    suppressDuplicateLineWarning = true;
+                }
+            }
+        }
+    }
+
+    function confirmDeleteRow(rowIndex) {
+        const rowData = currentSmartblindData[rowIndex];
+        if (!rowData) return;
+        if (rowIndex === 0 && !rowData.isEditable) { showToast("The first row (Black Blank) cannot be deleted.", "warning"); return; }
+        const textToDisplay = (rowIndex === 0 && rowData.driverText !== undefined) ? rowData.driverText : rowData.icuText;
+        const rowDescription = `Route: ${rowData.line || '(empty)'}, Text: ${String(textToDisplay).substring(0, 30) + (String(textToDisplay).length > 30 ? '...' : '')}`;
+        if (confirm(`Are you sure you want to delete this row?\n${rowDescription}`)) {
+            currentSmartblindData.splice(rowIndex, 1);
+            if (lastFocusedEditableRowIndex === rowIndex) lastFocusedEditableRowIndex = -1;
+            else if (lastFocusedEditableRowIndex > rowIndex) lastFocusedEditableRowIndex--;
+            renderTable(); setHasUnsavedChanges(true);
+            showToast('Row deleted.', 'info');
+        }
+    }
+
+    function quickAddSelectedRow() {
+        readTableDataToMemory();
+
+        let sourceRowIndexToUse = lastFocusedEditableRowIndex;
+
+        if (sourceRowIndexToUse < 0 || sourceRowIndexToUse >= currentSmartblindData.length || !currentSmartblindData[sourceRowIndexToUse]?.isEditable) {
+            const editableRows = currentSmartblindData.filter(r => r.isEditable);
+            if (editableRows.length > 0) {
+                sourceRowIndexToUse = currentSmartblindData.indexOf(editableRows[editableRows.length - 1]);
+                 showToast("No row focused, duplicating the last editable row.", "info", 3000);
+            } else {
+                 showToast("No editable row available to duplicate.", "error");
+                 return;
+            }
+        }
+
+        const sourceRowOriginalData = currentSmartblindData[sourceRowIndexToUse];
+        if (!sourceRowOriginalData || !sourceRowOriginalData.isEditable) {
+            showToast("Cannot duplicate this row. Please select an editable row.", "error");
+            return;
+        }
+        const sourceRowData = JSON.parse(JSON.stringify(sourceRowOriginalData));
+
+        let sideViaCodeForNewRow = "";
+        let lineCodeForNewRow = sourceRowData.lineCode;
+
+        if (globalIsSideViaMode && sourceRowData.line && String(sourceRowData.line).trim() !== "" && String(sourceRowData.line).trim() !== "0") {
+            const routeToMatch = String(sourceRowData.line).toUpperCase();
+            let foundFirstRouteInstance = false;
+            for (let i = 0; i < currentSmartblindData.length; i++) {
+                const row = currentSmartblindData[i];
+                if (String(row.line ?? '').toUpperCase() === routeToMatch) {
+                    foundFirstRouteInstance = true;
+                    if (row.hasOwnProperty('lineCode') && row.lineCode !== "" && row.lineCode !== null && row.lineCode !== undefined) {
+                        lineCodeForNewRow = row.lineCode;
+                    }
+                    if (row.hasOwnProperty('sideViaCode') && row.sideViaCode !== "" && row.sideViaCode !== null && row.sideViaCode !== undefined) {
+                        sideViaCodeForNewRow = row.sideViaCode;
+                    } else {
+                         sideViaCodeForNewRow = "";
+                    }
+                    break;
+                }
+            }
+        } else {
+            lineCodeForNewRow = sourceRowData.lineCode;
+            sideViaCodeForNewRow = "";
+        }
+
+        const newRow = {
+            line: sourceRowData.line,
+            lineCode: lineCodeForNewRow,
+            destCode: "",
+            icuText: sourceRowData.icuText,
+            sideViaCode: sideViaCodeForNewRow,
+            dest: 0,
+            counter: 0,
+            isEditable: true,
+        };
+
+        currentSmartblindData.splice(sourceRowIndexToUse + 1, 0, newRow);
+        lastFocusedEditableRowIndex = sourceRowIndexToUse + 1;
+
+        renderTable();
+        setHasUnsavedChanges(true);
+        showToast("Row duplicated. Please edit as needed.", "success");
+
+        const newRowElement = tableBody.querySelector(`tr[data-index="${sourceRowIndexToUse + 1}"]`);
+        if (newRowElement) {
+            newRowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+
+    function handleRowDrop(evt) {
+        readTableDataToMemory();
+        const movedElement = evt.item; const originalDataIndex = parseInt(movedElement.dataset.index, 10);
+        if (isNaN(originalDataIndex) || !currentSmartblindData[originalDataIndex]?.isEditable) { renderTable(); return; }
+        const finalDomIndex = Array.from(movedElement.parentNode.children).indexOf(movedElement);
+
+        let targetDataIndex = finalDomIndex;
+        if (currentSmartblindData[0] && !currentSmartblindData[0].isEditable && targetDataIndex === 0) {
+            targetDataIndex = 1;
+        }
+
+        const itemToMove = currentSmartblindData.splice(originalDataIndex, 1)[0];
+        if (!itemToMove) { renderTable(); return; }
+        currentSmartblindData.splice(targetDataIndex, 0, itemToMove);
+
+        if (lastFocusedEditableRowIndex === originalDataIndex) lastFocusedEditableRowIndex = targetDataIndex;
+        else if (lastFocusedEditableRowIndex > originalDataIndex && lastFocusedEditableRowIndex <= targetDataIndex) lastFocusedEditableRowIndex--;
+        else if (lastFocusedEditableRowIndex < originalDataIndex && lastFocusedEditableRowIndex >= targetDataIndex) lastFocusedEditableRowIndex++;
+
+        renderTable(); setHasUnsavedChanges(true);
+        showToast('Rows reordered.', 'info');
+    }
+
+    function renderTable() {
+        if (!tableBody) { return; }
+
+        tableBody.innerHTML = '';
+        let previousLineForPerRouteCounting = Symbol(); let perRouteCounterVal = 0; let overallSequentialCounterVal = 0;
+
+        if (globalCapsToggleElement && currentSmartblindData.length > 0 && currentSmartblindData[0] && currentSmartblindData[0].isEditable === false) {
+            globalCapsToggleElement.checked = !!currentSmartblindData[0].isCaps;
+        }
+
+        currentSmartblindData.forEach((rowData, index) => {
+            const tr = tableBody.insertRow(); tr.dataset.index = index;
+            const isEditable = rowData.isEditable !== false; rowData.isEditable = isEditable;
+
+            overallSequentialCounterVal++; rowData.dest = overallSequentialCounterVal;
+
+            const currentLineForPerRoute = String(rowData.line ?? '').trim().toUpperCase();
+            if (currentLineForPerRoute === previousLineForPerRouteCounting && currentLineForPerRoute !== "") perRouteCounterVal++;
+            else perRouteCounterVal = 1;
+            rowData.counter = perRouteCounterVal; previousLineForPerRouteCounting = currentLineForPerRoute;
+
+            const columnDefinitions = [
+                { key: 'line', type: 'text', class: 'col-route', disabled: !isEditable, style: isEditable ? {textTransform: 'uppercase'} : {} },
+                { key: 'dest', type: 'text', class: 'col-counter', disabled: true },
+                { key: 'counter', type: 'text', class: 'col-front-dest', disabled: true },
+                { key: 'lineCode', type: 'number', class: 'col-route-code', disabled: !isEditable, min: "0", max: "255" },
+                { key: 'destCode', type: 'number', class: 'col-front-dest-code', disabled: !isEditable, min: "0", max: "255" },
+                { key: 'sideViaCode', type: 'number', class: 'col-via-code', disabled: !isEditable, min: "0", max: "255" },
+                { key: 'icuText', type: 'text', class: 'col-icu-text', disabled: !isEditable }
+            ];
+            columnDefinitions.forEach(colDef => {
+                const td = tr.insertCell(); td.className = colDef.class;
+
+                if (colDef.key === 'icuText') {
+                    const compositeInputDiv = document.createElement('div');
+                    compositeInputDiv.className = 'icu-text-composite-input';
+                    if (!isEditable && index === 0) {
+                        compositeInputDiv.classList.add('disabled-composite');
+                    }
+
+                    const prefixSpan = document.createElement('span');
+                    prefixSpan.className = 'icu-text-prefix';
+
+                    const editableInput = document.createElement('input');
+                    editableInput.type = 'text';
+                    editableInput.className = 'icu-text-editable-part';
+                    editableInput.dataset.colEditablePart = 'icuText';
+
+                    let fullTextModel = "";
+                    if (index === 0) {
+                        fullTextModel = rowData.driverText ?? '';
+                        prefixSpan.textContent = "";
+                        editableInput.value = fullTextModel;
+                        editableInput.disabled = true;
+                    } else {
+                        fullTextModel = rowData.icuText ?? '';
+                        const currentRoute = String(rowData.line ?? '').trim().toUpperCase();
+                        let displayPrefix = "";
+                        let displayEditableValue = fullTextModel;
+
+                        if (isEditable && currentRoute !== "" && currentRoute !== "0") {
+                            const potentialPrefixWithSpace = currentRoute + ", ";
+                            if (fullTextModel.length >= potentialPrefixWithSpace.length &&
+                                fullTextModel.toUpperCase().startsWith(potentialPrefixWithSpace.toUpperCase())) {
+                                displayPrefix = fullTextModel.substring(0, potentialPrefixWithSpace.length);
+                                displayEditableValue = fullTextModel.substring(potentialPrefixWithSpace.length);
+                            } else {
+                                displayPrefix = potentialPrefixWithSpace;
+                                displayEditableValue = fullTextModel;
+                            }
+                        }
+                        prefixSpan.textContent = displayPrefix;
+                        editableInput.value = displayEditableValue;
+                        editableInput.disabled = !isEditable;
+                    }
+
+                    if (!editableInput.disabled) {
+                        editableInput.addEventListener('focus', (e) => {
+                            editableInput.classList.remove('input-error');
+                            if(isEditable) lastFocusedEditableRowIndex = index;
+                        });
+                        editableInput.addEventListener('change', (e) => {
+                            const newEditablePart = e.target.value;
+                            const currentPrefix = prefixSpan.textContent;
+                            currentSmartblindData[index].icuText = (currentPrefix + newEditablePart).trim();
+                            setHasUnsavedChanges(true);
+                        });
+                        if (currentSmartblindData.filter(r => r.isEditable).pop() === rowData) {
+                            editableInput.addEventListener('keydown', handleDriverTextKeyDown);
+                        }
+                    }
+
+                    compositeInputDiv.appendChild(prefixSpan);
+                    compositeInputDiv.appendChild(editableInput);
+                    td.appendChild(compositeInputDiv);
+
+                } else {
+                    const input = document.createElement('input'); input.type = colDef.type;
+                    input.value = rowData.hasOwnProperty(colDef.key) ? (rowData[colDef.key] ?? '') : '';
+                    input.disabled = colDef.disabled;
+                    input.dataset.col = colDef.key;
+
+                    if(colDef.min !== undefined) input.min = colDef.min; if(colDef.max !== undefined) input.max = colDef.max;
+                    if(colDef.style && (isEditable || !input.disabled)) Object.assign(input.style, colDef.style);
+
+                    if (!input.disabled) {
+                        input.addEventListener('focus', () => {
+                            input.classList.remove('input-error');
+                            if(isEditable) lastFocusedEditableRowIndex = index;
+                        });
+                        if (colDef.key === 'line') {
+                            input.maxLength = 4;
+                            input.addEventListener('input', updateIcuTextPrefix);
+                            input.addEventListener('change', (e) => {
+                                const enteredValue = e.target.value;
+                                if (enteredValue.length > 4) { showToast(`Route cannot be longer than 4 characters.`, 'error'); e.target.value = String(currentSmartblindData[index].line ?? '').trim().toUpperCase(); return; }
+                                const oldLine = String(currentSmartblindData[index].line ?? '').trim().toUpperCase();
+                                const newLine = enteredValue.trim().toUpperCase();
+                                if (oldLine !== newLine) {
+                                    currentSmartblindData[index].line = newLine;
+                                    setHasUnsavedChanges(true);
+                                    checkDuplicateLine(e);
+                                    renderTable();
+                                    setTimeout(() => { const newRowEl = tableBody.querySelector(`tr[data-index="${index}"]`); const currentInputEl = newRowEl?.querySelector(`input[data-col="line"]`); if(currentInputEl) { try { currentInputEl.focus(); currentInputEl.selectionStart = currentInputEl.selectionEnd = currentInputEl.value.length; } catch(focusErr){} } }, 0);
+                                } else { checkDuplicateLine(e); }
+                            });
+                        } else if (['lineCode', 'destCode', 'sideViaCode'].includes(colDef.key)) {
+                            input.addEventListener('change', (e) => {
+                                const enteredValueStr = e.target.value.trim(); let modelValueToSet = "";
+                                const previousModelValue = currentSmartblindData[index]?.[colDef.key] ?? "";
+                                if (enteredValueStr !== "") {
+                                    const num = parseInt(enteredValueStr, 10);
+                                    if (isNaN(num) || num < 0 || num > 255) { showToast(`Error in ${colDef.key}: Input must be 0-255 or empty.`, 'error'); e.target.value = String(previousModelValue); e.target.classList.add('input-error'); modelValueToSet = previousModelValue; }
+                                    else { modelValueToSet = num; e.target.classList.remove('input-error'); }
+                                } else { modelValueToSet = ""; e.target.classList.remove('input-error'); }
+                                if (currentSmartblindData[index][colDef.key] !== modelValueToSet) { currentSmartblindData[index][colDef.key] = modelValueToSet; setHasUnsavedChanges(true); }
+                            });
+                        }
+                    }
+                    td.appendChild(input);
+                }
+            });
+            const actionCell = tr.insertCell(); actionCell.className = 'col-action-cell';
+            if (isEditable) {
+                const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'Delete';
+                deleteBtn.classList.add('small-danger-button'); deleteBtn.title = 'Delete this row';
+                deleteBtn.addEventListener('click', () => confirmDeleteRow(index));
+                actionCell.appendChild(deleteBtn);
+            } else { actionCell.innerHTML = '&nbsp;'; }
+            const handleCell = tr.insertCell(); handleCell.className = 'drag-handle-cell';
+            if (isEditable) handleCell.innerHTML = '<span class="drag-handle" title="Drag to reorder"><span style="cursor: grab; font-size: 1.4em; color: #555; user-select: none;">&equiv;</span></span>';
+            else { tr.classList.add('fixed-row'); handleCell.innerHTML = '&nbsp;'; }
+        });
+        renderRouteSummaryTable();
+    }
+
+    function addRow() {
+        readTableDataToMemory();
+        currentSmartblindData.push({
+            line: "", dest: 0, counter: 0,
+            lineCode: "", destCode: "", sideViaCode: "",
+            icuText: "", isEditable: true
+        });
+        renderTable(); setHasUnsavedChanges(true);
+        showToast('New row added.', 'success');
+        window.scrollTo(0, document.body.scrollHeight);
+        const newRowIndex = currentSmartblindData.length - 1;
+        lastFocusedEditableRowIndex = newRowIndex;
+        const lastTrAdded = tableBody.rows[newRowIndex];
+        if (lastTrAdded) {
+            const firstInputInNewRow = lastTrAdded.querySelector('input[data-col="line"]:not(:disabled)');
+            if (firstInputInNewRow) firstInputInNewRow.focus();
+        }
+    }
+
+    function convertDataToTSV(data) {
+        if (!Array.isArray(data) || data.length === 0) return "";
+        const headers = ["Line number", "Dest. number", "Counter", "Line Smartblind code", "Dest. Smartblind code", "Via Smartblind code", "Driver"];
+        const keys =    ["line",        "dest",         "counter", "lineCode",            "destCode",            "sideViaCode",       "icuText"];
+        const formatTsvCell = (value) => String(value ?? '').replace(/\t/g, ' ').replace(/\r?\n|\r/g, ' ');
+        const headerRow = headers.join('\t');
+        const dataRows = data.map((row, index) => {
+            const textToExport = (index === 0 && row.driverText !== undefined) ? row.driverText : (row.icuText ?? '');
+            return keys.map(key => {
+                if (key === 'icuText') return formatTsvCell(textToExport);
+                return formatTsvCell(row[key]);
+            }).join('\t');
+        });
+        return [headerRow, ...dataRows].join('\r\n');
+    }
+    function triggerTextFileDownload(filename, content, mimeType = 'text/plain;charset=utf-8;') {
+        const blob = new Blob([content], { type: mimeType }); const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+
+    function getOutputFilename(sourceElementId = 'out-filename', showToastOnError = true) {
+        const filenameInputElement = getElement(sourceElementId);
+        let userFilename = filenameInputElement ? filenameInputElement.value.trim() : "";
+
+        if (userFilename === "") {
+            if (showToastOnError) showToast("Please enter an OUT File name.", "error");
+            if (filenameInputElement) filenameInputElement.focus(); return null;
+        }
+        userFilename = userFilename.replace(/\.txt$/i, "").replace(/\.pdf$/i, "");
+        if (userFilename === "") {
+            if (showToastOnError) showToast("Base filename cannot be empty after removing extensions.", "error");
+            if (filenameInputElement) filenameInputElement.focus(); return null;
+        }
+        if (/[<>:"/\\|?*\x00-\x1F]/.test(userFilename)) {
+            if (showToastOnError) showToast("Filename contains invalid characters.", "error");
+            if (filenameInputElement) filenameInputElement.focus(); return null;
+        }
+        return userFilename;
+    }
+
+    function saveData() {
+        readTableDataToMemory();
+        tableBody.querySelectorAll('input.input-error, .icu-text-composite-input.input-error').forEach(inp => inp.classList.remove('input-error'));
+        const dataToValidate = [...currentSmartblindData];
+        let validationError = false; let firstErrorRowIndex = -1; let firstErrorInputQuery = null;
+        let emptyIcuTextError = false; let prefixValidationError = false; let formatValidationError = false;
+        let routeLengthError = false; let routeLengthErrorRow = -1;
+        let nonStandardZeroRouteWarnings = [];
+
+        dataToValidate.forEach((rowData, dataIndex) => {
+            if (validationError && rowData.isEditable) return;
+            const lineVal = String(rowData.line ?? "").trim().toUpperCase();
+            const currentTextForValidation = (dataIndex === 0 && rowData.driverText !== undefined) ? rowData.driverText : (rowData.icuText ?? "");
+
+            if (rowData.isEditable) {
+                if (lineVal.length > 4) { validationError = true; firstErrorRowIndex = dataIndex; firstErrorInputQuery = `tr[data-index="${dataIndex}"] input[data-col="line"]`; routeLengthError = true; routeLengthErrorRow = dataIndex + 1; return; }
+                if (lineVal !== '0' && lineVal !== '' && !/^[A-Z0-9]+$/.test(lineVal)) { validationError = true; firstErrorRowIndex = dataIndex; firstErrorInputQuery = `tr[data-index="${dataIndex}"] input[data-col="line"]`; formatValidationError = true; return; }
+                ['lineCode', 'destCode', 'sideViaCode'].forEach(col => {
+                    if (validationError) return; const codeVal = rowData[col];
+                    if (codeVal !== "" && (typeof codeVal !== 'number' || codeVal < 0 || codeVal > 255)) { validationError = true; firstErrorRowIndex = dataIndex; firstErrorInputQuery = `tr[data-index="${dataIndex}"] input[data-col="${col}"]`; formatValidationError = true; return; }
+                });
+                if (validationError) return;
+                const icuTextVal = String(currentTextForValidation).trim();
+                const editablePartOfIcuText = icuTextVal.startsWith(lineVal + ", ") && lineVal !== "0" && lineVal !== "" ? icuTextVal.substring((lineVal + ", ").length) : icuTextVal;
+
+                if (editablePartOfIcuText.trim() === "" && (lineVal !== "0" && lineVal !== "" ) ) {
+                     validationError = true; firstErrorRowIndex = dataIndex; firstErrorInputQuery = `tr[data-index="${dataIndex}"] .icu-text-editable-part`; emptyIcuTextError = true; return;
+                } else if (icuTextVal === "" && (lineVal === "0" || lineVal === "")) {
+                     validationError = true; firstErrorRowIndex = dataIndex; firstErrorInputQuery = `tr[data-index="${dataIndex}"] .icu-text-editable-part`; emptyIcuTextError = true; return;
+                }
+
+                if (lineVal !== '' && lineVal !== '0') {
+                    const expectedPrefix = lineVal + ", ";
+                    if (!String(icuTextVal).trimStart().startsWith(expectedPrefix)) { validationError = true; firstErrorRowIndex = dataIndex; firstErrorInputQuery = `tr[data-index="${dataIndex}"] .icu-text-editable-part`; prefixValidationError = true; return; }
+                }
+            } else if (dataIndex === 0) {
+                 const driverTextVal = String(currentTextForValidation).trim();
+                 if (driverTextVal === "") { validationError = true; firstErrorRowIndex = dataIndex; firstErrorInputQuery = `tr[data-index="0"] .icu-text-editable-part`; emptyIcuTextError = true; return; }
+            }
+
+            const currentLineValNorm = String(rowData.line ?? "").trim().toUpperCase();
+            const lc = (rowData.lineCode === "" || rowData.lineCode === null || rowData.lineCode === undefined) ? 0 : Number(rowData.lineCode);
+            const dc = (rowData.destCode === "" || rowData.destCode === null || rowData.destCode === undefined) ? 0 : Number(rowData.destCode);
+            const vc = (rowData.sideViaCode === "" || rowData.sideViaCode === null || rowData.sideViaCode === undefined) ? 0 : Number(rowData.sideViaCode);
+            const currentIcuTextUpper = String(currentTextForValidation).trim().toUpperCase();
+            if (currentLineValNorm === "0" && lc === 0 && dc === 0 && vc === 0) {
+                if (currentIcuTextUpper !== "" && !standardOutOfServiceTexts.some(text => currentIcuTextUpper.includes(text))) {
+                    nonStandardZeroRouteWarnings.push({ rowIndex: dataIndex + 1, text: currentTextForValidation });
+                }
+            }
+        });
+        if (validationError) {
+            if (firstErrorInputQuery && firstErrorRowIndex !== -1) {
+                const errorElement = tableBody.querySelector(firstErrorInputQuery);
+                if (errorElement) {
+                    if (errorElement.tagName === 'INPUT') {
+                        errorElement.classList.add('input-error'); errorElement.focus();
+                    } else {
+                        errorElement.closest('.icu-text-composite-input')?.classList.add('input-error');
+                        errorElement.focus();
+                    }
+                }
+            }
+            let userMessage = "Cannot save: Please fix invalid inputs.\n";
+            if (routeLengthError) { userMessage += `- Route in row ${routeLengthErrorRow} > 4 chars.`; }
+            else if (emptyIcuTextError) { userMessage += `- ICU Controller Text (destination part) empty (row ${firstErrorRowIndex + 1}).`; }
+            else if (prefixValidationError) { userMessage += `- ICU Text prefix mismatch (row ${firstErrorRowIndex + 1}). Route prefix missing or incorrect.`; }
+            else if (formatValidationError) { userMessage += `- Invalid format/number (row ${firstErrorRowIndex + 1}). Codes must be 0-255 or empty. Route can only contain A-Z, 0-9.`; }
+            else { userMessage += `- Unknown validation error (row ${firstErrorRowIndex + 1}).`;}
+            showToast(userMessage, 'error', 7000); return;
+        }
+        if (nonStandardZeroRouteWarnings.length > 0) {
+            let warningMsg = "POTENTIAL DISPLAY ISSUE:\n";
+            warningMsg += "The following rows are Route 0 with all zero codes and non-standard text:\n";
+            nonStandardZeroRouteWarnings.forEach(warn => { warningMsg += ` - Row ${warn.rowIndex}: "${escapeHtml(warn.text)}"\n`; });
+            warningMsg += "\nThis usually displays 'Black Blank' on blinds. ICU Text likely only on driver display.\n\nSave anyway?";
+            if (!confirm(warningMsg)) { showToast('Save cancelled by user.', 'warning'); return; }
+        }
+
+        const baseFilename = getOutputFilename('out-filename');
+        if (!baseFilename) return;
+
+        let finalDataToSave = JSON.parse(JSON.stringify(currentSmartblindData));
+        let perRouteCounter = 0;
+        let previousRouteForCounter = Symbol();
+        finalDataToSave.forEach((row, index) => {
+            row.dest = index + 1;
+            const currentRouteForCounter = String(row.line ?? '').trim().toUpperCase();
+            if (currentRouteForCounter === previousRouteForCounter && currentRouteForCounter !== "") {
+                perRouteCounter++;
+            } else {
+                perRouteCounter = 1;
+            }
+            row.counter = perRouteCounter;
+            previousRouteForCounter = currentRouteForCounter;
+
+            if(row.lineCode === "" || row.lineCode === null) row.lineCode = 0;
+            if(row.destCode === "" || row.destCode === null) row.destCode = 0;
+            if(row.sideViaCode === "" || row.sideViaCode === null) row.sideViaCode = 0;
+
+            row.icuText = (index === 0 && row.driverText !== undefined) ? row.driverText : (row.icuText ?? "");
+
+            delete row.driverText;
+            if (index > 0 || row.isEditable) delete row.isCaps;
+        });
+
+        const firstRowTextForCheck = finalDataToSave.length > 0 ? finalDataToSave[0].icuText : "";
+        if (finalDataToSave.length <= 1 && String(firstRowTextForCheck).toUpperCase().includes("BLANK") && currentSmartblindData.length > 0 && !currentSmartblindData[0].isEditable) {
+            showToast('No data (beyond default) to save.', 'info'); return;
+        }
+
+        const filenameWithExt = baseFilename + '.txt';
+        const tsvContent = convertDataToTSV(finalDataToSave);
+        if (!tsvContent) { showToast("No data available to save.", "error"); return; }
+        try {
+            triggerTextFileDownload(filenameWithExt, tsvContent);
+            showToast(`Data saved as ${filenameWithExt}`, 'success');
+            setHasUnsavedChanges(false);
+        } catch(e) { showToast('Error saving file: ' + e.message, 'error');}
+    }
+
+    function parseTSVData(textString) { // For importing TSV/CSV into the editor
+        if (!textString || typeof textString !== 'string') return [];
+        const dataRows = []; const lines = textString.split(/\r\n|\n|\r/);
+        if (lines.length < 1) { return []; }
+        const fileHeaders = lines[0].split('\t').map(h => h.trim().toLowerCase());
+        const headerMappingConfig = { line: ["line number", "route", "line no", "line"], lineCode: ["line smartblind code", "line code", "route code"], destCode: ["dest. smartblind code", "dest code", "destination code"], sideViaCode: ["via smartblind code", "via code", "side via code", "side code"], icuText: ["driver", "driver text", "icu controller text", "controller text", "text"] };
+        const columnIndexMap = {}; let essentialHeadersInfo = { line: { found: false, name: headerMappingConfig.line[0] }, icuText: { found: false, name: headerMappingConfig.icuText[0] } };
+        for (const internalKey in headerMappingConfig) {
+            for (const possibleHeader of headerMappingConfig[internalKey]) {
+                const foundIndex = fileHeaders.indexOf(possibleHeader);
+                if (foundIndex !== -1) {
+                    columnIndexMap[internalKey] = foundIndex;
+                    if (internalKey === 'line') essentialHeadersInfo.line.found = true;
+                    if (internalKey === 'icuText') essentialHeadersInfo.icuText.found = true;
+                    break;
+                }
+            }
+        }
+        let missingEssentialHeaders = [];
+        if (!essentialHeadersInfo.line.found) missingEssentialHeaders.push(`'${essentialHeadersInfo.line.name}'`);
+        if (!essentialHeadersInfo.icuText.found) missingEssentialHeaders.push(`'${essentialHeadersInfo.icuText.name}' (or 'Driver', 'Text')`);
+        if (missingEssentialHeaders.length > 0) { showToast(`Import failed: Header(s) ${missingEssentialHeaders.join(" & ")} not found. File must be Tab Separated with headers.`, 'error', 10000); return []; }
+
+        for (let i = 1; i < lines.length; i++) {
+            const lineContent = lines[i].trim(); if (lineContent === "") continue;
+            const values = lineContent.split('\t');
+            try {
+                const getVal = (internalKey, defaultValue = "") => (columnIndexMap[internalKey] !== undefined && columnIndexMap[internalKey] < values.length) ? (values[columnIndexMap[internalKey]] || "").trim() : defaultValue;
+                const parseCodeOrEmpty = (valStr) => { let num; return (valStr === null || valStr === '') ? "" : (num = parseInt(valStr, 10), (isNaN(num) || num < 0 || num > 255) ? "" : num);};
+
+                const importedLine = getVal('line').toUpperCase();
+                const importedIcuText = getVal('icuText');
+
+                if (!importedLine && importedLine !== "0") { continue; }
+                if (importedLine.length > 4 || (importedLine !== '0' && importedLine !== '' && !/^[A-Z0-9]+$/.test(importedLine))) { continue; }
+
+                dataRows.push({ line: importedLine, lineCode: parseCodeOrEmpty(getVal('lineCode')), destCode: parseCodeOrEmpty(getVal('destCode')), sideViaCode: parseCodeOrEmpty(getVal('sideViaCode')), icuText: importedIcuText });
+            } catch (parseError) { /* Error processing line, skip */ }
+        }
+        return dataRows;
+    }
+
+    function handleFileImport(file) { // This is for importing data into the editor table from CSV/TSV
+        const importInputElement = getElement('import-file-smartblind');
+
+        if (!file) {
+            showToast('File import cancelled.', 'info');
+            if (importInputElement) importInputElement.value = '';
+            if (initialChoiceModalOverlayElement && initialChoiceModalOverlayElement.style.display === 'flex') {
+                // no change needed
+            }
+            return;
+        }
+
+        if (!file.name.toLowerCase().endsWith('.csv') && !file.name.toLowerCase().endsWith('.txt')) {
+            showToast("Import failed: Invalid file type for data. Use .csv or .txt.", 'error');
+            if (importInputElement) importInputElement.value = '';
+            if (initialChoiceModalOverlayElement && initialChoiceModalOverlayElement.style.display === 'flex') {
+                // no change
+            }
+            return;
+        }
+
+        if (mainOutFilenameInputElement) {
+            let baseImportedName = file.name; const lastDot = baseImportedName.lastIndexOf('.');
+            if (lastDot > -1) baseImportedName = baseImportedName.substring(0, lastDot);
+            baseImportedName = baseImportedName.replace(/^.*[\\\/]/, '');
+            if (baseImportedName) mainOutFilenameInputElement.value = baseImportedName;
+        }
+        showToast(`Reading data file ${escapeHtml(file.name)}...`, 'info', 2000);
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const tsvString = event.target.result;
+                const rawParsedDataFromFile = parseTSVData(tsvString);
+
+                if (rawParsedDataFromFile.length === 0 && tsvString.trim() !== "" && !tsvString.trim().toLowerCase().startsWith("line number")) {
+                    showToast('Import failed: Could not parse data file content or essential headers missing.', 'error', 7000);
+                    if (importInputElement) importInputElement.value = '';
+                    return;
+                }
+                let finalParsedDataForTableIntegration = [...rawParsedDataFromFile];
+                let firstRowDriverTextForFixedRow = "Black Blank";
+                let firstRowIsCapsForFixedRow = false;
+
+                if (rawParsedDataFromFile.length > 0) {
+                    const firstDataRowInFile = rawParsedDataFromFile[0];
+                    const lineIsZeroFile = String(firstDataRowInFile.line).trim().toUpperCase() === "0";
+                    const lcFile = (firstDataRowInFile.lineCode === "" || firstDataRowInFile.lineCode === null) ? 0 : Number(firstDataRowInFile.lineCode);
+                    const dcFile = (firstDataRowInFile.destCode === "" || firstDataRowInFile.destCode === null) ? 0 : Number(firstDataRowInFile.destCode);
+                    const vcFile = (firstDataRowInFile.sideViaCode === "" || firstDataRowInFile.sideViaCode === null) ? 0 : Number(firstDataRowInFile.sideViaCode);
+
+                    if (lineIsZeroFile && lcFile === 0 && dcFile === 0 && vcFile === 0) {
+                        const importedFirstRowText = firstDataRowInFile.icuText;
+                        if (String(importedFirstRowText).toUpperCase() === "BLACK BLANK") {
+                            firstRowDriverTextForFixedRow = "BLACK BLANK";
+                            firstRowIsCapsForFixedRow = true;
+                        } else if (String(importedFirstRowText).trim() !== "") {
+                            firstRowDriverTextForFixedRow = "Black Blank";
+                        }
+                        finalParsedDataForTableIntegration.shift();
+                    }
+                }
+                const fixedFirstRow = {
+                    line: "0", dest: 1, counter: 1, lineCode: 0, destCode: 0, sideViaCode: 0,
+                    driverText: firstRowDriverTextForFixedRow, isEditable: false, isCaps: firstRowIsCapsForFixedRow
+                };
+                const importedEditableData = finalParsedDataForTableIntegration.map((row) => ({
+                    ...row, line: String(row.line).toUpperCase().trim(),
+                    icuText: String(row.icuText).trim(), isEditable: true, dest: 0, counter: 0
+                }));
+                currentSmartblindData = [fixedFirstRow, ...importedEditableData];
+
+                if (initialChoiceModalOverlayElement) {
+                    initialChoiceModalOverlayElement.classList.remove('show');
+                    setTimeout(() => { if (initialChoiceModalOverlayElement) initialChoiceModalOverlayElement.style.display = 'none'; }, 300);
+                }
+                if (mainAppContainerElement) mainAppContainerElement.style.display = 'block';
+
+                if (document.body) {
+                    document.body.style.padding = '20px';
+                    document.body.style.overflow = 'auto';
+                }
+
+                initializeMainApplication(); // Call this before renderTable if it sets up anything renderTable depends on
+                renderTable();
+                updateLicenseeDisplayOnMainPage(); // Update after main app is visible
+                setHasUnsavedChanges(true);
+
+                let importMsg = `Data file processed. Added ${importedEditableData.length} editable row(s).`;
+                if (rawParsedDataFromFile.length > finalParsedDataForTableIntegration.length) {
+                    importMsg += ` First data row used for fixed row's text.`;
+                }
+                showToast(importMsg, 'success', 7000);
+
+            } catch (error) {
+                showToast(`Error during data import: ${error.message}`, 'error');
+                // Potentially reshow initial choice modal if import was from there and failed badly
+                if (initialChoiceModalOverlayElement && initialChoiceModalOverlayElement.style.display === 'none' && getElement('initial-import-button').offsetParent !== null) {
+                     initialChoiceModalOverlayElement.style.display = 'flex';
+                     initialChoiceModalOverlayElement.classList.add('show');
+                     document.body.style.overflow = 'hidden';
+                     document.body.style.padding = '0';
+                }
+
+            } finally {
+                if (importInputElement) importInputElement.value = '';
+            }
+        };
+        reader.onerror = function() {
+            showToast("Could not read data file.", 'error');
+            if (importInputElement) importInputElement.value = '';
+             if (initialChoiceModalOverlayElement && initialChoiceModalOverlayElement.style.display === 'none' && getElement('initial-import-button').offsetParent !== null) {
+                 initialChoiceModalOverlayElement.style.display = 'flex';
+                 initialChoiceModalOverlayElement.classList.add('show');
+                 document.body.style.overflow = 'hidden';
+                 document.body.style.padding = '0';
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function exportToPDF() {
+        readTableDataToMemory();
+        let dataForPdf = JSON.parse(JSON.stringify(currentSmartblindData));
+
+        let perRouteCounterPdf = 0;
+        let previousRouteForCounterPdf = Symbol();
+        dataForPdf.forEach((row, index) => {
+            row.dest = index + 1;
+            const currentRouteForCounterPdf = String(row.line ?? '').trim().toUpperCase();
+            if (currentRouteForCounterPdf === previousRouteForCounterPdf && currentRouteForCounterPdf !== "") {
+                perRouteCounterPdf++;
+            } else {
+                perRouteCounterPdf = 1;
+            }
+            row.counter = perRouteCounterPdf;
+            previousRouteForCounterPdf = currentRouteForCounterPdf;
+
+            if(row.lineCode === "" || row.lineCode === null) row.lineCode = 0;
+            if(row.destCode === "" || row.destCode === null) row.destCode = 0;
+            if(row.sideViaCode === "" || row.sideViaCode === null) row.sideViaCode = 0;
+
+            row.icuTextToExport = (index === 0 && row.driverText !== undefined) ? row.driverText : row.icuText;
+
+            if (index > 0) delete row.isCaps;
+            delete row.driverText;
+        });
+
+        const pdfFileHeaders = [ "Route", "Destination\nNumber", "ICU Selection\nNumber", "Route\nCode", "Front\nDestination Code", "Side Via\nCode", "ICU Controller Text" ];
+        const pdfRows = dataForPdf.map(row => [ row.line, row.dest, row.counter, row.lineCode, row.destCode, row.sideViaCode, row.icuTextToExport ]);
+
+        let baseFilenameForPdf = getOutputFilename('out-filename');
+        if (!baseFilenameForPdf) return;
+        const filenameWithExt = baseFilenameForPdf + '.pdf';
+
+        try {
+            const { jsPDF } = window.jspdf; if (!jsPDF) { showToast("jsPDF library not loaded.", "error"); return; }
+            const orientation = 'landscape';
+            const doc = new jsPDF(orientation, 'pt', 'a4');
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageMargins = { top: 75, right: 40, bottom: 60, left: 40 };
+            const availableTableWidth = pageWidth - pageMargins.left - pageMargins.right;
+            const numberOfNarrowColumns = 6;
+            const targetNarrowColPtWidth = 88;
+            const minIcuTextColPtWidth = 70;
+
+            let narrowColWidth = targetNarrowColPtWidth;
+            let icuTextColWidth = availableTableWidth - (numberOfNarrowColumns * narrowColWidth);
+
+            if (icuTextColWidth < minIcuTextColPtWidth) {
+                icuTextColWidth = minIcuTextColPtWidth;
+                const remainingWidthForNarrow = availableTableWidth - icuTextColWidth;
+                if (remainingWidthForNarrow > (numberOfNarrowColumns * 30)) {
+                    narrowColWidth = Math.floor(remainingWidthForNarrow / numberOfNarrowColumns);
+                } else {
+                    icuTextColWidth = Math.floor(availableTableWidth * 0.30);
+                    narrowColWidth = Math.floor((availableTableWidth - icuTextColWidth) / numberOfNarrowColumns);
+                    if (narrowColWidth <= 0) narrowColWidth = Math.floor(availableTableWidth / (numberOfNarrowColumns + 2));
+                    if (icuTextColWidth <=0) icuTextColWidth = availableTableWidth - (numberOfNarrowColumns * narrowColWidth);
+                }
+            }
+            if (narrowColWidth <= 10) narrowColWidth = 10;
+            if (icuTextColWidth <= 10) {
+                icuTextColWidth = availableTableWidth - (numberOfNarrowColumns * narrowColWidth);
+                if(icuTextColWidth <= 10) icuTextColWidth = 50;
+            }
+
+            const today = new Date(); const formattedDate = today.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const calculatedColumnStyles = { 0: { cellWidth: narrowColWidth, halign: 'center' }, 1: { cellWidth: narrowColWidth, halign: 'center' }, 2: { cellWidth: narrowColWidth, halign: 'center' }, 3: { cellWidth: narrowColWidth, halign: 'center' }, 4: { cellWidth: narrowColWidth, halign: 'center' }, 5: { cellWidth: narrowColWidth, halign: 'center' }, 6: { cellWidth: icuTextColWidth, halign: 'left' } };
+
+            doc.autoTable({
+                head: [pdfFileHeaders], body: pdfRows, startY: pageMargins.top,
+                margin: pageMargins,
+                theme: 'grid', tableLayout: 'fixed',
+                headStyles: { font: "helvetica", fontStyle: 'bold', fillColor: [220, 220, 220], textColor: [0,0,0], halign: 'center', valign: 'middle', lineColor: [0,0,0], lineWidth: 0.5 },
+                bodyStyles: { font: "helvetica", textColor: [0,0,0], lineColor: [0,0,0], lineWidth: 0.5, valign: 'middle' },
+                styles: { font: "helvetica", fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+                columnStyles: calculatedColumnStyles,
+                didDrawPage: function (data) {
+                    const pageW = doc.internal.pageSize.getWidth(); const pageH = doc.internal.pageSize.getHeight();
+                    const effectiveMargins = data.settings.margin;
+                    const outFileLineY = 30; const mainTitleY = outFileLineY + 20;
+                    doc.setFont("helvetica", "normal");
+                    if (data.pageNumber === 1) { doc.setFontSize(9); doc.setTextColor(0); doc.text(`OUT File: ${baseFilenameForPdf}`, effectiveMargins.left, outFileLineY); }
+                    let pageHeaderText = data.pageNumber === 1 ? "Smartblind Mapping Data" : "Smartblind Mapping Data (continued)";
+                    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text(pageHeaderText, pageW / 2, mainTitleY, { align: 'center' });
+                    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+                    const footerTextY = pageH - effectiveMargins.bottom + 15;
+                    doc.text(formattedDate, effectiveMargins.left, footerTextY);
+                    let pageNumStr = `Page ${data.pageNumber}`; if (typeof doc.putTotalPages === 'function') pageNumStr += ' of {totalPages}';
+                    doc.text(pageNumStr, pageW - effectiveMargins.right, footerTextY, { align: 'right' });
+                }
+            });
+            if (typeof doc.putTotalPages === 'function') doc.putTotalPages('{totalPages}');
+            doc.save(filenameWithExt);
+            showToast(`PDF exported as ${filenameWithExt}`, 'success');
+        } catch (e) { showToast('Error exporting PDF: ' + e.message, 'error');}
+    }
+
+    function isLikelyMobileDevice() {
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        if (/Mobi|Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Tablet/i.test(userAgent)) {
+            return true;
+        }
+        const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints > 0);
+        if (hasTouch && window.matchMedia && window.matchMedia("(max-width: 800px)").matches) {
+            return true;
+        }
+        return false;
+    }
+
+    function setupHelpModal() {
+        helpModalOverlayElement = getElement('help-modal-overlay');
+        showHelpButton = getElement('show-help-button');
+        closeHelpModalButton = getElement('close-help-modal');
+
+        if (showHelpButton && helpModalOverlayElement) {
+            showHelpButton.addEventListener('click', () => {
+                helpModalOverlayElement.style.display = 'flex';
+                setTimeout(() => helpModalOverlayElement.classList.add('show'), 10);
+            });
+        }
+        if (closeHelpModalButton && helpModalOverlayElement) {
+            closeHelpModalButton.addEventListener('click', () => {
+                helpModalOverlayElement.classList.remove('show');
+                setTimeout(() => { if(helpModalOverlayElement) helpModalOverlayElement.style.display = 'none';}, 300);
+            });
+        }
+        if (helpModalOverlayElement) {
+            helpModalOverlayElement.addEventListener('click', (event) => {
+                if (event.target === helpModalOverlayElement) {
+                    helpModalOverlayElement.classList.remove('show');
+                     setTimeout(() => {if(helpModalOverlayElement) helpModalOverlayElement.style.display = 'none';}, 300);
+                }
+            });
+        }
+    }
+
+    function initializeMainApplication() {
+        setupHelpModal(); // This is for the main app's help modal
+
+        if (globalCapsToggleElement) {
+            globalCapsToggleElement.addEventListener('change', handleGlobalCapsChange);
+        }
+        if (globalSideIsViaToggleTopElement) {
+            globalSideIsViaToggleTopElement.addEventListener('change', handleGlobalSideIsViaChange);
+        }
+        if (globalSideIsViaToggleBottomElement) {
+            globalSideIsViaToggleBottomElement.addEventListener('change', handleGlobalSideIsViaChange);
+        }
+        updateSideIsViaCheckboxes(globalIsSideViaMode);
+
+        if (tableBody && typeof Sortable !== 'undefined') {
+            try {
+                new Sortable(tableBody, {
+                    animation: 150,
+                    handle: '.drag-handle',
+                    filter: '.fixed-row',
+                    preventOnFilter: true,
+                    onEnd: function (evt) { handleRowDrop(evt); }
+                });
+            } catch (e) { console.warn("SortableJS error:", e); }
+        }
+        updateSaveStatusIcon(!hasUnsavedChanges);
+    }
+
+    function handleStartNewDataset() {
+        const filename = getOutputFilename('initial-out-filename');
+        if (!filename) {
+            if(initialOutFilenameInputElement) initialOutFilenameInputElement.focus();
+            return;
+        }
+
+        if (initialChoiceModalOverlayElement) {
+            initialChoiceModalOverlayElement.classList.remove('show');
+             setTimeout(() => { if (initialChoiceModalOverlayElement) initialChoiceModalOverlayElement.style.display = 'none'; }, 300);
+        }
+        if (mainAppContainerElement) mainAppContainerElement.style.display = 'block';
+
+        if (document.body) {
+            document.body.style.padding = '20px';
+            document.body.style.overflow = 'auto';
+        }
+
+        if (mainOutFilenameInputElement) mainOutFilenameInputElement.value = filename;
+
+        initializeDefaultData();
+        initializeMainApplication();
+        renderTable();
+        updateLicenseeDisplayOnMainPage(); // Show licensee name
+        setHasUnsavedChanges(false);
+        showToast(`Started new dataset: ${filename}`, 'success');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        saveStatusIconElement = getElement('save-status-icon');
+        toastContainerElement = getElement('toast-container');
+        mainAppContainerElement = document.querySelector('.container');
+        mainOutFilenameInputElement = getElement('out-filename');
+        globalCapsToggleElement = getElement('globalCapsToggle');
+        globalSideIsViaToggleTopElement = getElement('globalSideIsViaToggleTop');
+        globalSideIsViaToggleBottomElement = getElement('globalSideIsViaToggleBottom');
+
+        initialChoiceModalOverlayElement = getElement('initial-choice-modal-overlay');
+        initialOutFilenameInputElement = getElement('initial-out-filename');
+        startNewDatasetButtonElement = getElement('start-new-dataset-button');
+        initialImportButtonElement = getElement('initial-import-button');
+
+        // MLK Activation Screen elements FOR THIS EDITOR
+        mlkActivationModalOverlayElementEditor = getElement('mlk-activation-modal-overlay');
+        mlkFileInputElementEditor = getElement('mlk-file-input');
+        activateMlkFileButtonEditor = getElement('activate-mlk-file-button'); // Make sure ID matches your HTML
+        mlkStatusMessageEditor = getElement('mlk-status-message-editor');
+
+
+        const noticeOverlay = getElement('mobile-notice-overlay');
+        const amIMobileCheckResult = isLikelyMobileDevice();
+
+        if (amIMobileCheckResult) {
+            if (mainAppContainerElement) mainAppContainerElement.style.setProperty('display', 'none', 'important');
+            if (noticeOverlay) noticeOverlay.style.setProperty('display', 'flex', 'important');
+            if (initialChoiceModalOverlayElement) initialChoiceModalOverlayElement.style.display = 'none';
+            if (mlkActivationModalOverlayElementEditor) mlkActivationModalOverlayElementEditor.style.display = 'none';
+            document.body.style.overflow = 'hidden';
+            return;
+        }
+
+        if (mainAppContainerElement) mainAppContainerElement.style.display = 'none';
+        if (initialChoiceModalOverlayElement) {
+            initialChoiceModalOverlayElement.style.display = 'none';
+            initialChoiceModalOverlayElement.classList.remove('show');
+        }
+        if (noticeOverlay) noticeOverlay.style.display = 'none';
+
+
+        if (mlkActivationModalOverlayElementEditor && mlkFileInputElementEditor && activateMlkFileButtonEditor && mlkStatusMessageEditor) {
+            mlkActivationModalOverlayElementEditor.style.display = 'flex';
+            setTimeout(() => mlkActivationModalOverlayElementEditor.classList.add('show'), 10);
+            document.body.style.overflow = 'hidden';
+            document.body.style.padding = '0';
+
+            activateMlkFileButtonEditor.addEventListener('click', handleMlkActivationEditor);
+        } else {
+            console.warn("MLK Activation screen elements not found for the editor. Proceeding to initial choice / main app if available.");
+            if (initialChoiceModalOverlayElement) {
+                initialChoiceModalOverlayElement.style.display = 'flex';
+                setTimeout(() => initialChoiceModalOverlayElement.classList.add('show'), 10);
+                document.body.style.overflow = 'hidden';
+                document.body.style.padding = '0';
+            } else if (mainAppContainerElement) {
+                mainAppContainerElement.style.display = 'block';
+                document.body.style.padding = '20px';
+                document.body.style.overflow = 'auto';
+                updateLicenseeDisplayOnMainPage();
+                initializeDefaultData();
+                initializeMainApplication();
+                renderTable();
+            } else {
+                document.body.innerHTML = "<p>Critical error: No UI to display. Please check HTML structure.</p>";
+            }
+        }
+
+        if (startNewDatasetButtonElement) {
+            startNewDatasetButtonElement.addEventListener('click', handleStartNewDataset);
+        }
+        if (initialImportButtonElement) {
+            initialImportButtonElement.addEventListener('click', () => {
+                const fileInput = getElement('import-file-smartblind');
+                if (fileInput) fileInput.click(); // This is the data import, not MLK import
+            });
+        }
+
+        localStorage.removeItem('smartblindEditorData'); // From original script
+        localStorage.removeItem('smartblindOutputFilename'); // From original script
+    });
+
+    window.addEventListener('beforeunload', (event) => {
+        if (hasUnsavedChanges) {
+            const message = 'You have unsaved changes. Are you sure you want to leave? Please use "Save Data to File" to save your work.';
+            event.preventDefault();
+            event.returnValue = message;
+            return message;
+        }
+    });
+</script>
+
+</body>
+</html>

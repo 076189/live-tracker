@@ -4,6 +4,13 @@
     <title>Blind Destination List</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="manifest" href="./manifest-blind.json">
+    
+    <meta name="theme-color" content="#007bff">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
@@ -393,7 +400,20 @@
             </div>
         </div>
     </div>
-<script>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw-blind.js') // Corrected filename
+            .then((registration) => {
+              console.log('PWA Service Worker registered successfully with scope:', registration.scope);
+            })
+            .catch((error) => {
+              console.error('PWA Service Worker registration failed:', error);
+            });
+        });
+      }
+
     // --- Constants for Smartblind Mode ---
     const BLACK_BLANK_TEXT = "BLACK BLANK";
     const SMART_DELIMITER_0_NUM = "0";
@@ -624,15 +644,18 @@
 
         if (currentBlindMode === 'threeTrack') {
             if (threeTrackGlobalControlsDiv) threeTrackGlobalControlsDiv.style.display = 'flex';
-            if (document.getElementById('threeTrackMode').justSwitchedTo || previousMode !== 'threeTrack') {
+            if ((document.getElementById('threeTrackMode').justSwitchedTo || previousMode !== 'threeTrack') && !skipRender) {
                 tableSettings.A.data = getThreeTrackPrefillData();
                 tableSettings.B.data = []; 
                 tableSettings.C.data = []; 
                 document.getElementById('threeTrackIdentical').checked = true; 
                 threeTrackIsIdentical = true; 
-                if (document.getElementById('threeTrackMode')) document.getElementById('threeTrackMode').justSwitchedTo = false;
             }
-            if (!skipRender) handleThreeTrackIdenticalToggle(threeTrackIsIdentical);
+            if (document.getElementById('threeTrackMode')) document.getElementById('threeTrackMode').justSwitchedTo = false;
+            
+            if (!skipRender) {
+                handleThreeTrackIdenticalToggle(threeTrackIsIdentical);
+            }
         } else { 
              if (tableVisibilityControlsDiv) tableVisibilityControlsDiv.style.display = 'flex';
              updateTableAppearances(); 
@@ -653,20 +676,24 @@
 
         ['A', 'B', 'C'].forEach(setId => {
             if (currentBlindMode === 'smart' || currentBlindMode === 'manual') {
-                if (tableSettings[setId].hasInserts && !(previousMode === currentBlindMode && previousMode !== 'threeTrack') ) {
+                if (tableSettings[setId].hasInserts && !(previousMode === currentBlindMode && previousMode !== 'threeTrack') && !skipRender ) {
                     document.getElementById(`hasInserts${setId}`).checked = false;
                     handleInsertToggle(setId, false, true); 
                 }
             }
-            document.getElementById(`inserts-table-sub-container-${setId}`).style.display = 'none';
+            if (currentBlindMode !== 'smart' || !tableSettings[setId].hasInserts) {
+                 document.getElementById(`inserts-table-sub-container-${setId}`).style.display = 'none';
+            }
             const addTopInsertBtn = document.getElementById(`addTopInsert${setId}`);
             if (addTopInsertBtn) addTopInsertBtn.style.display = 'none';
 
             if (currentBlindMode === 'smart') {
-                tableSettings[setId].data.forEach(item => {
-                    item.type = 'main'; delete item.insertSubtype; delete item.parentMainItemNumber; delete item.actualMainNumber;
-                });
-                if (previousMode !== 'smart' || (previousMode === 'threeTrack' && currentBlindMode === 'smart')) {
+                if (!skipRender) { 
+                    tableSettings[setId].data.forEach(item => {
+                        item.type = 'main'; delete item.insertSubtype; delete item.parentMainItemNumber; delete item.actualMainNumber;
+                    });
+                }
+                if ((previousMode !== 'smart' || (previousMode === 'threeTrack' && currentBlindMode === 'smart')) && !skipRender) {
                      tableSettings[setId].insertsData = [];
                 }
                 if (tableSettings[setId].sortableInsertsInstance) {
@@ -680,17 +707,19 @@
             }
         });
 
-        if (!skipRender && currentBlindMode !== 'threeTrack') {
-            ['A', 'B', 'C'].forEach(setId => {
-                if (tableSettings[setId].isVisibleInSmartManual) {
-                    renderTable(setId);
-                } else {
-                    const tableBody = document.getElementById(`table-body-${setId}`);
-                    if(tableBody) tableBody.innerHTML = '';
-                }
-            });
-        } else if (!skipRender && currentBlindMode === 'threeTrack') {
-            handleThreeTrackIdenticalToggle(threeTrackIsIdentical);
+        if (!skipRender) {
+            if (currentBlindMode !== 'threeTrack') {
+                ['A', 'B', 'C'].forEach(setId => {
+                    if (tableSettings[setId].isVisibleInSmartManual) {
+                        renderTable(setId);
+                    } else {
+                        const tableBody = document.getElementById(`table-body-${setId}`);
+                        if(tableBody) tableBody.innerHTML = '';
+                    }
+                });
+            } else { // If it is threeTrack and not skipping render, ensure it's set up
+                handleThreeTrackIdenticalToggle(threeTrackIsIdentical);
+            }
         }
     }
     
@@ -771,6 +800,8 @@
         if (!tableContainer || tableContainer.style.display === 'none') {
             const tableBodyClear = document.getElementById(`table-body-${setId}`);
             if(tableBodyClear) tableBodyClear.innerHTML = '';
+            const insertsTableBodyClear = document.getElementById(`table-body-inserts-${setId}`);
+            if(insertsTableBodyClear) insertsTableBodyClear.innerHTML = '';
             return;
         }
 
@@ -1271,7 +1302,7 @@
         const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8;' });
         const link = document.createElement("a");
         link.setAttribute("href", URL.createObjectURL(blob));
-        link.setAttribute("download", `${finalFilenameBase}.blind`); // Removed _${currentBlindMode}
+        link.setAttribute("download", `${finalFilenameBase}.blind`);
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }
 
@@ -1513,7 +1544,7 @@
             doc.text(`Page ${i} of ${totalPages}`, doc.internal.pageSize.width - pageContentMargin, footerY, { align: 'right' });
         }
 
-        doc.save(`${finalFilenameBase}.pdf`); // Removed _${currentBlindMode}
+        doc.save(`${finalFilenameBase}.pdf`);
     }
 
     function determineTablesToExport() {
@@ -1622,7 +1653,7 @@
                         console.log(`   -> Table ${currentParsingSetId} - Inserts Added: ${tableSettings[currentParsingSetId].hasInserts}`);
                     } else if (isNextLineDataHeader && currentParsingSetId) { 
                         const parts = line.split(',');
-                        console.log(`       [DEBUG] Header Check: Line="${line}", parts[0]="${parts[0] ? parts[0].trim() : 'undef'}"`);
+                        // console.log(`       [DEBUG] Header Check: Line="${line}", parts[0]="${parts[0] ? parts[0].trim() : 'undef'}"`);
                         if (parts.length >= 1 && parts[0].trim() === "No.") { 
                             isNextLineDataHeader = false; 
                             isInsideTableDataSection = true; 
@@ -1636,7 +1667,7 @@
                         console.log(`   -> Table ${currentParsingSetId} - Switched to parsing SMART INSERTS. isInsideTableDataSection = ${isInsideTableDataSection}`);
                     } 
                     else if (currentParsingSetId && isInsideTableDataSection) { 
-                        console.log(`   --> Attempting to parse as DATA ROW for table ${currentParsingSetId}. Line: "${line}"`);
+                        // console.log(`   --> Attempting to parse as DATA ROW for table ${currentParsingSetId}. Line: "${line}"`);
                         const parts = line.split(',');
                         if (parts.length >= 2) { 
                             const noVal = parts[0].trim();
@@ -1645,14 +1676,14 @@
                             if (importedBlindMode === 'smart' && 
                                 ((noVal === SMART_DELIMITER_0_NUM && itemValue === SMART_DELIMITER_0_DISPLAY_TEXT) ||
                                  (noVal === SMART_DELIMITER_511_NUM && itemValue === SMART_DELIMITER_511_DISPLAY_TEXT))) {
-                                console.log(`   -> Table ${currentParsingSetId} - Skipping delimiter row: ${line}`);
+                                // console.log(`   -> Table ${currentParsingSetId} - Skipping delimiter row: ${line}`);
                                 if (noVal === SMART_DELIMITER_511_NUM) { 
                                     isInsideTableDataSection = false; 
                                     parsingSmartInserts = false;
                                 }
                                 return; 
                             }
-                            console.log(`       ----> Successfully parsed and adding item: Label="${noVal}", Value="${itemValue}" to ${parsingSmartInserts ? 'insertsData' : 'data'}`);
+                            // console.log(`       ----> Successfully parsed and adding item: Label="${noVal}", Value="${itemValue}" to ${parsingSmartInserts ? 'insertsData' : 'data'}`);
 
                             const newItem = { id: generateUUID(), value: itemValue, type: 'main' };
 
@@ -1681,10 +1712,10 @@
                                 tableSettings[currentParsingSetId].data.push(newItem);
                             }
                         } else {
-                            console.log(`   --> SKIPPED data line (not enough parts after split): "${line}"`);
+                            // console.log(`   --> SKIPPED data line (not enough parts after split): "${line}"`);
                         }
                     } else {
-                        console.log(`   -> Line SKIPPED (no matching condition or not in data section): "${line}" (State: currentSetId=${currentParsingSetId}, insideData=${isInsideTableDataSection}, nextIsHeader=${isNextLineDataHeader})`);
+                        // console.log(`   -> Line SKIPPED (no matching condition or not in data section): "${line}" (State: currentSetId=${currentParsingSetId}, insideData=${isInsideTableDataSection}, nextIsHeader=${isNextLineDataHeader})`);
                     }
                 });
 

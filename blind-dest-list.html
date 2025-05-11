@@ -505,7 +505,7 @@
     // --- PWA Service Worker Registration ---
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./manifest-blind.json') // Ensure this path points to your actual sw.js file
+            navigator.serviceWorker.register('./sw.js') // Ensure this path points to your actual sw.js file
                 .then((registration) => {
                     console.log('PWA Service Worker registered successfully with scope:', registration.scope);
                 })
@@ -550,9 +550,9 @@
     };
 
     const threeTrackAppearances = {
-        A: { title: "Track 1", header: "Number", addBtn: "Add Row", insertsTitle: "Inserts for Track 1"},
-        B: { title: "Track 2", header: "Number", addBtn: "Add Row", insertsTitle: "Inserts for Track 2"},
-        C: { title: "Track 3", header: "Number", addBtn: "Add Row", insertsTitle: "Inserts for Track 3"}
+        A: { title: "Track 1", header: "Number", addBtn: "Add Row", insertsTitle: "Inserts for Track 1" },
+        B: { title: "Track 2", header: "Number", addBtn: "Add Row", insertsTitle: "Inserts for Track 2" },
+        C: { title: "Track 3", header: "Number", addBtn: "Add Row", insertsTitle: "Inserts for Track 3" }
     };
     const threeTrackIdenticalAppearance = {
         title: "All Three Track Blinds", header: "Number", addBtn: "Add Row", insertsTitle: "Inserts for All Three Track Blinds"
@@ -563,8 +563,8 @@
         A: { data: [], insertsData: [], hasInserts: false, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0, isVisibleInSmartManual: true, sortableInstance: null, sortableInsertsInstance: null },
         B: { data: [], insertsData: [], hasInserts: false, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0, isVisibleInSmartManual: true, sortableInstance: null, sortableInsertsInstance: null },
         C: { data: [], insertsData: [], hasInserts: false, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0, isVisibleInSmartManual: true, sortableInstance: null, sortableInsertsInstance: null },
-        D: { data: [], insertsData: [], hasInserts: false, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0, isVisibleInSmartManual: true, sortableInstance: null, sortableInsertsInstance: null }, // Default true, actual display depends on split state
-        E: { data: [], insertsData: [], hasInserts: false, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0, isVisibleInSmartManual: true, sortableInstance: null, sortableInsertsInstance: null }  // Default true, actual display depends on split state
+        D: { data: [], insertsData: [], hasInserts: false, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0, isVisibleInSmartManual: false, sortableInstance: null, sortableInsertsInstance: null },
+        E: { data: [], insertsData: [], hasInserts: false, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0, isVisibleInSmartManual: false, sortableInstance: null, sortableInsertsInstance: null }
     };
 
     // --- Utility Functions ---
@@ -572,8 +572,8 @@
 
     function getThreeTrackPrefillData() {
         const prefillValues = [
-            BLACK_BLANK_TEXT, ...Array.from({length: 10}, (_, i) => String(i)), BLACK_BLANK_TEXT,
-            ...Array.from({length: 26}, (_, i) => String.fromCharCode(65 + i)), BLACK_BLANK_TEXT
+            BLACK_BLANK_TEXT, ...Array.from({ length: 10 }, (_, i) => String(i)), BLACK_BLANK_TEXT,
+            ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)), BLACK_BLANK_TEXT
         ];
         return prefillValues.map(val => ({ id: generateUUID(), value: val, type: 'main' }));
     }
@@ -616,63 +616,105 @@
             const savedState = JSON.parse(savedStateJSON);
 
             document.getElementById('listNameInput').value = savedState.listName || '';
-            currentBlindMode = savedState.currentBlindMode || 'smart';
-            threeTrackIsIdentical = savedState.isThreeTrackIdentical === undefined ? true : savedState.isThreeTrackIdentical;
-            isSideBlindSplit = savedState.isSideBlindSplit || false;
-            isFrontRearSeparate = savedState.isFrontRearSeparate || false;
+            currentBlindMode = savedState.currentBlindMode || 'smart'; // Set global var
+            threeTrackIsIdentical = savedState.threeTrackIsIdentical === undefined ? true : savedState.threeTrackIsIdentical; // Set global var
+            isSideBlindSplit = savedState.isSideBlindSplit || false; // Set global var
+            isFrontRearSeparate = savedState.isFrontRearSeparate || false; // Set global var
 
             const loadedTableSettings = savedState.tableSettings || {};
             ['A', 'B', 'C', 'D', 'E'].forEach(key => {
-                if (!tableSettings[key]) {
-                    tableSettings[key] = { data: [], insertsData: [], hasInserts: false, isVisibleInSmartManual: (key !=='D' && key !=='E'), sortableInstance: null, sortableInsertsInstance: null, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0 };
+                if (!tableSettings[key]) { // Should not happen if tableSettings is pre-initialized
+                    tableSettings[key] = { data: [], insertsData: [], hasInserts: false, isVisibleInSmartManual: (key !== 'D' && key !== 'E'), sortableInstance: null, sortableInsertsInstance: null, manual_insert_location: 'bottom', manual_insert_after_display_row_number: 0 };
                 }
                 if (loadedTableSettings[key]) {
                     tableSettings[key].data = loadedTableSettings[key].data || [];
                     tableSettings[key].insertsData = loadedTableSettings[key].insertsData || [];
                     tableSettings[key].hasInserts = loadedTableSettings[key].hasInserts || false;
-                    tableSettings[key].isVisibleInSmartManual = loadedTableSettings[key].isVisibleInSmartManual === undefined ? (key !=='D' && key !=='E') : !!loadedTableSettings[key].isVisibleInSmartManual;
+                    tableSettings[key].isVisibleInSmartManual = loadedTableSettings[key].isVisibleInSmartManual === undefined ? (key !== 'D' && key !== 'E') : !!loadedTableSettings[key].isVisibleInSmartManual;
                     tableSettings[key].manual_insert_location = loadedTableSettings[key].manual_insert_location || 'bottom';
                     tableSettings[key].manual_insert_after_display_row_number = loadedTableSettings[key].manual_insert_after_display_row_number || 0;
                 }
-                tableSettings[key].sortableInstance = null;
+                tableSettings[key].sortableInstance = null; // These are not persisted
                 tableSettings[key].sortableInsertsInstance = null;
             });
 
+            // Update UI for the mode itself (radio button)
             const modeRadio = document.querySelector(`input[name="blindMode"][value="${currentBlindMode}"]`);
             if (modeRadio) modeRadio.checked = true;
 
+            // Call updateBlindMode to set up general mode containers
+            // Pass 'true' to skip its internal rendering/data init logic
+            updateBlindMode(currentBlindMode, true);
+
+            // Now, explicitly set the state of specific control checkboxes based on loaded global vars
             if (currentBlindMode === 'threeTrack') {
                 const tiCheckbox = document.getElementById('threeTrackIdentical');
-                if(tiCheckbox) tiCheckbox.checked = threeTrackIsIdentical;
+                if (tiCheckbox) tiCheckbox.checked = threeTrackIsIdentical;
+                handleThreeTrackIdenticalToggle(threeTrackIsIdentical); // Update UI based on this state
             }
             if (currentBlindMode === 'manual') {
                 const sbsCheckbox = document.getElementById('isSideBlindSplitCheckbox');
-                if(sbsCheckbox) sbsCheckbox.checked = isSideBlindSplit;
+                if (sbsCheckbox) sbsCheckbox.checked = isSideBlindSplit;
+                handleSideBlindSplitToggle(isSideBlindSplit, true); // Pass true for isProgrammaticCall
+
                 const frsCheckbox = document.getElementById('isFrontRearSeparateCheckbox');
-                if(frsCheckbox) frsCheckbox.checked = isFrontRearSeparate;
+                if (frsCheckbox) frsCheckbox.checked = isFrontRearSeparate;
+                handleFrontRearSeparateToggle(isFrontRearSeparate, true); // Pass true for isProgrammaticCall
             }
 
+            // Set "hasInserts" checkboxes and table visibility checkboxes from loaded tableSettings
+            // And then call their respective handlers to update UI
             ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
-                 if (tableSettings[setId]) {
+                if (tableSettings[setId]) {
                     const hiChk = document.getElementById(`hasInserts${setId}`);
-                    if(hiChk) hiChk.checked = tableSettings[setId].hasInserts;
+                    if (hiChk) hiChk.checked = tableSettings[setId].hasInserts;
+                    handleInsertToggle(setId, tableSettings[setId].hasInserts, true); // true for calledDuringSync
+
                     const stChk = document.getElementById(`showTable${setId}`);
-                    if(stChk) stChk.checked = tableSettings[setId].isVisibleInSmartManual;
+                    if (stChk) stChk.checked = tableSettings[setId].isVisibleInSmartManual;
+                    // handleTableVisibilityToggle will be called by handleSideBlindSplitToggle etc. for D, E
+                    // and by the final rendering loop for A, B, C if needed.
                 }
             });
+            
+            // Final pass to update all appearances and render visible tables
+            updateTableAppearances();
+             ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
+                if (tableSettings[setId]) {
+                    const tableContainer = document.getElementById(`table-container-${setId}`);
+                    let shouldBeVisible = false;
+                    // Determine visibility based on current mode and states
+                    if (currentBlindMode === 'threeTrack') {
+                        if (setId === 'A') shouldBeVisible = true;
+                        else if (setId === 'B' || setId === 'C') shouldBeVisible = !threeTrackIsIdentical;
+                        // D & E are not used in 3-track
+                    } else if (currentBlindMode === 'manual') {
+                        if (setId === 'D') shouldBeVisible = isSideBlindSplit && tableSettings.D.isVisibleInSmartManual;
+                        else if (setId === 'E') shouldBeVisible = isFrontRearSeparate && tableSettings.E.isVisibleInSmartManual;
+                        else shouldBeVisible = tableSettings[setId].isVisibleInSmartManual; // For A, B, C
+                    } else { // Smart Mode
+                         shouldBeVisible = (setId !== 'D' && setId !== 'E') && tableSettings[setId].isVisibleInSmartManual;
+                    }
+
+                    if (tableContainer) tableContainer.style.display = shouldBeVisible ? 'block' : 'none';
+                    if (shouldBeVisible) renderTable(setId);
+                }
+            });
+
             return true;
         } catch (error) {
             console.error("Error loading state from sessionStorage:", error);
-            sessionStorage.removeItem('blindListAppState');
+            sessionStorage.removeItem('blindListAppState'); // Clear corrupted state
             return false;
         }
     }
 
+
     // --- Help Modal Variables & Functions ---
     let helpModalElement;
     let closeHelpModalBtnElement;
-    function showHelpModal() { if(helpModalElement) helpModalElement.style.display = "block"; }
-    function closeHelpModal() { if(helpModalElement) helpModalElement.style.display = "none"; }
+    function showHelpModal() { if (helpModalElement) helpModalElement.style.display = "block"; }
+    function closeHelpModal() { if (helpModalElement) helpModalElement.style.display = "none"; }
 
     // --- DOMContentLoaded: Main Setup ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -680,30 +722,37 @@
         document.getElementById('smartBlindMode').addEventListener('change', () => { updateBlindMode('smart'); saveStateToSessionStorage(); });
         document.getElementById('manualBlindMode').addEventListener('change', () => { updateBlindMode('manual'); saveStateToSessionStorage(); });
         document.getElementById('threeTrackMode').addEventListener('change', () => {
-            document.getElementById('threeTrackMode').justSwitchedTo = true;
+            document.getElementById('threeTrackMode').justSwitchedTo = true; // Flag for prefill
             updateBlindMode('threeTrack');
             saveStateToSessionStorage();
         });
 
         // Specific Control Listeners
         document.getElementById('threeTrackIdentical').addEventListener('change', (event) => { handleThreeTrackIdenticalToggle(event.target.checked); saveStateToSessionStorage(); });
-        document.getElementById('isSideBlindSplitCheckbox').addEventListener('change', (event) => { handleSideBlindSplitToggle(event.target.checked); saveStateToSessionStorage(); });
-        document.getElementById('isFrontRearSeparateCheckbox').addEventListener('change', (event) => { handleFrontRearSeparateToggle(event.target.checked); saveStateToSessionStorage(); });
+        document.getElementById('isSideBlindSplitCheckbox').addEventListener('change', (event) => {
+            handleSideBlindSplitToggle(event.target.checked, false); // isProgrammaticCall = false for user interaction
+            saveStateToSessionStorage();
+        });
+        document.getElementById('isFrontRearSeparateCheckbox').addEventListener('change', (event) => {
+            handleFrontRearSeparateToggle(event.target.checked, false); // isProgrammaticCall = false for user interaction
+            saveStateToSessionStorage();
+        });
+
 
         // Action Button Listeners
-        document.getElementById('copyToBBtn').addEventListener('click', () => { copyFromFirstTrackTo('B'); /* Calls saveState internally */ });
-        document.getElementById('copyToCBtn').addEventListener('click', () => { copyFromFirstTrackTo('C'); /* Calls saveState internally */ });
+        document.getElementById('copyToBBtn').addEventListener('click', () => { copyFromFirstTrackTo('B'); });
+        document.getElementById('copyToCBtn').addEventListener('click', () => { copyFromFirstTrackTo('C'); });
 
         const fileInput = document.getElementById('blindFileInput');
-        if (fileInput) fileInput.addEventListener('change', importFromBLIND); // importFromBLIND calls saveState
+        if (fileInput) fileInput.addEventListener('change', importFromBLIND);
 
         helpModalElement = document.getElementById("helpModal");
         closeHelpModalBtnElement = document.getElementById("closeHelpModalBtn");
         const helpButton = document.getElementById("helpButton");
-        if(helpButton) helpButton.addEventListener('click', showHelpModal);
-        if(closeHelpModalBtnElement) closeHelpModalBtnElement.addEventListener('click', closeHelpModal);
+        if (helpButton) helpButton.addEventListener('click', showHelpModal);
+        if (closeHelpModalBtnElement) closeHelpModalBtnElement.addEventListener('click', closeHelpModal);
         window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && helpModalElement && helpModalElement.style.display === "block") closeHelpModal(); });
-        if(helpModalElement) helpModalElement.addEventListener('click', (e) => { if (e.target === helpModalElement) closeHelpModal(); });
+        if (helpModalElement) helpModalElement.addEventListener('click', (e) => { if (e.target === helpModalElement) closeHelpModal(); });
 
         const listNameInput = document.getElementById('listNameInput');
         if (listNameInput) listNameInput.addEventListener('input', saveStateToSessionStorage);
@@ -711,7 +760,7 @@
         ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
             const hasInsertsCheckbox = document.getElementById(`hasInserts${setId}`);
             if (hasInsertsCheckbox && tableSettings[setId]) {
-                 hasInsertsCheckbox.addEventListener('change', (event) => { handleInsertToggle(setId, event.target.checked); saveStateToSessionStorage(); });
+                hasInsertsCheckbox.addEventListener('change', (event) => { handleInsertToggle(setId, event.target.checked); saveStateToSessionStorage(); });
             }
             const showTableCheckbox = document.getElementById(`showTable${setId}`);
             if (showTableCheckbox && tableSettings[setId]) {
@@ -719,64 +768,171 @@
             }
         });
 
-        const manualSpecificControls = document.getElementById('manualBlindSpecificControlsContainer'); if(manualSpecificControls) manualSpecificControls.style.display = 'none';
-        const showTableDSpan = document.getElementById('showTableDSpan'); if(showTableDSpan) showTableDSpan.style.display = 'none';
-        const showTableESpan = document.getElementById('showTableESpan'); if(showTableESpan) showTableESpan.style.display = 'none';
+        // Initialize visibility of specific control sections
+        const manualSpecificControls = document.getElementById('manualBlindSpecificControlsContainer'); if (manualSpecificControls) manualSpecificControls.style.display = 'none';
+        const showTableDSpan = document.getElementById('showTableDSpan'); if (showTableDSpan) showTableDSpan.style.display = 'none';
+        const showTableESpan = document.getElementById('showTableESpan'); if (showTableESpan) showTableESpan.style.display = 'none';
+
 
         const stateLoaded = loadStateFromSessionStorage();
 
-        if (stateLoaded) {
-            updateBlindMode(currentBlindMode, true); // true = skip default data init and initial render
-
-            if (currentBlindMode === 'threeTrack') {
-                handleThreeTrackIdenticalToggle(threeTrackIsIdentical);
-            } else if (currentBlindMode === 'manual') {
-                handleSideBlindSplitToggle(isSideBlindSplit);
-                handleFrontRearSeparateToggle(isFrontRearSeparate);
-            }
-
-            ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
-                if (tableSettings[setId]) {
-                    handleInsertToggle(setId, tableSettings[setId].hasInserts, true); // true for calledDuringSync
-                    const showCheckbox = document.getElementById(`showTable${setId}`);
-                    const isChecked = showCheckbox ? showCheckbox.checked : tableSettings[setId].isVisibleInSmartManual;
-                    handleTableVisibilityToggle(setId, isChecked); // This should also call renderTable if visible
-                }
-            });
-            updateTableAppearances(); // Final text/label refresh
-        } else {
-            updateBlindMode('smart'); // Default initialization
-            // updateBlindMode -> ... -> saveStateToSessionStorage will be called if it modifies anything.
-            // For a truly fresh start, ensure saveState happens once.
-             saveStateToSessionStorage();
+        if (!stateLoaded) { // If no saved state, initialize with defaults
+            updateBlindMode('smart'); // Default to smart mode, this will also call saveState eventually
+            saveStateToSessionStorage(); // Ensure a clean state is saved if nothing was loaded
         }
+        // If stateLoaded is true, loadStateFromSessionStorage has already called updateBlindMode,
+        // set checkboxes, called handlers, and rendered.
     });
 
+
     // --- UI Update & State Handler Functions ---
+
+    // MODIFIED updateBlindMode
+    function updateBlindMode(newMode, skipRenderOrInitialLoad = false) {
+        const previousMode = currentBlindMode;
+        currentBlindMode = newMode; // Set global currentBlindMode
+
+        const threeTrackGlobalControlsDiv = document.getElementById('threeTrackGlobalControls');
+        const tableVisibilityControlsDiv = document.getElementById('tableVisibilityControls');
+        const manualBlindSpecificControlsContainer = document.getElementById('manualBlindSpecificControlsContainer');
+        const copyToBBtn = document.getElementById('copyToBBtn');
+        const copyToCBtn = document.getElementById('copyToCBtn');
+
+        // Hide all mode-specific controls and optional tables initially
+        if (threeTrackGlobalControlsDiv) threeTrackGlobalControlsDiv.style.display = 'none';
+        if (tableVisibilityControlsDiv) tableVisibilityControlsDiv.style.display = 'none'; // This will be shown by mode logic if needed
+        if (manualBlindSpecificControlsContainer) manualBlindSpecificControlsContainer.style.display = 'none';
+        if (copyToBBtn) copyToBBtn.style.display = 'none';
+        if (copyToCBtn) copyToCBtn.style.display = 'none';
+
+        // Default table visibility (some will be overridden by specific mode logic or toggles)
+        // Main tables A, B, C usually visible by default unless in 3-track identical.
+        // D & E start hidden.
+        document.getElementById('table-container-A').style.display = 'block';
+        document.getElementById('table-container-B').style.display = (newMode === 'threeTrack' && threeTrackIsIdentical) ? 'none' : 'block';
+        document.getElementById('table-container-C').style.display = (newMode === 'threeTrack' && threeTrackIsIdentical) ? 'none' : 'block';
+        document.getElementById('table-container-D').style.display = 'none';
+        document.getElementById('table-container-E').style.display = 'none';
+
+
+        if (newMode === 'manual') {
+            if (manualBlindSpecificControlsContainer) manualBlindSpecificControlsContainer.style.display = 'flex';
+            if (tableVisibilityControlsDiv) tableVisibilityControlsDiv.style.display = 'flex';
+            // Visibility of D and E containers will be handled by handleSideBlindSplitToggle / handleFrontRearSeparateToggle
+        } else if (newMode === 'threeTrack') {
+            if (threeTrackGlobalControlsDiv) threeTrackGlobalControlsDiv.style.display = 'flex';
+            // tableVisibilityControlsDiv is not typically shown for 3-track
+        } else { // Smart Mode
+            if (tableVisibilityControlsDiv) tableVisibilityControlsDiv.style.display = 'flex';
+        }
+
+        // If switching AWAY from manual mode, ensure its specific states are reset.
+        if (previousMode === 'manual' && newMode !== 'manual') {
+            const sbsChk = document.getElementById('isSideBlindSplitCheckbox');
+            if (sbsChk) sbsChk.checked = false;
+            isSideBlindSplit = false; // Update global state
+
+            const frsChk = document.getElementById('isFrontRearSeparateCheckbox');
+            if (frsChk) frsChk.checked = false;
+            isFrontRearSeparate = false; // Update global state
+
+            // Explicitly call handlers to update UI for these states now being false.
+            if (typeof handleSideBlindSplitToggle === "function") handleSideBlindSplitToggle(false, true); // isProgrammaticCall = true
+            if (typeof handleFrontRearSeparateToggle === "function") handleFrontRearSeparateToggle(false, true); // isProgrammaticCall = true
+        }
+
+        // Logic for 3-track prefill if just switched to it
+        if (newMode === 'threeTrack' && document.getElementById('threeTrackMode').justSwitchedTo && !skipRenderOrInitialLoad) {
+            if (tableSettings.A) tableSettings.A.data = getThreeTrackPrefillData(); else console.error("tableSettings.A is undefined in 3-track prefill");
+            ['B', 'C', 'D', 'E'].forEach(id => { if (tableSettings[id]) tableSettings[id].data = []; });
+            const tiChk = document.getElementById('threeTrackIdentical');
+            if (tiChk) tiChk.checked = true;
+            threeTrackIsIdentical = true; // Set global state
+            if (typeof handleThreeTrackIdenticalToggle === "function") handleThreeTrackIdenticalToggle(true); // Update UI for identical tracks
+        }
+        if (document.getElementById('threeTrackMode')) document.getElementById('threeTrackMode').justSwitchedTo = false;
+
+
+        // Handle insert UI consistently across modes
+        ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
+            if (tableSettings[setId]) {
+                // Reset hasInserts if mode changes in a way that affects insert behavior (e.g., from manual to smart)
+                if (!skipRenderOrInitialLoad && (currentBlindMode === 'smart' || currentBlindMode === 'manual') && !(previousMode === currentBlindMode && previousMode !== 'threeTrack')) {
+                    const hasInsertsChk = document.getElementById(`hasInserts${setId}`);
+                    if (hasInsertsChk) { // Only if checkbox exists for this table
+                        hasInsertsChk.checked = false; // Uncheck it
+                        tableSettings[setId].hasInserts = false; // Update underlying setting
+                        if (typeof handleInsertToggle === "function") handleInsertToggle(setId, false, true); // Update UI, calledDuringSync=true
+                    }
+                } else if (tableSettings[setId].hasInserts) { // If inserts are enabled, ensure UI reflects it
+                     if (typeof handleInsertToggle === "function") handleInsertToggle(setId, tableSettings[setId].hasInserts, true);
+                }
+
+
+                const insertsSubContainer = document.getElementById(`inserts-table-sub-container-${setId}`);
+                if (insertsSubContainer) insertsSubContainer.style.display = (currentBlindMode === 'smart' && tableSettings[setId].hasInserts) ? 'block' : 'none';
+
+                const addTopInsertBtn = document.getElementById(`addTopInsert${setId}`);
+                if (addTopInsertBtn) addTopInsertBtn.style.display = ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId].hasInserts) ? 'inline-block' : 'none';
+            }
+        });
+
+        updateTableAppearances(); // Update titles, button texts etc.
+
+        // General rendering calls after mode switch, if not skipped
+        // More specific rendering is handled by load/import or individual toggle handlers
+        if (!skipRenderOrInitialLoad) {
+            if (currentBlindMode === 'threeTrack') {
+                // handleThreeTrackIdenticalToggle (called above if justSwitchedTo) will manage rendering A, B, C
+            } else { // Smart or Manual
+                // For a direct mode switch by user, re-evaluate visibility of A, B, C based on their checkboxes
+                ['A', 'B', 'C'].forEach(setId => {
+                    if (tableSettings[setId]) {
+                        const showCheckbox = document.getElementById(`showTable${setId}`);
+                        const isChecked = showCheckbox ? showCheckbox.checked : tableSettings[setId].isVisibleInSmartManual;
+                        handleTableVisibilityToggle(setId, isChecked); // This will also render if visible
+                    }
+                });
+                // D and E visibility is handled by their respective split toggles if in manual mode
+                if (currentBlindMode === 'manual') {
+                    if (typeof handleSideBlindSplitToggle === "function") handleSideBlindSplitToggle(isSideBlindSplit, true);
+                    if (typeof handleFrontRearSeparateToggle === "function") handleFrontRearSeparateToggle(isFrontRearSeparate, true);
+                }
+            }
+        }
+    }
+
+
     function handleTableVisibilityToggle(setId, isVisible) {
         if (!tableSettings[setId]) return;
-        // This function is primarily for Smart/Manual modes for tables A,B,C and for D,E when their split is active.
-        // 3-Track table visibility for B,C is handled by handleThreeTrackIdenticalToggle directly setting container style.
+
         if (currentBlindMode === 'smart' || currentBlindMode === 'manual') {
             tableSettings[setId].isVisibleInSmartManual = isVisible;
             const tableContainer = document.getElementById(`table-container-${setId}`);
             if (tableContainer) {
                 let actualDisplay = false;
-                if (setId === 'D') actualDisplay = currentBlindMode === 'manual' && isSideBlindSplit && isVisible;
-                else if (setId === 'E') actualDisplay = currentBlindMode === 'manual' && isFrontRearSeparate && isVisible;
-                else actualDisplay = isVisible;
+                if (setId === 'D') {
+                    actualDisplay = currentBlindMode === 'manual' && isSideBlindSplit && isVisible;
+                } else if (setId === 'E') {
+                    actualDisplay = currentBlindMode === 'manual' && isFrontRearSeparate && isVisible;
+                } else { // For A, B, C in Smart/Manual
+                    actualDisplay = isVisible;
+                }
 
                 tableContainer.style.display = actualDisplay ? 'block' : 'none';
 
-                if (actualDisplay && typeof renderTable === "function") renderTable(setId);
-                else if (!actualDisplay) {
-                    const tableBodyClear = document.getElementById(`table-body-${setId}`); if(tableBodyClear) tableBodyClear.innerHTML = '';
-                    const insertsTableBodyClear = document.getElementById(`table-body-inserts-${setId}`); if(insertsTableBodyClear) insertsTableBodyClear.innerHTML = '';
+                if (actualDisplay && typeof renderTable === "function") {
+                    renderTable(setId);
+                } else if (!actualDisplay) { // Clear table if hidden
+                    const tableBodyClear = document.getElementById(`table-body-${setId}`); if (tableBodyClear) tableBodyClear.innerHTML = '';
+                    const insertsTableBodyClear = document.getElementById(`table-body-inserts-${setId}`); if (insertsTableBodyClear) insertsTableBodyClear.innerHTML = '';
                 }
             }
         }
-        // saveStateToSessionStorage(); // Called by the event listener directly
+        // For 3-track, visibility of B & C is handled by handleThreeTrackIdenticalToggle directly.
+        // Table A in 3-track is generally always 'block' conceptually, then rendered.
     }
+
 
     function updateTableAppearances() {
         ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
@@ -788,30 +944,38 @@
             const showTableLabelEl = document.getElementById(`showTable${setId}Label`);
 
             let appearance = originalTableAppearances[setId];
-            let currentTitleForLabel = appearance ? appearance.title : '';
+            let currentTitleForLabel = appearance ? appearance.title : `Table ${setId}`; // Fallback
 
             if (currentBlindMode === 'manual') {
                 if (setId === 'A' && isFrontRearSeparate && appearance) {
                     currentTitleForLabel = appearance.altTitle || appearance.title;
-                    appearance = { title: originalTableAppearances.A.altTitle, header: originalTableAppearances.A.altHeader, addBtn: originalTableAppearances.A.altAddBtn, insertsTitle: originalTableAppearances.A.altInsertsTitle };
+                    appearance = { ...originalTableAppearances.A, title: originalTableAppearances.A.altTitle, header: originalTableAppearances.A.altHeader, addBtn: originalTableAppearances.A.altAddBtn, insertsTitle: originalTableAppearances.A.altInsertsTitle };
                 } else if (setId === 'C' && isSideBlindSplit && appearance) {
                     currentTitleForLabel = appearance.altTitle || appearance.title;
-                    appearance = { title: originalTableAppearances.C.altTitle, header: originalTableAppearances.C.altHeader, addBtn: originalTableAppearances.C.altAddBtn, insertsTitle: originalTableAppearances.C.altInsertsTitle };
+                    appearance = { ...originalTableAppearances.C, title: originalTableAppearances.C.altTitle, header: originalTableAppearances.C.altHeader, addBtn: originalTableAppearances.C.altAddBtn, insertsTitle: originalTableAppearances.C.altInsertsTitle };
+                } else if (originalTableAppearances[setId]) { // Ensure we use original for D, E if no specific override
+                     currentTitleForLabel = originalTableAppearances[setId].title;
+                     appearance = originalTableAppearances[setId];
                 }
             } else if (currentBlindMode === 'threeTrack') {
-                if (setId === 'D' || setId === 'E') { if(titleEl) titleEl.textContent = originalTableAppearances[setId]?.title || ''; return; } // D & E not used
+                if (setId === 'D' || setId === 'E') { // D & E not used in 3-track, set default titles and return
+                    if(titleEl && originalTableAppearances[setId]) titleEl.textContent = originalTableAppearances[setId].title;
+                    if(showTableLabelEl && originalTableAppearances[setId]) showTableLabelEl.textContent = originalTableAppearances[setId].title;
+                    return;
+                }
                 if (threeTrackIsIdentical) {
                     if (setId === 'A') appearance = threeTrackIdenticalAppearance;
-                    else if (threeTrackAppearances[setId]) appearance = threeTrackAppearances[setId];
+                    else if (threeTrackAppearances[setId]) appearance = threeTrackAppearances[setId]; // B, C would use their individual if somehow visible
                 } else {
                     if (threeTrackAppearances[setId]) appearance = threeTrackAppearances[setId];
                 }
-                currentTitleForLabel = appearance ? appearance.title : '';
+                currentTitleForLabel = appearance ? appearance.title : `Track ${setId}`;
+            } else { // Smart Mode
+                 if (originalTableAppearances[setId]) {
+                     currentTitleForLabel = originalTableAppearances[setId].title;
+                     appearance = originalTableAppearances[setId];
+                 }
             }
-            // For D and E, their originalTableAppearances are static unless overridden by a specific mode
-            if (setId === 'D' && originalTableAppearances.D) currentTitleForLabel = originalTableAppearances.D.title;
-            if (setId === 'E' && originalTableAppearances.E) currentTitleForLabel = originalTableAppearances.E.title;
-
 
             if (showTableLabelEl && currentTitleForLabel) showTableLabelEl.textContent = currentTitleForLabel;
             if (titleEl && appearance) titleEl.textContent = appearance.title;
@@ -823,14 +987,14 @@
     }
 
     function handleThreeTrackIdenticalToggle(isIdentical) {
-        threeTrackIsIdentical = isIdentical;
+        threeTrackIsIdentical = isIdentical; // Update global state
         const copyToBBtn = document.getElementById('copyToBBtn');
         const copyToCBtn = document.getElementById('copyToCBtn');
         const tableAContainer = document.getElementById('table-container-A');
         const tableBContainer = document.getElementById('table-container-B');
         const tableCContainer = document.getElementById('table-container-C');
 
-        if (tableAContainer) tableAContainer.style.display = 'block'; // A is always potentially visible in 3-track
+        if (tableAContainer) tableAContainer.style.display = 'block'; // A is always shown conceptually
 
         if (isIdentical) {
             if (tableBContainer) tableBContainer.style.display = 'none';
@@ -838,8 +1002,8 @@
             if (copyToBBtn) copyToBBtn.style.display = 'none';
             if (copyToCBtn) copyToCBtn.style.display = 'none';
         } else {
-            if (tableBContainer) tableBContainer.style.display = 'block'; // Explicitly show B
-            if (tableCContainer) tableCContainer.style.display = 'block'; // Explicitly show C
+            if (tableBContainer) tableBContainer.style.display = 'block';
+            if (tableCContainer) tableCContainer.style.display = 'block';
             if (copyToBBtn) copyToBBtn.style.display = 'inline-block';
             if (copyToCBtn) copyToCBtn.style.display = 'inline-block';
         }
@@ -847,158 +1011,138 @@
         if (typeof renderTable === "function") {
             renderTable('A');
             if (!isIdentical) {
-                if (tableBContainer && tableBContainer.style.display === 'block') renderTable('B');
-                if (tableCContainer && tableCContainer.style.display === 'block') renderTable('C');
-            } else {
-                 const bBody = document.getElementById('table-body-B'); if(bBody) bBody.innerHTML = '';
-                 const cBody = document.getElementById('table-body-C'); if(cBody) cBody.innerHTML = '';
+                if (tableBContainer && tableBContainer.style.display === 'block') renderTable('B'); else { const bBody = document.getElementById('table-body-B'); if(bBody) bBody.innerHTML = '';}
+                if (tableCContainer && tableCContainer.style.display === 'block') renderTable('C'); else { const cBody = document.getElementById('table-body-C'); if(cBody) cBody.innerHTML = '';}
+            } else { // Clear B and C if now identical
+                const bBody = document.getElementById('table-body-B'); if(bBody) bBody.innerHTML = '';
+                const cBody = document.getElementById('table-body-C'); if(cBody) cBody.innerHTML = '';
             }
         }
-        // saveStateToSessionStorage(); // Called by its event listener
     }
 
     function copyFromFirstTrackTo(targetSetId) {
         if (currentBlindMode !== 'threeTrack' || threeTrackIsIdentical || (targetSetId !== 'B' && targetSetId !== 'C')) return;
-        const sourceTableTitle = tableSettings.A.title || "Track 1"; // Fallback title
-        const targetTableTitle = tableSettings[targetSetId].title || `Track ${targetSetId}`;
-        if (!confirm(`Overwrite ${targetTableTitle} with ${sourceTableTitle} contents?`)) return;
+        const sourceTitle = document.getElementById('table-title-A') ? document.getElementById('table-title-A').textContent : "Track 1";
+        const targetTitle = document.getElementById(`table-title-${targetSetId}`) ? document.getElementById(`table-title-${targetSetId}`).textContent : `Track ${targetSetId}`;
 
-        tableSettings[targetSetId].data = JSON.parse(JSON.stringify(tableSettings.A.data)).map(item => ({...item, id: generateUUID()}));
-        tableSettings[targetSetId].hasInserts = tableSettings.A.hasInserts;
-        document.getElementById(`hasInserts${targetSetId}`).checked = tableSettings.A.hasInserts;
-        handleInsertToggle(targetSetId, tableSettings.A.hasInserts, true); // true for calledDuringSync
-        if (typeof renderTable === "function") renderTable(targetSetId);
-        saveStateToSessionStorage(); // Save state after copy
+        if (!confirm(`Overwrite ${targetTitle} with contents of ${sourceTitle}?`)) return;
+
+        if (tableSettings.A && tableSettings[targetSetId]) {
+            tableSettings[targetSetId].data = JSON.parse(JSON.stringify(tableSettings.A.data)).map(item => ({ ...item, id: generateUUID() }));
+            tableSettings[targetSetId].hasInserts = tableSettings.A.hasInserts;
+            const targetHasInsertsCheckbox = document.getElementById(`hasInserts${targetSetId}`);
+            if (targetHasInsertsCheckbox) targetHasInsertsCheckbox.checked = tableSettings.A.hasInserts;
+            
+            handleInsertToggle(targetSetId, tableSettings.A.hasInserts, true); // true for calledDuringSync
+
+            if (typeof renderTable === "function") renderTable(targetSetId);
+            saveStateToSessionStorage();
+        }
     }
 
-    function handleSideBlindSplitToggle(isSplit) {
-        isSideBlindSplit = isSplit;
-        const showTableDSpan = document.getElementById('showTableDSpan');
-        if (showTableDSpan) showTableDSpan.style.display = (currentBlindMode === 'manual' && isSplit) ? 'inline-flex' : 'none';
+    // REFINED handleSideBlindSplitToggle
+    function handleSideBlindSplitToggle(isSplit, isProgrammaticCall = false) {
+        isSideBlindSplit = isSplit; // Update global state
 
-        updateTableAppearances();
+        const showTableDSpan = document.getElementById('showTableDSpan'); // The span containing "Show Table D" checkbox
+        if (showTableDSpan) {
+            showTableDSpan.style.display = (currentBlindMode === 'manual' && isSplit) ? 'inline-flex' : 'none';
+        }
 
+        updateTableAppearances(); // Update table titles etc.
+
+        // Update visibility of Table C based on its own checkbox
         const showTableCCheckbox = document.getElementById('showTableC');
-        if (showTableCCheckbox && tableSettings.C) handleTableVisibilityToggle('C', showTableCCheckbox.checked);
-
-        if (currentBlindMode === 'manual' && isSplit) {
-            const showTableDCheckbox = document.getElementById('showTableD');
-            if (showTableDCheckbox && tableSettings.D) handleTableVisibilityToggle('D', showTableDCheckbox.checked);
-        } else {
-            handleTableVisibilityToggle('D', false);
-        }
-        // saveStateToSessionStorage(); // Called by its event listener
-    }
-
-    function handleFrontRearSeparateToggle(isSeparate) {
-        isFrontRearSeparate = isSeparate;
-        const showTableESpan = document.getElementById('showTableESpan');
-        if (showTableESpan) showTableESpan.style.display = (currentBlindMode === 'manual' && isSeparate) ? 'inline-flex' : 'none';
-
-        updateTableAppearances();
-
-        const showTableACheckbox = document.getElementById('showTableA');
-        if (showTableACheckbox && tableSettings.A) handleTableVisibilityToggle('A', showTableACheckbox.checked);
-
-        if (currentBlindMode === 'manual' && isSeparate) {
-            const showTableECheckbox = document.getElementById('showTableE');
-            if (showTableECheckbox && tableSettings.E) handleTableVisibilityToggle('E', showTableECheckbox.checked);
-        } else {
-            handleTableVisibilityToggle('E', false);
-        }
-        // saveStateToSessionStorage(); // Called by its event listener
-    }
-
-    function updateBlindMode(newMode, skipRenderOrInitialLoad = false) {
-        const previousMode = currentBlindMode;
-        currentBlindMode = newMode;
-
-        const threeTrackGlobalControlsDiv = document.getElementById('threeTrackGlobalControls');
-        const tableVisibilityControlsDiv = document.getElementById('tableVisibilityControls');
-        const manualBlindSpecificControlsContainer = document.getElementById('manualBlindSpecificControlsContainer');
-        // Visibility of D and E specific toggles (showTableDSpan, showTableESpan) is handled by their respective split handlers
-
-        if (threeTrackGlobalControlsDiv) threeTrackGlobalControlsDiv.style.display = 'none';
-        if (tableVisibilityControlsDiv) tableVisibilityControlsDiv.style.display = 'none';
-        if (manualBlindSpecificControlsContainer) manualBlindSpecificControlsContainer.style.display = 'none';
-        const copyToBBtn = document.getElementById('copyToBBtn'); if(copyToBBtn) copyToBBtn.style.display = 'none';
-        const copyToCBtn = document.getElementById('copyToCBtn'); if(copyToCBtn) copyToCBtn.style.display = 'none';
-
-        // Explicitly set visibility of main table containers before specific handlers adjust them
-        // Default to showing A, B, C unless 3-track identical hides B, C
-        document.getElementById('table-container-A').style.display = 'block';
-        document.getElementById('table-container-B').style.display = (currentBlindMode === 'threeTrack' && threeTrackIsIdentical) ? 'none' : 'block';
-        document.getElementById('table-container-C').style.display = (currentBlindMode === 'threeTrack' && threeTrackIsIdentical) ? 'none' : 'block';
-        document.getElementById('table-container-D').style.display = 'none'; // Default hidden
-        document.getElementById('table-container-E').style.display = 'none'; // Default hidden
-
-
-        if (currentBlindMode === 'manual') {
-            if (manualBlindSpecificControlsContainer) manualBlindSpecificControlsContainer.style.display = 'flex';
-            if (tableVisibilityControlsDiv) tableVisibilityControlsDiv.style.display = 'flex';
-        } else if (currentBlindMode === 'threeTrack') {
-            if (threeTrackGlobalControlsDiv) threeTrackGlobalControlsDiv.style.display = 'flex';
-        } else { // Smart Mode
-            if (tableVisibilityControlsDiv) tableVisibilityControlsDiv.style.display = 'flex';
+        if (showTableCCheckbox && tableSettings.C && typeof handleTableVisibilityToggle === "function") {
+            handleTableVisibilityToggle('C', showTableCCheckbox.checked);
         }
 
-        if (previousMode === 'manual' && newMode !== 'manual') { // Reset manual states when leaving manual mode
-            const sbsChk = document.getElementById('isSideBlindSplitCheckbox'); if (sbsChk && sbsChk.checked) sbsChk.click(); // Trigger change event
-            const frsChk = document.getElementById('isFrontRearSeparateCheckbox'); if (frsChk && frsChk.checked) frsChk.click();
-        }
-        // Always call these; they will set visibility of D/E toggles and containers based on current state
-        handleSideBlindSplitToggle(currentBlindMode === 'manual' && document.getElementById('isSideBlindSplitCheckbox').checked);
-        handleFrontRearSeparateToggle(currentBlindMode === 'manual' && document.getElementById('isFrontRearSeparateCheckbox').checked);
+        const showTableDCheckbox = document.getElementById('showTableD'); // The "Show Table D" checkbox itself
 
-
-        if (currentBlindMode === 'threeTrack' && document.getElementById('threeTrackMode').justSwitchedTo && !skipRenderOrInitialLoad) {
-             tableSettings.A.data = getThreeTrackPrefillData();
-             ['B', 'C', 'D', 'E'].forEach(id => { if(tableSettings[id]) tableSettings[id].data = [];});
-             const tiChk = document.getElementById('threeTrackIdentical'); if(tiChk) tiChk.checked = true; threeTrackIsIdentical = true;
-        }
-        if (document.getElementById('threeTrackMode')) document.getElementById('threeTrackMode').justSwitchedTo = false;
-
-        if (!skipRenderOrInitialLoad) {
-            if (currentBlindMode === 'threeTrack') {
-                handleThreeTrackIdenticalToggle(threeTrackIsIdentical); // Handles A,B,C display & render
-            } else { // Smart or Manual - D & E visibility already handled by their toggle functions
-                ['A', 'B', 'C'].forEach(setId => { // Render A,B,C based on their visibility checkboxes
-                    if (tableSettings[setId]) {
-                        const showCheckbox = document.getElementById(`showTable${setId}`);
-                        handleTableVisibilityToggle(setId, showCheckbox ? showCheckbox.checked : tableSettings[setId].isVisibleInSmartManual);
-                    }
-                });
-            }
-        }
-
-        ['A', 'B', 'C', 'D', 'E'].forEach(setId => { // Sync inserts UI
-            if (tableSettings[setId]) {
-                if (!skipRenderOrInitialLoad && (currentBlindMode === 'smart' || currentBlindMode === 'manual') && !(previousMode === currentBlindMode && previousMode !== 'threeTrack')) {
-                    const hasInsertsChk = document.getElementById(`hasInserts${setId}`);
-                    if (hasInsertsChk) hasInsertsChk.checked = false;
-                    handleInsertToggle(setId, false, true);
+        if (currentBlindMode === 'manual' && isSplit) { // If enabling side split in manual mode
+            if (showTableDCheckbox && tableSettings.D) {
+                // If this function was called due to a direct user click on "Is Side Blind Split?"
+                // (i.e., not a programmatic call during import or session load),
+                // then we default "Show Table D" to be checked.
+                if (!isProgrammaticCall) {
+                    showTableDCheckbox.checked = true;
+                    tableSettings.D.isVisibleInSmartManual = true; // Reflect this in the setting
                 }
-                // ... (rest of insert UI sync from your previous full version)
-                 const insertsSubContainer = document.getElementById(`inserts-table-sub-container-${setId}`);
-                if (insertsSubContainer) insertsSubContainer.style.display = (currentBlindMode === 'smart' && tableSettings[setId].hasInserts) ? 'block' : 'none';
-                const addTopInsertBtn = document.getElementById(`addTopInsert${setId}`);
-                if (addTopInsertBtn) addTopInsertBtn.style.display = ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId].hasInserts) ? 'inline-block' : 'none';
-                if (currentBlindMode === 'smart' && !skipRenderOrInitialLoad) { /* Smart mode data cleanup */ }
-                if (tableSettings[setId].sortableInsertsInstance && currentBlindMode !== 'smart') { /* Destroy smart insert sortable */ }
+                // Ensure Table D's visibility is updated based on the (possibly just changed) "Show Table D" checkbox state
+                if (typeof handleTableVisibilityToggle === "function") {
+                    handleTableVisibilityToggle('D', showTableDCheckbox.checked);
+                }
             }
-        });
-        updateTableAppearances();
-        // saveStateToSessionStorage(); // Called by triggering event listeners
+        } else { // Not manual mode OR isSplit is false (disabling side split)
+            if (typeof handleTableVisibilityToggle === "function") {
+                handleTableVisibilityToggle('D', false); // Hide Table D container
+            }
+            if (showTableDCheckbox) {
+                showTableDCheckbox.checked = false; // Uncheck "Show Table D"
+            }
+            if (tableSettings.D) {
+                tableSettings.D.isVisibleInSmartManual = false; // Update the setting
+            }
+        }
     }
+
+    // REFINED handleFrontRearSeparateToggle (similar pattern to side split)
+    function handleFrontRearSeparateToggle(isSeparate, isProgrammaticCall = false) {
+        isFrontRearSeparate = isSeparate; // Update global state
+
+        const showTableESpan = document.getElementById('showTableESpan'); // The span for "Show Table E"
+        if (showTableESpan) {
+            showTableESpan.style.display = (currentBlindMode === 'manual' && isSeparate) ? 'inline-flex' : 'none';
+        }
+
+        updateTableAppearances();
+
+        // Update visibility of Table A based on its own checkbox
+        const showTableACheckbox = document.getElementById('showTableA');
+        if (showTableACheckbox && tableSettings.A && typeof handleTableVisibilityToggle === "function") {
+            handleTableVisibilityToggle('A', showTableACheckbox.checked);
+        }
+
+        const showTableECheckbox = document.getElementById('showTableE'); // The "Show Table E" checkbox
+
+        if (currentBlindMode === 'manual' && isSeparate) { // If enabling front/rear separate in manual mode
+            if (showTableECheckbox && tableSettings.E) {
+                if (!isProgrammaticCall) { // User manually clicked "Is Front & Rear Separate?"
+                    showTableECheckbox.checked = true;
+                    tableSettings.E.isVisibleInSmartManual = true;
+                }
+                if (typeof handleTableVisibilityToggle === "function") {
+                    handleTableVisibilityToggle('E', showTableECheckbox.checked);
+                }
+            }
+        } else { // Not manual mode OR isSeparate is false
+            if (typeof handleTableVisibilityToggle === "function") {
+                handleTableVisibilityToggle('E', false); // Hide Table E
+            }
+            if (showTableECheckbox) {
+                showTableECheckbox.checked = false;
+            }
+            if (tableSettings.E) {
+                tableSettings.E.isVisibleInSmartManual = false;
+            }
+        }
+    }
+
 
     function clearTableData(setId) {
         if (!tableSettings[setId]) return;
         const tableName = document.getElementById(`table-title-${setId}`)?.textContent || `Table ${setId}`;
         if (!confirm(`Are you sure you want to clear all data and inserts for ${tableName}?`)) return;
-        tableSettings[setId].data = []; tableSettings[setId].insertsData = [];
+
+        tableSettings[setId].data = [];
+        tableSettings[setId].insertsData = [];
         const hasInsertsCheckbox = document.getElementById(`hasInserts${setId}`);
-        if (hasInsertsCheckbox) { tableSettings[setId].hasInserts = false; hasInsertsCheckbox.checked = false; }
-        handleInsertToggle(setId, false, true);
+        if (hasInsertsCheckbox) {
+            tableSettings[setId].hasInserts = false;
+            hasInsertsCheckbox.checked = false;
+        }
+        handleInsertToggle(setId, false, true); // Update UI, calledDuringSync = true
+
         if (typeof renderTable === "function") renderTable(setId);
         saveStateToSessionStorage();
     }
@@ -1006,397 +1150,540 @@
     function handleInsertToggle(setId, isChecked, calledDuringSync = false) {
         if (!tableSettings[setId]) return;
         tableSettings[setId].hasInserts = isChecked;
+
         const insertsSubContainer = document.getElementById(`inserts-table-sub-container-${setId}`);
         const addTopInsertButton = document.getElementById(`addTopInsert${setId}`);
-        const addSmartInsertButton = document.getElementById(`addSmartInsertBtn${setId}`);
-        const addQtySmartInsertParent = insertsSubContainer ? insertsSubContainer.querySelector(`.multiple-add-control`) : null;
+        const addSmartInsertButton = document.getElementById(`addSmartInsertBtn${setId}`); // For Smartblind inserts table
+        const addQtySmartInsertParent = insertsSubContainer ? insertsSubContainer.querySelector('.multiple-add-control') : null;
+
 
         if (currentBlindMode === 'smart') {
             if (insertsSubContainer) insertsSubContainer.style.display = isChecked ? 'block' : 'none';
-            if (addTopInsertButton) addTopInsertButton.style.display = 'none';
+            if (addTopInsertButton) addTopInsertButton.style.display = 'none'; // Not used in smart mode
+
+            // Controls for the separate smart inserts table
             if (addSmartInsertButton) addSmartInsertButton.style.visibility = isChecked ? 'visible' : 'hidden';
             if (addQtySmartInsertParent) addQtySmartInsertParent.style.visibility = isChecked ? 'visible' : 'hidden';
 
+
             const smartInsertsTableBody = document.getElementById(`table-body-inserts-${setId}`);
             if (isChecked && !tableSettings[setId].sortableInsertsInstance && smartInsertsTableBody && typeof initializeSortableForTable === "function") {
-                initializeSortableForTable(setId, true);
+                initializeSortableForTable(setId, true); // true for inserts table
             } else if (!isChecked && tableSettings[setId].sortableInsertsInstance) {
                 tableSettings[setId].sortableInsertsInstance.destroy();
                 tableSettings[setId].sortableInsertsInstance = null;
-                if (!calledDuringSync) tableSettings[setId].insertsData = [];
+                if (!calledDuringSync) tableSettings[setId].insertsData = []; // Clear data if unchecked manually
             }
+            if (isChecked && !calledDuringSync) renderTable(setId); // Re-render main table to show insert separator and fixed rows correctly
+            else if (!isChecked && !calledDuringSync) renderTable(setId);
+
+
         } else { // Manual or 3-Track
-            if (insertsSubContainer) insertsSubContainer.style.display = 'none';
+            if (insertsSubContainer) insertsSubContainer.style.display = 'none'; // No separate inserts table
             if (addSmartInsertButton) addSmartInsertButton.style.visibility = 'hidden';
             if (addQtySmartInsertParent) addQtySmartInsertParent.style.visibility = 'hidden';
+
             if (addTopInsertButton) addTopInsertButton.style.display = isChecked ? 'inline-block' : 'none';
+            if (!calledDuringSync) { // Only re-render if not part of a sync operation (like mode switch)
+                // If inserts are disabled, remove existing insert-type rows
+                if (!isChecked && tableSettings[setId].data.some(item => item.type === 'insert')) {
+                    tableSettings[setId].data = tableSettings[setId].data.filter(item => item.type !== 'insert');
+                }
+                renderTable(setId);
+            }
         }
-        if (!calledDuringSync && typeof renderTable === "function") renderTable(setId);
-        // saveStateToSessionStorage(); // Called by the checkbox event listener
+        if (!calledDuringSync && (currentBlindMode === 'smart')) { // For smart mode, rendering might need to happen in both cases
+             renderTable(setId); // Render to update smartblind table structure (0/511 rows, separator)
+        }
     }
+
 
     function getPlaceholderText(setId, isInsert = false, itemType = 'main') {
         let baseText = 'Value';
-        let currentAppearance = originalTableAppearances[setId]; // Start with default
+        let currentAppearance = originalTableAppearances[setId];
 
         if (currentBlindMode === 'manual') {
-            if (setId === 'A' && isFrontRearSeparate) currentAppearance = { header: originalTableAppearances.A.altHeader || originalTableAppearances.A.header };
-            else if (setId === 'C' && isSideBlindSplit) currentAppearance = { header: originalTableAppearances.C.altHeader || originalTableAppearances.C.header };
+            if (setId === 'A' && isFrontRearSeparate && originalTableAppearances.A) currentAppearance = { ...originalTableAppearances.A, header: originalTableAppearances.A.altHeader || originalTableAppearances.A.header };
+            else if (setId === 'C' && isSideBlindSplit && originalTableAppearances.C) currentAppearance = { ...originalTableAppearances.C, header: originalTableAppearances.C.altHeader || originalTableAppearances.C.header };
         } else if (currentBlindMode === 'threeTrack') {
-            if (setId === 'D' || setId === 'E') return "N/A"; // Not applicable
+            if (setId === 'D' || setId === 'E') return "N/A";
             if (threeTrackIsIdentical && setId === 'A') currentAppearance = threeTrackIdenticalAppearance;
             else if (threeTrackAppearances[setId]) currentAppearance = threeTrackAppearances[setId];
         }
-        baseText = currentAppearance ? currentAppearance.header : 'Value';
-        
+        baseText = currentAppearance && currentAppearance.header ? currentAppearance.header : 'Value';
+
         if (isInsert || itemType === 'insert') {
-             if (currentBlindMode === 'smart') return `Enter ${baseText} (Smart Insert)`;
-             return `Enter ${baseText} (Insert)`;
+            if (currentBlindMode === 'smart') return `Enter ${baseText} (Smart Insert)`;
+            return `Enter ${baseText} (Insert)`;
         }
         return `Enter ${baseText}`;
     }
 
-    // Part 2 functions (renderTable, createEditableRowElement, data ops, import/export etc.) will be added next.
-// --- PART 2: Detailed Table Operations, Rendering, Import/Export ---
 
-function renderTable(setId) {
-    const tableContainer = document.getElementById(`table-container-${setId}`);
-    // Ensure table is meant to be visible before rendering
-    if (!tableContainer || tableContainer.style.display === 'none') {
-        const tableBodyClear = document.getElementById(`table-body-${setId}`);
-        if(tableBodyClear) tableBodyClear.innerHTML = '';
-        const insertsTableBodyClear = document.getElementById(`table-body-inserts-${setId}`);
-        if(insertsTableBodyClear) insertsTableBodyClear.innerHTML = '';
-        return;
-    }
-
-    const tableBody = document.getElementById(`table-body-${setId}`);
-    const settings = tableSettings[setId];
-    if (!settings) {
-        if (tableBody) tableBody.innerHTML = ''; // Clear if no settings defined
-        console.warn(`renderTable called for non-existent table settings: ${setId}`);
-        return;
-    }
-    const mainDataArray = settings.data;
-    if (!tableBody) { console.error(`Table body not found for ${setId}`); return; }
-    tableBody.innerHTML = ''; // Clear before re-render
-
-    const smartInsertsTableBody = document.getElementById(`table-body-inserts-${setId}`);
-    if (smartInsertsTableBody) smartInsertsTableBody.innerHTML = '';
-
-    // updateTableAppearances(); // Typically called by a higher-level function before renderTable
-
-    const addTopInsertButton = document.getElementById(`addTopInsert${setId}`);
-    if (addTopInsertButton) {
-        addTopInsertButton.style.display = ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && settings.hasInserts) ? 'inline-block' : 'none';
-    }
-
-    // Manual/3-Track numbering logic
-    if (currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') {
-        // This complex numbering logic should be the same as previously established and working for A,B,C
-        // It will now also apply to D and E if they are rendered in these modes (primarily manual)
-        mainDataArray.forEach(item => { /* ... reset/calculate numbering properties ... */
-            if (!item.type) item.type = 'main';
-            delete item.actualMainNumber; delete item.potentialParentMainNumber;
-            if (item.insertSubtype === 'top' || item.insertSubtype === 'continuous_end') delete item.parentMainItemNumber;
-        });
-        let lastMainItemActualNum = 0; let currentOverallMainSeqNum = 0;
-        for (let i = 0; i < mainDataArray.length; i++) {
-            const item = mainDataArray[i];
-            if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; lastMainItemActualNum = item.actualMainNumber; }
-            else if (item.type === 'insert' && item.insertSubtype !== 'top') item.potentialParentMainNumber = lastMainItemActualNum;
+    // --- PART 2: Detailed Table Operations, Rendering, Import/Export --- (Continued)
+    function renderTable(setId) {
+        const tableContainer = document.getElementById(`table-container-${setId}`);
+        if (!tableContainer || tableContainer.style.display === 'none') {
+            const tableBodyClear = document.getElementById(`table-body-${setId}`); if (tableBodyClear) tableBodyClear.innerHTML = '';
+            const insertsTableBodyClear = document.getElementById(`table-body-inserts-${setId}`); if (insertsTableBodyClear) insertsTableBodyClear.innerHTML = '';
+            return;
         }
-        for (let i = 0; i < mainDataArray.length; i++) {
-            const item = mainDataArray[i];
-            if (item.type === 'insert') {
-                if (item.insertSubtype === 'continuous_end') {
-                    let mainItemFollows = false; for (let j = i + 1; j < mainDataArray.length; j++) if (mainDataArray[j].type === 'main') { mainItemFollows = true; break; }
-                    if (mainItemFollows) { item.insertSubtype = 'middle'; item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if (item.parentMainItemNumber === undefined) { item.insertSubtype = 'top'; delete item.parentMainItemNumber;}}
-                }
-                if (item.insertSubtype === 'middle') { if (item.parentMainItemNumber === undefined || item.parentMainItemNumber === 0) { item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if(item.parentMainItemNumber === undefined) item.insertSubtype = 'top';}}
-                if (item.insertSubtype === 'middle' || item.insertSubtype === 'top') delete item.actualMainNumber;
-            }
-        }
-        currentOverallMainSeqNum = 0; mainDataArray.forEach(item => {
-            if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; }
-            else if (item.type === 'insert' && item.insertSubtype === 'continuous_end') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; }
-        });
-    }
 
-    // Smartblind rendering (only for A, B, C)
-    if (currentBlindMode === 'smart' && (setId === 'A' || setId === 'B' || setId === 'C')) {
-        tableBody.appendChild(createFixedRowElement(SMART_DELIMITER_0_DISPLAY_TEXT, SMART_DELIMITER_0_NUM, setId));
-        mainDataArray.forEach((item, index) => {
-            item.actualMainNumber = index + 1;
-            tableBody.appendChild(createEditableRowElement(item, item.actualMainNumber, setId, false, false, index === mainDataArray.length -1));
-        });
-        const smartInsertsDataArray = settings.insertsData;
-        const insertsSubContainer = document.getElementById(`inserts-table-sub-container-${setId}`);
-        if (settings.hasInserts && insertsSubContainer) {
-            insertsSubContainer.style.display = 'block';
-            let insertNumberBase = mainDataArray.length + 1;
-            smartInsertsDataArray.forEach((item, index) => {
-                if (smartInsertsTableBody) smartInsertsTableBody.appendChild(createEditableRowElement(item, insertNumberBase + index, setId, true, false, index === smartInsertsDataArray.length - 1));
+        const tableBody = document.getElementById(`table-body-${setId}`);
+        const settings = tableSettings[setId];
+        if (!settings) { if (tableBody) tableBody.innerHTML = ''; console.warn(`renderTable for non-existent settings: ${setId}`); return; }
+
+        const mainDataArray = settings.data;
+        if (!tableBody) { console.error(`Table body not found for ${setId}`); return; }
+        tableBody.innerHTML = '';
+
+        const smartInsertsTableBody = document.getElementById(`table-body-inserts-${setId}`);
+        if (smartInsertsTableBody) smartInsertsTableBody.innerHTML = '';
+
+
+        const addTopInsertButton = document.getElementById(`addTopInsert${setId}`);
+        if (addTopInsertButton) {
+            addTopInsertButton.style.display = ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && settings.hasInserts) ? 'inline-block' : 'none';
+        }
+
+        if (currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') {
+            mainDataArray.forEach(item => {
+                if (!item.type) item.type = 'main';
+                delete item.actualMainNumber; delete item.potentialParentMainNumber;
+                if (item.insertSubtype === 'top' || item.insertSubtype === 'continuous_end') delete item.parentMainItemNumber;
             });
-            if (smartInsertsTableBody) smartInsertsTableBody.appendChild(createFixedRowElement(SMART_DELIMITER_511_DISPLAY_TEXT, SMART_DELIMITER_511_NUM, setId));
-            if (!settings.sortableInsertsInstance && smartInsertsTableBody) initializeSortableForTable(setId, true);
-        } else {
-            if(insertsSubContainer) insertsSubContainer.style.display = 'none';
-            tableBody.appendChild(createFixedRowElement(SMART_DELIMITER_511_DISPLAY_TEXT, SMART_DELIMITER_511_NUM, setId));
-        }
-    } else if (currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') {
-        if (currentBlindMode === 'threeTrack' && (setId === 'D' || setId === 'E')) return; // D & E not in 3-track
-
-        const insertsSubContainer = document.getElementById(`inserts-table-sub-container-${setId}`);
-        if (insertsSubContainer) insertsSubContainer.style.display = 'none';
-
-        let topInsertCounter = 0;
-        let tempMiddleInsertLetterMap = {};
-        mainDataArray.forEach((item, index) => {
-            let displayNumber = "";
-            let isManualInsertStyled = item.type === 'insert';
-            // ... (Manual/3-Track display numbering logic from previous complete version) ...
-            if (item.type === 'insert' && item.insertSubtype === 'top') displayNumber = String.fromCharCode(65 + topInsertCounter++);
-            else if (item.type === 'main' || (item.type === 'insert' && item.insertSubtype === 'continuous_end')) { displayNumber = item.actualMainNumber; if (item.actualMainNumber !== undefined) tempMiddleInsertLetterMap[item.actualMainNumber] = 0; }
-            else if (item.type === 'insert' && item.insertSubtype === 'middle') { const pNum = item.parentMainItemNumber; if (pNum !== undefined && pNum > 0 && tempMiddleInsertLetterMap.hasOwnProperty(pNum)) { const lIdx = tempMiddleInsertLetterMap[pNum]; displayNumber = `${pNum}${String.fromCharCode(65 + lIdx)}`; tempMiddleInsertLetterMap[pNum]++; } else displayNumber = `Ins(ErrP:${pNum})`; }
-
-            if (displayNumber !== undefined && String(displayNumber).length > 0) tableBody.appendChild(createEditableRowElement(item, displayNumber, setId, false, isManualInsertStyled, index === mainDataArray.length - 1));
-            else if (item.type === 'main') tableBody.appendChild(createEditableRowElement(item, `M?${mainDataArray.indexOf(item) + 1}`, setId, false, false, index === mainDataArray.length - 1));
-            else tableBody.appendChild(createEditableRowElement(item, "??", setId, false, isManualInsertStyled, index === mainDataArray.length - 1));
-        });
-    }
-    if (settings && !settings.sortableInstance && tableBody.children.length > 0) initializeSortableForTable(setId, false);
-}
-
-function createFixedRowElement(textDisplay, numberCellText, setId) {
-    const fixedRow = document.createElement('tr'); fixedRow.className = 'fixed-row';
-    fixedRow.insertCell().innerHTML = '&nbsp;'; fixedRow.cells[0].className = 'col-drag-cell fixed-row-drag-cell';
-    fixedRow.insertCell().textContent = numberCellText; fixedRow.cells[1].className = 'col-num-cell fixed-row-num-cell';
-    fixedRow.insertCell().textContent = textDisplay; fixedRow.cells[2].className = 'col-data-wide fixed-text-cell';
-    fixedRow.insertCell().innerHTML = '&nbsp;'; fixedRow.cells[3].className = 'col-action-narrow col-action-cell fixed-row-action-cell';
-    return fixedRow;
-}
-
-function createEditableRowElement(itemData, displayNumber, setId, isSmartInsertTable, isManualInsertStyled = false, isLastRow = false) {
-    const tr = document.createElement('tr'); tr.dataset.id = itemData.id;
-    if (isManualInsertStyled || (isSmartInsertTable && currentBlindMode === 'smart')) tr.classList.add('insert-row');
-
-    const dragCell = tr.insertCell(); dragCell.className = 'col-drag-cell';
-    const dragHandle = document.createElement('span'); dragHandle.className = 'drag-handle'; dragHandle.innerHTML = '&#9776;'; dragHandle.title = 'Drag to reorder';
-    dragCell.appendChild(dragHandle);
-
-    const numCell = tr.insertCell(); numCell.textContent = displayNumber; numCell.style.textAlign = 'center'; numCell.className = 'col-num-cell';
-    const dataCell = tr.insertCell(); dataCell.className = 'col-data-wide';
-
-    let inputElement;
-    const commonPlaceholder = getPlaceholderText(setId, isSmartInsertTable || itemData.type === 'insert', itemData.type);
-    const commonValue = itemData.value || '';
-    const commonOnInput = () => { itemData.value = inputElement.value; saveStateToSessionStorage(); };
-
-    if (setId === 'A' && currentBlindMode === 'manual' && isFrontRearSeparate && !isSmartInsertTable && itemData.type !== 'insert') {
-        inputElement = document.createElement('textarea');
-        inputElement.rows = 2; // Default, CSS can override or user can resize
-    } else {
-        inputElement = document.createElement('input');
-        inputElement.type = 'text';
-    }
-    inputElement.placeholder = commonPlaceholder;
-    inputElement.value = commonValue;
-    inputElement.oninput = commonOnInput;
-    dataCell.appendChild(inputElement);
-
-    if (isLastRow) inputElement.addEventListener('keydown', (event) => handleTabOnLastInput(event, setId, isSmartInsertTable));
-
-    const actionCell = tr.insertCell(); actionCell.className = 'col-action-narrow col-action-cell';
-    if ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId] && tableSettings[setId].hasInserts && (itemData.type === 'main' || (itemData.type === 'insert' && itemData.insertSubtype === 'continuous_end'))) {
-        const addInsertButton = document.createElement('button'); addInsertButton.textContent = '+ Insert';
-        addInsertButton.title = 'Add an insert item after this row'; addInsertButton.classList.add('small-add-insert-button');
-        const parentNumForInsert = itemData.actualMainNumber !== undefined ? itemData.actualMainNumber : displayNumber;
-        addInsertButton.onclick = () => addInsertAfterRow(setId, itemData.id, parentNumForInsert);
-        actionCell.appendChild(addInsertButton);
-    }
-    const deleteButton = document.createElement('button'); deleteButton.textContent = 'Delete';
-    deleteButton.classList.add('small-danger-button');
-    deleteButton.onclick = () => {
-        if (!tableSettings[setId]) return;
-        let arrayToModify = (currentBlindMode === 'smart' && isSmartInsertTable) ? tableSettings[setId].insertsData : tableSettings[setId].data;
-        const itemIndex = arrayToModify.findIndex(d => d.id === itemData.id);
-        if (itemIndex > -1) {
-            if ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && !isSmartInsertTable && (itemData.type === 'main' || (itemData.type === 'insert' && itemData.insertSubtype === 'continuous_end'))) {
-                const mainNumToDelete = itemData.actualMainNumber;
-                tableSettings[setId].data = tableSettings[setId].data.filter(item => item.id !== itemData.id && !(item.type === 'insert' && item.insertSubtype === 'middle' && item.parentMainItemNumber === mainNumToDelete));
-            } else arrayToModify.splice(itemIndex, 1);
-        }
-        if (typeof renderTable === "function") renderTable(setId);
-        saveStateToSessionStorage();
-    };
-    actionCell.appendChild(deleteButton);
-    return tr;
-}
-
-function handleTabOnLastInput(event, setId, isSmartInsertTable) {
-    if (event.key === 'Tab' && !event.shiftKey) {
-        event.preventDefault(); let newRowAdded = false;
-        if (isSmartInsertTable) { if (currentBlindMode === 'smart' && tableSettings[setId] && tableSettings[setId].hasInserts) { addInsertDataRow(setId); newRowAdded = true; } }
-        else { if (tableSettings[setId]) { addDataRow(setId); newRowAdded = true; } }
-        if (newRowAdded) { setTimeout(() => {
-            const tableBodyId = isSmartInsertTable ? `table-body-inserts-${setId}` : `table-body-${setId}`;
-            const tableBody = document.getElementById(tableBodyId);
-            if (tableBody && tableBody.lastElementChild) {
-                let targetRowForFocus = tableBody.lastElementChild;
-                while(targetRowForFocus && targetRowForFocus.classList.contains('fixed-row')) targetRowForFocus = targetRowForFocus.previousElementSibling;
-                if (targetRowForFocus && !targetRowForFocus.classList.contains('fixed-row') && targetRowForFocus.cells.length > 2) {
-                    const lastRowInput = targetRowForFocus.cells[2].querySelector('input, textarea'); if (lastRowInput) lastRowInput.focus();
+            let lastMainItemActualNum = 0; let currentOverallMainSeqNum = 0;
+            for (let i = 0; i < mainDataArray.length; i++) {
+                const item = mainDataArray[i];
+                if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; lastMainItemActualNum = item.actualMainNumber; }
+                else if (item.type === 'insert' && item.insertSubtype !== 'top') item.potentialParentMainNumber = lastMainItemActualNum;
+            }
+            for (let i = 0; i < mainDataArray.length; i++) {
+                const item = mainDataArray[i];
+                if (item.type === 'insert') {
+                    if (item.insertSubtype === 'continuous_end') {
+                        let mainItemFollows = false; for (let j = i + 1; j < mainDataArray.length; j++) if (mainDataArray[j].type === 'main') { mainItemFollows = true; break; }
+                        if (mainItemFollows) { item.insertSubtype = 'middle'; item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if (item.parentMainItemNumber === undefined) { item.insertSubtype = 'top'; delete item.parentMainItemNumber; } }
+                    }
+                    if (item.insertSubtype === 'middle') { if (item.parentMainItemNumber === undefined || item.parentMainItemNumber === 0) { item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if (item.parentMainItemNumber === undefined) item.insertSubtype = 'top'; } }
+                    if (item.insertSubtype === 'middle' || item.insertSubtype === 'top') delete item.actualMainNumber;
                 }
             }
-        }, 0); }
-    }
-}
-
-function addTopInsert(setId) {
-    if (!tableSettings[setId] || !((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId].hasInserts)) { alert("Top inserts conditions not met."); return; }
-    tableSettings[setId].data.unshift({ id: generateUUID(), value: '', type: 'insert', insertSubtype: 'top' });
-    if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
-}
-
-function addInsertAfterRow(setId, parentItemId, parentActualNumber) {
-    if (!tableSettings[setId] || !((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId].hasInserts)) return;
-    const dataArray = tableSettings[setId].data;
-    const parentItemIndex = dataArray.findIndex(item => item.id === parentItemId); if (parentItemIndex === -1) return;
-    const parentItem = dataArray[parentItemIndex]; let initialSubtype = 'middle'; let mainItemsFollow = false;
-    for (let i = parentItemIndex + 1; i < dataArray.length; i++) if (dataArray[i].type === 'main') { mainItemsFollow = true; break; }
-    if (!mainItemsFollow && (parentItem.type === 'main' || parentItem.insertSubtype === 'continuous_end')) initialSubtype = 'continuous_end';
-    const newInsert = { id: generateUUID(), value: '', type: 'insert', insertSubtype: initialSubtype, parentMainItemNumber: (initialSubtype === 'middle' && typeof parentActualNumber === 'number' && parentActualNumber > 0) ? parentActualNumber : undefined };
-    if (initialSubtype === 'middle' && newInsert.parentMainItemNumber === undefined) newInsert.insertSubtype = 'top';
-    let insertionIndex = parentItemIndex + 1;
-    if (newInsert.insertSubtype === 'middle' && newInsert.parentMainItemNumber !== undefined) { while (insertionIndex < dataArray.length && dataArray[insertionIndex].type === 'insert' && dataArray[insertionIndex].insertSubtype === 'middle' && dataArray[insertionIndex].parentMainItemNumber === newInsert.parentMainItemNumber) insertionIndex++; }
-    dataArray.splice(insertionIndex, 0, newInsert); if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
-}
-
-function initializeSortableForTable(setId, isInsertTable) {
-    const tableBodyId = isInsertTable ? `table-body-inserts-${setId}` : `table-body-${setId}`;
-    const tableBodyElement = document.getElementById(tableBodyId);
-    const settings = tableSettings[setId]; if (!settings || !tableBodyElement) return;
-    const instanceKey = isInsertTable ? 'sortableInsertsInstance' : 'sortableInstance';
-    if (settings[instanceKey]) { settings[instanceKey].destroy(); settings[instanceKey] = null;}
-    if (typeof Sortable !== 'undefined') {
-        settings[instanceKey] = new Sortable(tableBodyElement, {
-            animation: 150, handle: '.drag-handle', filter: '.fixed-row', preventOnFilter: true,
-            ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
-            onEnd: function (evt) {
-                if (evt.newIndex !== undefined && evt.from.children[evt.newIndex] && evt.from.children[evt.newIndex].classList.contains('fixed-row')) { if (typeof renderTable === "function") renderTable(setId); return; }
-                const currentDataArrayRef = isInsertTable ? settings.insertsData : settings.data;
-                const newOrderIds = Array.from(evt.from.children).filter(c => !c.classList.contains('fixed-row') && c.dataset.id).map(c => c.dataset.id);
-                const idToItemMap = new Map(currentDataArrayRef.map(item => [item.id, item]));
-                const newSortedData = newOrderIds.map(id => idToItemMap.get(id)).filter(item => item);
-                if (isInsertTable) settings.insertsData = newSortedData; else settings.data = newSortedData;
-                if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
-            }
-        });
-    } else console.warn(`SortableJS library not loaded for ${setId}, insert: ${isInsertTable}.`);
-}
-
-function addDataRow(setId) {
-    if (!tableSettings[setId]) return;
-    const targetArray = tableSettings[setId].data;
-    if (currentBlindMode === 'smart' && targetArray.length >= MAX_EDITABLE_ROWS_SMART) { alert(`Max ${MAX_EDITABLE_ROWS_SMART} rows.`); return; }
-    targetArray.push({ id: generateUUID(), value: '', type: 'main' });
-    if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
-}
-
-function addInsertDataRow(setId) { // Smartblind inserts
-    if (currentBlindMode !== 'smart' || !tableSettings[setId] || !tableSettings[setId].hasInserts) { alert("Smart inserts conditions not met."); return; }
-    tableSettings[setId].insertsData.push({ id: generateUUID(), value: '', type: 'main' });
-    if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
-}
-
-function handleAddMultiple(setId) {
-    if (!tableSettings[setId]) return;
-    const qtyInput = document.getElementById(`qty-${setId}`); const quantity = parseInt(qtyInput.value, 10); if (isNaN(quantity) || quantity < 1) { alert(`Invalid qty.`); qtyInput.focus(); return; }
-    const targetArray = tableSettings[setId].data;
-    if (currentBlindMode === 'smart' && (targetArray.length + quantity) > MAX_EDITABLE_ROWS_SMART) { alert(`Cannot add. Max ${MAX_EDITABLE_ROWS_SMART} rows.`); return; }
-    for (let i = 0; i < quantity; i++) targetArray.push({ id: generateUUID(), value: '', type: 'main' });
-    if (typeof renderTable === "function") renderTable(setId); qtyInput.value = ''; saveStateToSessionStorage();
-}
-
-function handleAddMultipleInserts(setId) { // Smartblind inserts
-    if (currentBlindMode !== 'smart' || !tableSettings[setId] || !tableSettings[setId].hasInserts) { alert("Smart inserts conditions not met."); return; }
-    const qtyInput = document.getElementById(`qty-inserts-${setId}`); const quantity = parseInt(qtyInput.value, 10); if (isNaN(quantity) || quantity < 1) { alert(`Invalid qty.`); qtyInput.focus(); return; }
-    for (let i = 0; i < quantity; i++) tableSettings[setId].insertsData.push({ id: generateUUID(), value: '', type: 'main' });
-    if (typeof renderTable === "function") renderTable(setId); qtyInput.value = ''; saveStateToSessionStorage();
-}
-
-function getDisplayedRowsForExport(setId) {
-    const outputRows = []; if (!tableSettings[setId]) return outputRows;
-    const mainDataArray = JSON.parse(JSON.stringify(tableSettings[setId].data));
-    const smartInsertsDataArray = JSON.parse(JSON.stringify(tableSettings[setId].insertsData));
-
-    if (currentBlindMode === 'smart' && (setId === 'A' || setId === 'B' || setId === 'C') ) { // D & E not for smart mode
-        outputRows.push({ label: SMART_DELIMITER_0_NUM, text: SMART_DELIMITER_0_DISPLAY_TEXT, type: 'delimiter' });
-        mainDataArray.forEach((item, index) => outputRows.push({ label: String(index + 1), text: item.value || "", type: 'data' }));
-        if (tableSettings[setId].hasInserts && smartInsertsDataArray && smartInsertsDataArray.length > 0) {
-            outputRows.push({ label: "", text: SMART_INSERT_SEPARATOR_TEXT, type: 'insert_separator' });
-            let insertNumberBase = mainDataArray.length + 1;
-            smartInsertsDataArray.forEach((item, index) => outputRows.push({ label: String(insertNumberBase + index), text: item.value || "", type: 'insert' }));
+            currentOverallMainSeqNum = 0; mainDataArray.forEach(item => {
+                if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; }
+                else if (item.type === 'insert' && item.insertSubtype === 'continuous_end') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; }
+            });
         }
-        outputRows.push({ label: SMART_DELIMITER_511_NUM, text: SMART_DELIMITER_511_DISPLAY_TEXT, type: 'delimiter' });
-    } else if (currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') {
-        // This complex numbering logic should be the same as in renderTable for these modes
-        mainDataArray.forEach(item => { if(!item.type) item.type = 'main'; delete item.actualMainNumber; delete item.potentialParentMainNumber; if(item.insertSubtype === 'top' || item.insertSubtype === 'continuous_end') delete item.parentMainItemNumber;});
-        let lastMainItemActualNum = 0; let currentOverallMainSeqNum = 0;
-        for (let i = 0; i < mainDataArray.length; i++) { const item = mainDataArray[i]; if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; lastMainItemActualNum = item.actualMainNumber; } else if (item.type === 'insert' && item.insertSubtype !== 'top') item.potentialParentMainNumber = lastMainItemActualNum; }
-        for (let i = 0; i < mainDataArray.length; i++) { const item = mainDataArray[i]; if (item.type === 'insert') { if (item.insertSubtype === 'continuous_end') { let mainItemFollows = false; for (let j = i + 1; j < mainDataArray.length; j++) if (mainDataArray[j].type === 'main') { mainItemFollows = true; break; } if (mainItemFollows) { item.insertSubtype = 'middle'; item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if (item.parentMainItemNumber === undefined) { item.insertSubtype = 'top'; delete item.parentMainItemNumber;}} } if (item.insertSubtype === 'middle') { if (item.parentMainItemNumber === undefined || item.parentMainItemNumber === 0) { item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if(item.parentMainItemNumber === undefined) item.insertSubtype = 'top';}} if (item.insertSubtype === 'middle' || item.insertSubtype === 'top') delete item.actualMainNumber;}}
-        currentOverallMainSeqNum = 0; mainDataArray.forEach(item => { if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; } else if (item.type === 'insert' && item.insertSubtype === 'continuous_end') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; }});
-        let topInsertCounter = 0; let tempMiddleInsertLetterMap = {};
-        mainDataArray.forEach(item => {
-            let displayNumber = "", value = item.value || "", isInsert = item.type === 'insert';
-            if (isInsert && item.insertSubtype === 'top') displayNumber = String.fromCharCode(65 + topInsertCounter++);
-            else if (item.type === 'main' || (isInsert && item.insertSubtype === 'continuous_end')) { displayNumber = String(item.actualMainNumber); if (item.actualMainNumber !== undefined) tempMiddleInsertLetterMap[item.actualMainNumber] = 0; }
-            else if (isInsert && item.insertSubtype === 'middle') { const pNum = item.parentMainItemNumber; if (pNum !== undefined && pNum > 0 && tempMiddleInsertLetterMap.hasOwnProperty(pNum)) { const lIdx = tempMiddleInsertLetterMap[pNum]; displayNumber = `${pNum}${String.fromCharCode(65 + lIdx)}`; tempMiddleInsertLetterMap[pNum]++; } else displayNumber = "Ins"; }
-            if (displayNumber) outputRows.push({ label: displayNumber, text: value + (isInsert ? " (insert)" : ""), type: isInsert ? 'insert' : 'data' });
+
+        if (currentBlindMode === 'smart' && (setId === 'A' || setId === 'B' || setId === 'C')) {
+            tableBody.appendChild(createFixedRowElement(SMART_DELIMITER_0_DISPLAY_TEXT, SMART_DELIMITER_0_NUM, setId));
+            mainDataArray.forEach((item, index) => {
+                item.actualMainNumber = index + 1;
+                tableBody.appendChild(createEditableRowElement(item, item.actualMainNumber, setId, false, false, index === mainDataArray.length - 1));
+            });
+
+            const insertsSubContainer = document.getElementById(`inserts-table-sub-container-${setId}`);
+            const smartInsertsDataArray = settings.insertsData;
+            if (settings.hasInserts && insertsSubContainer) { // insertsSubContainer check is important
+                insertsSubContainer.style.display = 'block'; // Ensure visible if hasInserts
+                if (smartInsertsTableBody) { // Only proceed if the body element exists
+                    let insertNumberBase = mainDataArray.length + 1;
+                    smartInsertsDataArray.forEach((item, index) => {
+                        smartInsertsTableBody.appendChild(createEditableRowElement(item, insertNumberBase + index, setId, true, false, index === smartInsertsDataArray.length - 1));
+                    });
+                     // The 511 delimiter is added to the smartInsertsTableBody if inserts are active
+                    smartInsertsTableBody.appendChild(createFixedRowElement(SMART_DELIMITER_511_DISPLAY_TEXT, SMART_DELIMITER_511_NUM, setId));
+
+                    if (!settings.sortableInsertsInstance && smartInsertsTableBody.children.length > 1) { // Check children.length > 1 to avoid sortable on only fixed row
+                        initializeSortableForTable(setId, true);
+                    }
+                }
+            } else { // No inserts or container missing
+                if(insertsSubContainer) insertsSubContainer.style.display = 'none';
+                // If no smart inserts, the 511 delimiter is added to the main tableBody
+                tableBody.appendChild(createFixedRowElement(SMART_DELIMITER_511_DISPLAY_TEXT, SMART_DELIMITER_511_NUM, setId));
+            }
+        } else if (currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') {
+            if (currentBlindMode === 'threeTrack' && (setId === 'D' || setId === 'E')) return;
+
+            const insertsSubContainer = document.getElementById(`inserts-table-sub-container-${setId}`);
+            if (insertsSubContainer) insertsSubContainer.style.display = 'none'; // No separate table for these modes
+
+            let topInsertCounter = 0;
+            let tempMiddleInsertLetterMap = {};
+            mainDataArray.forEach((item, index) => {
+                let displayNumber = "";
+                let isManualInsertStyled = item.type === 'insert';
+                if (item.type === 'insert' && item.insertSubtype === 'top') displayNumber = String.fromCharCode(65 + topInsertCounter++);
+                else if (item.type === 'main' || (item.type === 'insert' && item.insertSubtype === 'continuous_end')) { displayNumber = item.actualMainNumber; if (item.actualMainNumber !== undefined) tempMiddleInsertLetterMap[item.actualMainNumber] = 0; }
+                else if (item.type === 'insert' && item.insertSubtype === 'middle') { const pNum = item.parentMainItemNumber; if (pNum !== undefined && pNum > 0 && tempMiddleInsertLetterMap.hasOwnProperty(pNum)) { const lIdx = tempMiddleInsertLetterMap[pNum]; displayNumber = `${pNum}${String.fromCharCode(65 + lIdx)}`; tempMiddleInsertLetterMap[pNum]++; } else displayNumber = `Ins(ErrP:${pNum})`; }
+
+                if (displayNumber !== undefined && String(displayNumber).length > 0) tableBody.appendChild(createEditableRowElement(item, displayNumber, setId, false, isManualInsertStyled, index === mainDataArray.length - 1));
+                else if (item.type === 'main') tableBody.appendChild(createEditableRowElement(item, `M?${mainDataArray.indexOf(item) + 1}`, setId, false, false, index === mainDataArray.length - 1)); // Fallback if numbering fails
+                else tableBody.appendChild(createEditableRowElement(item, "??", setId, false, isManualInsertStyled, index === mainDataArray.length - 1)); // Fallback
+            });
+        }
+        // Initialize sortable for the main table body if not already done and has children
+        if (settings && !settings.sortableInstance && tableBody.children.length > 0 && !Array.from(tableBody.children).every(c => c.classList.contains('fixed-row'))) {
+            initializeSortableForTable(setId, false);
+        }
+    }
+
+
+    function createFixedRowElement(textDisplay, numberCellText, setId) {
+        const fixedRow = document.createElement('tr'); fixedRow.className = 'fixed-row';
+        fixedRow.insertCell().innerHTML = '&nbsp;'; fixedRow.cells[0].className = 'col-drag-cell fixed-row-drag-cell';
+        fixedRow.insertCell().textContent = numberCellText; fixedRow.cells[1].className = 'col-num-cell fixed-row-num-cell';
+        fixedRow.insertCell().textContent = textDisplay; fixedRow.cells[2].className = 'col-data-wide fixed-text-cell';
+        fixedRow.insertCell().innerHTML = '&nbsp;'; fixedRow.cells[3].className = 'col-action-narrow col-action-cell fixed-row-action-cell';
+        return fixedRow;
+    }
+
+    function createEditableRowElement(itemData, displayNumber, setId, isSmartInsertTable, isManualInsertStyled = false, isLastRow = false) {
+        const tr = document.createElement('tr'); tr.dataset.id = itemData.id;
+        if (isManualInsertStyled || (isSmartInsertTable && currentBlindMode === 'smart')) tr.classList.add('insert-row');
+
+        const dragCell = tr.insertCell(); dragCell.className = 'col-drag-cell';
+        const dragHandle = document.createElement('span'); dragHandle.className = 'drag-handle'; dragHandle.innerHTML = '&#9776;'; dragHandle.title = 'Drag to reorder';
+        dragCell.appendChild(dragHandle);
+
+        const numCell = tr.insertCell(); numCell.textContent = displayNumber; numCell.style.textAlign = 'center'; numCell.className = 'col-num-cell';
+        const dataCell = tr.insertCell(); dataCell.className = 'col-data-wide';
+
+        let inputElement;
+        const commonPlaceholder = getPlaceholderText(setId, isSmartInsertTable || itemData.type === 'insert', itemData.type);
+        const commonValue = itemData.value || '';
+        const commonOnInput = () => { itemData.value = inputElement.value; saveStateToSessionStorage(); };
+
+        if (setId === 'A' && currentBlindMode === 'manual' && isFrontRearSeparate && !isSmartInsertTable && itemData.type !== 'insert') {
+            inputElement = document.createElement('textarea');
+            inputElement.rows = 2;
+        } else {
+            inputElement = document.createElement('input');
+            inputElement.type = 'text';
+        }
+        inputElement.placeholder = commonPlaceholder;
+        inputElement.value = commonValue;
+        inputElement.oninput = commonOnInput;
+        dataCell.appendChild(inputElement);
+
+        if (isLastRow) inputElement.addEventListener('keydown', (event) => handleTabOnLastInput(event, setId, isSmartInsertTable));
+
+        const actionCell = tr.insertCell(); actionCell.className = 'col-action-narrow col-action-cell';
+        if ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId] && tableSettings[setId].hasInserts && (itemData.type === 'main' || (itemData.type === 'insert' && itemData.insertSubtype === 'continuous_end'))) {
+            const addInsertButton = document.createElement('button'); addInsertButton.textContent = '+ Insert';
+            addInsertButton.title = 'Add an insert item after this row'; addInsertButton.classList.add('small-add-insert-button');
+            const parentNumForInsert = itemData.actualMainNumber !== undefined ? itemData.actualMainNumber : displayNumber; // Use actualMainNumber if available
+            addInsertButton.onclick = () => addInsertAfterRow(setId, itemData.id, parentNumForInsert);
+            actionCell.appendChild(addInsertButton);
+        }
+        const deleteButton = document.createElement('button'); deleteButton.textContent = 'Delete';
+        deleteButton.classList.add('small-danger-button');
+        deleteButton.onclick = () => {
+            if (!tableSettings[setId]) return;
+            let arrayToModify = (currentBlindMode === 'smart' && isSmartInsertTable) ? tableSettings[setId].insertsData : tableSettings[setId].data;
+            const itemIndex = arrayToModify.findIndex(d => d.id === itemData.id);
+            if (itemIndex > -1) {
+                if ((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && !isSmartInsertTable && (itemData.type === 'main' || (itemData.type === 'insert' && itemData.insertSubtype === 'continuous_end'))) {
+                    const mainNumToDelete = itemData.actualMainNumber; // Use the calculated actualMainNumber
+                    tableSettings[setId].data = tableSettings[setId].data.filter(item =>
+                        item.id !== itemData.id && !(item.type === 'insert' && item.insertSubtype === 'middle' && item.parentMainItemNumber === mainNumToDelete)
+                    );
+                } else {
+                    arrayToModify.splice(itemIndex, 1);
+                }
+            }
+            if (typeof renderTable === "function") renderTable(setId);
+            saveStateToSessionStorage();
+        };
+        actionCell.appendChild(deleteButton);
+        return tr;
+    }
+
+    function handleTabOnLastInput(event, setId, isSmartInsertTable) {
+        if (event.key === 'Tab' && !event.shiftKey) {
+            event.preventDefault(); let newRowAdded = false;
+            if (isSmartInsertTable) { if (currentBlindMode === 'smart' && tableSettings[setId] && tableSettings[setId].hasInserts) { addInsertDataRow(setId); newRowAdded = true; } }
+            else { if (tableSettings[setId]) { addDataRow(setId); newRowAdded = true; } }
+
+            if (newRowAdded) {
+                setTimeout(() => {
+                    const tableBodyId = isSmartInsertTable ? `table-body-inserts-${setId}` : `table-body-${setId}`;
+                    const tableBody = document.getElementById(tableBodyId);
+                    if (tableBody && tableBody.lastElementChild) {
+                        let targetRowForFocus = tableBody.lastElementChild;
+                        // Skip any fixed rows at the end (like smartblind's 511)
+                        while (targetRowForFocus && targetRowForFocus.classList.contains('fixed-row')) {
+                            targetRowForFocus = targetRowForFocus.previousElementSibling;
+                        }
+                        if (targetRowForFocus && !targetRowForFocus.classList.contains('fixed-row') && targetRowForFocus.cells.length > 2) {
+                            const lastRowInput = targetRowForFocus.cells[2].querySelector('input, textarea');
+                            if (lastRowInput) lastRowInput.focus();
+                        }
+                    }
+                }, 0);
+            }
+        }
+    }
+
+    function addTopInsert(setId) {
+        if (!tableSettings[setId] || !((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId].hasInserts)) {
+            alert("Top inserts can only be added in Manual or 3-Track mode when inserts are enabled for the table."); return;
+        }
+        tableSettings[setId].data.unshift({ id: generateUUID(), value: '', type: 'insert', insertSubtype: 'top' });
+        if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
+    }
+
+    function addInsertAfterRow(setId, parentItemId, parentActualNumberForInsert) {
+        if (!tableSettings[setId] || !((currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') && tableSettings[setId].hasInserts)) return;
+        const dataArray = tableSettings[setId].data;
+        const parentItemIndex = dataArray.findIndex(item => item.id === parentItemId); if (parentItemIndex === -1) return;
+
+        const parentItem = dataArray[parentItemIndex];
+        let initialSubtype = 'middle';
+        let mainItemsFollow = false;
+        for (let i = parentItemIndex + 1; i < dataArray.length; i++) { if (dataArray[i].type === 'main') { mainItemsFollow = true; break; } }
+
+        if (!mainItemsFollow && (parentItem.type === 'main' || (parentItem.type === 'insert' && parentItem.insertSubtype === 'continuous_end'))) {
+            initialSubtype = 'continuous_end';
+        }
+
+        const newInsert = {
+            id: generateUUID(), value: '', type: 'insert', insertSubtype: initialSubtype,
+            parentMainItemNumber: (initialSubtype === 'middle' && typeof parentActualNumberForInsert === 'number' && parentActualNumberForInsert > 0) ? parentActualNumberForInsert : undefined
+        };
+        // If it's 'middle' but parentMainItemNumber ended up undefined, it should arguably be a 'top' or handled as an error.
+        // For now, this logic matches previous behavior.
+        if (initialSubtype === 'middle' && newInsert.parentMainItemNumber === undefined) {
+            // This case should ideally not happen if parentActualNumberForInsert is correctly passed.
+            // Reverting to a 'top' insert if parent linkage fails.
+            newInsert.insertSubtype = 'top';
+            console.warn("Insert designated as 'middle' but lacked valid parent number, converted to 'top'. ParentID:", parentItemId);
+        }
+
+
+        let insertionIndex = parentItemIndex + 1;
+        // For middle inserts, find the correct place among other middle inserts for the same parent
+        if (newInsert.insertSubtype === 'middle' && newInsert.parentMainItemNumber !== undefined) {
+            while (insertionIndex < dataArray.length &&
+                dataArray[insertionIndex].type === 'insert' &&
+                dataArray[insertionIndex].insertSubtype === 'middle' &&
+                dataArray[insertionIndex].parentMainItemNumber === newInsert.parentMainItemNumber) {
+                insertionIndex++;
+            }
+        }
+        dataArray.splice(insertionIndex, 0, newInsert);
+        if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
+    }
+
+
+    function initializeSortableForTable(setId, isInsertTable) {
+        const tableBodyId = isInsertTable ? `table-body-inserts-${setId}` : `table-body-${setId}`;
+        const tableBodyElement = document.getElementById(tableBodyId);
+        const settings = tableSettings[setId];
+        if (!settings || !tableBodyElement) { console.warn(`Sortable init failed: no settings or body for ${tableBodyId}`); return; }
+
+        const instanceKey = isInsertTable ? 'sortableInsertsInstance' : 'sortableInstance';
+        if (settings[instanceKey]) { settings[instanceKey].destroy(); settings[instanceKey] = null; }
+
+        if (typeof Sortable !== 'undefined') {
+            settings[instanceKey] = new Sortable(tableBodyElement, {
+                animation: 150, handle: '.drag-handle', filter: '.fixed-row', preventOnFilter: true,
+                ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
+                onEnd: function (evt) {
+                    // Prevent dragging onto fixed rows (like smartblind 0 or 511)
+                    if (evt.newDraggableIndex !== undefined && evt.to.children[evt.newDraggableIndex] && evt.to.children[evt.newDraggableIndex].classList.contains('fixed-row')) {
+                        // Revert the drag by re-rendering. This is a simple way to cancel.
+                        // A more sophisticated cancel would involve Sortable's 'onMove' or reverting the change directly.
+                        console.warn("Attempted to drag onto a fixed row. Reverting.");
+                        if (typeof renderTable === "function") renderTable(setId);
+                        return;
+                    }
+
+                    const currentDataArrayRef = isInsertTable ? settings.insertsData : settings.data;
+                    const movedItem = currentDataArrayRef.splice(evt.oldDraggableIndex, 1)[0];
+                    currentDataArrayRef.splice(evt.newDraggableIndex, 0, movedItem);
+                    
+                    // No need to map IDs if we directly manipulate the array based on Sortable's indices
+                    // This assumes Sortable's indices for draggable items correctly map to non-fixed rows.
+
+                    if (typeof renderTable === "function") renderTable(setId); // Re-render to update numbering
+                    saveStateToSessionStorage();
+                }
+            });
+        } else { console.warn(`SortableJS library not loaded for ${tableBodyId}.`); }
+    }
+
+
+    function addDataRow(setId) {
+        if (!tableSettings[setId]) return;
+        const targetArray = tableSettings[setId].data;
+        if (currentBlindMode === 'smart' && targetArray.length >= MAX_EDITABLE_ROWS_SMART) { alert(`Max ${MAX_EDITABLE_ROWS_SMART} user-editable rows for Smartblind tables.`); return; }
+        targetArray.push({ id: generateUUID(), value: '', type: 'main' });
+        if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
+    }
+
+    function addInsertDataRow(setId) { // For Smartblind's separate inserts table
+        if (currentBlindMode !== 'smart' || !tableSettings[setId] || !tableSettings[setId].hasInserts) { alert("Smart inserts can only be added when in Smartblind mode and inserts are enabled for the table."); return; }
+        // Assuming MAX_EDITABLE_ROWS_SMART applies to the total of main + smart inserts.
+        if ((tableSettings[setId].data.length + tableSettings[setId].insertsData.length) >= MAX_EDITABLE_ROWS_SMART) {
+             alert(`Max ${MAX_EDITABLE_ROWS_SMART} total user-editable rows (main + inserts) for Smartblind tables.`); return;
+        }
+        tableSettings[setId].insertsData.push({ id: generateUUID(), value: '', type: 'main' }); // type 'main' within insertsData context
+        if (typeof renderTable === "function") renderTable(setId); saveStateToSessionStorage();
+    }
+
+    function handleAddMultiple(setId) {
+        if (!tableSettings[setId]) return;
+        const qtyInput = document.getElementById(`qty-${setId}`); const quantity = parseInt(qtyInput.value, 10);
+        if (isNaN(quantity) || quantity < 1) { alert(`Please enter a valid quantity.`); qtyInput.focus(); return; }
+        const targetArray = tableSettings[setId].data;
+        if (currentBlindMode === 'smart' && (targetArray.length + quantity) > MAX_EDITABLE_ROWS_SMART) { alert(`Cannot add. Max ${MAX_EDITABLE_ROWS_SMART} user-editable rows.`); return; }
+        for (let i = 0; i < quantity; i++) targetArray.push({ id: generateUUID(), value: '', type: 'main' });
+        if (typeof renderTable === "function") renderTable(setId); qtyInput.value = ''; saveStateToSessionStorage();
+    }
+
+    function handleAddMultipleInserts(setId) { // For Smartblind's separate inserts table
+        if (currentBlindMode !== 'smart' || !tableSettings[setId] || !tableSettings[setId].hasInserts) { alert("Smart inserts can only be added when in Smartblind mode and inserts are enabled."); return; }
+        const qtyInput = document.getElementById(`qty-inserts-${setId}`); const quantity = parseInt(qtyInput.value, 10);
+        if (isNaN(quantity) || quantity < 1) { alert(`Please enter a valid quantity.`); qtyInput.focus(); return; }
+        if ((tableSettings[setId].data.length + tableSettings[setId].insertsData.length + quantity) > MAX_EDITABLE_ROWS_SMART) {
+             alert(`Cannot add. Max ${MAX_EDITABLE_ROWS_SMART} total user-editable rows (main + inserts) for Smartblind tables.`); return;
+        }
+        for (let i = 0; i < quantity; i++) tableSettings[setId].insertsData.push({ id: generateUUID(), value: '', type: 'main' });
+        if (typeof renderTable === "function") renderTable(setId); qtyInput.value = ''; saveStateToSessionStorage();
+    }
+
+
+    function getDisplayedRowsForExport(setId) {
+        const outputRows = [];
+        if (!tableSettings[setId]) return outputRows;
+
+        // Create deep copies for manipulation to avoid altering original data
+        const mainDataArray = JSON.parse(JSON.stringify(tableSettings[setId].data));
+        const smartInsertsDataArray = JSON.parse(JSON.stringify(tableSettings[setId].insertsData));
+
+        if (currentBlindMode === 'smart' && (setId === 'A' || setId === 'B' || setId === 'C')) {
+            outputRows.push({ label: SMART_DELIMITER_0_NUM, text: SMART_DELIMITER_0_DISPLAY_TEXT, type: 'delimiter' });
+            mainDataArray.forEach((item, index) => outputRows.push({ label: String(index + 1), text: item.value || "", type: 'data' }));
+
+            if (tableSettings[setId].hasInserts && smartInsertsDataArray && smartInsertsDataArray.length > 0) {
+                outputRows.push({ label: "", text: SMART_INSERT_SEPARATOR_TEXT, type: 'insert_separator' }); // Use a distinct type
+                let insertNumberBase = mainDataArray.length + 1;
+                smartInsertsDataArray.forEach((item, index) => outputRows.push({ label: String(insertNumberBase + index), text: item.value || "", type: 'insert' }));
+            }
+            outputRows.push({ label: SMART_DELIMITER_511_NUM, text: SMART_DELIMITER_511_DISPLAY_TEXT, type: 'delimiter' });
+
+        } else if (currentBlindMode === 'manual' || currentBlindMode === 'threeTrack') {
+             // Re-calculate numbering for export, similar to renderTable
+            mainDataArray.forEach(item => { if(!item.type) item.type = 'main'; delete item.actualMainNumber; delete item.potentialParentMainNumber; if(item.insertSubtype === 'top' || item.insertSubtype === 'continuous_end') delete item.parentMainItemNumber;});
+            let lastMainItemActualNum = 0; let currentOverallMainSeqNum = 0;
+            for (let i = 0; i < mainDataArray.length; i++) { const item = mainDataArray[i]; if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; lastMainItemActualNum = item.actualMainNumber; } else if (item.type === 'insert' && item.insertSubtype !== 'top') item.potentialParentMainNumber = lastMainItemActualNum; }
+            for (let i = 0; i < mainDataArray.length; i++) { const item = mainDataArray[i]; if (item.type === 'insert') { if (item.insertSubtype === 'continuous_end') { let mainItemFollows = false; for (let j = i + 1; j < mainDataArray.length; j++) if (mainDataArray[j].type === 'main') { mainItemFollows = true; break; } if (mainItemFollows) { item.insertSubtype = 'middle'; item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if (item.parentMainItemNumber === undefined) { item.insertSubtype = 'top'; delete item.parentMainItemNumber;}} } if (item.insertSubtype === 'middle') { if (item.parentMainItemNumber === undefined || item.parentMainItemNumber === 0) { item.parentMainItemNumber = item.potentialParentMainNumber > 0 ? item.potentialParentMainNumber : undefined; if(item.parentMainItemNumber === undefined) item.insertSubtype = 'top';}} if (item.insertSubtype === 'middle' || item.insertSubtype === 'top') delete item.actualMainNumber;}}
+            currentOverallMainSeqNum = 0; mainDataArray.forEach(item => { if (item.type === 'main') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; } else if (item.type === 'insert' && item.insertSubtype === 'continuous_end') { currentOverallMainSeqNum++; item.actualMainNumber = currentOverallMainSeqNum; }});
+
+            let topInsertCounter = 0;
+            let tempMiddleInsertLetterMap = {};
+            mainDataArray.forEach(item => {
+                let displayNumber = "", value = item.value || "", isInsertType = item.type === 'insert';
+                if (isInsertType && item.insertSubtype === 'top') displayNumber = String.fromCharCode(65 + topInsertCounter++);
+                else if (item.type === 'main' || (isInsertType && item.insertSubtype === 'continuous_end')) { displayNumber = String(item.actualMainNumber); if (item.actualMainNumber !== undefined) tempMiddleInsertLetterMap[item.actualMainNumber] = 0; }
+                else if (isInsertType && item.insertSubtype === 'middle') { const pNum = item.parentMainItemNumber; if (pNum !== undefined && pNum > 0 && tempMiddleInsertLetterMap.hasOwnProperty(pNum)) { const lIdx = tempMiddleInsertLetterMap[pNum]; displayNumber = `${pNum}${String.fromCharCode(65 + lIdx)}`; tempMiddleInsertLetterMap[pNum]++; } else displayNumber = "Ins"; } // Fallback label for middle insert with bad parent
+
+                if (displayNumber) outputRows.push({ label: displayNumber, text: value + (isInsertType ? " (insert)" : ""), type: isInsertType ? 'insert' : 'data' });
+            });
+        }
+        return outputRows;
+    }
+
+    function isValidFilename(filename) {
+        const invalidCharsRegex = /[<>:"/\\|?*\x00-\x1F]/g;
+        const filenameCore = filename.includes('.') ? filename.substring(0, filename.lastIndexOf('.')) : filename;
+        const reservedNamesRegex = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+        if (invalidCharsRegex.test(filename)) { alert('Filename contains invalid characters. Avoid: <>:"/\\|?* and control characters.'); return false; }
+        if (reservedNamesRegex.test(filenameCore)) { alert('Filename is a reserved system name.'); return false; }
+        if (filename.length === 0) { alert('Filename cannot be empty.'); return false; }
+        if (filename.length > 255) { alert('Filename is too long.'); return false; }
+        if (filename === "." || filename === "..") { alert('Filename cannot be "." or ".."'); return false; }
+        if (/^[\s.]+$/.test(filename)) { alert('Filename consists only of dots or spaces.'); return false; }
+        if (/[. ]$/.test(filename)) { alert('Filename cannot end with a dot or a space.'); return false; }
+        return true;
+    }
+
+    function exportToBLIND() {
+        let userInputListName = document.getElementById('listNameInput').value.trim();
+        if (!userInputListName) userInputListName = "Unnamed_List"; // Default if empty
+        if (!isValidFilename(userInputListName)) { document.getElementById('listNameInput').focus(); return; }
+
+        let textContent = `List Name:${userInputListName}\n`;
+        let blindTypeDisplayValue;
+        switch (currentBlindMode) {
+            case 'smart': blindTypeDisplayValue = "Smartblind"; break;
+            case 'manual': blindTypeDisplayValue = "Manual Blind"; break;
+            case 'threeTrack': blindTypeDisplayValue = "3 Track"; break;
+            default: blindTypeDisplayValue = currentBlindMode;
+        }
+        textContent += `Blind Type:${blindTypeDisplayValue}\n`;
+
+        if (currentBlindMode === 'threeTrack') {
+            textContent += `Tracks Identical:${threeTrackIsIdentical ? 'Yes' : 'No'}\n`;
+        }
+        if (currentBlindMode === 'manual') {
+            textContent += `SideBlindSplit:${isSideBlindSplit ? 'Yes' : 'No'}\n`;
+            textContent += `FrontRearSeparate:${isFrontRearSeparate ? 'Yes' : 'No'}\n`;
+        }
+        textContent += "\n"; // Separator after global settings
+
+        const tablesToActuallyExport = determineTablesToExport();
+        tablesToActuallyExport.forEach(setId => {
+            if (!tableSettings[setId] || isTableEffectivelyEmpty(setId)) return;
+
+            let tableTitle, dataHeader;
+            // Logic to determine actual title/header based on current mode and states
+            if (currentBlindMode === 'threeTrack') {
+                if (setId === 'D' || setId === 'E') return; // Should not happen if determineTablesToExport is correct
+                tableTitle = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.title : (threeTrackAppearances[setId]?.title || `Track ${setId}`);
+                dataHeader = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.header : (threeTrackAppearances[setId]?.header || "Data");
+            } else if (currentBlindMode === 'manual') {
+                if (setId === 'A' && isFrontRearSeparate) { tableTitle = originalTableAppearances.A.altTitle; dataHeader = originalTableAppearances.A.altHeader; }
+                else if (setId === 'C' && isSideBlindSplit) { tableTitle = originalTableAppearances.C.altTitle; dataHeader = originalTableAppearances.C.altHeader; }
+                else { tableTitle = originalTableAppearances[setId]?.title || `Table ${setId}`; dataHeader = originalTableAppearances[setId]?.header || "Data"; }
+            } else { // Smart Mode
+                tableTitle = originalTableAppearances[setId]?.title || `Table ${setId}`; dataHeader = originalTableAppearances[setId]?.header || "Data";
+            }
+
+            textContent += `${tableTitle}\n`;
+            textContent += `Inserts Added:${tableSettings[setId].hasInserts ? 'Yes' : 'No'}\n`;
+            // Only include TableVisible line for modes where it's relevant and for tables that have this setting
+            if ((currentBlindMode === 'manual' || currentBlindMode === 'smart') && tableSettings[setId].hasOwnProperty('isVisibleInSmartManual')) {
+                 textContent += `TableVisible:${tableSettings[setId].isVisibleInSmartManual ? 'Yes' : 'No'}\n`;
+            }
+            textContent += `No.,${dataHeader}\n`;
+
+            const displayedRows = getDisplayedRowsForExport(setId);
+            displayedRows.forEach(row => {
+                if (row.type === 'insert_separator') { // Handle specific type for separator
+                    textContent += `${SMART_INSERT_SEPARATOR_TEXT}\n`;
+                } else {
+                    // Escape newlines in text value for storage in .blind file
+                    const escapedText = (row.text || "").replace(/\n/g, '\\n');
+                    textContent += `${row.label},${escapedText}\n`;
+                }
+            });
+            textContent += "\n"; // Empty line between tables
         });
+
+        const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `${userInputListName}.blind`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href); // Clean up blob URL
     }
-    return outputRows;
-}
 
-function isValidFilename(filename) { /* ... (Keep existing robust validation logic) ... */
-    const invalidCharsRegex = /[<>:"/\\|?*\x00-\x1F]/g; const filenameCore = filename.includes('.') ? filename.substring(0, filename.lastIndexOf('.')) : filename; const reservedNamesRegex = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
-    if (invalidCharsRegex.test(filename)) { alert('Invalid chars in filename.'); return false; } if (reservedNamesRegex.test(filenameCore)) { alert('Reserved filename.'); return false; } if (filename.length > 255) { alert('Filename too long.'); return false; } if (filename === "." || filename === "..") { alert('Filename cannot be . or ..'); return false; } if (/^[\s.]*$/.test(filename) && filename.length > 0) { alert('Filename only dots/spaces.'); return false; } if (/[. ]$/.test(filename)) { alert('Filename ends with dot/space.'); return false; } return true;
-}
-
-function exportToBLIND() {
-    let userInputListName = document.getElementById('listNameInput').value.trim() || "Unnamed_List";
-    if (document.getElementById('listNameInput').value.trim() && !isValidFilename(userInputListName)) { document.getElementById('listNameInput').focus(); return; }
-    let textContent = `List Name:${userInputListName}\n`;
-    let blindTypeDisplayValue; switch(currentBlindMode){ case 'smart': blindTypeDisplayValue = "Smartblind"; break; case 'manual': blindTypeDisplayValue = "Manual Blind"; break; case 'threeTrack': blindTypeDisplayValue = "3 Track"; break; default: blindTypeDisplayValue = currentBlindMode; } textContent += `Blind Type:${blindTypeDisplayValue}\n`;
-    if (currentBlindMode === 'threeTrack') textContent += `Tracks Identical:${threeTrackIsIdentical ? 'Yes' : 'No'}\n`;
-    if (currentBlindMode === 'manual') {
-        textContent += `SideBlindSplit:${isSideBlindSplit ? 'Yes' : 'No'}\n`;
-        textContent += `FrontRearSeparate:${isFrontRearSeparate ? 'Yes' : 'No'}\n`;
-    }
-    textContent += "\n";
-    const tablesToActuallyExport = determineTablesToExport();
-    tablesToActuallyExport.forEach(setId => {
-        if (!tableSettings[setId] || isTableEffectivelyEmpty(setId)) return;
-        let tableTitle, dataHeader;
-        if (currentBlindMode === 'threeTrack') { if (setId === 'D' || setId === 'E') return; tableTitle = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.title : threeTrackAppearances[setId].title; dataHeader = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.header : threeTrackAppearances[setId].header; }
-        else if (currentBlindMode === 'manual') {
-            if (setId === 'A' && isFrontRearSeparate) { tableTitle = originalTableAppearances.A.altTitle; dataHeader = originalTableAppearances.A.altHeader; }
-            else if (setId === 'C' && isSideBlindSplit) { tableTitle = originalTableAppearances.C.altTitle; dataHeader = originalTableAppearances.C.altHeader; }
-            else { tableTitle = originalTableAppearances[setId].title; dataHeader = originalTableAppearances[setId].header; }
-        } else { tableTitle = originalTableAppearances[setId].title; dataHeader = originalTableAppearances[setId].header; }
-        textContent += `${tableTitle}\n`;
-        textContent += `Inserts Added:${tableSettings[setId].hasInserts ? 'Yes' : 'No'}\n`;
-        if(currentBlindMode === 'manual' || currentBlindMode === 'smart') textContent += `TableVisible:${tableSettings[setId].isVisibleInSmartManual ? 'Yes' : 'No'}\n`;
-        textContent += `No.,${dataHeader}\n`;
-        const displayedRows = getDisplayedRowsForExport(setId);
-        displayedRows.forEach(row => { if (row.type === 'insert_separator') textContent += `${SMART_INSERT_SEPARATOR_TEXT}\n`; else textContent += `${row.label},${row.text.replace(/\n/g, '\\n')}\n`; }); // Replace newlines for .blind file
-        textContent += "\n";
-    });
-    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8;' }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `${userInputListName}.blind`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-}
-
-function exportCurrentDataToPDF() {
+    function exportCurrentDataToPDF() {
     const { jsPDF } = window.jspdf;
     if (!jsPDF || !jsPDF.API || !jsPDF.API.autoTable) {
         alert("PDF library not loaded.");
@@ -1410,8 +1697,7 @@ function exportCurrentDataToPDF() {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
     let currentDocY = 40;
 
-    // Set default text color to black for all subsequent doc.text calls
-    doc.setTextColor(0, 0, 0);
+    doc.setTextColor(0, 0, 0); // Default text color to black
 
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
@@ -1435,42 +1721,35 @@ function exportCurrentDataToPDF() {
 
     const tablesToActuallyExport = determineTablesToExport();
     let firstTable = true;
+
+    // --- Define your placeholder for total pages ---
+    const totalPagesExp = "{totalPages}";
+
     tablesToActuallyExport.forEach((setId) => {
         if (!tableSettings[setId] || isTableEffectivelyEmpty(setId)) return;
 
         let tableTitle, dataHeader;
-        // Determine title/header based on mode and split states (same logic as in exportToBLIND)
         if (currentBlindMode === 'threeTrack') {
-            if (setId === 'D' || setId === 'E') return; // D & E not used in 3-track
-            tableTitle = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.title : threeTrackAppearances[setId].title;
-            dataHeader = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.header : threeTrackAppearances[setId].header;
+            if (setId === 'D' || setId === 'E') return;
+            tableTitle = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.title : (threeTrackAppearances[setId]?.title || `Track ${setId}`);
+            dataHeader = (threeTrackIsIdentical && setId === 'A') ? threeTrackIdenticalAppearance.header : (threeTrackAppearances[setId]?.header || "Data");
         } else if (currentBlindMode === 'manual') {
-            if (setId === 'A' && isFrontRearSeparate) {
-                tableTitle = originalTableAppearances.A.altTitle;
-                dataHeader = originalTableAppearances.A.altHeader;
-            } else if (setId === 'C' && isSideBlindSplit) {
-                tableTitle = originalTableAppearances.C.altTitle;
-                dataHeader = originalTableAppearances.C.altHeader;
-            } else {
-                tableTitle = originalTableAppearances[setId].title;
-                dataHeader = originalTableAppearances[setId].header;
-            }
-        } else { // Smart mode
-            tableTitle = originalTableAppearances[setId].title;
-            dataHeader = originalTableAppearances[setId].header;
+            if (setId === 'A' && isFrontRearSeparate) { tableTitle = originalTableAppearances.A.altTitle; dataHeader = originalTableAppearances.A.altHeader; }
+            else if (setId === 'C' && isSideBlindSplit) { tableTitle = originalTableAppearances.C.altTitle; dataHeader = originalTableAppearances.C.altHeader; }
+            else { tableTitle = originalTableAppearances[setId]?.title || `Table ${setId}`; dataHeader = originalTableAppearances[setId]?.header || "Data"; }
+        } else { // Smart Mode
+            tableTitle = originalTableAppearances[setId]?.title || `Table ${setId}`; dataHeader = originalTableAppearances[setId]?.header || "Data";
         }
 
         if (!firstTable) {
-             currentDocY = doc.lastAutoTable.finalY + 30;
+            currentDocY = doc.lastAutoTable.finalY + 30;
         } else {
             firstTable = false;
         }
-
-        // Check if there's enough space for the table title and some rows, add new page if not
-        if (currentDocY + 60 > doc.internal.pageSize.getHeight() - 50) { // 60 is an arbitrary value for title + some rows
+        if (currentDocY + 60 > doc.internal.pageSize.getHeight() - 50) {
             doc.addPage();
-            currentDocY = 60; // Reset Y for new page (adjust for top margin)
-            doc.setTextColor(0, 0, 0); // Re-apply text color on the new page
+            currentDocY = 60;
+            doc.setTextColor(0, 0, 0);
         }
 
         doc.setFontSize(12);
@@ -1485,14 +1764,11 @@ function exportCurrentDataToPDF() {
 
         const pdfHeaders = [["No.", dataHeader]];
         const pdfBody = getDisplayedRowsForExport(setId).map(row => {
-            if (row.type === 'insert_separator') {
-                return [{ content: '', _isInsertSeparator: true, _separatorText: SMART_INSERT_SEPARATOR_TEXT, colSpan: 2, styles: { cellPadding: { top: 6, bottom: 8, left: 2, right: 2 } } }];
-            }
+            if (row.type === 'insert_separator') return [{ content: '', _isInsertSeparator: true, _separatorText: SMART_INSERT_SEPARATOR_TEXT, colSpan: 2, styles: { cellPadding: { top: 6, bottom: 8, left: 2, right: 2 } } }];
             return [row.label, row.text];
         });
-
         if (pdfBody.length === 0 && !(currentBlindMode === 'smart' && getDisplayedRowsForExport(setId).some(r => r.type === 'delimiter'))) {
-             pdfBody.push([{content: " ", styles: {textColor: [0,0,0]}}, {content: " ", styles: {textColor: [0,0,0]}}]);
+            pdfBody.push([{ content: " ", styles: { textColor: [0, 0, 0] } }, { content: " ", styles: { textColor: [0, 0, 0] } }]);
         }
 
         doc.autoTable({
@@ -1501,446 +1777,315 @@ function exportCurrentDataToPDF() {
             startY: currentDocY,
             theme: 'grid',
             headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center', fillColor: [220, 220, 220] },
-            bodyStyles: { textColor: [0, 0, 0] }, // Ensures table body text is black
+            bodyStyles: { textColor: [0, 0, 0] },
             columnStyles: {
                 0: { halign: 'center', cellWidth: 60 },
-                1: { cellWidth: doc.internal.pageSize.getWidth() - 80 - 60 - 4 } // Adjusted for margins
+                1: { cellWidth: doc.internal.pageSize.getWidth() - 80 - 60 - 4 }
             },
-            margin: { left: 40, right: 40, bottom: 50 }, // Ensure enough bottom margin for footer
+            margin: { left: 40, right: 40, bottom: 50 },
             didDrawPage: function (data) {
-                const pageCount = doc.internal.getNumberOfPages();
                 doc.setFontSize(9);
                 doc.setFont("helvetica", "normal");
-                doc.setTextColor(0, 0, 0); // Footer text color
+                doc.setTextColor(0, 0, 0);
                 const footerY = doc.internal.pageSize.getHeight() - 20;
-                doc.text(`Page ${data.pageNumber} of ${pageCount}`, doc.internal.pageSize.getWidth() - 40, footerY, { align: 'right' });
+
+                // --- MODIFIED: Use the placeholder for total pages ---
+                const pageNumText = `Page ${data.pageNumber} of ${totalPagesExp}`;
+                doc.text(pageNumText, doc.internal.pageSize.getWidth() - 40, footerY, { align: 'right' });
+
                 const today = new Date();
-                // Format date as DD/MM/YYYY
                 const day = String(today.getDate()).padStart(2, '0');
-                const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+                const month = String(today.getMonth() + 1).padStart(2, '0');
                 const year = today.getFullYear();
                 const formattedDate = `${day}/${month}/${year}`;
                 doc.text(`Generated: ${formattedDate}`, 40, footerY);
             },
-            didDrawCell: function(data) {
+            didDrawCell: function (data) {
+                // ... (your existing didDrawCell logic remains the same) ...
                 if (data.cell.raw && data.cell.raw._isInsertSeparator) {
-                    const cell = data.cell;
-                    const docInstance = data.doc;
-                    cell.text = ''; // Clear any default text rendering for this cell
-                    const text = cell.raw._separatorText || "INSERT";
+                    const cell = data.cell; const docInstance = data.doc; cell.text = ''; const text = cell.raw._separatorText || "INSERT";
+                    const pLW=docInstance.getLineWidth(), pDC_raw=docInstance.getDrawColor(), pFC_raw=docInstance.getFillColor(), pFont=docInstance.getFont(), pFS=docInstance.getFontSize(), pTC_raw=docInstance.getTextColor();
+                    
+                    let pDC = Array.isArray(pDC_raw) ? pDC_raw : [pDC_raw,pDC_raw,pDC_raw]; 
+                    let pFC = Array.isArray(pFC_raw) ? pFC_raw : [pFC_raw,pFC_raw,pFC_raw];
+                    let pTC = Array.isArray(pTC_raw) ? pTC_raw : [pTC_raw,pTC_raw,pTC_raw];
+                    if(typeof pDC_raw === 'string') pDC = pDC_raw; 
+                    if(typeof pFC_raw === 'string') pFC = pFC_raw;
+                    if(typeof pTC_raw === 'string') pTC = pTC_raw;
 
-                    // Save current styles
-                    const pLW = docInstance.getLineWidth();
-                    const pDC = docInstance.getDrawColor(); // This is an object/string depending on jsPDF version, handle carefully
-                    const pFC = docInstance.getFillColor(); // Same as above
-                    const pFont = docInstance.getFont();
-                    const pFS = docInstance.getFontSize();
-                    const pTC = docInstance.getTextColor(); // Same as above
-
-                    docInstance.setLineWidth(0.2);
-                    docInstance.setDrawColor(200); // Light grey for cell border
-                    // docInstance.rect(cell.x, cell.y, cell.width, cell.height); // Optionally draw cell border
-
-                    docInstance.setFontSize(9);
-                    docInstance.setFont(pFont.fontName, 'italic');
-                    docInstance.setTextColor(0, 0, 0); // "--- INSERT ---" text to black
-
+                    docInstance.setLineWidth(0.2); docInstance.setDrawColor(200);
+                    docInstance.setFontSize(9); docInstance.setFont(pFont.fontName,'italic'); docInstance.setTextColor(0,0,0);
+                    
                     let cPad = { top: 0, right: 0, bottom: 0, left: 0 };
                     const cellPaddingStyle = cell.styles.cellPadding;
-                    if (typeof cellPaddingStyle === 'object') {
-                        cPad = { top: cellPaddingStyle.top || 0, right: cellPaddingStyle.right || 0, bottom: cellPaddingStyle.bottom || 0, left: cellPaddingStyle.left || 0 };
-                    } else if (typeof cellPaddingStyle === 'number') {
-                        cPad = { top: cellPaddingStyle, right: cellPaddingStyle, bottom: cellPaddingStyle, left: cellPaddingStyle };
-                    }
+                    if (typeof cellPaddingStyle === 'object') cPad = { top: cellPaddingStyle.top || 0, right: cellPaddingStyle.right || 0, bottom: cellPaddingStyle.bottom || 0, left: cellPaddingStyle.left || 0 };
+                    else if (typeof cellPaddingStyle === 'number') cPad = { top: cellPaddingStyle, right: cellPaddingStyle, bottom: cellPaddingStyle, left: cellPaddingStyle };
 
-                    const tW = docInstance.getTextWidth(text);
-                    const cellContentHeight = cell.height - cPad.top - cPad.bottom;
-                    const lineY = cell.y + cPad.top + cellContentHeight / 2;
-                    const textY = lineY + (docInstance.getFontSize() * 0.35 / docInstance.internal.scaleFactor); // Minor adjustment for visual centering
-
-                    docInstance.text(text, cell.x + (cell.width - tW) / 2, textY);
-
-                    // Draw dashed lines
-                    docInstance.setLineWidth(0.5);
-                    docInstance.setDrawColor(0); // Black lines
-                    docInstance.setLineDashPattern([3, 2], 0);
-                    const linePaddingFromText = 5;
-
-                    const line1x1 = cell.x + cPad.left + 2;
-                    const line1x2 = cell.x + (cell.width - tW) / 2 - linePaddingFromText;
-                    if (line1x2 > line1x1) docInstance.line(line1x1, lineY, line1x2, lineY);
-
-                    const line2x1 = cell.x + (cell.width + tW) / 2 + linePaddingFromText;
-                    const line2x2 = cell.x + cell.width - cPad.right - 2;
-                    if (line2x2 > line2x1) docInstance.line(line2x1, lineY, line2x2, lineY);
-
-                    // Restore previous styles
-                    docInstance.setLineDashPattern([], 0);
-                    docInstance.setLineWidth(pLW);
-                    // Safely restore colors - jsPDF's getColor methods can return different types
-                    if (typeof pDC === 'object' && pDC.r !== undefined) docInstance.setDrawColor(pDC.r, pDC.g, pDC.b); else docInstance.setDrawColor(pDC);
-                    if (typeof pFC === 'object' && pFC.r !== undefined) docInstance.setFillColor(pFC.r, pFC.g, pFC.b); else docInstance.setFillColor(pFC);
-                    docInstance.setFont(pFont.fontName, pFont.fontStyle);
-                    docInstance.setFontSize(pFS);
-                    if (typeof pTC === 'object' && pTC.r !== undefined) docInstance.setTextColor(pTC.r, pTC.g, pTC.b); else docInstance.setTextColor(pTC);
+                    const tW=docInstance.getTextWidth(text), cellContentHeight = cell.height-cPad.top-cPad.bottom, lY=cell.y+cPad.top+cellContentHeight/2, tY=lY+(docInstance.getFontSize()*0.35/docInstance.internal.scaleFactor); docInstance.text(text,cell.x+(cell.width-tW)/2,tY);
+                    docInstance.setLineWidth(0.5); docInstance.setDrawColor(0); docInstance.setLineDashPattern([3,2],0); const lpft=5;
+                    const l1x1=cell.x+cPad.left+2, l1x2=cell.x+(cell.width-tW)/2-lpft; if(l1x2>l1x1)docInstance.line(l1x1,lY,l1x2,lY);
+                    const l2x1=cell.x+(cell.width+tW)/2+lpft, l2x2=cell.x+cell.width-cPad.right-2; if(l2x2>l2x1)docInstance.line(l2x1,lY,l2x2,lY);
+                    
+                    docInstance.setLineDashPattern([],0); docInstance.setLineWidth(pLW); 
+                    if (Array.isArray(pDC)) docInstance.setDrawColor(pDC[0], pDC[1], pDC[2]); else docInstance.setDrawColor(pDC);
+                    if (Array.isArray(pFC)) docInstance.setFillColor(pFC[0], pFC[1], pFC[2]); else docInstance.setFillColor(pFC);
+                    docInstance.setFont(pFont.fontName,pFont.fontStyle); docInstance.setFontSize(pFS); 
+                    if (Array.isArray(pTC)) docInstance.setTextColor(pTC[0], pTC[1], pTC[2]); else docInstance.setTextColor(pTC);
                 }
             }
         });
-        // currentDocY is automatically updated by autoTable via doc.lastAutoTable.finalY for the next iteration
     });
+
+    // --- ADD THIS: Call putTotalPages AFTER all tables are drawn and BEFORE save ---
+    if (typeof doc.putTotalPages === 'function') {
+        doc.putTotalPages(totalPagesExp);
+    } else {
+        // Fallback for older jsPDF versions or if putTotalPages is not available
+        // This will result in "Page X of X" for the last page, and "Page Y of Y" for previous.
+        // It's better than "Page X of (running total)", but not perfect.
+        // To avoid this, ensure you're using a jsPDF version that supports putTotalPages.
+        // For now, the user's jsPDF 2.5.1 should support it.
+        console.warn("doc.putTotalPages is not a function. Page total in footer might be incorrect.");
+    }
+
     doc.save(`${userInputListName}.pdf`);
 }
 
-function determineTablesToExport() {
-    if (currentBlindMode === 'threeTrack') {
-        return threeTrackIsIdentical ? ['A'] : ['A', 'B', 'C'].filter(setId => tableSettings[setId]);
-    } else if (currentBlindMode === 'manual') {
-        let tables = ['A', 'B', 'C'];
-        if (isSideBlindSplit) tables.push('D');
-        if (isFrontRearSeparate) tables.push('E');
-        return tables.filter(setId => tableSettings[setId] && tableSettings[setId].isVisibleInSmartManual);
-    } else { // Smart mode
-        return ['A', 'B', 'C'].filter(setId => tableSettings[setId] && tableSettings[setId].isVisibleInSmartManual);
-    }
-}
 
-function isTableEffectivelyEmpty(setId) {
-    if (!tableSettings[setId]) return true;
-    const mainDataEmpty = !tableSettings[setId].data || tableSettings[setId].data.length === 0;
-    if (currentBlindMode === 'smart') {
-        const insertsDataEmpty = !tableSettings[setId].insertsData || tableSettings[setId].insertsData.length === 0;
-        return mainDataEmpty && (!tableSettings[setId].hasInserts || insertsDataEmpty);
-    }
-    return mainDataEmpty;
-}
-
-function importFromBLIND(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    if (!confirm("Importing this .blind file will overwrite current data. Proceed?")) {
-        event.target.value = null; // Clear the file input if user cancels
-        return;
+    function determineTablesToExport() {
+        if (currentBlindMode === 'threeTrack') {
+            return threeTrackIsIdentical ? ['A'] : ['A', 'B', 'C'].filter(setId => tableSettings[setId]);
+        } else if (currentBlindMode === 'manual') {
+            let tables = ['A', 'B', 'C']; // Base tables for manual
+            if (isSideBlindSplit) tables.push('D');
+            if (isFrontRearSeparate) tables.push('E');
+            return tables.filter(setId => tableSettings[setId] && tableSettings[setId].isVisibleInSmartManual);
+        } else { // Smart mode
+            return ['A', 'B', 'C'].filter(setId => tableSettings[setId] && tableSettings[setId].isVisibleInSmartManual);
+        }
     }
 
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const fileContent = e.target.result;
-        try {
-            const lines = fileContent.split(/\r\n|\n/);
-            const tempImportedTableVisibility = {}; // To store visibility from file
+    function isTableEffectivelyEmpty(setId) {
+        if (!tableSettings[setId]) return true;
+        const mainDataEmpty = !tableSettings[setId].data || tableSettings[setId].data.length === 0;
+        if (currentBlindMode === 'smart') {
+            const insertsDataEmpty = !tableSettings[setId].insertsData || tableSettings[setId].insertsData.length === 0;
+            return mainDataEmpty && (!tableSettings[setId].hasInserts || insertsDataEmpty);
+        }
+        return mainDataEmpty; // For manual/3-track, only main data matters for this check
+    }
 
-            // Moved function definition to the top of the onload scope
-            // And corrected its name to match the calls
-            function processImportLineAsTableTitle(line, mode, sideSplit, frontRearSplit) {
-                let tempSetId = Object.keys(originalTableAppearances).find(k => originalTableAppearances[k].title === line || (originalTableAppearances[k].altTitle && originalTableAppearances[k].altTitle === line)) ||
-                                Object.keys(threeTrackAppearances).find(k => threeTrackAppearances[k].title === line) ||
-                                (line === threeTrackIdenticalAppearance.title ? 'A' : null);
+    function importFromBLIND(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        if (!confirm("Importing this .blind file will overwrite current data. Proceed?")) {
+            event.target.value = null; return;
+        }
 
-                if (!tempSetId) return null;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const fileContent = e.target.result;
+            try {
+                const lines = fileContent.split(/\r\n|\n/);
+                const tempImportedTableVisibility = {};
 
-                let newCurrentParsingSetId = null;
-                if (mode === 'threeTrack') {
-                    newCurrentParsingSetId = ((threeTrackIdenticalAppearance.title === line && tempSetId === 'A') || (threeTrackAppearances[tempSetId] && threeTrackAppearances[tempSetId].title === line)) ? tempSetId : null;
-                } else if (mode === 'manual') {
-                    if (tempSetId === 'A') newCurrentParsingSetId = (frontRearSplit && line === originalTableAppearances.A.altTitle) || (!frontRearSplit && line === originalTableAppearances.A.title) ? 'A' : null;
-                    else if (tempSetId === 'B' && line === originalTableAppearances.B.title) newCurrentParsingSetId = 'B';
-                    else if (tempSetId === 'C') newCurrentParsingSetId = (sideSplit && line === originalTableAppearances.C.altTitle) || (!sideSplit && line === originalTableAppearances.C.title) ? 'C' : null;
-                    else if (tempSetId === 'D' && sideSplit && line === originalTableAppearances.D.title) newCurrentParsingSetId = 'D';
-                    else if (tempSetId === 'E' && frontRearSplit && line === originalTableAppearances.E.title) newCurrentParsingSetId = 'E';
-                } else if (mode === 'smart') {
-                    newCurrentParsingSetId = (tempSetId === 'A' || tempSetId === 'B' || tempSetId === 'C') && originalTableAppearances[tempSetId] && line === originalTableAppearances[tempSetId].title ? tempSetId : null;
-                }
+                function processImportLineAsTableTitle(line, mode, sideSplitActive, frontRearSeparateActive) {
+                    let matchedSetId = null;
+                    const trimmedLine = line.trim(); // Match against trimmed line
 
-                if (newCurrentParsingSetId) {
-                    console.log(`Title matched: "${line}" to setId: ${newCurrentParsingSetId}`);
-                } else {
-                    console.warn(`Title "${line}" NOT matched for mode ${mode}, sideSplit ${sideSplit}, frontRearSplit ${frontRearSplit}`);
-                }
-                return newCurrentParsingSetId;
-            }
-
-            // Reset current table data before import
-            ['A', 'B', 'C', 'D', 'E'].forEach(id => {
-                if (tableSettings[id]) {
-                    tableSettings[id].data = [];
-                    tableSettings[id].insertsData = [];
-                    tableSettings[id].hasInserts = false;
-                    // Default visibility, will be overridden if specified in file
-                    tableSettings[id].isVisibleInSmartManual = (id !== 'D' && id !== 'E');
-                }
-            });
-
-            let importedIsSideBlindSplit = false;
-            let importedIsFrontRearSeparate = false;
-            let parsedListName = "";
-            let parsedBlindMode = "";
-            let parsedThreeTrackIdentical = null; // null indicates not yet parsed
-            let foundListName = false;
-            let foundBlindType = false;
-            let currentParsingSetId = null;
-            let parsingState = 'expectListName';
-            let parsingSmartInserts = false;
-
-            console.log("--- Starting .blind file import ---");
-
-            lines.forEach((lineText, lineIdx) => {
-                const line = lineText.trim();
-                // Allow empty lines within data sections, but not between metadata blocks typically
-                if (!line && lineIdx !== lines.length - 1 && parsingState !== 'expectDataRows' && parsingState !== 'expectTableTitle') return;
-
-                console.log(`L${lineIdx + 1} [State: ${parsingState}] Line: "${line}" (CurrentSetId: ${currentParsingSetId})`);
-
-                if (parsingState === 'expectListName') {
-                    if (line.startsWith("List Name:")) {
-                        parsedListName = line.substring("List Name:".length).trim();
-                        foundListName = true;
-                        parsingState = 'expectBlindType';
-                    } else if (line) { console.warn("Expected 'List Name:' not found. Line:", line); }
-                } else if (parsingState === 'expectBlindType') {
-                    if (line.startsWith("Blind Type:")) {
-                        const typeVal = line.substring("Blind Type:".length).trim().toLowerCase();
-                        if (typeVal.includes("smart")) parsedBlindMode = "smart";
-                        else if (typeVal.includes("manual")) parsedBlindMode = "manual";
-                        else if (typeVal.includes("3 track")) parsedBlindMode = "threeTrack";
-                        if (parsedBlindMode) foundBlindType = true;
-                        parsingState = 'expectModeSettingsOrTableTitle'; // Next, look for mode-specific settings or jump to table title
-                    } else if (line) { console.warn("Expected 'Blind Type:' not found. Line:", line); }
-                } else if (parsingState === 'expectModeSettingsOrTableTitle') {
-                    let consumedModeSetting = false;
-                    if (parsedBlindMode === 'threeTrack' && line.startsWith("Tracks Identical:")) {
-                        parsedThreeTrackIdentical = line.substring("Tracks Identical:".length).trim().toLowerCase() === 'yes';
-                        consumedModeSetting = true;
-                        parsingState = 'expectTableTitle'; // After this, only table titles for 3-track
-                    } else if (parsedBlindMode === 'manual') {
-                        if (line.startsWith("SideBlindSplit:")) {
-                            importedIsSideBlindSplit = line.substring("SideBlindSplit:".length).trim().toLowerCase() === 'yes';
-                            consumedModeSetting = true;
-                            // Stay in this state, FrontRearSeparate might be next for manual
-                        } else if (line.startsWith("FrontRearSeparate:")) {
-                            importedIsFrontRearSeparate = line.substring("FrontRearSeparate:".length).trim().toLowerCase() === 'yes';
-                            consumedModeSetting = true;
-                            parsingState = 'expectTableTitle'; // After this, only table titles for manual
-                        }
+                    if (mode === 'threeTrack') {
+                        if (threeTrackIdenticalAppearance.title === trimmedLine) matchedSetId = 'A';
+                        else { Object.keys(threeTrackAppearances).find(k => { if (threeTrackAppearances[k].title === trimmedLine) { matchedSetId = k; return true;} return false; }); }
+                    } else if (mode === 'manual') {
+                        if ((frontRearSeparateActive && originalTableAppearances.A.altTitle === trimmedLine) || (!frontRearSeparateActive && originalTableAppearances.A.title === trimmedLine)) matchedSetId = 'A';
+                        else if (originalTableAppearances.B.title === trimmedLine) matchedSetId = 'B';
+                        else if ((sideSplitActive && originalTableAppearances.C.altTitle === trimmedLine) || (!sideSplitActive && originalTableAppearances.C.title === trimmedLine)) matchedSetId = 'C';
+                        else if (sideSplitActive && originalTableAppearances.D.title === trimmedLine) matchedSetId = 'D';
+                        else if (frontRearSeparateActive && originalTableAppearances.E.title === trimmedLine) matchedSetId = 'E';
+                    } else { // Smart
+                        Object.keys(originalTableAppearances).find(k => { if (originalTableAppearances[k].title === trimmedLine && (k==='A'||k==='B'||k==='C')) { matchedSetId = k; return true;} return false; });
                     }
+                    if (matchedSetId) console.log(`Title matched: "${trimmedLine}" to setId: ${matchedSetId}`);
+                    // else console.warn(`Title "${trimmedLine}" NOT matched for mode ${mode}, sideSplit ${sideSplitActive}, frontRearSeparate ${frontRearSeparateActive}`);
+                    return matchedSetId;
+                }
 
-                    if (!consumedModeSetting) { // If no mode-specific setting was consumed, this line should be a table title or empty
-                        parsingState = 'expectTableTitle'; // Advance state regardless
-                        // Now, let the 'expectTableTitle' state handle the current line
+
+                ['A', 'B', 'C', 'D', 'E'].forEach(id => {
+                    if (tableSettings[id]) {
+                        tableSettings[id].data = []; tableSettings[id].insertsData = [];
+                        tableSettings[id].hasInserts = false;
+                        tableSettings[id].isVisibleInSmartManual = (id !== 'D' && id !== 'E');
+                    }
+                });
+
+                let importedIsSideBlindSplit = false, importedIsFrontRearSeparate = false;
+                let parsedListName = "", parsedBlindMode = "", parsedThreeTrackIdentical = null;
+                let foundListName = false, foundBlindType = false;
+                let currentParsingSetId = null;
+                let parsingState = 'expectListName';
+                let parsingSmartInserts = false;
+
+                console.log("--- Starting .blind file import ---");
+
+                lines.forEach((lineText, lineIdx) => {
+                    const line = lineText.trim();
+                    if (!line && lineIdx !== lines.length - 1 && parsingState !== 'expectDataRows' && parsingState !== 'expectTableTitle') return;
+                    // console.log(`L${lineIdx + 1} [State: ${parsingState}] Line: "${line}" (CurrentSetId: ${currentParsingSetId}, SBS: ${importedIsSideBlindSplit})`);
+
+                    if (parsingState === 'expectListName') {
+                        if (line.startsWith("List Name:")) { parsedListName = line.substring("List Name:".length).trim(); foundListName = true; parsingState = 'expectBlindType'; }
+                        // else if (line) console.warn("L" + (lineIdx+1) + " Expected 'List Name:'");
+                    } else if (parsingState === 'expectBlindType') {
+                        if (line.startsWith("Blind Type:")) {
+                            const typeVal = line.substring("Blind Type:".length).trim().toLowerCase();
+                            if (typeVal.includes("smart")) parsedBlindMode = "smart";
+                            else if (typeVal.includes("manual")) parsedBlindMode = "manual";
+                            else if (typeVal.includes("3 track")) parsedBlindMode = "threeTrack";
+                            if (parsedBlindMode) foundBlindType = true;
+                            parsingState = 'expectModeSettingsOrTableTitle';
+                        } // else if (line) console.warn("L" + (lineIdx+1) + " Expected 'Blind Type:'");
+                    } else if (parsingState === 'expectModeSettingsOrTableTitle') {
+                        let consumedModeSetting = false;
+                        if (parsedBlindMode === 'threeTrack' && line.startsWith("Tracks Identical:")) { parsedThreeTrackIdentical = line.substring("Tracks Identical:".length).trim().toLowerCase() === 'yes'; consumedModeSetting = true; parsingState = 'expectTableTitle'; }
+                        else if (parsedBlindMode === 'manual') {
+                            if (line.startsWith("SideBlindSplit:")) { importedIsSideBlindSplit = line.substring("SideBlindSplit:".length).trim().toLowerCase() === 'yes'; consumedModeSetting = true; /* Stay, might be FrontRearSeparate next */ }
+                            else if (line.startsWith("FrontRearSeparate:")) { importedIsFrontRearSeparate = line.substring("FrontRearSeparate:".length).trim().toLowerCase() === 'yes'; consumedModeSetting = true; parsingState = 'expectTableTitle'; }
+                        }
+                        if (!consumedModeSetting) { // Must be a table title or empty line
+                            parsingState = 'expectTableTitle'; // Fall through to next state for this line
+                            const setIdFound = processImportLineAsTableTitle(line, parsedBlindMode, importedIsSideBlindSplit, importedIsFrontRearSeparate);
+                            if (setIdFound) { currentParsingSetId = setIdFound; parsingState = 'expectInsertsAdded'; if (!tableSettings[currentParsingSetId]) tableSettings[currentParsingSetId] = { data: [], insertsData: [], hasInserts: false, isVisibleInSmartManual: true }; }
+                            // else if (line) console.warn("L" + (lineIdx+1) + " Expected table title or mode setting:", line);
+                        }
+                    } else if (parsingState === 'expectTableTitle') {
                         const setIdFound = processImportLineAsTableTitle(line, parsedBlindMode, importedIsSideBlindSplit, importedIsFrontRearSeparate);
-                        if (setIdFound) {
-                            currentParsingSetId = setIdFound;
-                            parsingState = 'expectInsertsAdded';
-                            if (!tableSettings[currentParsingSetId]) tableSettings[currentParsingSetId] = { data: [], insertsData: [], hasInserts: false, isVisibleInSmartManual: true };
-                        } else if (line) { // Only warn if the line was not empty and not a title
-                            console.warn("Unexpected line after mode settings (expected table title or empty line):", line);
-                        }
-                    }
-                } else if (parsingState === 'expectTableTitle') {
-                    const setIdFound = processImportLineAsTableTitle(line, parsedBlindMode, importedIsSideBlindSplit, importedIsFrontRearSeparate);
-                    if (setIdFound) {
-                        currentParsingSetId = setIdFound;
-                        parsingState = 'expectInsertsAdded';
-                        if (!tableSettings[currentParsingSetId]) tableSettings[currentParsingSetId] = { data: [], insertsData: [], hasInserts: false, isVisibleInSmartManual: true };
-                    } else if (line) { // Only warn if line is not empty and not a title
-                        console.warn("Unexpected line, expected table title or empty line:", line);
-                         // If we encounter unexpected non-empty lines here, it might be better to stop or revert to a known state.
-                         // For now, it will just skip them and look for the next valid title.
-                    }
-                } else if (currentParsingSetId && tableSettings[currentParsingSetId]) { // Processing a specific table's content
-                    if (parsingState === 'expectInsertsAdded' && line.startsWith("Inserts Added:")) {
-                        tableSettings[currentParsingSetId].hasInserts = (line.substring("Inserts Added:".length).trim().toLowerCase() === 'yes');
-                        parsingState = 'expectTableVisibleOrDataHeader';
-                    } else if (parsingState === 'expectTableVisibleOrDataHeader') {
-                        if ((parsedBlindMode === 'manual' || parsedBlindMode === 'smart') && line.startsWith("TableVisible:")) {
-                            tempImportedTableVisibility[currentParsingSetId] = line.substring("TableVisible:".length).trim().toLowerCase() === 'yes';
-                            parsingState = 'expectDataHeader'; // After TableVisible, we MUST expect the "No." header
-                        } else if (line.toUpperCase().startsWith("NO.,")) { // Header for data rows
-                            parsingState = 'expectDataRows';
-                            parsingSmartInserts = false; // Reset for each new table data section
-                            console.log(`Data header found for ${currentParsingSetId}.`);
-                        } else if (line) {
-                            console.warn(`Expected "TableVisible:" or "No.," for table ${currentParsingSetId} but found: "${line}". Resetting to expect new table title.`);
-                            parsingState = 'expectTableTitle'; currentParsingSetId = null; parsingSmartInserts = false;
-                        }
-                    } else if (parsingState === 'expectDataHeader' && line.toUpperCase().startsWith("NO.,")) {
-                         parsingState = 'expectDataRows';
-                         parsingSmartInserts = false;
-                         console.log(`Data header found for ${currentParsingSetId} after TableVisible.`);
-                    } else if (parsingState === 'expectDataRows') {
-                        if (line === SMART_INSERT_SEPARATOR_TEXT && parsedBlindMode === 'smart' && tableSettings[currentParsingSetId].hasInserts) {
-                            parsingSmartInserts = true;
-                        } else {
-                            const parts = line.split(',');
-                            const noValFromFile = parts.length > 0 ? parts[0].trim() : "";
-                            // Join remaining parts for value, then replace escaped newlines
-                            const itemValueFromFile = parts.length > 1 ? parts.slice(1).join(',').trim().replace(/\\n/g, '\n') : "";
-
-                            if (parsedBlindMode === 'smart' && noValFromFile === SMART_DELIMITER_511_NUM && itemValueFromFile === SMART_DELIMITER_511_DISPLAY_TEXT) {
-                                console.log(`End delimiter found for smart table ${currentParsingSetId}.`);
-                                parsingState = 'expectTableTitle'; currentParsingSetId = null; parsingSmartInserts = false;
-                            } else if (parsedBlindMode === 'smart' && noValFromFile === SMART_DELIMITER_0_NUM && itemValueFromFile === SMART_DELIMITER_0_DISPLAY_TEXT) {
-                                // Smartblind start delimiter, just ignore
-                            } else if (noValFromFile !== "" || itemValueFromFile !== "") { // Process if line has content
-                                const newItem = { id: generateUUID(), value: itemValueFromFile, type: 'main' }; // Default to 'main'
-                                if (parsedBlindMode === 'smart') {
-                                    if (parsingSmartInserts) {
-                                        tableSettings[currentParsingSetId].insertsData.push(newItem);
-                                    } else {
-                                        tableSettings[currentParsingSetId].data.push(newItem);
-                                    }
-                                } else { // Manual or 3 Track - parse insert types
-                                    if (itemValueFromFile.toLowerCase().endsWith(" (insert)")) {
-                                        newItem.value = itemValueFromFile.substring(0, itemValueFromFile.length - " (insert)".length).trim();
-                                        newItem.type = 'insert';
-                                        if (/^[A-Z]$/.test(noValFromFile)) newItem.insertSubtype = 'top';
-                                        else if (/^\d+[A-Z]$/.test(noValFromFile)) { newItem.insertSubtype = 'middle'; newItem.parentMainItemNumber = parseInt(noValFromFile.match(/\d+/)[0], 10); }
-                                        else if (/^\d+$/.test(noValFromFile)) newItem.insertSubtype = 'continuous_end'; // For inserts numbered like main items
-                                        else newItem.insertSubtype = 'middle'; // Default insert subtype if not top or specific middle
-                                    }
-                                    tableSettings[currentParsingSetId].data.push(newItem); // All manual/3track items go into main .data array
-                                }
-                                console.log("Pushed item to:", currentParsingSetId, "SmartInserts:", parsingSmartInserts, "Item:", JSON.stringify(newItem));
-                            } else if (line.trim() === "" && currentParsingSetId) { // Empty line typically ends a data section
-                                console.log(`Empty line in data for ${currentParsingSetId}, moving to expect next TableTitle.`);
-                                parsingState = 'expectTableTitle'; currentParsingSetId = null; parsingSmartInserts = false;
+                        if (setIdFound) { currentParsingSetId = setIdFound; parsingState = 'expectInsertsAdded'; if (!tableSettings[currentParsingSetId]) tableSettings[currentParsingSetId] = { data: [], insertsData: [], hasInserts: false, isVisibleInSmartManual: true }; }
+                        // else if (line) console.warn("L" + (lineIdx+1) + " Expected table title:", line);
+                    } else if (currentParsingSetId && tableSettings[currentParsingSetId]) {
+                        if (parsingState === 'expectInsertsAdded' && line.startsWith("Inserts Added:")) { tableSettings[currentParsingSetId].hasInserts = (line.substring("Inserts Added:".length).trim().toLowerCase() === 'yes'); parsingState = 'expectTableVisibleOrDataHeader'; }
+                        else if (parsingState === 'expectTableVisibleOrDataHeader') {
+                            if ((parsedBlindMode === 'manual' || parsedBlindMode === 'smart') && line.startsWith("TableVisible:")) { tempImportedTableVisibility[currentParsingSetId] = line.substring("TableVisible:".length).trim().toLowerCase() === 'yes'; parsingState = 'expectDataHeader'; }
+                            else if (line.toUpperCase().startsWith("NO.,")) { parsingState = 'expectDataRows'; parsingSmartInserts = false; }
+                            // else if (line) { console.warn(`L${lineIdx+1} Expected "TableVisible:" or "No.," for ${currentParsingSetId}, found: "${line}". Resetting.`); parsingState = 'expectTableTitle'; currentParsingSetId = null; }
+                        } else if (parsingState === 'expectDataHeader' && line.toUpperCase().startsWith("NO.,")) { parsingState = 'expectDataRows'; parsingSmartInserts = false; }
+                        else if (parsingState === 'expectDataRows') {
+                            if (line === SMART_INSERT_SEPARATOR_TEXT && parsedBlindMode === 'smart' && tableSettings[currentParsingSetId].hasInserts) { parsingSmartInserts = true; }
+                            else {
+                                const parts = line.split(','); const noVal = parts.length > 0 ? parts[0].trim() : ""; const val = parts.length > 1 ? parts.slice(1).join(',').trim().replace(/\\n/g, '\n') : "";
+                                if (parsedBlindMode === 'smart' && noVal === SMART_DELIMITER_511_NUM && val === SMART_DELIMITER_511_DISPLAY_TEXT) { parsingState = 'expectTableTitle'; currentParsingSetId = null; parsingSmartInserts = false; }
+                                else if (parsedBlindMode === 'smart' && noVal === SMART_DELIMITER_0_NUM && val === SMART_DELIMITER_0_DISPLAY_TEXT) { /* Ignore */ }
+                                else if (noVal !== "" || val !== "") {
+                                    const newItem = { id: generateUUID(), value: val, type: 'main' };
+                                    if (parsedBlindMode === 'smart') { if (parsingSmartInserts) tableSettings[currentParsingSetId].insertsData.push(newItem); else tableSettings[currentParsingSetId].data.push(newItem); }
+                                    else { if (val.toLowerCase().endsWith(" (insert)")) { newItem.value = val.substring(0, val.length - " (insert)".length).trim(); newItem.type = 'insert'; if (/^[A-Z]$/.test(noVal)) newItem.insertSubtype = 'top'; else if (/^\d+[A-Z]$/.test(noVal)) { newItem.insertSubtype = 'middle'; newItem.parentMainItemNumber = parseInt(noVal.match(/\d+/)[0], 10); } else if (/^\d+$/.test(noVal)) newItem.insertSubtype = 'continuous_end'; else newItem.insertSubtype = 'middle'; } tableSettings[currentParsingSetId].data.push(newItem); }
+                                    // console.log("Pushed:", currentParsingSetId, JSON.stringify(newItem));
+                                } else if (line.trim() === "" && currentParsingSetId) { parsingState = 'expectTableTitle'; currentParsingSetId = null; parsingSmartInserts = false; }
                             }
                         }
-                    }
-                } else if (line) { // Line has content but we are not in a state to process it, or currentParsingSetId is null
-                    console.warn(`Unhandled line: "${line}" in global parsing state: ${parsingState} or no current table context.`);
+                    } // else if (line) console.warn("L" + (lineIdx+1) + " Unhandled line in parsing:", line);
+                });
+
+                if (!foundListName || !foundBlindType) throw new Error("Essential metadata (List Name or Blind Type) missing or invalid.");
+                document.getElementById('listNameInput').value = parsedListName;
+
+                // Apply parsed global states
+                currentBlindMode = parsedBlindMode;
+                if (parsedBlindMode === 'threeTrack') threeTrackIsIdentical = parsedThreeTrackIdentical !== null ? parsedThreeTrackIdentical : true;
+                if (parsedBlindMode === 'manual') { isSideBlindSplit = importedIsSideBlindSplit; isFrontRearSeparate = importedIsFrontRearSeparate; }
+                else { isSideBlindSplit = false; isFrontRearSeparate = false; } // Reset if not manual
+
+                updateBlindMode(currentBlindMode, true); // Update general mode UI, skip its internal rendering
+
+                // Set main mode radio
+                const modeRadio = document.querySelector(`input[name="blindMode"][value="${currentBlindMode}"]`);
+                if (modeRadio) modeRadio.checked = true;
+
+                // Set mode-specific control checkboxes and call their handlers
+                if (currentBlindMode === 'threeTrack') {
+                    const tiCheckbox = document.getElementById('threeTrackIdentical');
+                    if (tiCheckbox) tiCheckbox.checked = threeTrackIsIdentical;
+                    handleThreeTrackIdenticalToggle(threeTrackIsIdentical);
                 }
-            }); // End lines.forEach
+                if (currentBlindMode === 'manual') {
+                    const sbsCheckbox = document.getElementById('isSideBlindSplitCheckbox');
+                    if (sbsCheckbox) sbsCheckbox.checked = isSideBlindSplit; // Set checkbox state
+                    handleSideBlindSplitToggle(isSideBlindSplit, true);     // Then call handler
 
-            console.log("--- Import Parsing Final Values ---");
-            console.log("Parsed List Name:", parsedListName, "Mode:", parsedBlindMode, "3TIdentical:", parsedThreeTrackIdentical, "SideSplit:", importedIsSideBlindSplit, "FrontRearSeparate:", importedIsFrontRearSeparate);
-            ['A','B','C','D','E'].forEach(s => console.log(`Table ${s} settings:`, tableSettings[s] ? `Data: ${tableSettings[s].data.length}, Inserts: ${tableSettings[s].insertsData.length}, HasInserts: ${tableSettings[s].hasInserts}, Visible: ${tableSettings[s].isVisibleInSmartManual}` : 'N/A'));
+                    const frsCheckbox = document.getElementById('isFrontRearSeparateCheckbox');
+                    if (frsCheckbox) frsCheckbox.checked = isFrontRearSeparate;
+                    handleFrontRearSeparateToggle(isFrontRearSeparate, true);
+                }
 
-            if (!foundListName || !foundBlindType) {
-                throw new Error("Essential metadata (List Name or Blind Type) missing or invalid in the imported file. Import cannot proceed.");
-            }
+                // Apply table-specific settings (hasInserts, visibility)
+                ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
+                    if (tableSettings[setId]) {
+                        const hasInsertsChk = document.getElementById(`hasInserts${setId}`);
+                        if (hasInsertsChk) hasInsertsChk.checked = tableSettings[setId].hasInserts;
+                        handleInsertToggle(setId, tableSettings[setId].hasInserts, true);
 
-            // --- Apply Parsed State to Application ---
-            document.getElementById('listNameInput').value = parsedListName;
-            // currentBlindMode is already set by the parser if foundBlindType is true.
-
-            if (parsedBlindMode === 'threeTrack') {
-                threeTrackIsIdentical = parsedThreeTrackIdentical !== null ? parsedThreeTrackIdentical : true; // Default to true if not specified
-            }
-            if (parsedBlindMode === 'manual') {
-                isSideBlindSplit = importedIsSideBlindSplit;
-                isFrontRearSeparate = importedIsFrontRearSeparate;
-            } else { // Reset for smart or if switching away from manual
-                isSideBlindSplit = false;
-                isFrontRearSeparate = false;
-            }
-
-            // Update the UI to reflect the new mode and its settings.
-            // Pass `true` to skip default data initialization and initial rendering within updateBlindMode.
-            updateBlindMode(parsedBlindMode, true);
-
-            // Explicitly set the radio button for the mode
-            const modeRadio = document.querySelector(`input[name="blindMode"][value="${parsedBlindMode}"]`);
-            if (modeRadio) modeRadio.checked = true;
-
-            // Explicitly set checkboxes for mode-specific controls based on parsed values
-            if (parsedBlindMode === 'threeTrack') {
-                const tiCheckbox = document.getElementById('threeTrackIdentical');
-                if (tiCheckbox) tiCheckbox.checked = threeTrackIsIdentical;
-            }
-            if (parsedBlindMode === 'manual') {
-                const sbsCheckbox = document.getElementById('isSideBlindSplitCheckbox');
-                if (sbsCheckbox) sbsCheckbox.checked = isSideBlindSplit;
-                const frsCheckbox = document.getElementById('isFrontRearSeparateCheckbox');
-                if (frsCheckbox) frsCheckbox.checked = isFrontRearSeparate;
-            }
-
-            // Apply parsed table-specific settings (hasInserts, isVisibleInSmartManual)
-            ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
-                if (tableSettings[setId]) {
-                    const hasInsertsCheckbox = document.getElementById(`hasInserts${setId}`);
-                    if (hasInsertsCheckbox) hasInsertsCheckbox.checked = tableSettings[setId].hasInserts;
-
-                    // Set isVisibleInSmartManual based on imported value or sensible defaults
-                    if (tempImportedTableVisibility.hasOwnProperty(setId)) {
-                        tableSettings[setId].isVisibleInSmartManual = tempImportedTableVisibility[setId];
-                    } else { // Default visibility logic if 'TableVisible:' line was missing from file
-                        if (parsedBlindMode === 'manual') {
-                            if (setId === 'D') tableSettings[setId].isVisibleInSmartManual = importedIsSideBlindSplit && (tableSettings[setId].data.length > 0 || (tableSettings[setId].hasInserts && tableSettings[setId].insertsData.length > 0));
-                            else if (setId === 'E') tableSettings[setId].isVisibleInSmartManual = importedIsFrontRearSeparate && (tableSettings[setId].data.length > 0 || (tableSettings[setId].hasInserts && tableSettings[setId].insertsData.length > 0));
-                            else tableSettings[setId].isVisibleInSmartManual = (setId !== 'D' && setId !== 'E'); // A,B,C default true for manual
-                        } else if (parsedBlindMode === 'smart') {
-                            tableSettings[setId].isVisibleInSmartManual = (setId !== 'D' && setId !== 'E'); // A,B,C default true for smart
-                        } else { // threeTrack
-                            tableSettings[setId].isVisibleInSmartManual = (setId !== 'D' && setId !== 'E'); // D & E not used in 3-track
+                        // Determine isVisibleInSmartManual from file or defaults
+                        if (tempImportedTableVisibility.hasOwnProperty(setId)) {
+                            tableSettings[setId].isVisibleInSmartManual = tempImportedTableVisibility[setId];
+                        } else {
+                            if (parsedBlindMode === 'manual') {
+                                if (setId === 'D') tableSettings[setId].isVisibleInSmartManual = importedIsSideBlindSplit && (tableSettings[setId].data.length > 0 || (tableSettings[setId].hasInserts && tableSettings[setId].insertsData.length > 0));
+                                else if (setId === 'E') tableSettings[setId].isVisibleInSmartManual = importedIsFrontRearSeparate && (tableSettings[setId].data.length > 0 || (tableSettings[setId].hasInserts && tableSettings[setId].insertsData.length > 0));
+                                else tableSettings[setId].isVisibleInSmartManual = (setId !== 'D' && setId !== 'E'); // Default A,B,C to true if they have content or are core
+                            } else if (parsedBlindMode === 'smart') {
+                                tableSettings[setId].isVisibleInSmartManual = (setId !== 'D' && setId !== 'E');
+                            } else { // 3-track
+                                tableSettings[setId].isVisibleInSmartManual = (setId !== 'D' && setId !== 'E');
+                            }
+                             // If table is empty and no visibility specified, default to not visible for D, E
+                            if ((setId === 'D' || setId === 'E') && tableSettings[setId].data.length === 0 && !tableSettings[setId].hasInserts && !tempImportedTableVisibility.hasOwnProperty(setId)) {
+                                tableSettings[setId].isVisibleInSmartManual = false;
+                            }
                         }
+                        const showTableChk = document.getElementById(`showTable${setId}`);
+                        if (showTableChk) showTableChk.checked = tableSettings[setId].isVisibleInSmartManual;
+                        // Visibility of table containers is handled by the final rendering pass below, after all states are set
                     }
-                    const showTableCheckbox = document.getElementById(`showTable${setId}`);
-                    if (showTableCheckbox) showTableCheckbox.checked = tableSettings[setId].isVisibleInSmartManual;
+                });
+                
+                updateTableAppearances(); // Update all text labels
+                
+                // Final rendering pass
+                ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
+                    if (tableSettings[setId]) {
+                        const tableContainer = document.getElementById(`table-container-${setId}`);
+                        let shouldBeVisible = false;
+                        if (currentBlindMode === 'threeTrack') {
+                            if (setId === 'A') shouldBeVisible = true;
+                            else if (setId === 'B' || setId === 'C') shouldBeVisible = !threeTrackIsIdentical;
+                        } else if (currentBlindMode === 'manual') {
+                            if (setId === 'D') shouldBeVisible = isSideBlindSplit && tableSettings.D.isVisibleInSmartManual;
+                            else if (setId === 'E') shouldBeVisible = isFrontRearSeparate && tableSettings.E.isVisibleInSmartManual;
+                            else shouldBeVisible = tableSettings[setId].isVisibleInSmartManual;
+                        } else { // Smart Mode
+                            shouldBeVisible = (setId !== 'D' && setId !== 'E') && tableSettings[setId].isVisibleInSmartManual;
+                        }
+                        if (tableContainer) tableContainer.style.display = shouldBeVisible ? 'block' : 'none';
+                        if (shouldBeVisible) renderTable(setId);
+                    }
+                });
 
-                    // Update insert UI based on parsed hasInserts state
-                    handleInsertToggle(setId, tableSettings[setId].hasInserts, true); // true for calledDuringSync
-                }
-            });
+                alert(".blind file data imported successfully!");
+                saveStateToSessionStorage();
 
-            // After individual states are set, call higher-level UI refreshers
-            // These functions also handle visibility of table containers based on global state.
-            if (parsedBlindMode === 'threeTrack') {
-                handleThreeTrackIdenticalToggle(threeTrackIsIdentical);
-            } else if (parsedBlindMode === 'manual') {
-                handleSideBlindSplitToggle(isSideBlindSplit);
-                handleFrontRearSeparateToggle(isFrontRearSeparate);
+            } catch (error) {
+                console.error("Import Error:", error);
+                alert("Import failed: " + error.message + "\nPlease ensure the file is valid. Application will try to revert to previous state.");
+                loadStateFromSessionStorage(); // Attempt to revert
+                updateBlindMode(currentBlindMode, false); // Re-render based on (reverted) state
+            } finally {
+                event.target.value = null;
             }
+        };
+        reader.onerror = function() { alert("Could not read file."); event.target.value = null; };
+        reader.readAsText(file);
+    }
 
-            // Final pass: update all table appearances (titles, headers) and render visible tables.
-            updateTableAppearances();
-            ['A', 'B', 'C', 'D', 'E'].forEach(setId => {
-                if (tableSettings[setId]) {
-                    // Check if the table *container* is supposed to be visible
-                    const tableContainer = document.getElementById(`table-container-${setId}`);
-                    let shouldBeVisible = false;
-                    if (parsedBlindMode === 'threeTrack') {
-                        if (setId === 'A') shouldBeVisible = true;
-                        else if (setId === 'B' || setId === 'C') shouldBeVisible = !threeTrackIsIdentical;
-                    } else if (parsedBlindMode === 'manual') {
-                        if (setId === 'D') shouldBeVisible = isSideBlindSplit && tableSettings[setId].isVisibleInSmartManual;
-                        else if (setId === 'E') shouldBeVisible = isFrontRearSeparate && tableSettings[setId].isVisibleInSmartManual;
-                        else shouldBeVisible = tableSettings[setId].isVisibleInSmartManual; // For A, B, C
-                    } else { // Smart Mode
-                         shouldBeVisible = (setId !== 'D' && setId !== 'E') && tableSettings[setId].isVisibleInSmartManual;
-                    }
-
-                    if (tableContainer) tableContainer.style.display = shouldBeVisible ? 'block' : 'none';
-
-                    if (shouldBeVisible) {
-                        renderTable(setId); // This will also initialize sortables
-                    } else { // If table is not visible, ensure its body is empty
-                        const tableBodyClear = document.getElementById(`table-body-${setId}`); if(tableBodyClear) tableBodyClear.innerHTML = '';
-                        const insertsTableBodyClear = document.getElementById(`table-body-inserts-${setId}`); if(insertsTableBodyClear) insertsTableBodyClear.innerHTML = '';
-                    }
-                }
-            });
-
-            alert(".blind file data imported successfully!");
-            saveStateToSessionStorage();
-
-        } catch (error) {
-            console.error("Import Error:", error);
-            alert("Import failed: " + error.message + "\nPlease ensure the file is a valid .blind file and try again. The application will attempt to revert to its previous state.");
-            // Attempt to revert to a known good state by reloading from session storage.
-            // This is a simple revert; a more robust one would deep-copy state before import.
-            loadStateFromSessionStorage(); // Reload previous valid state
-            updateBlindMode(currentBlindMode, false); // Re-render based on (potentially reverted) currentBlindMode
-            // The above calls should refresh the UI to the pre-import state.
-        } finally {
-            event.target.value = null; // Clear the file input in all cases
-        }
-    };
-    reader.onerror = function() {
-        alert("Could not read file. Please ensure the file is accessible and not corrupted.");
-        event.target.value = null;
-    };
-    reader.readAsText(file);
-}
 </script>
 </body>
 </html>

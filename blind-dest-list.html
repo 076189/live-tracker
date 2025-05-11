@@ -1618,225 +1618,298 @@
 
     // --- .blind Text File Import Functionality ---
     function importFromBLIND(event) {
-        const file = event.target.files[0];
-        if (!file) {
-            return;
-        }
+    const file = event.target.files[0];
+    if (!file) {
+        return;
+    }
 
-        if (!confirm("Importing this .blind file will overwrite any current data in the tables. Are you sure you want to proceed?")) {
-            event.target.value = null; 
-            return;
-        }
+    if (!confirm("Importing this .blind file will overwrite any current data in the tables. Are you sure you want to proceed?")) {
+        event.target.value = null; // Clear the file input if user cancels
+        return;
+    }
 
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const fileContent = e.target.result;
-            try {
-                const lines = fileContent.split(/\r\n|\n/); 
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const fileContent = e.target.result;
+        try {
+            const lines = fileContent.split(/\r\n|\n/);
 
-                ['A', 'B', 'C'].forEach(id => {
-                    tableSettings[id].data = [];
-                    tableSettings[id].insertsData = [];
-                    tableSettings[id].hasInserts = false;
-                    document.getElementById(`hasInserts${id}`).checked = false;
-                });
-                
-                let newListName = "";
-                let importedBlindMode = currentBlindMode; 
-                let importedThreeTrackIdentical = threeTrackIsIdentical;
-                let currentParsingSetId = null;
-                let parsingSmartInserts = false;
-                let isNextLineDataHeader = false;
-                let isInsideTableDataSection = false; 
+            // --- Step 1: Clear current data structures ---
+            // This ensures that if the import fails partway, we don't have mixed data.
+            ['A', 'B', 'C'].forEach(id => {
+                tableSettings[id].data = [];
+                tableSettings[id].insertsData = [];
+                tableSettings[id].hasInserts = false;
+                // document.getElementById(`hasInserts${id}`).checked = false; // UI will be synced later
+                // isVisibleInSmartManual will be determined by imported data or mode
+            });
 
-                console.log("--- Starting .blind file import process ---");
+            // --- Step 2: Initialize parsing state and success flags ---
+            let parsedListName = "";
+            let parsedBlindMode = ""; // Will be 'smart', 'manual', or 'threeTrack'
+            let parsedThreeTrackIdentical = null; // boolean for threeTrack mode, null if not set or not applicable
 
-                lines.forEach((line, lineIndex) => {
-                    line = line.trim();
-                    console.log(`L${lineIndex + 1}: Processing: "${line}" | currentSetId: ${currentParsingSetId} | insideData: ${isInsideTableDataSection} | nextIsHeader: ${isNextLineDataHeader} | parsingSmartInserts: ${parsingSmartInserts}`);
+            let foundListName = false;
+            let foundBlindType = false;
+            let foundTracksIdenticalSetting = false; // Specifically for 3-track
+            let foundAtLeastOneValidTableStructure = false; // Found "No.," header for any table
+            let foundAtLeastOneDataRowInAnyTable = false;   // Parsed at least one data row
+
+            let currentParsingSetId = null; // 'A', 'B', or 'C'
+            let isInsideTableDataSection = false;
+            let isNextLineDataHeader = false; // Flag to indicate the next line should be the "No.,..." header
+            let parsingSmartInserts = false;  // Flag for Smartblind inserts section
+
+            console.log("--- Starting .blind file import process ---");
+
+            // --- Step 3: Parse the file content line by line ---
+            lines.forEach((line, lineIndex) => {
+                line = line.trim();
+                // console.log(`L${lineIndex + 1}: Processing: "${line}" | currentSetId: ${currentParsingSetId} | insideData: ${isInsideTableDataSection} | nextIsHeader: ${isNextLineDataHeader} | parsingSmartInserts: ${parsingSmartInserts}`);
+
+                if (!line && lineIndex !== lines.length - 1) {
+                    return; // Skip empty lines unless it's the very last line (which might just be a final newline)
+                }
+
+                if (line.startsWith("List Name:")) {
+                    parsedListName = line.substring("List Name:".length).trim();
+                    foundListName = true;
+                    // Reset table-specific parsing state when a new metadata block starts
+                    currentParsingSetId = null; isInsideTableDataSection = false; isNextLineDataHeader = false; parsingSmartInserts = false;
+                } else if (line.startsWith("Blind Type:")) {
+                    const typeValue = line.substring("Blind Type:".length).trim().toLowerCase();
+                    if (typeValue.includes("smartblind")) parsedBlindMode = 'smart';
+                    else if (typeValue.includes("manual blind")) parsedBlindMode = 'manual';
+                    else if (typeValue.includes("3 track")) parsedBlindMode = 'threeTrack';
                     
-                    if (!line && lineIndex !== lines.length -1) { 
-                        console.log(`L${lineIndex + 1}: Skipping empty line`);
-                        return; 
+                    if (parsedBlindMode) foundBlindType = true;
+                    currentParsingSetId = null; isInsideTableDataSection = false; isNextLineDataHeader = false; parsingSmartInserts = false;
+                } else if (line.startsWith("Tracks Identical:")) {
+                    // This line is only meaningful if parsedBlindMode is already 'threeTrack'
+                    if (parsedBlindMode === 'threeTrack') {
+                        parsedThreeTrackIdentical = line.substring("Tracks Identical:".length).trim().toLowerCase() === 'yes';
+                        foundTracksIdenticalSetting = true;
+                    }
+                    currentParsingSetId = null; isInsideTableDataSection = false; isNextLineDataHeader = false; parsingSmartInserts = false;
+                }
+                // Table Title Identification Logic
+                else if (Object.values(originalTableAppearances).map(v => v.title).includes(line) ||
+                         Object.values(threeTrackAppearances).map(v => v.title).includes(line) ||
+                         threeTrackIdenticalAppearance.title === line) {
+                    
+                    let tempSetId = null;
+                    if (threeTrackIdenticalAppearance.title === line) {
+                        tempSetId = 'A'; // "All Three Track Blinds" always maps to table 'A' data structure
+                    } else {
+                        tempSetId = Object.keys(originalTableAppearances).find(k => originalTableAppearances[k].title === line) ||
+                                    Object.keys(threeTrackAppearances).find(k => threeTrackAppearances[k].title === line);
                     }
 
-                    if (line.startsWith("List Name:")) {
-                        newListName = line.substring("List Name:".length).trim();
-                        document.getElementById('listNameInput').value = newListName;
-                        isInsideTableDataSection = false; currentParsingSetId = null; isNextLineDataHeader = false;
-                        console.log(`   -> Parsed List Name: ${newListName}`);
-                    } else if (line.startsWith("Blind Type:")) {
-                        const typeValue = line.substring("Blind Type:".length).trim().toLowerCase();
-                        if (typeValue.includes("smartblind")) importedBlindMode = 'smart';
-                        else if (typeValue.includes("manual blind")) importedBlindMode = 'manual';
-                        else if (typeValue.includes("3 track")) importedBlindMode = 'threeTrack';
-                        isInsideTableDataSection = false; currentParsingSetId = null; isNextLineDataHeader = false;
-                        console.log(`   -> Parsed Blind Type: ${importedBlindMode}`);
-                    } else if (line.startsWith("Tracks Identical:")) {
-                        importedThreeTrackIdentical = line.substring("Tracks Identical:".length).trim().toLowerCase() === 'yes';
-                        isInsideTableDataSection = false; 
-                        console.log(`   -> Parsed Tracks Identical: ${importedThreeTrackIdentical}`);
-                    } 
-                    else if (Object.values(originalTableAppearances).map(v => v.title).includes(line) || 
-                               Object.values(threeTrackAppearances).map(v => v.title).includes(line) || 
-                               threeTrackIdenticalAppearance.title === line) {
-                        
-                        currentParsingSetId = Object.keys(originalTableAppearances).find(k => originalTableAppearances[k].title === line) ||
-                                            Object.keys(threeTrackAppearances).find(k => threeTrackAppearances[k].title === line);
-                        if (threeTrackIdenticalAppearance.title === line) currentParsingSetId = 'A';
+                    currentParsingSetId = null; // Reset before attempting to set based on mode
 
-                        parsingSmartInserts = false; 
-                        if (currentParsingSetId) {
-                            tableSettings[currentParsingSetId].data = []; 
-                            tableSettings[currentParsingSetId].insertsData = [];
-                            console.log(`   -> Identified Table Title: "${line}", Parsing Set ID: ${currentParsingSetId}`);
-                        }
-                        isNextLineDataHeader = false; 
-                        isInsideTableDataSection = false;
-                    } else if (line.startsWith("Inserts Added:") && currentParsingSetId) {
-                        tableSettings[currentParsingSetId].hasInserts = (line.substring("Inserts Added:".length).trim().toLowerCase() === 'yes');
-                        document.getElementById(`hasInserts${currentParsingSetId}`).checked = tableSettings[currentParsingSetId].hasInserts;
-                        isNextLineDataHeader = true; 
-                        isInsideTableDataSection = false; 
-                        console.log(`   -> Table ${currentParsingSetId} - Inserts Added: ${tableSettings[currentParsingSetId].hasInserts}`);
-                    } else if (isNextLineDataHeader && currentParsingSetId) { 
-                        const parts = line.split(',');
-                        // console.log(`       [DEBUG] Header Check: Line="${line}", parts[0]="${parts[0] ? parts[0].trim() : 'undef'}"`);
-                        if (parts.length >= 1 && parts[0].trim() === "No.") { 
-                            isNextLineDataHeader = false; 
-                            isInsideTableDataSection = true; 
-                            console.log(`   -> Table ${currentParsingSetId} - Identified Header Row: "${line}". Now expecting data. isInsideTableDataSection = ${isInsideTableDataSection}`);
-                        } else {
-                            console.warn(`   -> WARNING: Expected header line starting with "No." for table ${currentParsingSetId} but found: "${line}". isNextLineDataHeader is still ${isNextLineDataHeader}.`);
-                        }
-                    } else if (line === SMART_INSERT_SEPARATOR_TEXT && importedBlindMode === 'smart' && currentParsingSetId && tableSettings[currentParsingSetId].hasInserts) {
-                        parsingSmartInserts = true;
-                        isInsideTableDataSection = true; 
-                        console.log(`   -> Table ${currentParsingSetId} - Switched to parsing SMART INSERTS. isInsideTableDataSection = ${isInsideTableDataSection}`);
-                    } 
-                    else if (currentParsingSetId && isInsideTableDataSection) { 
-                        // console.log(`   --> Attempting to parse as DATA ROW for table ${currentParsingSetId}. Line: "${line}"`);
-                        const parts = line.split(',');
-                        if (parts.length >= 2) { 
-                            const noVal = parts[0].trim();
-                            const itemValue = parts.slice(1).join(',').trim(); 
-                            
-                            if (importedBlindMode === 'smart' && 
-                                ((noVal === SMART_DELIMITER_0_NUM && itemValue === SMART_DELIMITER_0_DISPLAY_TEXT) ||
-                                 (noVal === SMART_DELIMITER_511_NUM && itemValue === SMART_DELIMITER_511_DISPLAY_TEXT))) {
-                                // console.log(`   -> Table ${currentParsingSetId} - Skipping delimiter row: ${line}`);
-                                if (noVal === SMART_DELIMITER_511_NUM) { 
-                                    isInsideTableDataSection = false; 
-                                    parsingSmartInserts = false;
-                                }
-                                return; 
+                    if (tempSetId && parsedBlindMode) { // parsedBlindMode must be known to correctly interpret table titles
+                        if (parsedBlindMode === 'threeTrack') {
+                            // For 3-track, parsedThreeTrackIdentical must be known (true or false)
+                            if (parsedThreeTrackIdentical === true && threeTrackIdenticalAppearance.title === line && tempSetId === 'A') {
+                                currentParsingSetId = 'A';
+                            } else if (parsedThreeTrackIdentical === false && threeTrackAppearances[tempSetId] && threeTrackAppearances[tempSetId].title === line) {
+                                currentParsingSetId = tempSetId;
                             }
-                            // console.log(`       ----> Successfully parsed and adding item: Label="${noVal}", Value="${itemValue}" to ${parsingSmartInserts ? 'insertsData' : 'data'}`);
+                        } else if (parsedBlindMode === 'smart' || parsedBlindMode === 'manual') {
+                            if (originalTableAppearances[tempSetId] && originalTableAppearances[tempSetId].title === line) {
+                                currentParsingSetId = tempSetId;
+                            }
+                        }
+                    }
 
+                    if (currentParsingSetId) {
+                        console.log(` Identified Table Title: "${line}", Parsing Set ID: ${currentParsingSetId} for mode ${parsedBlindMode}`);
+                        parsingSmartInserts = false;
+                        isNextLineDataHeader = false; // Expect "Inserts Added:" next for this table
+                        isInsideTableDataSection = false;
+                    } else {
+                        console.warn(`Table title "${line}" found, but it's not valid for the determined blind mode "${parsedBlindMode}" and identical status "${parsedThreeTrackIdentical}". Ignoring this section.`);
+                        isNextLineDataHeader = false; isInsideTableDataSection = false; parsingSmartInserts = false;
+                    }
+                } else if (line.startsWith("Inserts Added:") && currentParsingSetId) {
+                    tableSettings[currentParsingSetId].hasInserts = (line.substring("Inserts Added:".length).trim().toLowerCase() === 'yes');
+                    isNextLineDataHeader = true; // Now expect the "No.," data header
+                    isInsideTableDataSection = false;
+                } else if (isNextLineDataHeader && currentParsingSetId) {
+                    // This line should be the "No.,..." header
+                    const parts = line.split(',');
+                    if (parts.length >= 1 && parts[0].trim() === "No.") {
+                        isNextLineDataHeader = false;
+                        isInsideTableDataSection = true;
+                        foundAtLeastOneValidTableStructure = true;
+                    } else {
+                        console.warn(`Expected data header "No.,..." for table ${currentParsingSetId} but found: "${line}".`);
+                        // Potentially invalidate this table section or the import if strict
+                        isInsideTableDataSection = false; // Stop parsing data for this table if header is wrong
+                    }
+                } else if (line === SMART_INSERT_SEPARATOR_TEXT && parsedBlindMode === 'smart' && currentParsingSetId && tableSettings[currentParsingSetId].hasInserts) {
+                    parsingSmartInserts = true;
+                    isInsideTableDataSection = true; // Continue parsing data, but now for inserts
+                }
+                // Data Row Parsing Logic
+                else if (currentParsingSetId && isInsideTableDataSection) {
+                    const parts = line.split(',');
+                    if (parts.length >= 2) { // Need at least Number and Value
+                        const noVal = parts[0].trim();
+                        const itemValue = parts.slice(1).join(',').trim(); // Rejoin if value contained commas
+
+                        // Skip Smartblind delimiters if they appear as data rows
+                        if (parsedBlindMode === 'smart' &&
+                            ((noVal === SMART_DELIMITER_0_NUM && itemValue === SMART_DELIMITER_0_DISPLAY_TEXT) ||
+                             (noVal === SMART_DELIMITER_511_NUM && itemValue === SMART_DELIMITER_511_DISPLAY_TEXT))) {
+                            if (noVal === SMART_DELIMITER_511_NUM) { // End of a smartblind table section
+                                isInsideTableDataSection = false;
+                                parsingSmartInserts = false;
+                            }
+                            // Don't return from forEach, just skip adding this line
+                        } else {
                             const newItem = { id: generateUUID(), value: itemValue, type: 'main' };
 
-                            if (importedBlindMode === 'smart') {
+                            if (parsedBlindMode === 'smart') {
                                 if (parsingSmartInserts) {
                                     tableSettings[currentParsingSetId].insertsData.push(newItem);
                                 } else {
                                     tableSettings[currentParsingSetId].data.push(newItem);
                                 }
-                            } else { 
+                            } else { // Manual or 3 Track - data goes into main .data array, type differentiates inserts
                                 if (itemValue.toLowerCase().endsWith(" (insert)")) {
                                     newItem.value = itemValue.substring(0, itemValue.length - " (insert)".length).trim();
                                     newItem.type = 'insert';
                                     const insertNoVal = noVal.trim();
-                                    if (/^[A-Z]$/.test(insertNoVal)) { 
+                                    if (/^[A-Z]$/.test(insertNoVal)) { // e.g., A, B, C
                                         newItem.insertSubtype = 'top';
-                                    } else if (/^\d+[A-Z]$/.test(insertNoVal)) { 
+                                    } else if (/^\d+[A-Z]$/.test(insertNoVal)) { // e.g., 1A, 12B
                                         newItem.insertSubtype = 'middle';
                                         newItem.parentMainItemNumber = parseInt(insertNoVal.match(/\d+/)[0], 10);
-                                    } else if (/^\d+$/.test(insertNoVal)){ 
-                                        newItem.insertSubtype = 'continuous_end';
+                                    } else if (/^\d+$/.test(insertNoVal)) { // e.g., 1, 2 (an insert that flows like main data)
+                                        newItem.insertSubtype = 'continuous_end'; // Will be numbered sequentially with main data
                                     } else {
-                                        newItem.insertSubtype = 'middle'; 
+                                        newItem.insertSubtype = 'middle'; // Default if format is unexpected
+                                        console.warn(`Unexpected insert number format "${insertNoVal}", defaulting subtype.`);
                                     }
                                 }
                                 tableSettings[currentParsingSetId].data.push(newItem);
                             }
-                        } else {
-                            // console.log(`   --> SKIPPED data line (not enough parts after split): "${line}"`);
+                            foundAtLeastOneDataRowInAnyTable = true;
                         }
-                    } else {
-                        // console.log(`   -> Line SKIPPED (no matching condition or not in data section): "${line}" (State: currentSetId=${currentParsingSetId}, insideData=${isInsideTableDataSection}, nextIsHeader=${isNextLineDataHeader})`);
+                    } else if (line.length > 0) { // Non-empty line that doesn't fit data structure
+                        console.warn(`Skipping malformed data line in table ${currentParsingSetId}: "${line}"`);
                     }
-                });
-
-                console.log("--- Finished parsing .blind file lines ---");
-                const loggableTableSettings = { A: {}, B: {}, C: {} };
-                for (const setId of ['A', 'B', 'C']) {
-                    loggableTableSettings[setId].data = tableSettings[setId].data;
-                    loggableTableSettings[setId].insertsData = tableSettings[setId].insertsData;
-                    loggableTableSettings[setId].hasInserts = tableSettings[setId].hasInserts;
+                } else if (line.length > 0) {
+                     console.log(`Skipping unhandled line: "${line}"`);
                 }
-                console.log("Final loggableTableSettings after import attempt:", loggableTableSettings);
+            }); // End of lines.forEach
 
+            console.log("--- Finished parsing .blind file lines ---");
 
-                updateBlindMode(importedBlindMode, true); 
-                
-                if (document.querySelector(`input[name="blindMode"][value="${importedBlindMode}"]`)) {
-                    document.querySelector(`input[name="blindMode"][value="${importedBlindMode}"]`).checked = true;
-                }
-                if(importedBlindMode === 'threeTrack'){
-                    document.getElementById('threeTrackIdentical').checked = importedThreeTrackIdentical;
-                }
+            // --- Step 4: Validate if parsing was truly successful ---
+            let importIsValid = foundListName && foundBlindType;
 
-                ['A', 'B', 'C'].forEach(setId => {
-                    const container = document.getElementById(`table-container-${setId}`);
-                    const checkbox = document.getElementById(`showTable${setId}`);
-                    let shouldBeVisible = false;
-
-                    if (importedBlindMode === 'threeTrack') {
-                        if (!importedThreeTrackIdentical) {
-                            shouldBeVisible = true;
-                        } else { 
-                            shouldBeVisible = (setId === 'A');
-                        }
-                    } else { 
-                        const hasDataForTable = tableSettings[setId].data.length > 0 || tableSettings[setId].insertsData.length > 0;
-                        shouldBeVisible = hasDataForTable ? true : tableSettings[setId].isVisibleInSmartManual;
-                        if (hasDataForTable) tableSettings[setId].isVisibleInSmartManual = true;
-                    }
-                    
-                    if(checkbox) checkbox.checked = shouldBeVisible;
-                    if(container) container.style.display = shouldBeVisible ? 'block' : 'none';
-                    tableSettings[setId].isVisibleInSmartManual = shouldBeVisible; 
-
-                    if (shouldBeVisible) {
-                         handleInsertToggle(setId, tableSettings[setId].hasInserts, true);
-                         renderTable(setId);
-                    } else { 
-                        const tableBody = document.getElementById(`table-body-${setId}`);
-                        if(tableBody) tableBody.innerHTML = '';
-                        const insertsTableBody = document.getElementById(`table-body-inserts-${setId}`);
-                        if(insertsTableBody) insertsTableBody.innerHTML = '';
-                    }
-                });
-                
-                if(importedBlindMode === 'threeTrack'){ 
-                     handleThreeTrackIdenticalToggle(importedThreeTrackIdentical);
-                }
-
-                alert(".blind file data imported successfully!");
-
-            } catch (error) {
-                console.error("Error processing .blind file:", error);
-                alert("Error processing .blind file. Please ensure it's a valid .blind file.\n" + error.message);
-            } finally {
-                event.target.value = null; 
+            if (parsedBlindMode === 'threeTrack' && !foundTracksIdenticalSetting) {
+                importIsValid = false;
+                console.warn("Import invalid: 3 Track mode specified in file, but 'Tracks Identical' line was missing.");
             }
-        };
-        reader.onerror = function() {
-            alert("Could not read the file. Please try again.");
-            event.target.value = null; 
-        };
-        reader.readAsText(file); 
-    }
+            
+            // If we have metadata, we also need some valid table structure or actual data rows
+            if (importIsValid && !foundAtLeastOneValidTableStructure && !foundAtLeastOneDataRowInAnyTable) {
+                 importIsValid = false;
+                 console.warn("Import invalid: File contained metadata (List Name, Blind Type) but no recognizable table structures or data rows.");
+            }
+            
+            if (!parsedBlindMode && foundListName) { // Found list name but not blind type
+                importIsValid = false;
+                console.warn("Import invalid: 'Blind Type' was missing or not recognized in the file.");
+            }
+
+
+            if (!importIsValid) {
+                throw new Error("File content does not match the expected .blind format, or essential information is missing.");
+            }
+
+            // --- Step 5: If valid, apply the parsed data and update UI ---
+            console.log("Import deemed valid. Applying settings...");
+            document.getElementById('listNameInput').value = parsedListName;
+            currentBlindMode = parsedBlindMode; // Update global currentBlindMode
+            if (parsedBlindMode === 'threeTrack') {
+                threeTrackIsIdentical = parsedThreeTrackIdentical; // Update global threeTrackIsIdentical
+            }
+
+            updateBlindMode(currentBlindMode, true); // Apply mode-specific UI structures (skipRender=true as we will render manually or via handleThreeTrackIdenticalToggle)
+
+            if (document.querySelector(`input[name="blindMode"][value="${currentBlindMode}"]`)) {
+                document.querySelector(`input[name="blindMode"][value="${currentBlindMode}"]`).checked = true;
+            }
+            if (currentBlindMode === 'threeTrack') {
+                document.getElementById('threeTrackIdentical').checked = threeTrackIsIdentical;
+            }
+
+            ['A', 'B', 'C'].forEach(setId => {
+                document.getElementById(`hasInserts${setId}`).checked = tableSettings[setId].hasInserts;
+                handleInsertToggle(setId, tableSettings[setId].hasInserts, true); // Sync inserts UI, skip its internal render
+
+                const hasAnyDataForTable = tableSettings[setId].data.length > 0 || tableSettings[setId].insertsData.length > 0;
+                let makeTableVisible = false;
+
+                if (currentBlindMode === 'threeTrack') {
+                    // Visibility for 3-track is primarily handled by handleThreeTrackIdenticalToggle
+                    // We just need to ensure renderTable is called for relevant tracks.
+                    if (threeTrackIsIdentical) {
+                        makeTableVisible = (setId === 'A');
+                    } else {
+                        makeTableVisible = true; // All tracks A, B, C are potentially relevant
+                    }
+                } else { // Smart or Manual mode
+                    // A table is visible if it received data from the import.
+                    makeTableVisible = hasAnyDataForTable;
+                    tableSettings[setId].isVisibleInSmartManual = makeTableVisible;
+                    document.getElementById(`showTable${setId}`).checked = makeTableVisible;
+                    document.getElementById(`table-container-${setId}`).style.display = makeTableVisible ? 'block' : 'none';
+                }
+
+                // Render table if it's supposed to be visible for the current mode and has data or is primary
+                if (makeTableVisible) {
+                    renderTable(setId);
+                } else {
+                    // Ensure table body is cleared if not rendered
+                    const tableBody = document.getElementById(`table-body-${setId}`);
+                    if(tableBody) tableBody.innerHTML = '';
+                    const insertsTableBody = document.getElementById(`table-body-inserts-${setId}`);
+                    if(insertsTableBody) insertsTableBody.innerHTML = '';
+                }
+            });
+            
+            if (currentBlindMode === 'threeTrack') {
+                handleThreeTrackIdenticalToggle(threeTrackIsIdentical); // This will also call renderTable for A, B, C as needed
+            }
+            // For Smart/Manual, renderTable was called in the loop above for tables made visible.
+
+            alert(".blind file data imported successfully!");
+
+        } catch (error) {
+            console.error("Error processing .blind file:", error);
+            // Alert a combined message. error.message comes from the `throw new Error(...)`
+            alert("Import failed: " + error.message + "\nPlease ensure the file is a correctly formatted .blind text file.");
+            
+            // After an error, tables are already cleared from the start of the 'try' block.
+            // Optionally, reset mode to a default or previous valid state if needed.
+            // For simplicity, current UI might reflect the cleared state.
+            // Re-render current (possibly default or last known good) mode to ensure UI consistency.
+            updateBlindMode(document.querySelector('input[name="blindMode"]:checked').value || 'smart', false); 
+        } finally {
+            event.target.value = null; // Clear the file input so the same file can be selected again if needed
+        }
+    };
+    reader.onerror = function() {
+        alert("Could not read the file. Please try again.");
+        event.target.value = null;
+    };
+    reader.readAsText(file); // Ensure this is called for all file types if accept="*"
+}
 
 </script>
 </body>

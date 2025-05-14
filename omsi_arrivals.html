@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMSI Countdown - Display</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Global and Body Styles */
+        @font-face {
+            font-family: 'NJFont Medium Web';
+            src: url('fonts/NJFont-Medium.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+            font-display: swap;
+        }
+        html {
+            height: 100%;
+        }
+        body {
+            font-family: 'NJFont Medium Web', sans-serif;
+            background: linear-gradient(135deg, #2b5876, #4e4376);
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center; 
+            justify-content: flex-start; 
+            min-height: 100vh;
+            margin: 0;
+            padding: 0; 
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        #clock-container {
+            text-align: center;
+            margin-bottom: 2rem; 
+            margin-top: 0; 
+            padding-top: 1rem; 
+        }
+        #clock-time {
+            font-size: 20vmin;
+            font-weight: normal;
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.4);
+        }
+        #clock-date {
+            font-size: clamp(1.25rem, 5vmin, 1.75rem);
+            opacity: 0.8;
+            margin-top: -0.75rem;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        #bus-arrivals-container {
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 600px;
+            text-align: left; 
+            position: relative; 
+            margin-bottom: 1rem; 
+        }
+
+        #stop-letter-display {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            z-index: 10;
+        }
+        #stop-letter-display .stop-letter-circle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: red;
+            color: white;
+            border-radius: 50%;
+            font-weight: bold;
+            font-size: 1.25rem; 
+            width: 1.6em;       
+            height: 1.6em;      
+            line-height: 1;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        #stop-letter-display .stop-letter-circle > span { 
+            display: block;
+            line-height: 1;
+            white-space: nowrap;
+            text-align: center;
+            padding: 0.05em; 
+        }
+
+        #bus-stop-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding-bottom: 0.75rem; 
+            cursor: pointer;
+            text-align: center;
+            margin-top: -0.5rem; 
+        }
+        #bus-stop-header:hover .main-stop-name-line,
+        #bus-stop-header:hover .stop-name-qualifier {
+             filter: brightness(1.2);
+        }
+
+        .main-stop-name-line {
+            font-size: clamp(1.25rem, 5vmin, 1.75rem);
+            font-weight: normal;
+            text-align: center;
+            line-height: 1.1;
+        }
+        .stop-name-qualifier {
+            font-size: clamp(0.75rem, 2.5vmin, 0.9rem);
+            font-weight: normal;
+            text-align: center;
+            opacity: 0.75;
+            margin-top: -0.2em;
+            line-height: 1;
+        }
+
+        #bus-stop-direction {
+            font-size: clamp(0.8rem, 3vmin, 1rem);
+            font-weight: normal;
+            text-align: center;
+            opacity: 0.75;
+            margin-top: -0.25rem;
+            margin-bottom: 0.5rem; 
+        }
+
+        .route-tiles-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center; 
+            margin-bottom: 1rem; 
+            padding: 0.25rem 0;
+            min-height: 2em; 
+        }
+
+        .route-tile {
+            display: inline-block;
+            padding: 0.2em 0.55em;
+            margin: 0.2em; 
+            border-radius: 0.25rem; 
+            font-size: 0.70rem; 
+            font-weight: bold;
+            color: white; 
+            text-align: center;
+            line-height: 1.3; 
+            min-width: 28px; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+        }
+
+        #bus-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 220px;
+            overflow-y: auto;
+            position: relative;
+            border-top: 1px solid rgba(255, 255, 255, 0.2); 
+            padding-top: 0.75rem; 
+        }
+        #bus-list.animating-list {
+            overflow-y: hidden;
+        }
+        #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message) {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: clamp(0.85rem, 3.2vmin, 1.05rem);
+        }
+        #bus-list li:last-child { 
+            border-bottom: none;
+        }
+        #bus-list .bus-line {
+            font-weight: normal;
+            min-width: 45px;
+        }
+        #bus-list .bus-destination {
+            flex-grow: 1;
+            margin-left: 0.75rem;
+            margin-right: 0.75rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #bus-list .bus-arrival-time {
+            font-weight: normal;
+            min-width: 65px;
+            text-align: right;
+        }
+
+        .loading-message, .error-message, .no-buses-message, .stop-closed-message, .system-update-message {
+            display: block;
+            text-align: center;
+            width: 100%;
+            padding: 1rem;
+            font-style: italic;
+            opacity: 0.8;
+        }
+        
+        body #bus-arrivals-container #bus-list li.stop-closed-message { 
+            display: block !important;
+            width: 100% !important;
+            padding: 1rem !important; 
+            font-style: italic !important;
+            opacity: 0.8 !important; 
+            color: #FFD700 !important;
+            font-weight: bold !important;
+            font-size: 1.1em !important;
+            text-align: center !important;
+            background-color: transparent !important;
+        }
+        .system-update-message {
+            color: #FFD700; 
+            font-weight: bold;
+            font-size: 1.0em; 
+        }
+
+        @keyframes itemSlideUp {
+          from { opacity: 0.3; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .bus-item-animate {
+          animation: itemSlideUp 4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        #bus-list::-webkit-scrollbar { width: 8px; }
+        #bus-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        #bus-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
+        #bus-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
+
+        #tfl-logo { 
+            position: absolute !important; 
+            bottom: 30px !important;
+            right: 45px !important;
+            width: 150px;
+            opacity: 1 !important; 
+            transition: opacity 0.3s ease;
+            z-index: 500;
+        }
+        #tfl-logo:hover {
+            opacity: 1;
+        }
+
+        #disclaimer-button {
+            position: absolute;
+            bottom: 30px;
+            left: 45px;
+            background-color: rgba(0,0,0,0.3);
+            color: rgba(255,255,255,0.7);
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 0.3rem 0.6rem;
+            border-radius: 0.375rem;
+            font-size: 0.6rem;
+            cursor: pointer;
+            z-index: 1000;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        #disclaimer-button:hover {
+            background-color: rgba(0,0,0,0.5);
+            color: rgba(255,255,255,0.9);
+        }
+       .modal-overlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.6); backdrop-filter: blur(3px);
+            display: none; 
+            justify-content: center; align-items: center; z-index: 1040;
+        }
+        .disclaimer-modal-content {
+            background-color: #2d3748; color: #e2e8f0; padding: 2rem; border-radius: 0.5rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 90%; max-width: 600px;
+            max-height: 80vh; overflow-y: auto; position: relative;
+            font-size: 0.8rem; line-height: 1.5;
+        }
+        .disclaimer-modal-content h3 {
+            font-size: 1.1rem; font-weight: bold; color: #ffffff; margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 0.5rem;
+        }
+        .disclaimer-modal-content p { margin-bottom: 0.75rem; }
+        .modal-close-button {
+            position: absolute; top: 10px; right: 15px; background: none; border: none;
+            color: #cbd5e1; font-size: 1.8rem; font-weight: bold; cursor: pointer; line-height: 1;
+        }
+        .modal-close-button:hover { color: #ffffff; }
+
+        #stop-selection-modal-content { 
+            background-color: #2d3748; color: #e2e8f0; padding: 1.5rem; border-radius: 0.5rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 90%; max-width: 500px;
+            max-height: 80vh; display: flex; flex-direction: column; position: relative;
+        }
+        #stop-selection-modal-content h3 {
+            font-size: 1.25rem; font-weight: bold; color: #ffffff; margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 0.75rem;
+        }
+        #stop-search-input {
+            width: 100%; padding: 0.6rem; margin-bottom: 1rem; border-radius: 0.25rem;
+            border: 1px solid #4A5568; background-color: #1A202C; color: #E2E8F0; font-size: 0.9rem;
+        }
+        #stop-search-input::placeholder { color: #A0AEC0; }
+        #available-stops-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
+        #available-stops-list li {
+            padding: 0.75rem 0.5rem; border-bottom: 1px solid #4A5568; cursor: pointer;
+            transition: background-color 0.15s ease-in-out; font-size: 0.9rem;
+        }
+        #available-stops-list li:last-child { border-bottom: none; }
+        #available-stops-list li:hover { background-color: #4A5568; }
+        #available-stops-list::-webkit-scrollbar { width: 8px; }
+        #available-stops-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        #available-stops-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
+        #available-stops-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
+
+        @media (max-height: 300px), (max-width: 300px) {
+            body { padding-top: 0; } 
+            #clock-container { 
+                margin-top: 0; 
+                padding-top: 0.5rem; 
+                margin-bottom: 1rem;
+            }
+            #clock-time { font-size: 18vmin; }
+            #clock-date { font-size: clamp(1rem, 4.5vmin, 1.5rem); margin-top: -0.5rem; }
+            #bus-arrivals-container { padding: 1rem; }
+            .main-stop-name-line { font-size: clamp(1rem, 4vmin, 1.3rem); }
+            .stop-name-qualifier { font-size: clamp(0.7rem, 2.5vmin, 0.8rem); margin-top: -0.1em; }
+            #bus-stop-direction {
+                font-size: clamp(0.7rem, 2.5vmin, 0.8rem);
+                margin-top: -0.15rem;
+                margin-bottom: 0.5rem; 
+            }
+            .route-tile { font-size: 0.65rem; padding: 0.15em 0.4em; margin: 0.15em;}
+            #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message) {
+                padding: 0.4rem 0.2rem;
+                font-size: clamp(0.8rem, 3vmin, 1rem);
+            }
+            #bus-list { max-height: 150px; } 
+            #stop-letter-display .stop-letter-circle { width: 1.6em; height: 1.6em; font-size: 0.7rem;}
+            #stop-selection-modal-content { padding: 1rem; }
+            #stop-selection-modal-content h3 { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <img id="tfl-logo" src="assets/tfl.png" alt="Transport for London Logo">
+
+    <button id="disclaimer-button">Copyright Disclaimer</button>
+    <div id="disclaimer-modal-overlay" class="modal-overlay">
+        <div class="disclaimer-modal-content">
+            <button id="disclaimer-modal-close-button" class="modal-close-button">&times;</button>
+            <h3>Disclaimer: Use of TfL-Inspired Assets</h3>
+            <p>Please note that any Transport for London (TfL) inspired fonts, logos, or other visual elements used in this project are for <strong>personal, non-commercial, and recreational purposes only</strong>.</p>
+            <p>This project is a personal endeavor created for fun and to explore design and development concepts. It is not affiliated with, endorsed by, or connected to TfL in any official capacity.</p>
+            <p>The use of these elements is not intended for online distribution, public display in a commercial context, or any use that could imply an official association with TfL or cause confusion. My intention is solely for private enjoyment and learning.</p>
+            <p>All TfL intellectual property, including official fonts (like New Johnston) and the TfL roundel logo, are the property of Transport for London. For any official or commercial use of TfL assets, please refer to TfL's official guidelines and obtain necessary permissions.</p>
+            <p>The design of this page is © 2025 Ryan Hunter.</p>
+            <p>V1 - 07/05/25</p>
+        </div>
+    </div>
+
+    <div id="clock-container">
+        <div id="clock-time">Loading...</div>
+        <div id="clock-date"></div>
+    </div>
+
+    <div id="bus-arrivals-container">
+        <div id="stop-letter-display"></div>
+        <div id="bus-stop-header" title="Click to change stop">
+        </div>
+        <p id="bus-stop-direction"></p>
+        <div id="route-tiles-container" class="route-tiles-container">
+        </div>
+        <ul id="bus-list">
+            <li class="loading-message">Loading schedule data... <a href="setup.html" style="text-decoration: underline; color: #90cdf4;">Load/update here.</a></li>
+        </ul>
+    </div>
+
+    <div id="stop-selection-modal-overlay" class="modal-overlay">
+        <div id="stop-selection-modal-content">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>Select a Bus Stop</h3>
+                <button id="close-stop-modal-button" class="modal-close-button">&times;</button>
+            </div>
+            <input type="text" id="stop-search-input" placeholder="Search stops by name or direction...">
+            <ul id="available-stops-list"></ul>
+        </div>
+    </div>
+
+    <script>
+        // --- localStorage Keys ---
+        const LIVE_SCHEDULE_KEY = 'live_allScheduledBusData';
+        const LIVE_STOPS_KEY = 'live_uniqueBusStops';
+        const LIVE_LAST_UPDATED_KEY = 'live_scheduleLastUpdated';
+        const PENDING_SCHEDULE_KEY = 'pending_allScheduledBusData';
+        const PENDING_STOPS_KEY = 'pending_uniqueBusStops';
+        const PENDING_TIMESTAMP_KEY = 'pending_schedule_uploadTimestamp';
+        const SCHEDULE_STATUS_KEY = 'schedule_update_status'; 
+        const SCHEDULE_DOWNTIME_START_KEY = 'scheduled_update_downtime_start_time';
+        const SCHEDULE_UPDATE_LOCK_KEY = 'schedule_update_processing_lock';
+        const CUSTOM_ROUTE_COLORS_KEY = 'omsiCustomRouteTileColors'; // Key for custom colors
+
+        // --- Global Variable Definitions ---
+        let clockTimeElement, clockDateElement, busListElement, busStopDirectionElement,
+            busStopHeader, stopLetterDisplayElement, routeTilesContainerElement, 
+            stopSelectionModalOverlay, closeStopModalButton,
+            availableStopsList, stopSearchInput, disclaimerButton,
+            disclaimerModalOverlayElement, disclaimerModalCloseButton,
+            closedStopIDsGlobal = [];
+
+        let allScheduledData = []; 
+        let uniqueStops = []; 
+        let currentSelectedStopID = null;
+        let ukBankHolidaysData = { dates: [], titles: {} };
+        let previousArrivalsSnapshot = [];
+        let liveUpdateIntervalId = null;
+        let animationTimeoutId = null;
+        let scheduledUpdateCheckIntervalId = null;
+        const schoolHolidayDateRanges = [];
+
+        const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
+        const UPDATE_CHECK_INTERVAL_MS = 60 * 1000; 
+
+        // --- Route Color Configuration ---
+        const initialRouteColorMap = {
+            "1": "#DC2626", "2": "#DC2626", "3": "#DC2626", 
+            "4": "#00783A", "5": "#00783A", "6": "#00783A",
+            "7": "#FFD300", "8": "#FFD300", "9": "#FFD300", 
+            "10": "#970006", "11": "#76D0BD", "12": "#F3A9BB",
+            "186": "#E32017", "32":  "#00A4A7", "N5":  "#0019A8", 
+            "C11": "#FFD300","107": "#76D0BD", "221": "#93002F", 
+            "240": "#C9A0DC", "251": "#F8A960","303": "#868F98", 
+            "305": "#CF7EA2", "SL1": "#5F259F", "SL10": "#A05A2C"
+            // Add any other hardcoded defaults here
+        };
+        const DEFAULT_ROUTE_COLOR = "#6B7280"; 
+        let effectiveRouteColorMap = { ...initialRouteColorMap }; // This will be updated with custom colors
+
+
+        function updateClock() { const now=new Date(),h=String(now.getHours()).padStart(2,'0'),m=String(now.getMinutes()).padStart(2,'0'),s=String(now.getSeconds()).padStart(2,'0'),dn=now.toLocaleDateString(undefined,{weekday:'long'}),d=now.getDate(),mn=now.toLocaleDateString(undefined,{month:'long'}),y=now.getFullYear();if(clockTimeElement)clockTimeElement.textContent=`${h}:${m}:${s}`;if(clockDateElement)clockDateElement.textContent=`${dn} ${d} ${mn} ${y}`;}
+        async function fetchBankHolidays(){try{const r=await fetch('https://www.gov.uk/bank-holidays.json');if(!r.ok)throw new Error(`HTTP error! ${r.status}`);const d=await r.json();if(d['england-and-wales']&&d['england-and-wales'].events){const e=d['england-and-wales'].events;ukBankHolidaysData={dates:e.map(ev=>ev.date),titles:e.reduce((a,ev)=>{a[ev.date]=ev.title;return a},{})};}else console.warn("Bank hol format error.")}catch(e){console.error("Failed to fetch bank hols:",e)}if(allScheduledData.length>0&&currentSelectedStopID&&localStorage.getItem(SCHEDULE_STATUS_KEY)!=='simulating_scheduled_update_downtime'){updateAndDisplayLiveArrivals()}else{getOperatingCodesForToday()}}
+        function isSchoolHolidayPeriod(dObj){if(!schoolHolidayDateRanges||schoolHolidayDateRanges.length===0)return false;const cT=dObj.getTime();for(const r of schoolHolidayDateRanges){try{if(new Date(r.start+"T00:00:00").getTime()<=cT&&cT<=new Date(r.end+"T23:59:59").getTime())return true}catch(e){console.error("Invalid date in school ranges:",r,e)}}return false}
+        function getOperatingCodesForToday(){const n=new Date(),dOW=n.getDay(),tds=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;let dCodes=new Set(),isBH=false;if(ukBankHolidaysData&&ukBankHolidaysData.dates.includes(tds)){const hT=ukBankHolidaysData.titles[tds]||"";isBH=true;if(hT.toLowerCase().includes("good friday"))dCodes.add("GoodFriday");else if(hT.toLowerCase().includes("christmas day"))dCodes.add("XmasDay");else if(hT.toLowerCase().includes("boxing day"))dCodes.add("BoxingDay");else if(hT.toLowerCase().includes("new year's day"))dCodes.add("NewYearsDay");else dCodes.add("BankHoliday")}const iSH=isSchoolHolidayPeriod(n),sSuf=iSH?"NSD":"Sch";let dCode="";switch(dOW){case 0:dCode="Su";break;case 1:dCode="Mo";break;case 2:dCode="Tu";break;case 3:dCode="We";break;case 4:dCode="Th";break;case 5:dCode="Fr";break;case 6:dCode="Sa";break}dCodes.add(dCode);if(dOW>=1&&dOW<=5){dCodes.add(dCode+sSuf);dCodes.add("MF"+sSuf);dCodes.add("Mo-Fr")}if(iSH)dCodes.add("SchoolHoliday");return Array.from(dCodes)}
+        function getTargetOperatingCodes(){return getOperatingCodesForToday()}
+        function generateArrivalText(s){return s<-59?null:(s<60?'due':`${Math.round(s/60)} min`)}
+        function sanitize(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML}
+        function getTextWidth(t,fS){const c=getTextWidth.canvas||(getTextWidth.canvas=document.createElement("canvas")),ctx=c.getContext("2d");ctx.font=fS;return ctx.measureText(t).width}
+        function simpleCompareLineNames(a, b) { const numA = parseInt(a, 10); const numB = parseInt(b, 10); const isNumA = !isNaN(numA); const isNumB = !isNaN(numB); if (isNumA && isNumB) { if (numA < numB) return -1; if (numA > numB) return 1; return a.localeCompare(b); } if (isNumA && !isNumB) return -1; if (!isNumA && isNumB) return 1; return a.localeCompare(b); }
+        
+        // --- MODIFIED Function to use effectiveRouteColorMap ---
+        function getRouteTileColor(lineName) {
+            const upperLineName = lineName.toUpperCase();
+            if (effectiveRouteColorMap[upperLineName]) { // Check the merged map (defaults + custom)
+                return effectiveRouteColorMap[upperLineName];
+            }
+            // Fallback logic for prefixes if specific route not found in effectiveRouteColorMap
+            // This part might need adjustment based on how you want to handle generic prefix colors
+            // For now, it uses specific fallbacks (e.g., "N5") also from the effectiveRouteColorMap if they exist
+            if (upperLineName.startsWith("N")) {
+                return effectiveRouteColorMap["N5"] || DEFAULT_ROUTE_COLOR; 
+            }
+            if (upperLineName.startsWith("SL")) {
+                return effectiveRouteColorMap["SL1"] || DEFAULT_ROUTE_COLOR;
+            }
+            return DEFAULT_ROUTE_COLOR;
+        }
+
+        function getTextColorForBackground(hexColor) {
+            if (!hexColor || hexColor.length < 7) return '#FFFFFF'; 
+            const r = parseInt(hexColor.slice(1, 3), 16); const g = parseInt(hexColor.slice(3, 5), 16); const b = parseInt(hexColor.slice(5, 7), 16);
+            const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+            return luminance > 0.5 ? '#000000' : '#FFFFFF';
+        }
+
+        function displaySystemUpdateMessage() { console.log("[ARRIVALS DEBUG] Displaying system update message."); if (busListElement) { busListElement.innerHTML = `<li class="system-update-message">Live bus arrivals are not available at this time.<br>System update in progress.</li>`; } if (liveUpdateIntervalId) { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; console.log("[ARRIVALS DEBUG] Cleared liveUpdateIntervalId due to system update."); } }
+        function updateAndDisplayLiveArrivals() { /* ... No changes needed inside this function itself for colors, as it calls getRouteTileColor ... */ console.log("[ARRIVALS DEBUG] updateAndDisplayLiveArrivals called. CurrentSelectedStopID:", currentSelectedStopID, "AllScheduledData length:", allScheduledData ? allScheduledData.length : 'null'); const currentStatus = localStorage.getItem(SCHEDULE_STATUS_KEY); if (currentStatus === 'simulating_scheduled_update_downtime') { console.log("[ARRIVALS DEBUG] In downtime, calling displaySystemUpdateMessage from updateAndDisplayLiveArrivals."); displaySystemUpdateMessage(); return; } if (busListElement) { busListElement.classList.add('animating-list'); } if (animationTimeoutId) { clearTimeout(animationTimeoutId); } const targetCodesToMatch = getTargetOperatingCodes(); if (!currentSelectedStopID || !allScheduledData || allScheduledData.length === 0) { console.log("[ARRIVALS DEBUG] Condition MET: No current stop/schedule data. Displaying loading message. StopID:", currentSelectedStopID, "Data Length:", allScheduledData ? allScheduledData.length : 'null'); if (busListElement) { busListElement.innerHTML = `<li class="loading-message">${(!allScheduledData || allScheduledData.length === 0) ? 'No schedule data. <a href="setup.html" style="text-decoration: underline; color: #90cdf4;">Load schedule.</a>' : 'Select a stop.'}</li>`; animationTimeoutId = setTimeout(() => { if (busListElement) busListElement.classList.remove('animating-list'); }, 100); } return; } if (closedStopIDsGlobal.includes(currentSelectedStopID)) { console.log("[ARRIVALS DEBUG] Stop is closed, not displaying arrivals. StopID:", currentSelectedStopID); if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`; } previousArrivalsSnapshot = []; if (busListElement) busListElement.classList.remove('animating-list'); return; } console.log("[ARRIVALS DEBUG] Passed initial checks, processing arrivals for stop:", currentSelectedStopID); const now = new Date(); const stopSpecificSchedules = allScheduledData.filter(bus => { if (bus.stopID !== currentSelectedStopID || !bus.OperatingProfile || typeof bus.OperatingProfile !== 'string' || bus.OperatingProfile.trim() === "") return false; const busOpCodes = bus.OperatingProfile.split(',').map(c => c.trim().toLowerCase()); const targetLCCodes = targetCodesToMatch.map(c => c.toLowerCase()); return targetLCCodes.some(tc => busOpCodes.includes(tc)); }); const upcomingBuses = stopSpecificSchedules.map(bus => { let timeStr = String(bus.scheduledTime).trim(); const numTime = parseFloat(timeStr); if (!isNaN(numTime) && numTime >= 0 && numTime < 1 && !timeStr.includes(':')) { const totalMins = Math.round(numTime * 1440); timeStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`; } const parts = timeStr.match(/^(\d{1,2}):(\d{2})$/); if (!parts) { console.warn(`[ARRIVALS DEBUG] Invalid time format: "${bus.scheduledTime}" (parsed as "${timeStr}") for line ${bus.lineName}`); return null; } const hrs = parseInt(parts[1],10), mins = parseInt(parts[2],10); if (isNaN(hrs)||hrs<0||hrs>23||isNaN(mins)||mins<0||mins>59) { console.warn(`[ARRIVALS DEBUG] Invalid time values: ${hrs}:${mins} for line ${bus.lineName}`); return null; } const dayOffset = parseInt(bus.DayOffset || "0") || 0; const schedTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset, hrs, mins, 0); const diffSecs = Math.round((schedTime.getTime() - now.getTime()) / 1000); const arrTxt = generateArrivalText(diffSecs); const internalId = bus.internalId || `${bus.stopID}_${bus.lineName}_${(bus.scheduledTime||"0000").replace(':', '')}_${hrs}${mins}`; return arrTxt === null ? null : { ...bus, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId }; }) .filter(b => b !== null && b.timeToStationInSeconds < 1800) .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0,4); if (busListElement) { busListElement.innerHTML = ''; if (upcomingBuses.length === 0) { busListElement.innerHTML = `<li class="no-buses-message">Live bus arrivals are not available at this time.</li>`; previousArrivalsSnapshot = []; } else { const currentSnap = []; upcomingBuses.forEach((bus) => { const li = document.createElement('li'); li.innerHTML = `<span class="bus-line">${sanitize(bus.lineName)}</span><span class="bus-destination" title="${sanitize(bus.destinationName)}">${sanitize(bus.destinationName)}</span><span class="bus-arrival-time">${sanitize(bus.calculatedArrivalText)}</span>`; busListElement.appendChild(li); const prevEntry = previousArrivalsSnapshot.find(p => p.id === bus.internalId); if (!prevEntry || prevEntry.arrivalText !== bus.calculatedArrivalText) { setTimeout(() => li.classList.add('bus-item-animate'), 10); } currentSnap.push({ id: bus.internalId, arrivalText: bus.calculatedArrivalText }); }); previousArrivalsSnapshot = currentSnap; } } animationTimeoutId = setTimeout(() => { if (busListElement) busListElement.classList.remove('animating-list'); }, 4100); }
+        
+        // --- NEW Function to load and merge custom colors ---
+        function loadAndApplyCustomRouteColors() {
+            effectiveRouteColorMap = { ...initialRouteColorMap }; // Start with defaults
+            try {
+                const storedCustomColors = localStorage.getItem(CUSTOM_ROUTE_COLORS_KEY);
+                if (storedCustomColors) {
+                    const customColors = JSON.parse(storedCustomColors);
+                    // Ensure custom color keys are uppercase to match usage in getRouteTileColor
+                    for (const route in customColors) {
+                        effectiveRouteColorMap[route.toUpperCase()] = customColors[route];
+                    }
+                    console.log("[ARRIVALS DEBUG] Custom route colors loaded and merged into effectiveRouteColorMap.");
+                }
+            } catch (e) {
+                console.error("[ARRIVALS DEBUG] Error loading/parsing custom route colors:", e);
+            }
+        }
+
+
+        function loadDataFromLocalStorage(forceReload = false) { /* ... calls selectStop which will use new colors ... */ console.log("[ARRIVALS DEBUG] loadDataFromLocalStorage called. Force reload:", forceReload); const currentStatus = localStorage.getItem(SCHEDULE_STATUS_KEY); const downtimeStartTimeStr = localStorage.getItem(SCHEDULE_DOWNTIME_START_KEY); if (currentStatus === 'simulating_scheduled_update_downtime') { if (downtimeStartTimeStr) { const downtimeStartTime = parseInt(downtimeStartTimeStr); const now = new Date().getTime(); if (now - downtimeStartTime > FIFTEEN_MINUTES_MS + 10000) { localStorage.setItem(SCHEDULE_STATUS_KEY, 'idle'); localStorage.removeItem(SCHEDULE_DOWNTIME_START_KEY); localStorage.removeItem(SCHEDULE_UPDATE_LOCK_KEY); localStorage.setItem(LIVE_LAST_UPDATED_KEY, new Date().toISOString()); } else { displaySystemUpdateMessage(); return; } } else { displaySystemUpdateMessage(); return; } } const storedData = localStorage.getItem(LIVE_SCHEDULE_KEY); const storedStops = localStorage.getItem(LIVE_STOPS_KEY); const lastStop = localStorage.getItem('lastSelectedStopID'); const storedClosedStops = localStorage.getItem('closedBusStopIDs'); if (storedClosedStops) { try { closedStopIDsGlobal = JSON.parse(storedClosedStops); } catch(e) { closedStopIDsGlobal = []; } } else { closedStopIDsGlobal = []; } if (storedData && storedStops) { try { allScheduledData = JSON.parse(storedData); uniqueStops = JSON.parse(storedStops); if (uniqueStops.length > 0) { populateStopSelectionModal(); const stopToSelect = (lastStop && uniqueStops.find(s => s.stopID === lastStop)) ? lastStop : uniqueStops[0].stopID; if (!currentSelectedStopID || currentSelectedStopID !== stopToSelect || forceReload) { selectStop(stopToSelect); } else { if(currentSelectedStopID && (!currentStatus || currentStatus === 'idle')) updateAndDisplayLiveArrivals(); } } else { if(busStopHeader) busStopHeader.innerHTML = `<div class="main-stop-name-line">No Stops Loaded</div>`; if(busStopDirectionElement) busStopDirectionElement.textContent = "Use Setup Page to add stops."; if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No stops in schedule. Use <a href="setup.html" style="text-decoration:underline; color: #90cdf4;">Setup</a>.</li>`; if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; if(stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; currentSelectedStopID = null; } } catch (e) { console.error("[ARRIVALS DEBUG] Error processing data from localStorage:", e); allScheduledData = []; uniqueStops = []; currentSelectedStopID = null; if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Error loading schedule. <a href="setup.html" style="text-decoration:underline; color: #90cdf4;">Try Setup.</a></li>`; if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; } } else { allScheduledData = []; uniqueStops = []; currentSelectedStopID = null; if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule loaded. Go to <a href="setup.html" style="text-decoration:underline; color: #90cdf4;">Setup Page</a>.</li>`; if(busStopHeader) busStopHeader.innerHTML = `<div class="main-stop-name-line">No Schedule</div>`; if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; } if (!currentStatus || currentStatus === 'idle') { getOperatingCodesForToday(); } }
+        function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops. Use <a href="setup.html" style="color:#90cdf4;">setup</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => (stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase())); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match.' : 'No stops.'}</li>`; return; } filteredStops.forEach(stop => { const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID); li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
+        function filterStopList() { if (stopSearchInput) populateStopSelectionModal(stopSearchInput.value); }
+        function openDisclaimerModal() { if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.style.display = 'flex'; }
+        function closeDisclaimerModal() { if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.style.display = 'none'; }
+        function openStopSelectionModal() { if (!uniqueStops || uniqueStops.length === 0) { alert("No schedule data loaded. Please use the Setup Page to load or update schedule information."); return; } if (stopSearchInput) stopSearchInput.value = ""; populateStopSelectionModal(); if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'flex'; }
+        function closeStopSelectionModal() { if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'none'; }
+        function selectStop(stopID) { /* ... This function now implicitly uses the updated getRouteTileColor ... */ console.log("[ARRIVALS DEBUG] selectStop called for stopID:", stopID); const currentSysStatus = localStorage.getItem(SCHEDULE_STATUS_KEY); if (currentSysStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); } currentSelectedStopID = stopID; localStorage.setItem('lastSelectedStopID', stopID); const selectedStopDetails = uniqueStops.find(s => s.stopID === stopID); if(busStopHeader) busStopHeader.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; } if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; if (currentSysStatus !== 'simulating_scheduled_update_downtime') { if(busListElement) busListElement.innerHTML = ''; } if (!selectedStopDetails) { if(busStopHeader) busStopHeader.innerHTML = `<div class="main-stop-name-line">Stop Info Missing</div>`; if(busStopDirectionElement) busStopDirectionElement.textContent = "Check schedule data."; if(busListElement && currentSysStatus !== 'simulating_scheduled_update_downtime') { busListElement.innerHTML = `<li class="no-buses-message">Could not load details for stop ${sanitize(stopID)}.</li>`; } if (liveUpdateIntervalId && currentSysStatus !== 'simulating_scheduled_update_downtime') { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; } return; } let stopNameFull = selectedStopDetails.stopName || "Unknown Stop"; let mainNamePart = stopNameFull; let qualifierPart = null; let stopLetters = null; const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/; const qualifierMatch = mainNamePart.match(qualifierRegex); if (qualifierMatch) { mainNamePart = qualifierMatch[1].trim(); qualifierPart = qualifierMatch[2].trim(); } const letterRegex = /\(([A-Z0-9]{1,3})\)$/; let tempLetterMatch = mainNamePart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim(); } else if (qualifierPart) { tempLetterMatch = qualifierPart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim(); } } const mainNameLineDiv = document.createElement('div'); mainNameLineDiv.className = 'main-stop-name-line'; mainNameLineDiv.textContent = sanitize(mainNamePart); if(busStopHeader) busStopHeader.appendChild(mainNameLineDiv); if (qualifierPart && qualifierPart !== "") { const qElem = document.createElement('div'); qElem.className = 'stop-name-qualifier'; qElem.textContent = sanitize(qualifierPart); if(busStopHeader) busStopHeader.appendChild(qElem); } if(busStopDirectionElement) { busStopDirectionElement.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; } if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) { const allServingRoutesEver = new Set(); allScheduledData.forEach(bus => { if (bus.stopID === currentSelectedStopID) { if (bus.lineName) { allServingRoutesEver.add(bus.lineName); } } }); const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames); if (sortedServingRoutes.length > 0) { routeTilesContainerElement.style.borderTop = "1px solid rgba(255, 255, 255, 0.1)"; routeTilesContainerElement.style.paddingTop = "0.75rem"; routeTilesContainerElement.style.marginBottom = "1rem"; } else { routeTilesContainerElement.style.borderTop = "none"; routeTilesContainerElement.style.paddingTop = "0"; routeTilesContainerElement.style.marginBottom = "0"; } sortedServingRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'route-tile'; tile.textContent = sanitize(lineName); const bgColor = getRouteTileColor(lineName); tile.style.backgroundColor = bgColor; tile.style.color = getTextColorForBackground(bgColor); routeTilesContainerElement.appendChild(tile); }); } if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { const circleElement = document.createElement('span'); circleElement.className = 'stop-letter-circle'; const letterSpan = document.createElement('span'); letterSpan.textContent = sanitize(stopLetters); circleElement.appendChild(letterSpan); stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.appendChild(circleElement); stopLetterDisplayElement.style.display = 'inline-flex'; requestAnimationFrame(() => { if (!document.body.contains(circleElement) || !document.body.contains(mainNameLineDiv)) { return; } const mainStopNameComputedStyle = window.getComputedStyle(mainNameLineDiv); const baseStopNameFontSizePx = parseFloat(mainStopNameComputedStyle.fontSize); const circleStyle = window.getComputedStyle(circleElement); const circleDiameterPx = parseFloat(circleStyle.width); if (isNaN(baseStopNameFontSizePx) || baseStopNameFontSizePx <= 0 || isNaN(circleDiameterPx) || circleDiameterPx <= 0) { return; } const fontFamily = mainStopNameComputedStyle.fontFamily; const fontWeight = "bold"; letterSpan.style.fontFamily = fontFamily; letterSpan.style.fontWeight = fontWeight; let currentLetterFontSize; const letterCount = stopLetters.length; let fitTargetWidth; const MIN_FONT_SIZE = 6; if (letterCount === 1) { currentLetterFontSize = baseStopNameFontSizePx; fitTargetWidth = circleDiameterPx * 0.35; } else if (letterCount === 2) { currentLetterFontSize = circleDiameterPx * 0.45; fitTargetWidth = circleDiameterPx * 0.80; } else { currentLetterFontSize = circleDiameterPx * 0.30; fitTargetWidth = circleDiameterPx * 0.92; } if (letterCount === 1) { currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.80)); } else { currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.70)); } const MAX_ITERATIONS = 50; let iterations = 0; let textMeasurementWidth; do { letterSpan.style.fontSize = currentLetterFontSize + "px"; textMeasurementWidth = getTextWidth(stopLetters, `${fontWeight} ${currentLetterFontSize}px "${fontFamily}"`); if (textMeasurementWidth > fitTargetWidth && currentLetterFontSize > MIN_FONT_SIZE) { currentLetterFontSize -= 0.5; } else { break; } iterations++; } while (iterations < MAX_ITERATIONS); letterSpan.style.fontSize = currentLetterFontSize + "px"; }); } else if (stopLetterDisplayElement) { stopLetterDisplayElement.style.display = 'none';} if (currentSysStatus === 'simulating_scheduled_update_downtime') { return; } if (closedStopIDsGlobal.includes(stopID)) { if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;} if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; previousArrivalsSnapshot = []; return; } previousArrivalsSnapshot = []; updateAndDisplayLiveArrivals(); if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 10000); }
+        function performScheduledUpdate() { /* ... */ }
+        function tryScheduledUpdate() { /* ... */ }
+        
+
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("[ARRIVALS DEBUG] DOMContentLoaded");
+            clockTimeElement = document.getElementById('clock-time'); 
+            clockDateElement = document.getElementById('clock-date');
+            busListElement = document.getElementById('bus-list');
+            busStopDirectionElement = document.getElementById('bus-stop-direction');
+            busStopHeader = document.getElementById('bus-stop-header');
+            stopLetterDisplayElement = document.getElementById('stop-letter-display');
+            routeTilesContainerElement = document.getElementById('route-tiles-container'); 
+            stopSelectionModalOverlay = document.getElementById('stop-selection-modal-overlay');
+            closeStopModalButton = document.getElementById('close-stop-modal-button');
+            availableStopsList = document.getElementById('available-stops-list');
+            stopSearchInput = document.getElementById('stop-search-input');
+            disclaimerButton = document.getElementById('disclaimer-button');
+            disclaimerModalOverlayElement = document.getElementById('disclaimer-modal-overlay');
+            disclaimerModalCloseButton = document.getElementById('disclaimer-modal-close-button');
+
+            loadAndApplyCustomRouteColors(); // Load custom colors on initial load
+
+            updateClock(); setInterval(updateClock, 1000);
+            
+            fetchBankHolidays().then(() => { 
+                console.log("[ARRIVALS DEBUG] Bank holidays fetched, calling loadDataFromLocalStorage."); 
+                loadDataFromLocalStorage(); 
+            }).catch(error => { 
+                console.error("[ARRIVALS DEBUG] Error during initial bank holiday fetch:", error); 
+                loadDataFromLocalStorage(); 
+            });
+            
+            if (busStopHeader) busStopHeader.addEventListener('click', openStopSelectionModal);
+            if (closeStopModalButton) closeStopModalButton.addEventListener('click', closeStopSelectionModal);
+            if (stopSelectionModalOverlay) {
+                stopSelectionModalOverlay.addEventListener('click', e => { 
+                    if (e.target === stopSelectionModalOverlay) closeStopSelectionModal(); 
+                });
+            }
+            if (stopSearchInput) stopSearchInput.addEventListener('input', filterStopList);
+            
+            if (disclaimerButton) disclaimerButton.addEventListener('click', openDisclaimerModal);
+            if (disclaimerModalCloseButton) disclaimerModalCloseButton.addEventListener('click', closeDisclaimerModal);
+            if (disclaimerModalOverlayElement) {
+                disclaimerModalOverlayElement.addEventListener('click', e => { 
+                    if (e.target === disclaimerModalOverlayElement) closeDisclaimerModal(); 
+                });
+            }
+            
+            // MODIFIED Storage Event Listener
+            window.addEventListener('storage', e => { 
+                let refreshView = false;
+                if (e.key === LIVE_LAST_UPDATED_KEY || e.key === SCHEDULE_STATUS_KEY || e.key === 'closedBusStopIDs' || e.key === SCHEDULE_DOWNTIME_START_KEY) { 
+                    console.log(`[ARRIVALS DEBUG] Storage event for key '${e.key}'. Calling loadDataFromLocalStorage(true).`); 
+                    loadDataFromLocalStorage(true); 
+                    refreshView = true; // Data that affects display has changed
+                } 
+                if (e.key === CUSTOM_ROUTE_COLORS_KEY) {
+                    console.log(`[ARRIVALS DEBUG] Storage event for custom route colors. Reloading colors.`);
+                    loadAndApplyCustomRouteColors();
+                    refreshView = true; // Colors changed
+                }
+
+                if (refreshView && currentSelectedStopID && uniqueStops && uniqueStops.length > 0) {
+                    console.log(`[ARRIVALS DEBUG] Refreshing view for stop ${currentSelectedStopID} due to storage event.`);
+                    selectStop(currentSelectedStopID); // Re-render the current stop view
+                }
+            });
+            
+            console.log("[ARRIVALS DEBUG] Setting up scheduled update check.");
+            tryScheduledUpdate(); 
+            scheduledUpdateCheckIntervalId = setInterval(tryScheduledUpdate, UPDATE_CHECK_INTERVAL_MS);
+        });
+    </script>
+</body>
+</html>

@@ -9,18 +9,18 @@ const urlsToCache = [
   // '/', 
 
   // Add your custom font if it's locally hosted
-  '/fonts/NJFont-Medium.ttf', // Make sure this path is correct relative to your root
+  '/live-tracker/fonts/NJFont-Medium.ttf', // Make sure this path is correct relative to your root
 
   // Add your manifest file itself
-  '/manifest-omsi.json',
+  '/live-tracker/manifest-omsi.json',
 
   // Add essential images/assets (like your TfL logo if it's local & critical for app shell)
-  '/assets/TfL.png', // Ensure this path is correct
+  '/live-tracker/assets/TfL.png', // Ensure this path is correct
 
   // Add the icons you specified in your manifest
   // Ensure these paths are correct and the files exist!
-  '/assets/icons/icon-192x192.png', 
-  '/assets/icons/icon-512x512.png',
+  '/live-tracker/assets/icons/icon-192x192.png', 
+  '/live-tracker/assets/icons/icon-512x512.png',
   // Add any other icon sizes you created (e.g., apple-touch-icon)
   // '/assets/icons/apple-touch-icon-180x180.png',
 

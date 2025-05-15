@@ -146,29 +146,17 @@
             margin: 0.2em;
             border-radius: 0.25rem;
             font-size: 0.70rem;
-            font-weight: bold; /* Made bold for better visibility, esp on white */
+            font-weight: bold; 
             color: white;
             text-align: center;
             line-height: 1.3;
             min-width: 28px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.25);
-            position: relative; /* For absolute positioning of X */
-            transition: background-color 0.3s, color 0.3s, filter 0.3s; /* Smooth transitions */
+            /* position: relative; For absolute positioning of X - REMOVED */
+            transition: background-color 0.3s, color 0.3s; 
         }
 
-        .route-tile .diversion-x { /* Style for the X */
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: red;
-            font-size: 1.6em; /* Make X prominent */
-            font-weight: bold;
-            line-height: 1; /* Ensure X is centered */
-            -webkit-text-stroke: 1px rgba(0,0,0,0.5); /* Outline for better visibility on varied backgrounds */
-            text-stroke: 1px rgba(0,0,0,0.5);
-            z-index: 1; /* Ensure X is on top */
-        }
+        /* .route-tile .diversion-x CSS REMOVED */
 
 
         #bus-list {
@@ -471,8 +459,7 @@
         let currentSelectedStopID = null;
         let ukBankHolidaysData = { dates: [], titles: {} };
         
-        // NEW: Global state for active route diversions
-        let activeRouteDiversions = {}; // Stores { stopID: { LINE_NAME_UPPERCASE: true } }
+        // activeRouteDiversions global state REMOVED
 
         const MAX_DISPLAY_ROWS = 4; 
         const CYCLING_ROWS_COUNT = 3; 
@@ -685,11 +672,13 @@
                     closedStopIDsGlobal = [];
                     for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) { closedStopIDsGlobal.push(stopID); } }
                     
-                    // NEW: Load initial route diversions
-                    activeRouteDiversions = appState.routeDiversions || {};
-                    console.log("[ARRIVALS DEBUG] Initial route diversions loaded:", activeRouteDiversions);
+                    // activeRouteDiversions fetch REMOVED
+                    // console.log("[ARRIVALS DEBUG] Initial route diversions loaded logic REMOVED");
 
-                } else { currentScheduleStatus = 'idle'; activeRouteDiversions = {}; }
+                } else { 
+                    currentScheduleStatus = 'idle'; 
+                    // activeRouteDiversions = {}; // REMOVED
+                }
 
                 const scheduleSnapshot = await dbGet(dbChild(dbRef(database), '/liveSchedule/allScheduledBusData'));
                 allScheduledData = scheduleSnapshot.exists() && Array.isArray(scheduleSnapshot.val()) ? scheduleSnapshot.val() : [];
@@ -704,7 +693,7 @@
                     for (const route in fbCustomColours) { effectiveRouteColourMap[route.toUpperCase()] = fbCustomColours[route]; }
                 }
                 
-                console.log("[ARRIVALS DEBUG] Data fetched.");
+                console.log("[ARRIVALS DEBUG] Data fetched (diversion logic removed).");
 
                 if (uniqueStops.length > 0) {
                     populateStopSelectionModal();
@@ -753,7 +742,7 @@
                 }
             });
 
-            const appStateRef = dbRef(database, '/appState'); // This existing listener will now also pick up routeDiversions
+            const appStateRef = dbRef(database, '/appState');
             dbOnValue(appStateRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const appState = snapshot.val();
@@ -775,20 +764,20 @@
                         populateStopSelectionModal(); 
                     }
                     
-                    // NEW: Update local diversions and refresh display if needed
-                    const newDiversions = appState.routeDiversions || {};
-                    if (JSON.stringify(activeRouteDiversions) !== JSON.stringify(newDiversions)) {
-                        console.log("[ARRIVALS DEBUG] FB: routeDiversions updated via appState listener.");
-                        activeRouteDiversions = newDiversions;
-                        if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
-                            selectStop(currentSelectedStopID); // Re-render to show diversion changes
-                        }
-                    }
+                    // Diversion listener logic REMOVED from here as well
+                    // const newDiversions = appState.routeDiversions || {}; // REMOVED
+                    // if (JSON.stringify(activeRouteDiversions) !== JSON.stringify(newDiversions)) { // REMOVED
+                        // console.log("[ARRIVALS DEBUG] FB: routeDiversions updated via appState listener."); // REMOVED
+                        // activeRouteDiversions = newDiversions; // REMOVED
+                        // if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') { // REMOVED
+                            // selectStop(currentSelectedStopID); // REMOVED
+                        // } // REMOVED
+                    // } // REMOVED
 
                 } else { 
                     currentScheduleStatus = 'idle'; 
                     closedStopIDsGlobal = [];
-                    activeRouteDiversions = {}; // Clear diversions if appState is gone
+                    // activeRouteDiversions = {}; // REMOVED
                 }
             });
 
@@ -800,7 +789,7 @@
                 else { console.log("[ARRIVALS DEBUG] Custom route colours node in Firebase is empty or deleted. Reverted to defaults.");}
                 if (currentSelectedStopID) selectStop(currentSelectedStopID); 
             });
-            console.log("[ARRIVALS DEBUG] Firebase listeners set up.");
+            console.log("[ARRIVALS DEBUG] Firebase listeners set up (diversion listener removed).");
         }
 
         function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID);  li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
@@ -812,7 +801,7 @@
 
         function selectStop(stopID) {
             console.log(`[ARRIVALS DEBUG] selectStop: ${stopID}`);
-            currentSelectedStopID = stopID; // Make sure this is the stopID string
+            currentSelectedStopID = stopID;
             localStorage.setItem('lastSelectedStopID', stopID);
             
             currentDepartureCycleStartIndex = 0;
@@ -884,22 +873,19 @@
                     let tileBGColour = getRouteTileColour(lineName);
                     let tileTextColour = getTextColourForBackground(tileBGColour);
 
-                    // ---- START DIVERSION CHECK & DISPLAY ----
-                    // Ensure currentSelectedStopID is a string and lineName is uppercase for matching
-                    const isDiverted = activeRouteDiversions[String(currentSelectedStopID)] && 
-                                       activeRouteDiversions[String(currentSelectedStopID)][lineName.toUpperCase()];
-
-                    if (isDiverted) {
-                        tileBGColour = '#FFFFFF'; // Change background to white
-                        tileTextColour = '#000000'; // Change text to black for contrast
-                        tile.style.filter = 'opacity(85%)'; // Slightly transparent to distinguish
-
-                        const diversionX = document.createElement('span');
-                        diversionX.className = 'diversion-x'; // Use class for styling
-                        diversionX.textContent = 'X';
-                        tile.appendChild(diversionX);
-                    }
-                    // ---- END DIVERSION CHECK & DISPLAY ----
+                    // ---- DIVERSION CHECK & DISPLAY REMOVED ----
+                    // const isDiverted = activeRouteDiversions[String(currentSelectedStopID)] && 
+                    //                    activeRouteDiversions[String(currentSelectedStopID)][lineName.toUpperCase()];
+                    // if (isDiverted) {
+                    //     tileBGColour = '#FFFFFF'; 
+                    //     tileTextColour = '#000000'; 
+                    //     tile.style.filter = 'opacity(85%)'; 
+                    //     const diversionX = document.createElement('span');
+                    //     diversionX.className = 'diversion-x'; 
+                    //     diversionX.textContent = 'X';
+                    //     tile.appendChild(diversionX);
+                    // }
+                    // ---- END DIVERSION CHECK & DISPLAY REMOVED ----
 
                     tile.style.backgroundColor = tileBGColour;
                     tile.style.color = tileTextColour;
@@ -957,7 +943,7 @@
             if (window.firebaseOMSI && window.firebaseOMSI.database) {
                 fetchBankHolidays().then(() => loadInitialData()).catch((err) => {
                     console.error("Error during initial data load sequence:", err);
-                    loadInitialData(); // Attempt to load data even if bank holidays fail
+                    loadInitialData(); 
                 });
             } else {
                 console.error("Firebase not initialized! Arrivals will not work with Firebase.");

@@ -24,10 +24,10 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start; /* Keep content at the top */
+            justify-content: flex-start; 
             min-height: 100vh;
             margin: 0;
-            padding: 0; /* Remove body padding to be right at the top */
+            padding: 0; 
             overflow-x: hidden;
             position: relative;
         }
@@ -35,8 +35,8 @@
         #clock-container {
             text-align: center;
             margin-bottom: 2rem;
-            margin-top: 0; /* Remove top margin */
-            padding-top: 1rem; /* Add some padding inside the clock container if needed from edge */
+            margin-top: 0; 
+            padding-top: 1rem; 
         }
         #clock-time {
             font-size: 20vmin;
@@ -158,7 +158,7 @@
             list-style: none;
             padding: 0;
             margin: 0;
-            max-height: 220px;
+            max-height: 220px; 
             overflow-y: auto;
             position: relative;
             border-top: 1px solid rgba(255, 255, 255, 0.2);
@@ -210,14 +210,14 @@
             padding: 1rem !important;
             font-style: italic !important;
             opacity: 0.8 !important;
-            color: #FFD700 !important;
+            color: #FFD700 !important; 
             font-weight: bold !important;
             font-size: 1.1em !important;
             text-align: center !important;
             background-color: transparent !important;
         }
         .system-update-message {
-            color: #FFD700;
+            color: #FFD700; 
             font-weight: bold;
             font-size: 1.0em;
         }
@@ -234,6 +234,34 @@
         #bus-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 10px; }
         #bus-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
         #bus-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
+
+        /* VVV NEW STYLES FOR SCROLLING SERVICE MESSAGE VVV */
+        #service-message-container {
+            background-color: rgba(0, 0, 0, 0.4); 
+            color: #FFD700; 
+            padding: 0.5rem 0.75rem;
+            margin-top: 0.75rem; 
+            border-radius: 0.375rem;
+            overflow: hidden; 
+            white-space: nowrap; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            border: 1px solid rgba(255, 215, 0, 0.3); 
+            font-size: clamp(0.8rem, 2.8vmin, 0.95rem);
+        }
+
+        #service-message-text {
+            display: inline-block; 
+            padding-left: 100%; 
+            animation: marquee-rtl 20s linear infinite; 
+            font-weight: normal;
+        }
+
+        @keyframes marquee-rtl {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+        /* ^^^ END OF NEW STYLES FOR SCROLLING SERVICE MESSAGE ^^^ */
+
 
         #tfl-logo {
             position: absolute !important;
@@ -341,6 +369,7 @@
             #stop-letter-display .stop-letter-circle { width: 1.6em; height: 1.6em; font-size: 0.7rem;}
             #stop-selection-modal-content { padding: 1rem; }
             #stop-selection-modal-content h3 { font-size: 1rem; }
+            #service-message-container { font-size: clamp(0.7rem, 2.5vmin, 0.85rem); } /* Adjust service message font for small screens */
         }
     </style>
 </head>
@@ -377,7 +406,11 @@
         <ul id="bus-list">
             <li class="loading-message">Connecting to live data...</li>
         </ul>
-    </div>
+        
+        <div id="service-message-container" style="display: none;">
+            <p id="service-message-text"></p>
+        </div>
+        </div>
 
     <div id="stop-selection-modal-overlay" class="modal-overlay">
         <div id="stop-selection-modal-content">
@@ -394,15 +427,16 @@
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
       import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
+      // THIS IS YOUR ACTUAL FIREBASE CONFIGURATION
       const firebaseConfig = {
-        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // Your actual API key
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
         authDomain: "omsi-c5505.firebaseapp.com",
-        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", 
+        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app",
         projectId: "omsi-c5505",
-        storageBucket: "omsi-c5505.appspot.com",
+        storageBucket: "omsi-c5505.appspot.com", // Using .appspot.com as it's more standard
         messagingSenderId: "503595375440",
         appId: "1:503595375440:web:356be6684b77ff5909ea55",
-        measurementId: "G-VN7X65V3F9" 
+        measurementId: "G-VN7X65V3F9"
       };
 
       const app = initializeApp(firebaseConfig);
@@ -423,6 +457,7 @@
             stopSelectionModalOverlay, closeStopModalButton,
             availableStopsList, stopSearchInput, disclaimerButton,
             disclaimerModalOverlayElement, disclaimerModalCloseButton,
+            serviceMessageContainerElement, serviceMessageTextElement, // <-- ADDED FOR SERVICE MESSAGE
             closedStopIDsGlobal = [];
 
         let allScheduledData = [];
@@ -434,7 +469,7 @@
         let animationTimeoutId = null;
         let currentScheduleStatus = 'idle';
 
-        const schoolHolidayDateRanges = [];
+        const schoolHolidayDateRanges = []; // Define your school holiday ranges here
         const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
         const initialRouteColourMap = {
@@ -492,6 +527,30 @@
             if (busListElement) { busListElement.innerHTML = `<li class="system-update-message">Live bus arrivals are not available at this time.<br>System update in progress.</li>`; }
             if (liveUpdateIntervalId) { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; console.log("[ARRIVALS DEBUG] Cleared liveUpdateIntervalId due to system update."); }
         }
+
+        // VVV NEW FUNCTION FOR SERVICE MESSAGE DISPLAY VVV
+        function updateServiceMessageDisplay(message) {
+            if (serviceMessageContainerElement && serviceMessageTextElement) {
+                if (message && typeof message === 'string' && message.trim() !== "") {
+                    serviceMessageTextElement.textContent = sanitize(message.trim());
+                    serviceMessageContainerElement.style.display = 'block'; 
+
+                    const textLength = message.trim().length;
+                    let duration = 20; 
+                    if (textLength > 50) { // Make it scroll faster for longer messages
+                        duration = Math.max(15, textLength / 4); // Adjust divisor for speed
+                    } else if (textLength < 20) {
+                        duration = 15; // Slower for very short messages
+                    }
+                    serviceMessageTextElement.style.animationDuration = duration + 's';
+
+                } else {
+                    serviceMessageContainerElement.style.display = 'none'; 
+                    serviceMessageTextElement.textContent = '';
+                }
+            }
+        }
+        // ^^^ END OF NEW FUNCTION ^^^
 
         function updateAndDisplayLiveArrivals() {
             if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
@@ -569,6 +628,17 @@
                     const fbCustomColours = customColoursSnapshot.val();
                     for (const route in fbCustomColours) { effectiveRouteColourMap[route.toUpperCase()] = fbCustomColours[route]; }
                 }
+                
+                // VVV FETCH INITIAL SERVICE MESSAGE VVV
+                const serviceMessageSnapshot = await dbGet(dbChild(dbRef(database), '/appState/serviceMessage'));
+                if (serviceMessageSnapshot.exists()) {
+                    updateServiceMessageDisplay(serviceMessageSnapshot.val());
+                } else {
+                    updateServiceMessageDisplay(null); // Ensure it's hidden if not set
+                }
+                console.log("[ARRIVALS DEBUG] Initial service message fetched (if exists).");
+                // ^^^ END OF FETCH ^^^
+
                 console.log("[ARRIVALS DEBUG] Data fetched:", { scheduleL: allScheduledData.length, stopsL: uniqueStops.length, status: currentScheduleStatus });
 
                 if (uniqueStops.length > 0) {
@@ -583,7 +653,7 @@
                     if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.</li>`;
                 }
             } catch (error) { console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error); if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading. Check console. Error: ${error.message}</li>`; }
-            setupFirebaseListeners();
+            setupFirebaseListeners(); // Call this ONCE after all initial data attempts
         }
 
         function setupFirebaseListeners() {
@@ -627,17 +697,32 @@
                         if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') updateAndDisplayLiveArrivals();
                         populateStopSelectionModal();
                     }
-                } else { currentScheduleStatus = 'idle'; closedStopIDsGlobal = []; }
+                    // VVV LISTEN FOR SERVICE MESSAGE CHANGES WITHIN APPSTATE LISTENER VVV
+                    // (This assumes serviceMessage is part of appState, if it's separate, keep the separate listener)
+                    // updateServiceMessageDisplay(appState.serviceMessage || null); 
+                    // If serviceMessage is separate, the dedicated listener below is better.
+                    // ^^^ END OF SERVICE MESSAGE UPDATE ^^^
+                } else { currentScheduleStatus = 'idle'; closedStopIDsGlobal = []; /* updateServiceMessageDisplay(null); */ }
             });
 
             const customColoursRef = dbRef(database, '/settings/customRouteColours');
             dbOnValue(customColoursRef, (snapshot) => {
                 console.log("[ARRIVALS DEBUG] FB: customRouteColours updated.");
                 effectiveRouteColourMap = { ...initialRouteColourMap };
-                if (snapshot.exists()) { const fbCols = snapshot.val(); for (const r in fbCols) effectiveRouteColourMap[r.toUpperCase()] = fbCols[r]; console.log("[ARRIVALS DEBUG] Applied updated custom route colours from Firebase:", effectiveRouteColourMap);}
+                if (snapshot.exists()) { const fbCols = snapshot.val(); for (const r in fbCols) effectiveRouteColourMap[r.toUpperCase()] = fbCols[r];}
                 else { console.log("[ARRIVALS DEBUG] Custom route colours node in Firebase is empty or deleted. Reverted to defaults.");}
                 if (currentSelectedStopID) selectStop(currentSelectedStopID); 
             });
+
+            // VVV DEDICATED LISTENER FOR SERVICE MESSAGE (if not part of general appState listener) VVV
+            const serviceMessageRef = dbRef(database, '/appState/serviceMessage'); 
+            dbOnValue(serviceMessageRef, (snapshot) => {
+                const message = snapshot.val();
+                console.log("[ARRIVALS DEBUG] FB: serviceMessage (dedicated listener) updated:", message);
+                updateServiceMessageDisplay(message);
+            });
+            // ^^^ END OF DEDICATED LISTENER ^^^
+
             console.log("[ARRIVALS DEBUG] Firebase listeners set up.");
         }
 
@@ -648,9 +733,6 @@
         function openStopSelectionModal() { if (!uniqueStops || uniqueStops.length === 0) { alert("No schedule data. Use Setup Page."); return; } if (stopSearchInput) stopSearchInput.value = ""; populateStopSelectionModal(); if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'flex'; }
         function closeStopSelectionModal() { if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'none'; }
 
-        // =======================================================================================
-        // START OF THE selectStop FUNCTION WITH DETAILED LOGGING FOR STOP LETTER SIZING
-        // =======================================================================================
         function selectStop(stopID) {
             console.log(`[ARRIVALS DEBUG] selectStop: ${stopID}, Current Status: ${currentScheduleStatus}, Stop Name from uniqueStops (if found): ${uniqueStops.find(s=>s.stopID===stopID)?.stopName || 'Not found in uniqueStops'}`);
 
@@ -666,7 +748,6 @@
             localStorage.setItem('lastSelectedStopID', stopID);
             const selectedStopDetails = uniqueStops.find(s => s && s.stopID === stopID);
 
-            // Clear previous state
             if(busStopHeader) busStopHeader.innerHTML = '';
             if(stopLetterDisplayElement) {
                 stopLetterDisplayElement.innerHTML = '';
@@ -684,8 +765,6 @@
             }
 
             let stopNameFull = selectedStopDetails.stopName || "Unknown Stop";
-            console.log(`[DEBUG NAME PARSE] Initial stopNameFull for ${stopID}: "${stopNameFull}"`);
-
             let mainNamePart = stopNameFull;
             let qualifierPart = null;
             let stopLetters = null; 
@@ -695,38 +774,19 @@
             if (qualifierMatch) {
                 mainNamePart = qualifierMatch[1].trim();
                 qualifierPart = qualifierMatch[2].trim();
-                console.log(`[DEBUG NAME PARSE] After qualifier split: mainNamePart = "${mainNamePart}", qualifierPart = "${qualifierPart}"`);
-            } else {
-                console.log(`[DEBUG NAME PARSE] No qualifier ('/') found in stopNameFull.`);
             }
-
             const letterRegex = /\(([A-Z0-9]{1,3})\)$/; 
-            
-            console.log(`[DEBUG NAME PARSE] Attempting to find letters in mainNamePart: "${mainNamePart}"`);
             let tempLetterMatch = mainNamePart.match(letterRegex);
             if (tempLetterMatch) {
                 stopLetters = tempLetterMatch[1];
                 mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim();
-                console.log(`[DEBUG NAME PARSE] stopLetters FOUND in mainNamePart: "${stopLetters}". New mainNamePart: "${mainNamePart}"`);
             } else if (qualifierPart) {
-                console.log(`[DEBUG NAME PARSE] No letters in mainNamePart. Attempting in qualifierPart: "${qualifierPart}"`);
                 tempLetterMatch = qualifierPart.match(letterRegex);
                 if (tempLetterMatch) {
                     stopLetters = tempLetterMatch[1];
                     qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim();
-                    console.log(`[DEBUG NAME PARSE] stopLetters FOUND in qualifierPart: "${stopLetters}". New qualifierPart: "${qualifierPart}"`);
-                } else {
-                    console.log(`[DEBUG NAME PARSE] No letters found in qualifierPart either.`);
                 }
-            } else {
-                 console.log(`[DEBUG NAME PARSE] No letters in mainNamePart and no qualifierPart to check.`);
             }
-
-            if (!stopLetters) {
-                console.log(`[DEBUG NAME PARSE] FINAL: No stopLetters extracted for stop: "${stopNameFull}" (ID: ${stopID})`);
-            }
-
-
             const mainNameLineDiv = document.createElement('div');
             mainNameLineDiv.className = 'main-stop-name-line';
             mainNameLineDiv.textContent = sanitize(mainNamePart);
@@ -743,7 +803,6 @@
                 busStopDirectionElement.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : "";
             }
 
-            // Route Tiles Logic
             if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) {
                 const allServingRoutesEver = new Set();
                 allScheduledData.forEach(bus => {
@@ -772,11 +831,7 @@
                 });
             }
             
-            console.log("[DEBUG SIZING CHECK] Before letter sizing: stopLetters =", stopLetters, "stopLetterDisplayElement exists:", !!stopLetterDisplayElement, "mainNameLineDiv exists:", !!mainNameLineDiv);
-
             if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) {
-                console.log("[LETTER SIZING ENTRY] Condition met. stopLetters:", stopLetters);
-                
                 const circleElement = document.createElement('span');
                 circleElement.className = 'stop-letter-circle';
                 const letterSpan = document.createElement('span');
@@ -788,83 +843,34 @@
                 stopLetterDisplayElement.style.display = 'inline-flex';
 
                 requestAnimationFrame(() => {
-                    console.log("[LETTER SIZING RAF ENTRY] requestAnimationFrame callback started for stopLetters:", stopLetters);
-                    if (!document.body.contains(circleElement) || !document.body.contains(mainNameLineDiv)) {
-                        console.warn("[LETTER SIZING RAF] Circle or MainNameLineDiv not in DOM within RAF. Aborting sizing.");
-                        return;
-                    }
-
+                    if (!document.body.contains(circleElement) || !document.body.contains(mainNameLineDiv)) { return; }
                     const mainStopNameComputedStyle = window.getComputedStyle(mainNameLineDiv);
                     const baseStopNameFontSizePx = parseFloat(mainStopNameComputedStyle.fontSize);
-                    
                     const circleStyle = window.getComputedStyle(circleElement);
                     const circleDiameterPx = parseFloat(circleStyle.width); 
-
-                    console.log("[LETTER SIZING RAF] baseStopNameFontSizePx:", baseStopNameFontSizePx, "circleDiameterPx:", circleDiameterPx);
-
-                    if (isNaN(baseStopNameFontSizePx) || baseStopNameFontSizePx <= 0 || isNaN(circleDiameterPx) || circleDiameterPx <= 0) {
-                        console.warn("[LETTER SIZING RAF] Could not get valid font/circle size for letter sizing in RAF.");
-                        return;
-                    }
-
+                    if (isNaN(baseStopNameFontSizePx) || baseStopNameFontSizePx <= 0 || isNaN(circleDiameterPx) || circleDiameterPx <= 0) { return; }
                     const fontFamily = mainStopNameComputedStyle.fontFamily;
                     const fontWeight = "bold"; 
                     letterSpan.style.fontFamily = fontFamily;
                     letterSpan.style.fontWeight = fontWeight;
-
-                    let currentLetterFontSize;
-                    const letterCount = stopLetters.length;
-                    console.log("[LETTER SIZING RAF] letterCount:", letterCount);
-                    let fitTargetWidth;
-                    const MIN_FONT_SIZE = 6; 
-
-                    if (letterCount === 1) {
-                        currentLetterFontSize = baseStopNameFontSizePx * 1.0; 
-                        fitTargetWidth = circleDiameterPx * 0.60; 
-                    } else if (letterCount === 2) {
-                        currentLetterFontSize = circleDiameterPx * 0.45; 
-                        fitTargetWidth = circleDiameterPx * 0.70; 
-                    } else { // 3 or more letters
-                        currentLetterFontSize = circleDiameterPx * 0.35; 
-                        fitTargetWidth = circleDiameterPx * 0.75; 
-                    }
-                    console.log(`[LETTER SIZING RAF] Initial estimate before clamp - Font: ${currentLetterFontSize.toFixed(2)}, TargetW: ${fitTargetWidth.toFixed(2)}`);
-
-                    if (letterCount === 1) {
-                        currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.80));
-                    } else { 
-                        currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.70)); 
-                    }
-                    console.log(`[LETTER SIZING RAF] After clamping - Font: ${currentLetterFontSize.toFixed(2)}`);
-
-                    const MAX_ITERATIONS = 50;
-                    let iterations = 0;
-                    let textMeasurementWidth;
-
+                    let currentLetterFontSize; const letterCount = stopLetters.length; let fitTargetWidth; const MIN_FONT_SIZE = 6; 
+                    if (letterCount === 1) { currentLetterFontSize = baseStopNameFontSizePx * 1.0; fitTargetWidth = circleDiameterPx * 0.60; } 
+                    else if (letterCount === 2) { currentLetterFontSize = circleDiameterPx * 0.45; fitTargetWidth = circleDiameterPx * 0.70; } 
+                    else { currentLetterFontSize = circleDiameterPx * 0.35; fitTargetWidth = circleDiameterPx * 0.75; }
+                    if (letterCount === 1) { currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.80)); } 
+                    else { currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.70)); } 
+                    const MAX_ITERATIONS = 50; let iterations = 0; let textMeasurementWidth;
                     do {
                         letterSpan.style.fontSize = currentLetterFontSize + "px";
                         textMeasurementWidth = getTextWidth(stopLetters, `${fontWeight} ${currentLetterFontSize}px "${fontFamily}"`);
-                        console.log(`[LETTER SIZING RAF] Iter: ${iterations}, Font: ${currentLetterFontSize.toFixed(2)}, MeasuredW: ${textMeasurementWidth.toFixed(2)}, TargetW: ${fitTargetWidth.toFixed(2)}`);
-
-                        if (textMeasurementWidth > fitTargetWidth && currentLetterFontSize > MIN_FONT_SIZE) {
-                            currentLetterFontSize -= 0.5; 
-                        } else {
-                            break; 
-                        }
-                        iterations++;
+                        if (textMeasurementWidth > fitTargetWidth && currentLetterFontSize > MIN_FONT_SIZE) { currentLetterFontSize -= 0.5; } 
+                        else { break; } iterations++;
                     } while (iterations < MAX_ITERATIONS && currentLetterFontSize > MIN_FONT_SIZE); 
-
                     letterSpan.style.fontSize = currentLetterFontSize + "px";
-                    console.log(`[LETTER SIZING RAF] Final - Font: ${currentLetterFontSize.toFixed(2)}px for '${stopLetters}'`);
                 });
             } else {
-                console.log("[LETTER SIZING SKIPPED] Condition (stopLetters && stopLetterDisplayElement && mainNameLineDiv) was false.");
-                console.log("[LETTER SIZING SKIPPED DETAILS] stopLetters:", stopLetters, "stopLetterDisplayElement exists:", !!stopLetterDisplayElement, "mainNameLineDiv exists:", !!mainNameLineDiv);
-                if (stopLetterDisplayElement) { 
-                    stopLetterDisplayElement.style.display = 'none';
-                }
+                if (stopLetterDisplayElement) { stopLetterDisplayElement.style.display = 'none'; }
             }
-            // ----- END OF MODIFIED SECTION FOR STOP LETTER SIZING -----
 
             if (closedStopIDsGlobal.includes(stopID)) {
                 if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;}
@@ -878,9 +884,6 @@
             if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId);
             liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 10000);
         }
-        // =======================================================================================
-        // END OF THE selectStop FUNCTION
-        // =======================================================================================
 
         document.addEventListener('DOMContentLoaded', () => {
             console.log("[ARRIVALS DEBUG] DOMContentLoaded");
@@ -898,6 +901,10 @@
             disclaimerButton = document.getElementById('disclaimer-button');
             disclaimerModalOverlayElement = document.getElementById('disclaimer-modal-overlay');
             disclaimerModalCloseButton = document.getElementById('disclaimer-modal-close-button');
+            // VVV GET SERVICE MESSAGE ELEMENTS VVV
+            serviceMessageContainerElement = document.getElementById('service-message-container');
+            serviceMessageTextElement = document.getElementById('service-message-text');
+            // ^^^ END OF GETTING ELEMENTS ^^^
             
             updateClock(); setInterval(updateClock, 1000);
 
@@ -905,14 +912,16 @@
                 console.log("Firebase is ready in arrivals DOMContentLoaded. Fetching initial data.");
                 fetchBankHolidays().then(() => {
                     console.log("[ARRIVALS DEBUG] Bank hols fetched, calling loadInitialData.");
-                    loadInitialData();
+                    loadInitialData(); // This will also set up listeners including for service message
                 }).catch(error => {
                     console.error("[ARRIVALS DEBUG] Bank hol fetch error:", error);
-                    loadInitialData(); 
+                    loadInitialData(); // Attempt to load data anyway
                 });
             } else {
                 console.error("Firebase not initialized! Arrivals will not work with Firebase.");
                 if(busListElement) busListElement.innerHTML = `<li class="error-message">Error: Firebase not connected.</li>`;
+                // Also hide service message container if Firebase isn't up
+                if(serviceMessageContainerElement) serviceMessageContainerElement.style.display = 'none';
             }
 
             if (busStopHeader) busStopHeader.addEventListener('click', openStopSelectionModal);

@@ -28,8 +28,8 @@
             max-width: 1400px;
             margin: 0 auto;
         }
-        .tool-content { /* New class to hide/show main tools */
-            display: none; /* Initially hidden */
+        .tool-content {
+            display: none; 
         }
         h1 { font-size: 2rem; margin-bottom: 1.5rem; font-weight: normal; text-align: center; color: #ffffff; }
         h2 { font-size: 1.5rem; margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: normal; border-bottom: 1px solid #7f8c8d; padding-bottom: 0.25rem;}
@@ -152,10 +152,10 @@
         .current-details-display p { margin: 0.2rem 0; }
         .current-details-display span { font-style: italic; color: #ecf0f1; }
 
-        .event-section div, .stop-status-section div, .route-colour-management div, .view-stop-departures div, .service-message-management div { /* Added .service-message-management */
+        .event-section div, .stop-status-section div, .route-colour-management div, .view-stop-departures div, .service-message-management div {
             margin-bottom: 0.75rem;
         }
-        .event-section label, .stop-status-section label, .route-colour-management label, .view-stop-departures label, .service-message-management label { /* Added .service-message-management */
+        .event-section label, .stop-status-section label, .route-colour-management label, .view-stop-departures label, .service-message-management label {
              margin-bottom: 0.25rem;
         }
 
@@ -219,11 +219,14 @@
 
         <div id="auth-section" class="section">
             <h2>Admin Login</h2>
-            <div id="login-form-container"> <div class="form-grid" style="grid-template-columns: 1fr;">
-                    <div><label for="inputEmail">Email</label><input type="email" id="inputEmail" autocomplete="email"></div>
-                    <div><label for="inputPassword">Password</label><input type="password" id="inputPassword" autocomplete="current-password"></div>
-                </div>
-                <button id="loginButton" class="button">Login</button>
+            <div id="login-form-container">
+                <form id="adminLoginForm">
+                    <div class="form-grid" style="grid-template-columns: 1fr;">
+                        <div><label for="inputEmail">Email</label><input type="email" id="inputEmail" autocomplete="email"></div>
+                        <div><label for="inputPassword">Password</label><input type="password" id="inputPassword" autocomplete="current-password"></div>
+                    </div>
+                    <button id="loginButton" type="submit" class="button">Login</button>
+                </form>
                 <p id="auth-status" style="margin-top: 0.5em; color: #f1c40f;"></p>
             </div>
             <div id="logout-container" style="display:none;"> <p>Logged in as: <span id="loggedInUserEmail"></span></p> <button id="logoutButton" class="button secondary">Logout</button>
@@ -331,6 +334,7 @@
                     <p><strong>Current Live Service Message:</strong> <span id="currentLiveServiceMessageDisplay">- Loading... -</span></p>
                 </div>
             </div>
+
             <div class="section route-colour-management">
                 <h2>Route Tile Colour Management</h2>
                 <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">Define custom colours for specific routes. These will override default colours on the arrivals board. Select a route from the dropdown (populated from your current working schedule).</p>
@@ -381,16 +385,16 @@
       import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
       import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-      // IMPORTANT: Replace with your actual Firebase configuration
+      // THIS IS YOUR ACTUAL FIREBASE CONFIGURATION
       const firebaseConfig = {
-        apiKey: "YOUR_API_KEY",
-        authDomain: "YOUR_AUTH_DOMAIN",
-        databaseURL: "YOUR_DATABASE_URL",
-        projectId: "YOUR_PROJECT_ID",
-        storageBucket: "YOUR_STORAGE_BUCKET",
-        messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-        appId: "YOUR_APP_ID",
-        measurementId: "YOUR_MEASUREMENT_ID" // Optional
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
+        authDomain: "omsi-c5505.firebaseapp.com",
+        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "omsi-c5505",
+        storageBucket: "omsi-c5505.appspot.com", // Corrected from firebasestorage.app if that was a typo
+        messagingSenderId: "503595375440",
+        appId: "1:503595375440:web:356be6684b77ff5909ea55",
+        measurementId: "G-VN7X65V3F9"
       };
 
       const app = initializeApp(firebaseConfig);
@@ -468,32 +472,31 @@
         const mainToolContentDiv = document.getElementById('main-tool-content');
         const loginFormContainer = document.getElementById('login-form-container');
         const logoutContainer = document.getElementById('logout-container');
-        const loginButton = document.getElementById('loginButton'); // Already declared, but ensure it's used
-        const logoutButton = document.getElementById('logoutButton'); // Already declared
-        const inputEmail = document.getElementById('inputEmail'); // Already declared
-        const inputPassword = document.getElementById('inputPassword'); // Already declared
-        const authStatus = document.getElementById('auth-status'); // Already declared
-        const loggedInUserEmailDisplay = document.getElementById('loggedInUserEmail'); // Already declared
+        const loginButton = document.getElementById('loginButton');
+        const logoutButton = document.getElementById('logoutButton');
+        const inputEmail = document.getElementById('inputEmail');
+        const inputPassword = document.getElementById('inputPassword');
+        const authStatus = document.getElementById('auth-status');
+        const loggedInUserEmailDisplay = document.getElementById('loggedInUserEmail');
 
-        // VVV THESE ARE THE NEW VARIABLES FOR THE SERVICE MESSAGE FEATURE VVV
+        // Service Message UI Elements
         const inputServiceMessage = document.getElementById('inputServiceMessage');
         const setServiceMessageButton = document.getElementById('setServiceMessageButton');
         const serviceMessageStatus = document.getElementById('serviceMessageStatus');
         const currentLiveServiceMessageDisplay = document.getElementById('currentLiveServiceMessageDisplay');
-        // ^^^ THESE ARE THE NEW VARIABLES FOR THE SERVICE MESSAGE FEATURE ^^^
 
 
         let currentUser = null; 
         let currentWorkingSchedule = [];
         let ukBankHolidaysData = { dates: [], titles: {} };
-        const schoolHolidayDateRanges = [ ]; // Define your school holiday ranges here
+        const schoolHolidayDateRanges = [ ]; 
         let activeFilters = { stopID: '', lineName: '', operatingProfile: '' };
         let sortConfig = { key: null, direction: 'asc' };
         let closedStopIDs = [];
         let customRouteColours = {};
         let effectiveRouteColourMapTools = {};
 
-        const eventTypes = [ // Define your event types here
+        const eventTypes = [ 
             { name: "Delay Route (5-15 min)", type: "DELAY_ROUTE", minDelay: 5, maxDelay: 15 },
             { name: "Delay From Stop (3-10 min)", type: "DELAY_FROM_STOP", minDelay: 3, maxDelay: 10 },
             { name: "Curtail Service", type: "CURTAIL" }
@@ -507,10 +510,10 @@
         const FB_PATH_APPSTATE_LAST_UPDATED = '/appState/scheduleLastUpdated';
         const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
         const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
-        const FB_PATH_APPSTATE_SERVICE_MESSAGE = '/appState/serviceMessage'; // VVV NEW FIREBASE PATH CONSTANT VVV
+        const FB_PATH_APPSTATE_SERVICE_MESSAGE = '/appState/serviceMessage'; 
         const CUSTOM_ROUTE_COLOURS_KEY = 'omsiCustomRouteTileColours';
 
-        const initialRouteColourMapForTools = { /* Define your default route colours here */
+        const initialRouteColourMapForTools = { 
             "1": "#DC2626", "2": "#DC2626", "3": "#DC2626", "4": "#00783A", "5": "#00783A", "6": "#00783A",
             "7": "#FFD300", "8": "#FFD300", "9": "#FFD300", "10": "#970006", "11": "#76D0BD", "12": "#F3A9BB",
             "186": "#E32017", "32":  "#00A4A7", "N5":  "#0019A8", "C11": "#FFD300","107": "#76D0BD",
@@ -519,7 +522,6 @@
         };
         const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
 
-        // --- Authentication UI Update Function ---
         function updateAuthUI(user) {
             currentUser = user;
             if (user) {
@@ -534,11 +536,10 @@
                 if (authStatus) authStatus.textContent = 'Please log in to use the tools.';
                 if (loggedInUserEmailDisplay) loggedInUserEmailDisplay.textContent = '';
                 if (mainToolContentDiv) mainToolContentDiv.style.display = 'none';
-                 if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -"; // Update service message display on logout
+                 if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -";
             }
         }
 
-        // --- Helper Functions (Core Logic - Keep your existing helper functions here) ---
         function parseLineName(lineNameStr) { const name = String(lineNameStr || "").toUpperCase().trim(); const numericPrefixRegex = new RegExp(/^(\d+)([A-Z]*)$/); const alphaNumericRegex = new RegExp(/^([A-Z]+)(\d+)?([A-Z]*)$/); const numericPrefixMatch = name.match(numericPrefixRegex); if (numericPrefixMatch) return { type: 'numeric', number: parseInt(numericPrefixMatch[1], 10), suffix: numericPrefixMatch[2] || '', original: name }; const alphaNumericMatch = name.match(alphaNumericRegex); if (alphaNumericMatch) return { type: 'alpha', prefix: alphaNumericMatch[1], number: alphaNumericMatch[2] ? parseInt(alphaNumericMatch[2], 10) : null, suffix: alphaNumericMatch[3] || '', original: name }; return { type: 'other', original: name }; }
         function compareLineNames(lineAStr, lineBStr) { const parsedA = parseLineName(lineAStr); const parsedB = parseLineName(lineBStr); if (parsedA.type === 'numeric' && parsedB.type === 'alpha') return -1; if (parsedA.type === 'alpha' && parsedB.type === 'numeric') return 1; if (parsedA.type === 'numeric' && parsedB.type === 'numeric') { if (parsedA.number < parsedB.number) return -1; if (parsedA.number > parsedB.number) return 1; return parsedA.suffix.localeCompare(parsedB.suffix); } if (parsedA.type === 'alpha' && parsedB.type === 'alpha') { const prefixCompare = parsedA.prefix.localeCompare(parsedB.prefix); if (prefixCompare !== 0) return prefixCompare; if (parsedA.number === null && parsedB.number !== null) return -1; if (parsedA.number !== null && parsedB.number === null) return 1; if (parsedA.number !== null && parsedB.number !== null) { if (parsedA.number < parsedB.number) return -1; if (parsedA.number > parsedB.number) return 1; } return parsedA.suffix.localeCompare(parsedB.suffix); } if (parsedA.type !== 'other' && parsedB.type === 'other') return -1; if (parsedA.type === 'other' && parsedB.type !== 'other') return 1; return (parsedA.original || "").localeCompare(parsedB.original || ""); }
         async function fetchBankHolidaysForSetup() { try { const response = await fetch('https://www.gov.uk/bank-holidays.json'); if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`); const data = await response.json(); if (data['england-and-wales'] && data['england-and-wales'].events) { const events = data['england-and-wales'].events; ukBankHolidaysData = { dates: events.map(event => event.date), titles: events.reduce((acc, event) => { acc[event.date] = event.title; return acc; }, {}) }; } else { console.warn("Setup: Bank holiday data not in expected format."); } } catch (error) { console.error("Setup: Failed to fetch UK bank holidays:", error); if(currentProfileDisplayElement) currentProfileDisplayElement.textContent = "Current Auto Profile: (Bank Hol. check failed)"; } updateCurrentProfileDisplayOnSetup(); }
@@ -593,7 +594,7 @@
         function handleApplyNow() {
             if (!currentUser) { alert("Please log in to apply a schedule."); return; }
             if (window.firebaseOMSI) {
-                const { database, dbGet, dbSet, dbUpdate, dbRef, dbChild } = window.firebaseOMSI;
+                const { database, dbGet, dbUpdate, dbRef, dbChild } = window.firebaseOMSI; // Removed unused dbSet
                 dbGet(dbChild(dbRef(database), '/pendingSchedule'))
                     .then((snapshot) => {
                         if (snapshot.exists()) {
@@ -695,7 +696,6 @@
             renderScheduleTable();
             updateStagingStatusDisplay(); 
             populateStopStatusSelector();
-            // listenForLiveServiceMessage(); // Moved to onAuthStateChanged
         }
 
         async function updateStagingStatusDisplay() {
@@ -749,7 +749,6 @@
         function displayDeparturesForSelectedStop() { if (!selectStopForDeparturesView || !stopDeparturesList || !noDeparturesForStopMessage) return; const selectedStopID = selectStopForDeparturesView.value; stopDeparturesList.innerHTML = ''; if (!selectedStopID) { noDeparturesForStopMessage.textContent = 'Select a stop to view its scheduled departures.'; noDeparturesForStopMessage.style.display = 'block'; return; } const departures = currentWorkingSchedule .filter(entry => entry.stopID === selectedStopID) .sort((a, b) => { const timeA = (a.scheduledTime || "9999").replace(':', ''); const timeB = (b.scheduledTime || "9999").replace(':', ''); if (timeA !== timeB) { return timeA.localeCompare(timeB); } const dayOrderA = getDaySortOrder(a.OperatingProfile); const dayOrderB = getDaySortOrder(b.OperatingProfile); if (dayOrderA !== dayOrderB) { return dayOrderA - dayOrderB; } const lineNameComparison = compareLineNames(a.lineName, b.lineName); if (lineNameComparison !== 0) { return lineNameComparison; } const profileA = a.OperatingProfile || ""; const profileB = b.OperatingProfile || ""; return profileA.localeCompare(profileB); }); if (departures.length === 0) { noDeparturesForStopMessage.textContent = 'No scheduled departures found for this stop in the working schedule.'; noDeparturesForStopMessage.style.display = 'block'; } else { noDeparturesForStopMessage.style.display = 'none'; departures.forEach(dep => { const li = document.createElement('li'); const lineTile = document.createElement('span'); lineTile.classList.add('route-tile-tools-list'); lineTile.textContent = dep.lineName || 'N/A'; const tileBGColour = getRouteTileColourForTools(dep.lineName); lineTile.style.backgroundColor = tileBGColour; lineTile.style.color = getTextColourForBackgroundTools(tileBGColour); const textSpan = document.createElement('span'); textSpan.innerHTML = ` to ${dep.destinationName || 'Unknown'} <span style="font-weight: bold; margin-left: 0.5em;">at ${dep.scheduledTime || 'N/A'}</span> <small style="opacity: 0.7; margin-left: 0.75em;">(Profile: ${dep.OperatingProfile || 'N/A'})</small> ${dep.DayOffset && dep.DayOffset !== "0" ? `<small style="opacity:0.7; margin-left:0.3em;color:#FFD700;">(+${dep.DayOffset}d)</small>` : ''} `; li.appendChild(lineTile); li.appendChild(textSpan); stopDeparturesList.appendChild(li); }); } }
         function renderScheduleTable() { if (!currentScheduleTableBody || !entryCountElement) return; const dataToRender = applyFiltersAndSort(currentWorkingSchedule); currentScheduleTableBody.innerHTML = ''; entryCountElement.textContent = dataToRender.length + (currentWorkingSchedule.length !== dataToRender.length ? ` of ${currentWorkingSchedule.length} total (working)` : ' (working)'); if (dataToRender.length === 0) { const r=currentScheduleTableBody.insertRow(), c=r.insertCell(); c.colSpan=9; c.textContent=activeFilters.stopID||activeFilters.lineName||activeFilters.operatingProfile?"No entries match filters in working schedule.":"Working schedule is empty. Add or upload."; c.style.textAlign="center";c.style.padding="1rem";c.style.fontStyle="italic"; } else { dataToRender.forEach((entry) => { const originalIndex = currentWorkingSchedule.findIndex(item => item.internalId === entry.internalId); const r=currentScheduleTableBody.insertRow(); r.insertCell().textContent=entry.stopID||''; r.insertCell().textContent=entry.stopName||''; r.insertCell().textContent=entry.direction||''; r.insertCell().textContent=entry.lineName||''; r.insertCell().textContent=entry.destinationName||''; r.insertCell().textContent=entry.scheduledTime||''; r.insertCell().textContent=entry.OperatingProfile||''; r.insertCell().textContent=entry.DayOffset||'0'; const actCell=r.insertCell(); const editBtn=document.createElement('button'); editBtn.textContent="Edit";editBtn.classList.add('button','small-action','tertiary'); editBtn.onclick=()=>loadEntryForEdit(originalIndex);actCell.appendChild(editBtn); const delBtn=document.createElement('button'); delBtn.textContent="Del";delBtn.classList.add('button','small-action','secondary'); delBtn.onclick=()=>handleDeleteEntry(originalIndex);actCell.appendChild(delBtn); }); } updateSortArrows(); populateRouteSelectorForEvents(); populateStopStatusSelector(); populateRouteSelectorForColours(); populateStopSelectorForDeparturesView(); renderCustomRouteColours(); }
 
-        // VVV THESE ARE THE NEW JAVASCRIPT FUNCTIONS FOR THE SERVICE MESSAGE VVV
         function handleSetServiceMessage() {
             if (!currentUser) { alert("Please log in to set the service message."); return; }
             if (!inputServiceMessage || !serviceMessageStatus) return;
@@ -761,15 +760,15 @@
                 serviceMessageStatus.textContent = 'Updating service message...';
                 serviceMessageStatus.style.color = '#f1c40f';
 
-                dbSet(dbRef(database, FB_PATH_APPSTATE_SERVICE_MESSAGE), message || null) // Store null if empty to remove
+                dbSet(dbRef(database, FB_PATH_APPSTATE_SERVICE_MESSAGE), message || null) 
                     .then(() => {
                         serviceMessageStatus.textContent = message ? 'Service message updated successfully!' : 'Service message removed successfully!';
-                        serviceMessageStatus.style.color = '#2ecc71'; // Green for success
+                        serviceMessageStatus.style.color = '#2ecc71';
                     })
                     .catch((error) => {
                         console.error("Error setting service message to Firebase: ", error);
                         serviceMessageStatus.textContent = 'Error updating message. Check console.';
-                        serviceMessageStatus.style.color = '#e74c3c'; // Red for error
+                        serviceMessageStatus.style.color = '#e74c3c';
                     });
             } else {
                 serviceMessageStatus.textContent = 'Firebase not available. Message not set.';
@@ -786,19 +785,18 @@
                 const message = snapshot.val();
                 if (message && typeof message === 'string' && message.trim() !== "") {
                     currentLiveServiceMessageDisplay.textContent = message.trim();
-                    if (inputServiceMessage) inputServiceMessage.value = message.trim(); // Pre-fill input
+                    if (inputServiceMessage) inputServiceMessage.value = message.trim();
                 } else {
                     currentLiveServiceMessageDisplay.textContent = "- No message set -";
-                    if (inputServiceMessage) inputServiceMessage.value = ''; // Clear input
+                    if (inputServiceMessage) inputServiceMessage.value = '';
                 }
             });
         }
-        // ^^^ THESE ARE THE NEW JAVASCRIPT FUNCTIONS FOR THE SERVICE MESSAGE ^^^
-
 
         document.addEventListener('DOMContentLoaded', () => {
             if (window.firebaseOMSI && window.firebaseOMSI.auth) {
                 const { auth, authOnAuthStateChanged, authSignInWithEmailAndPassword, authSignOut } = window.firebaseOMSI;
+                const adminLoginForm = document.getElementById('adminLoginForm');
 
                 authOnAuthStateChanged(auth, (user) => {
                     updateAuthUI(user); 
@@ -806,23 +804,28 @@
                         console.log("User signed in, proceeding to load initial data for tools.");
                         fetchBankHolidaysForSetup();
                         loadInitialData(); 
-                        listenForLiveServiceMessage(); // VVV CALL NEW LISTENER ON LOGIN VVV
+                        listenForLiveServiceMessage(); 
                     } else {
-                        console.log("User signed out or not yet signed in. Tools data will not be loaded from Firebase yet.");
+                        console.log("User signed out or not yet signed in.");
                         currentWorkingSchedule = []; renderScheduleTable(); 
                         updateStagingStatusDisplay(); 
                         if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -";
-                        if(inputServiceMessage) inputServiceMessage.value = ''; // Clear input on logout
+                        if(inputServiceMessage) inputServiceMessage.value = '';
                     }
                 });
 
-                if (loginButton) {
-                    loginButton.addEventListener('click', () => { 
-                        const email = inputEmail.value; const password = inputPassword.value; 
+                if (adminLoginForm) { // Check if form exists
+                    adminLoginForm.addEventListener('submit', (event) => { 
+                        event.preventDefault(); // Prevent actual form submission
+                        const email = inputEmail.value; 
+                        const password = inputPassword.value; 
                         if(authStatus) authStatus.textContent = 'Logging in...'; 
                         authSignInWithEmailAndPassword(auth, email, password)
-                            .then(() => { /* onAuthStateChanged will handle UI update */ })
-                            .catch((error) => { console.error("Login failed:", error); if(authStatus) authStatus.textContent = `Error: ${error.message}`; }); 
+                            .then(() => { /* onAuthStateChanged handles UI */ })
+                            .catch((error) => { 
+                                console.error("Login failed:", error); 
+                                if(authStatus) authStatus.textContent = `Error: ${error.message}`; 
+                            }); 
                     });
                 }
                 if (logoutButton) {
@@ -835,7 +838,6 @@
                 updateAuthUI(null); 
             }
 
-            // Setup other Event Listeners
             if (stageScheduleButton) stageScheduleButton.addEventListener('click', handleStageSchedule);
             if (applyNowButton) applyNowButton.addEventListener('click', handleApplyNow);
             if (viewArrivalsButton) viewArrivalsButton.addEventListener('click', () => { window.location.href = "omsi_arrivals.html"; });
@@ -862,7 +864,6 @@
             if (selectRouteNameColour) { selectRouteNameColour.addEventListener('change', () => { const selectedRoute = selectRouteNameColour.value; if (selectedRoute && customRouteColours[selectedRoute.toUpperCase()]) { inputRouteColour.value = customRouteColours[selectedRoute.toUpperCase()]; } else { inputRouteColour.value = DEFAULT_ROUTE_COLOUR_TOOLS; } }); }
             if (selectStopForDeparturesView) { selectStopForDeparturesView.addEventListener('change', displayDeparturesForSelectedStop); }
             
-            // VVV ADD EVENT LISTENER FOR THE NEW SERVICE MESSAGE BUTTON VVV
             if (setServiceMessageButton) {
                 setServiceMessageButton.addEventListener('click', handleSetServiceMessage);
             }

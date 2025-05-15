@@ -510,7 +510,6 @@
 
     <script>
         // --- DOM Elements ---
-// References to elements from removed sections are now deleted.
 const inputStopID = document.getElementById('inputStopID'); 
 const inputStopName = document.getElementById('inputStopName'); 
 const inputDirection = document.getElementById('inputDirection'); 
@@ -613,11 +612,7 @@ const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
 
 const initialRouteColourMapForTools = { "1": "#DC2626", "2": "#DC2626", "3": "#DC2626", "4": "#00783A", "5": "#00783A", "6": "#00783A", "7": "#FFD300", "8": "#FFD300", "9": "#FFD300", "10": "#970006", "11": "#76D0BD", "12": "#F3A9BB", "186": "#E32017", "32":  "#00A4A7", "N5":  "#0019A8", "C11": "#FFD300","107": "#76D0BD", "221": "#93002F", "240": "#C9A0DC", "251": "#F8A960","303": "#868F98", "305": "#CF7EA2", "SL1": "#5F259F", "SL10": "#A05A2C" };
 const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
-const eventTypes = [
-    { name: "Delay Route (5-15 min)", type: "DELAY_ROUTE", minDelay: 5, maxDelay: 15 },
-    { name: "Delay From Stop (3-10 min)", type: "DELAY_FROM_STOP", minDelay: 3, maxDelay: 10 },
-    { name: "Curtail Service", type: "CURTAIL" }
-];
+// Removed original eventTypes array, will be replaced by predefinedEvents in applyRandomEvent
 
 // --- UI Navigation & State ---
 function showSection(sectionId) {
@@ -881,7 +876,7 @@ function renderUIDependentElements() {
     populateRouteSelectorForEvents();
     populateStopStatusSelector(); 
     populateRouteSelectorForColours();
-    populateStopSelectorForDeparturesView(); // This will call displayDeparturesForSelectedStop
+    populateStopSelectorForDeparturesView(); 
     renderCustomRouteColours();
     
     if (document.getElementById('stop-management-tool-section') && document.getElementById('stop-management-tool-section').style.display === 'block') {
@@ -891,10 +886,107 @@ function renderUIDependentElements() {
 }
 
 function populateRouteSelectorForEvents() { if (!selectEventRoute) return; const currentVal = selectEventRoute.value; selectEventRoute.innerHTML = '<option value="">-- Select Route --</option>'; const uniqueLines = [...new Set(currentWorkingSchedule.map(e => e.lineName))].sort(compareLineNames); uniqueLines.forEach(ln => { if (ln) { const opt = document.createElement('option'); opt.value = ln; opt.textContent = ln; selectEventRoute.appendChild(opt); } }); selectEventRoute.value = uniqueLines.includes(currentVal) ? currentVal : ""; populateImpactStopSelector(); }
-function populateImpactStopSelector() { if (!selectEventImpactStop || !selectEventRoute) return; const selRoute = selectEventRoute.value; const currentVal = selectEventImpactStop.value; selectEventImpactStop.innerHTML = '<option value="">-- Route Wide --</option>'; if (selRoute) { const stops = currentWorkingSchedule.filter(e => e.lineName === selRoute).map(e => ({ id: e.stopID, name: e.stopName, time: e.scheduledTime })).sort((a,b) => (a.time||"").localeCompare(b.time||"")); const uniqueStops = []; const seen=new Set(); stops.forEach(s => { if (s.id && !seen.has(s.id)) { uniqueStops.push(s); seen.add(s.id); }}); uniqueStops.forEach(s => { const opt = document.createElement('option'); opt.value = s.id; opt.textContent = `${s.id} - ${s.name || 'Unknown'}`; selectEventImpactStop.appendChild(opt); }); selectEventImpactStop.value = seen.has(currentVal) ? currentVal : ""; } }
+function populateImpactStopSelector() { if (!selectEventImpactStop || !selectEventRoute) return; const selRoute = selectEventRoute.value; const currentVal = selectEventImpactStop.value; selectEventImpactStop.innerHTML = '<option value="">-- Route Wide --</option>'; if (selRoute) { const stops = currentWorkingSchedule.filter(e => e.lineName === selRoute).map(e => ({ id: e.stopID, name: e.stopName, time: e.scheduledTime })).sort((a,b) => (a.time||"").localeCompare(b.time||"")); const uniqueStops = []; const seen=new Set(); stops.forEach(s => { if (s.id && !seen.has(s.id)) { uniqueStops.push(s); seen.add(s.id); }}); uniqueStops.forEach(s => { const opt = document.createElement('option'); opt.value = s.id; opt.textContent = `${s.stopName || s.id} (${s.id})`; selectEventImpactStop.appendChild(opt); }); selectEventImpactStop.value = seen.has(currentVal) ? currentVal : ""; } } // Changed textContent to include stopName
 async function populateStopStatusSelector() { if (!selectStopForStatusChange || !window.firebaseOMSI) return; const currentVal = selectStopForStatusChange.value; selectStopForStatusChange.innerHTML = '<option value="">-- Select Stop --</option>'; const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const snap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS)); let stops = []; if (snap.exists() && Array.isArray(snap.val()) && snap.val().length > 0) { stops = snap.val(); } else { stops = getUniqueStopsFromSchedule(); } stops.sort((a,b) => (a.stopName||"").localeCompare(b.stopName||"")); stops.forEach(s => { if(!s || !s.stopID) return; const opt = document.createElement('option'); opt.value = s.stopID; const isClosed = closedStopIDs.includes(s.stopID); opt.textContent = `${s.stopName||s.stopID} (${s.stopID})${isClosed?' (Closed)':''}`; selectStopForStatusChange.appendChild(opt); }); selectStopForStatusChange.value = currentVal && stops.find(s => s && s.stopID === currentVal) ? currentVal : ""; } catch (e) {console.error("Error populating stop status selector", e)} }
 function handleStopStatusChange(action) { if (!currentUser) return; const stopID = selectStopForStatusChange.value; if (!stopID) { stopStatusMessage.textContent = "Select a stop."; return; } const idx = closedStopIDs.indexOf(stopID); const name = selectStopForStatusChange.options[selectStopForStatusChange.selectedIndex].text.split(' (')[0]; if (action === 'close') { if (idx === -1) { closedStopIDs.push(stopID); stopStatusMessage.textContent = `Stop '${name}' closed.`; } else { stopStatusMessage.textContent = `Stop '${name}' already closed.`; } } else if (action === 'reopen') { if (idx !== -1) { closedStopIDs.splice(idx, 1); stopStatusMessage.textContent = `Stop '${name}' reopened.`; } else { stopStatusMessage.textContent = `Stop '${name}' not closed.`; } } saveClosedStops(); populateStopStatusSelector(); }
-function applyRandomEvent() { if (!currentUser) return; const selRoute = selectEventRoute.value; const impactStop = selectEventImpactStop.value; if (!selRoute) { eventStatusMessage.textContent = "Select route."; return; } const eventPool = [...eventTypes].filter(e => e.type !== "DELAY_FROM_STOP" || impactStop); if (eventPool.length === 0) { eventStatusMessage.textContent = "No applicable events."; return; } const choice = eventPool[Math.floor(Math.random() * eventPool.length)]; eventStatusMessage.textContent = `Applying: ${choice.name} to ${selRoute}...`; let applied = false; let details = `Event: ${choice.name}. `; switch (choice.type) { case "DELAY_ROUTE": case "DELAY_FROM_STOP": const delay = Math.floor(Math.random()*(choice.maxDelay-choice.minDelay+1))+choice.minDelay; let apply = (choice.type === "DELAY_ROUTE"); let count = 0; currentWorkingSchedule.forEach(e => { if (e.lineName === selRoute) { if (!apply && choice.type === "DELAY_FROM_STOP" && e.stopID === impactStop) apply = true; if (apply && e.scheduledTime) { const parts = e.scheduledTime.split(':'); if (parts.length===2) { let h=parseInt(parts[0]), m=parseInt(parts[1]);m+=delay;h+=Math.floor(m/60);m%=60;h%=24;e.scheduledTime=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;e.eventNotes=(e.eventNotes||"")+` Delayed +${delay}m.`;count++;applied=true;}} }}); details += `${count} entries for ${selRoute} delayed by ${delay} mins.`; if(!applied&&choice.type==="DELAY_FROM_STOP"&&impactStop) details+=" (Impact stop not found/no subsequent services)."; break; case "CURTAIL": const entries = currentWorkingSchedule.filter(e=>e.lineName===selRoute); if(entries.length>0){const uniqueStops = [], seen=new Set(); [...entries].sort((a,b)=>(a.scheduledTime||"").localeCompare(b.scheduledTime||"")).forEach(e=>{if(!seen.has(e.stopID)){uniqueStops.push({id:e.stopID,name:e.stopName});seen.add(e.stopID);}}); if(uniqueStops.length>1){let newDest,curtailIdx=-1;if(impactStop){curtailIdx=uniqueStops.findIndex(s=>s.id===impactStop);if(curtailIdx>=0&&curtailIdx<uniqueStops.length-1)newDest=uniqueStops[curtailIdx];else if(curtailIdx===uniqueStops.length-1&&uniqueStops.length>1){newDest=uniqueStops[curtailIdx-1];curtailIdx--;}}if(!newDest&&uniqueStops.length>1){curtailIdx=Math.floor(Math.random()*(uniqueStops.length-1));newDest=uniqueStops[curtailIdx];}if(newDest){let rem=0,upd=0;currentWorkingSchedule=currentWorkingSchedule.filter(e=>{if(e.lineName===selRoute){const idx=uniqueStops.findIndex(s=>s.id===e.stopID);if(idx>curtailIdx){rem++;applied=true;return false;}}return true;});currentWorkingSchedule.forEach(e=>{if(e.lineName===selRoute&&e.destinationName!==newDest.name){e.destinationName=newDest.name;e.eventNotes=(e.eventNotes||"")+` Curtailed to ${newDest.name}.`;upd++;applied=true;}});if(rem>0||upd>0)details+=`${selRoute} services terminate at ${newDest.name}. ${rem} stops removed, ${upd} destinations updated.`;else details+="No changes from curtailment.";}else details+="Cannot determine curtailment point.";}else details+="Route too short to curtail.";} break;} if(applied) renderUIDependentElements(); eventStatusMessage.textContent = details + (applied?" Changes in 'Working Schedule'.":" No changes applied."); populateRouteSelectorForEvents(); if(selectEventRoute)selectEventRoute.value=""; populateImpactStopSelector();}
+
+// MODIFIED: applyRandomEvent to be non-destructive and use predefined events
+function applyRandomEvent() {
+    if (!currentUser) { 
+        eventStatusMessage.textContent = "Please log in."; 
+        eventStatusMessage.style.color = '#e74c3c';
+        return; 
+    }
+    const selRoute = selectEventRoute.value;
+    const impactStopID = selectEventImpactStop.value;
+    const selectedStopName = impactStopID ? (selectEventImpactStop.options[selectEventImpactStop.selectedIndex].text.split(' (')[0] || impactStopID) : "Route Wide";
+
+    if (!selRoute) {
+        eventStatusMessage.textContent = "Please select a route.";
+        eventStatusMessage.style.color = '#e74c3c';
+        return;
+    }
+
+    // Define specific, named events. You need to customize these with your actual curtailment points (stop names and IDs).
+    const predefinedEvents = [
+        { 
+            name: `Severe Delays on Route ${selRoute}`, 
+            type: "LOG_DELAY_ROUTE", 
+            baseDetails: `Route ${selRoute} is experiencing severe delays (simulated +%DELAY% mins) due to a major incident.`,
+            minDelay: 15, maxDelay: 20
+        },
+        { 
+            name: `Minor Delays on ${selRoute} from ${selectedStopName || 'selected stop'}`, 
+            type: "LOG_DELAY_FROM_STOP", 
+            condition: !!impactStopID, // Event only makes sense if a stop is selected
+            baseDetails: `Route ${selRoute} is experiencing minor delays (simulated +%DELAY% mins) from stop ${selectedStopName || '%STOP%'} onwards due to congestion.`,
+            minDelay: 5, maxDelay: 10,
+            appliesToStopID: impactStopID 
+        },
+        {
+            name: `Route ${selRoute} Curtailed to Edgware Station`, // Example: Specific curtailment
+            type: "LOG_CURTAIL",
+            curtailToStopName: "Edgware Station", 
+            // IMPORTANT: Add actual StopID for "Edgware Station" if you want to use it programmatically later
+            // curtailToStopID: "EDGWS", // Example, replace with actual ID from your data
+            baseDetails: `Route ${selRoute} services are now terminating at Edgware Station due to an obstruction. (Simulated)`
+        },
+        {
+            name: `Route ${selRoute} Curtailed to Mill Hill Broadway`, // Example: Specific curtailment
+            type: "LOG_CURTAIL",
+            curtailToStopName: "Mill Hill Broadway",
+            // curtailToStopID: "MHBRWY", // Example, replace with actual ID from your data
+            baseDetails: `Route ${selRoute} services are now terminating at Mill Hill Broadway due to a signal failure. (Simulated)`
+        }
+        // Add more predefined events here.
+        // For curtailments, ensure 'curtailToStopName' is meaningful.
+        // 'curtailToStopID' would be useful if you wanted to do more advanced checks later.
+    ];
+
+    let applicableEvents = predefinedEvents.filter(event => {
+        if (event.condition !== undefined && !event.condition) return false;
+        // For route-specific events (like the examples above), ensure the event.name template matches the selected route.
+        // This is implicitly handled by the event.name template including selRoute.
+        // A more robust check might be needed if names are not templated like this.
+        return true;
+    });
+    
+    if (applicableEvents.length === 0) {
+        eventStatusMessage.textContent = "No predefined applicable events for this selection.";
+        eventStatusMessage.style.color = '#f1c40f';
+        return;
+    }
+
+    const choice = applicableEvents[Math.floor(Math.random() * applicableEvents.length)];
+    let eventDetailsText = choice.baseDetails || choice.name; // Use baseDetails if available
+
+    switch (choice.type) {
+        case "LOG_DELAY_ROUTE":
+        case "LOG_DELAY_FROM_STOP":
+            const delay = Math.floor(Math.random() * (choice.maxDelay - choice.minDelay + 1)) + choice.minDelay;
+            eventDetailsText = eventDetailsText.replace('%DELAY%', delay);
+            if (choice.type === "LOG_DELAY_FROM_STOP" && choice.appliesToStopID !== impactStopID && impactStopID) {
+                 // This event was for a specific stop, but the selected impact stop is different
+                 // This scenario should ideally be filtered out by applicableEvents if logic is precise.
+                 // For now, just log as is, or add a note.
+                 console.warn(`Delay from stop event triggered but selected impact stop (${selectedStopName}) might not match event's intended stop if it was hardcoded.`);
+            }
+            eventDetailsText = eventDetailsText.replace('%STOP%', selectedStopName || 'the specified stop');
+            break;
+        case "LOG_CURTAIL":
+            // eventDetailsText is already set from choice.baseDetails
+            // You could add more dynamic info here if needed, e.g.,
+            // "Original destination was X, now Y."
+            break;
+        default:
+            console.warn("Unknown event type in predefinedEvents:", choice.type);
+    }
+
+    eventStatusMessage.textContent = `SIMULATED EVENT: ${eventDetailsText}`;
+    eventStatusMessage.style.color = '#3498db'; // Blue for simulated info
+}
+
+
 function loadAndApplyCustomRouteColoursForTools() { effectiveRouteColourMapTools = { ...initialRouteColourMapForTools, ...customRouteColours }; }
 function renderCustomRouteColours() { if (!currentRouteColoursList || !noCustomColoursMessage) return; currentRouteColoursList.innerHTML = ''; const routes = [...new Set(currentWorkingSchedule.map(e => e.lineName))].filter(n => n && n.trim() !== "").sort(compareLineNames); if (routes.length === 0) { noCustomColoursMessage.textContent = 'No routes in working schedule.'; noCustomColoursMessage.style.display = 'block'; return; } noCustomColoursMessage.style.display = 'none'; routes.forEach(rName => { const upName = rName.toUpperCase(); const isCustom = customRouteColours.hasOwnProperty(upName); const color = isCustom ? customRouteColours[upName] : DEFAULT_ROUTE_COLOUR_TOOLS; const li = document.createElement('li'); const box = document.createElement('span'); box.className = 'colour-preview-box'; box.style.backgroundColor = color; const info = document.createElement('span'); info.className = 'route-info'; info.innerHTML = `Route: ${rName} - Colour: ${color.toUpperCase()}${isCustom?"":` <small style="opacity:0.7;">(Default)</small>`}`; const actions = document.createElement('div'); actions.style.marginLeft = 'auto'; if (isCustom) { const btn = document.createElement('button'); btn.textContent = 'Remove'; btn.classList.add('button','small-action','secondary'); btn.onclick=()=>handleRemoveRouteColour(upName); actions.appendChild(btn); } li.appendChild(box); li.appendChild(info); li.appendChild(actions); currentRouteColoursList.appendChild(li); }); }
 function populateRouteSelectorForColours() { if (!selectRouteNameColour) return; const currentVal = selectRouteNameColour.value; selectRouteNameColour.innerHTML = '<option value="">-- Select Route --</option>'; const lines = [...new Set(currentWorkingSchedule.map(e => e.lineName))].filter(n => n && n.trim() !== "").sort(compareLineNames); lines.forEach(ln => { const opt = document.createElement('option'); opt.value = ln; opt.textContent = ln; selectRouteNameColour.appendChild(opt); }); if (lines.includes(currentVal)) selectRouteNameColour.value = currentVal; selectRouteNameColour.dispatchEvent(new Event('change')); }
@@ -905,7 +997,6 @@ function getTextColourForBackgroundTools(hex) { if(!hex||hex.length<7)return'#FF
 function getDaySortOrder(profile) { if(!profile)return 99;const p=profile.toUpperCase().split(',').map(s=>s.trim());if(p.some(s=>s.startsWith("MO")&&!s.startsWith("MO-FR")))return 1;if(p.some(s=>s.startsWith("TU")))return 2;if(p.some(s=>s.startsWith("WE")))return 3;if(p.some(s=>s.startsWith("TH")))return 4;if(p.some(s=>s.startsWith("FR")&&!s.startsWith("MO-FR")))return 5;if(p.some(s=>s.startsWith("MF")||s.startsWith("MO-FR")))return 6;if(p.some(s=>s.startsWith("SA")))return 7;if(p.some(s=>s.startsWith("SU")))return 8;if(p.includes("GOODFRIDAY"))return 10;if(p.includes("BANKHOLIDAY"))return 11; return 99;}
 function populateStopSelectorForDeparturesView() { if (!selectStopForDeparturesView) return; const currentVal = selectStopForDeparturesView.value; selectStopForDeparturesView.innerHTML = '<option value="">-- Select Stop --</option>'; if (currentWorkingSchedule.length === 0) { displayDeparturesForSelectedStop(); return; } const stopsMap = new Map(); currentWorkingSchedule.forEach(e => { if (e.stopID && !stopsMap.has(e.stopID)) stopsMap.set(e.stopID, { stopID: e.stopID, stopName: e.stopName || e.stopID }); }); const sorted = Array.from(stopsMap.values()).sort((a,b)=>(a.stopName.toLowerCase()).localeCompare(b.stopName.toLowerCase())); sorted.forEach(s => { const opt = document.createElement('option'); opt.value = s.stopID; opt.textContent = `${s.stopName} (${s.stopID})`; selectStopForDeparturesView.appendChild(opt); }); if (stopsMap.has(currentVal)) selectStopForDeparturesView.value = currentVal; displayDeparturesForSelectedStop(); }
 
-// MODIFIED: displayDeparturesForSelectedStop to change sort order
 function displayDeparturesForSelectedStop() {
     if (!selectStopForDeparturesView || !stopDeparturesList || !noDeparturesForStopMessage) return;
     const selStopID = selectStopForDeparturesView.value;
@@ -925,15 +1016,15 @@ function displayDeparturesForSelectedStop() {
             const offsetB = parseInt(b.DayOffset || "0", 10);
             if (offsetA !== offsetB) return offsetA - offsetB;
 
-            // 2. Secondary Sort: Scheduled Time
-            const timeA = (a.scheduledTime || "9999").replace(':', '');
-            const timeB = (b.scheduledTime || "9999").replace(':', '');
-            if (timeA !== timeB) return timeA.localeCompare(timeB);
-            
-            // 3. Tertiary Sort: Profile Day Order (using existing getDaySortOrder)
+            // 2. Secondary Sort: Profile Day Order (using existing getDaySortOrder)
             const dayA = getDaySortOrder(a.OperatingProfile);
             const dayB = getDaySortOrder(b.OperatingProfile);
             if (dayA !== dayB) return dayA - dayB;
+            
+            // 3. Tertiary Sort: Scheduled Time
+            const timeA = (a.scheduledTime || "9999").replace(':', '');
+            const timeB = (b.scheduledTime || "9999").replace(':', '');
+            if (timeA !== timeB) return timeA.localeCompare(timeB);
 
             // 4. Quaternary Sort: Line Name
             const lineComp = compareLineNames(a.lineName, b.lineName);

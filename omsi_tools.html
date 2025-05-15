@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en-GB">
 <head>
+    <link rel="manifest" href="/manifest-omsi.json">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OMSI Countdown - Tools</title>
@@ -510,6 +511,7 @@
 
     <script>
         // --- DOM Elements ---
+// References to elements from removed sections are now deleted.
 const inputStopID = document.getElementById('inputStopID'); 
 const inputStopName = document.getElementById('inputStopName'); 
 const inputDirection = document.getElementById('inputDirection'); 
@@ -612,7 +614,6 @@ const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
 
 const initialRouteColourMapForTools = { "1": "#DC2626", "2": "#DC2626", "3": "#DC2626", "4": "#00783A", "5": "#00783A", "6": "#00783A", "7": "#FFD300", "8": "#FFD300", "9": "#FFD300", "10": "#970006", "11": "#76D0BD", "12": "#F3A9BB", "186": "#E32017", "32":  "#00A4A7", "N5":  "#0019A8", "C11": "#FFD300","107": "#76D0BD", "221": "#93002F", "240": "#C9A0DC", "251": "#F8A960","303": "#868F98", "305": "#CF7EA2", "SL1": "#5F259F", "SL10": "#A05A2C" };
 const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
-// Removed original eventTypes array, will be replaced by predefinedEvents in applyRandomEvent
 
 // --- UI Navigation & State ---
 function showSection(sectionId) {
@@ -886,28 +887,40 @@ function renderUIDependentElements() {
 }
 
 function populateRouteSelectorForEvents() { if (!selectEventRoute) return; const currentVal = selectEventRoute.value; selectEventRoute.innerHTML = '<option value="">-- Select Route --</option>'; const uniqueLines = [...new Set(currentWorkingSchedule.map(e => e.lineName))].sort(compareLineNames); uniqueLines.forEach(ln => { if (ln) { const opt = document.createElement('option'); opt.value = ln; opt.textContent = ln; selectEventRoute.appendChild(opt); } }); selectEventRoute.value = uniqueLines.includes(currentVal) ? currentVal : ""; populateImpactStopSelector(); }
-function populateImpactStopSelector() { if (!selectEventImpactStop || !selectEventRoute) return; const selRoute = selectEventRoute.value; const currentVal = selectEventImpactStop.value; selectEventImpactStop.innerHTML = '<option value="">-- Route Wide --</option>'; if (selRoute) { const stops = currentWorkingSchedule.filter(e => e.lineName === selRoute).map(e => ({ id: e.stopID, name: e.stopName, time: e.scheduledTime })).sort((a,b) => (a.time||"").localeCompare(b.time||"")); const uniqueStops = []; const seen=new Set(); stops.forEach(s => { if (s.id && !seen.has(s.id)) { uniqueStops.push(s); seen.add(s.id); }}); uniqueStops.forEach(s => { const opt = document.createElement('option'); opt.value = s.id; opt.textContent = `${s.stopName || s.id} (${s.id})`; selectEventImpactStop.appendChild(opt); }); selectEventImpactStop.value = seen.has(currentVal) ? currentVal : ""; } } // Changed textContent to include stopName
+function populateImpactStopSelector() { if (!selectEventImpactStop || !selectEventRoute) return; const selRoute = selectEventRoute.value; const currentVal = selectEventImpactStop.value; selectEventImpactStop.innerHTML = '<option value="">-- Route Wide --</option>'; if (selRoute) { const stops = currentWorkingSchedule.filter(e => e.lineName === selRoute).map(e => ({ id: e.stopID, name: e.stopName, time: e.scheduledTime })).sort((a,b) => (a.time||"").localeCompare(b.time||"")); const uniqueStops = []; const seen=new Set(); stops.forEach(s => { if (s.id && !seen.has(s.id)) { uniqueStops.push(s); seen.add(s.id); }}); uniqueStops.forEach(s => { const opt = document.createElement('option'); opt.value = s.id; opt.textContent = `${s.stopName || s.id} (${s.id})`; selectEventImpactStop.appendChild(opt); }); selectEventImpactStop.value = seen.has(currentVal) ? currentVal : ""; } }
 async function populateStopStatusSelector() { if (!selectStopForStatusChange || !window.firebaseOMSI) return; const currentVal = selectStopForStatusChange.value; selectStopForStatusChange.innerHTML = '<option value="">-- Select Stop --</option>'; const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const snap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS)); let stops = []; if (snap.exists() && Array.isArray(snap.val()) && snap.val().length > 0) { stops = snap.val(); } else { stops = getUniqueStopsFromSchedule(); } stops.sort((a,b) => (a.stopName||"").localeCompare(b.stopName||"")); stops.forEach(s => { if(!s || !s.stopID) return; const opt = document.createElement('option'); opt.value = s.stopID; const isClosed = closedStopIDs.includes(s.stopID); opt.textContent = `${s.stopName||s.stopID} (${s.stopID})${isClosed?' (Closed)':''}`; selectStopForStatusChange.appendChild(opt); }); selectStopForStatusChange.value = currentVal && stops.find(s => s && s.stopID === currentVal) ? currentVal : ""; } catch (e) {console.error("Error populating stop status selector", e)} }
 function handleStopStatusChange(action) { if (!currentUser) return; const stopID = selectStopForStatusChange.value; if (!stopID) { stopStatusMessage.textContent = "Select a stop."; return; } const idx = closedStopIDs.indexOf(stopID); const name = selectStopForStatusChange.options[selectStopForStatusChange.selectedIndex].text.split(' (')[0]; if (action === 'close') { if (idx === -1) { closedStopIDs.push(stopID); stopStatusMessage.textContent = `Stop '${name}' closed.`; } else { stopStatusMessage.textContent = `Stop '${name}' already closed.`; } } else if (action === 'reopen') { if (idx !== -1) { closedStopIDs.splice(idx, 1); stopStatusMessage.textContent = `Stop '${name}' reopened.`; } else { stopStatusMessage.textContent = `Stop '${name}' not closed.`; } } saveClosedStops(); populateStopStatusSelector(); }
 
 // MODIFIED: applyRandomEvent to be non-destructive and use predefined events
 function applyRandomEvent() {
     if (!currentUser) { 
-        eventStatusMessage.textContent = "Please log in."; 
-        eventStatusMessage.style.color = '#e74c3c';
+        if(eventStatusMessage) {
+            eventStatusMessage.textContent = "Please log in."; 
+            eventStatusMessage.style.color = '#e74c3c';
+        }
         return; 
     }
     const selRoute = selectEventRoute.value;
     const impactStopID = selectEventImpactStop.value;
-    const selectedStopName = impactStopID ? (selectEventImpactStop.options[selectEventImpactStop.selectedIndex].text.split(' (')[0] || impactStopID) : "Route Wide";
+    let selectedStopName = "Route Wide";
+    if (impactStopID && selectEventImpactStop.options.length > 0 && selectEventImpactStop.selectedIndex >= 0) {
+         // Ensure selectedIndex is valid to prevent errors if the list is empty or no option selected
+        const selectedOptionText = selectEventImpactStop.options[selectEventImpactStop.selectedIndex].text;
+        selectedStopName = selectedOptionText.includes('(') ? selectedOptionText.split(' (')[0] : selectedOptionText;
+    }
+
 
     if (!selRoute) {
-        eventStatusMessage.textContent = "Please select a route.";
-        eventStatusMessage.style.color = '#e74c3c';
+        if(eventStatusMessage) {
+            eventStatusMessage.textContent = "Please select a route.";
+            eventStatusMessage.style.color = '#e74c3c';
+        }
         return;
     }
 
-    // Define specific, named events. You need to customize these with your actual curtailment points (stop names and IDs).
+    // Define specific, named events. 
+    // YOU NEED TO CUSTOMIZE THESE with your actual curtailment points (stop names)
+    // and any specific details you want for your simulated events.
     const predefinedEvents = [
         { 
             name: `Severe Delays on Route ${selRoute}`, 
@@ -916,74 +929,62 @@ function applyRandomEvent() {
             minDelay: 15, maxDelay: 20
         },
         { 
-            name: `Minor Delays on ${selRoute} from ${selectedStopName || 'selected stop'}`, 
+            name: `Minor Delays on ${selRoute} from ${impactStopID ? selectedStopName : 'start of route'}`, 
             type: "LOG_DELAY_FROM_STOP", 
-            condition: !!impactStopID, // Event only makes sense if a stop is selected
-            baseDetails: `Route ${selRoute} is experiencing minor delays (simulated +%DELAY% mins) from stop ${selectedStopName || '%STOP%'} onwards due to congestion.`,
-            minDelay: 5, maxDelay: 10,
-            appliesToStopID: impactStopID 
+            condition: true, // Always applicable if a route is selected, will use selectedStopName or generic
+            baseDetails: `Route ${selRoute} is experiencing minor delays (simulated +%DELAY% mins) from ${impactStopID ? selectedStopName : 'the start of its route'} onwards due to congestion.`,
+            minDelay: 5, maxDelay: 10
         },
         {
-            name: `Route ${selRoute} Curtailed to Edgware Station`, // Example: Specific curtailment
+            name: `Route ${selRoute} Curtailed to Example Point A`,
             type: "LOG_CURTAIL",
-            curtailToStopName: "Edgware Station", 
-            // IMPORTANT: Add actual StopID for "Edgware Station" if you want to use it programmatically later
-            // curtailToStopID: "EDGWS", // Example, replace with actual ID from your data
-            baseDetails: `Route ${selRoute} services are now terminating at Edgware Station due to an obstruction. (Simulated)`
+            curtailToStopName: "Example Curtail Point A", 
+            baseDetails: `Route ${selRoute} services are now terminating at Example Curtail Point A due to an obstruction. (Simulated)`
         },
         {
-            name: `Route ${selRoute} Curtailed to Mill Hill Broadway`, // Example: Specific curtailment
+            name: `Route ${selRoute} Curtailed to Example Point B`,
             type: "LOG_CURTAIL",
-            curtailToStopName: "Mill Hill Broadway",
-            // curtailToStopID: "MHBRWY", // Example, replace with actual ID from your data
-            baseDetails: `Route ${selRoute} services are now terminating at Mill Hill Broadway due to a signal failure. (Simulated)`
+            curtailToStopName: "Example Curtail Point B",
+            baseDetails: `Route ${selRoute} services are now terminating at Example Curtail Point B due to a police incident. (Simulated)`
         }
-        // Add more predefined events here.
-        // For curtailments, ensure 'curtailToStopName' is meaningful.
-        // 'curtailToStopID' would be useful if you wanted to do more advanced checks later.
+        // TODO: Add more predefined events here.
+        // For curtailments, ensure 'curtailToStopName' is meaningful for your routes.
     ];
 
     let applicableEvents = predefinedEvents.filter(event => {
-        if (event.condition !== undefined && !event.condition) return false;
-        // For route-specific events (like the examples above), ensure the event.name template matches the selected route.
-        // This is implicitly handled by the event.name template including selRoute.
-        // A more robust check might be needed if names are not templated like this.
+        // If event.condition is defined, it must be true. Otherwise, it's considered applicable.
+        if (event.condition !== undefined && !event.condition && event.type === "LOG_DELAY_FROM_STOP" && !impactStopID) return false; 
         return true;
     });
     
     if (applicableEvents.length === 0) {
-        eventStatusMessage.textContent = "No predefined applicable events for this selection.";
-        eventStatusMessage.style.color = '#f1c40f';
+        if(eventStatusMessage) {
+            eventStatusMessage.textContent = "No predefined applicable events for this selection.";
+            eventStatusMessage.style.color = '#f1c40f';
+        }
         return;
     }
 
     const choice = applicableEvents[Math.floor(Math.random() * applicableEvents.length)];
-    let eventDetailsText = choice.baseDetails || choice.name; // Use baseDetails if available
+    let eventDetailsText = choice.baseDetails || choice.name; 
 
     switch (choice.type) {
         case "LOG_DELAY_ROUTE":
         case "LOG_DELAY_FROM_STOP":
             const delay = Math.floor(Math.random() * (choice.maxDelay - choice.minDelay + 1)) + choice.minDelay;
             eventDetailsText = eventDetailsText.replace('%DELAY%', delay);
-            if (choice.type === "LOG_DELAY_FROM_STOP" && choice.appliesToStopID !== impactStopID && impactStopID) {
-                 // This event was for a specific stop, but the selected impact stop is different
-                 // This scenario should ideally be filtered out by applicableEvents if logic is precise.
-                 // For now, just log as is, or add a note.
-                 console.warn(`Delay from stop event triggered but selected impact stop (${selectedStopName}) might not match event's intended stop if it was hardcoded.`);
-            }
-            eventDetailsText = eventDetailsText.replace('%STOP%', selectedStopName || 'the specified stop');
             break;
         case "LOG_CURTAIL":
-            // eventDetailsText is already set from choice.baseDetails
-            // You could add more dynamic info here if needed, e.g.,
-            // "Original destination was X, now Y."
+            // baseDetails already contains the curtailment point name.
             break;
         default:
             console.warn("Unknown event type in predefinedEvents:", choice.type);
     }
 
-    eventStatusMessage.textContent = `SIMULATED EVENT: ${eventDetailsText}`;
-    eventStatusMessage.style.color = '#3498db'; // Blue for simulated info
+    if(eventStatusMessage) {
+        eventStatusMessage.textContent = `SIMULATED EVENT: ${eventDetailsText}`;
+        eventStatusMessage.style.color = '#3498db'; 
+    }
 }
 
 
@@ -1011,26 +1012,21 @@ function displayDeparturesForSelectedStop() {
     const deps = currentWorkingSchedule
         .filter(e => e.stopID === selStopID)
         .sort((a, b) => {
-            // 1. Primary Sort: DayOffset (0 before 1)
             const offsetA = parseInt(a.DayOffset || "0", 10);
             const offsetB = parseInt(b.DayOffset || "0", 10);
             if (offsetA !== offsetB) return offsetA - offsetB;
 
-            // 2. Secondary Sort: Profile Day Order (using existing getDaySortOrder)
             const dayA = getDaySortOrder(a.OperatingProfile);
             const dayB = getDaySortOrder(b.OperatingProfile);
             if (dayA !== dayB) return dayA - dayB;
             
-            // 3. Tertiary Sort: Scheduled Time
             const timeA = (a.scheduledTime || "9999").replace(':', '');
             const timeB = (b.scheduledTime || "9999").replace(':', '');
             if (timeA !== timeB) return timeA.localeCompare(timeB);
 
-            // 4. Quaternary Sort: Line Name
             const lineComp = compareLineNames(a.lineName, b.lineName);
             if (lineComp !== 0) return lineComp;
 
-            // 5. Final Sort: Full OperatingProfile string
             return (a.OperatingProfile || "").localeCompare(b.OperatingProfile || "");
         });
 
@@ -1301,6 +1297,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (refreshRoutesForStopSelectButton_SM) refreshRoutesForStopSelectButton_SM.addEventListener('click', populateRoutesForStopSelector_SM);
 
     fetchBankHolidaysForSetup();
+
+    // PWA Service Worker Registration
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw-omsi.js') // Using your specified filename
+            .then(registration => {
+                console.log('Service Worker (sw-omsi.js) registered successfully with scope:', registration.scope);
+            })
+            .catch(error => {
+                console.error('Service Worker (sw-omsi.js) registration failed:', error);
+            });
+        });
+    }
 });
 </script>
 </body>

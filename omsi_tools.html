@@ -56,8 +56,8 @@
         }
 
         input[type="text"],
-        input[type="email"], /* Added for login */
-        input[type="password"], /* Added for login */
+        input[type="email"],
+        input[type="password"],
         input[type="time"],
         input[type="color"],
         select {
@@ -152,10 +152,10 @@
         .current-details-display p { margin: 0.2rem 0; }
         .current-details-display span { font-style: italic; color: #ecf0f1; }
 
-        .event-section div, .stop-status-section div, .route-colour-management div, .view-stop-departures div {
+        .event-section div, .stop-status-section div, .route-colour-management div, .view-stop-departures div, .service-message-management div { /* Added .service-message-management */
             margin-bottom: 0.75rem;
         }
-        .event-section label, .stop-status-section label, .route-colour-management label, .view-stop-departures label {
+        .event-section label, .stop-status-section label, .route-colour-management label, .view-stop-departures label, .service-message-management label { /* Added .service-message-management */
              margin-bottom: 0.25rem;
         }
 
@@ -315,6 +315,22 @@
                 </div>
                 <p id="stopStatusMessage" style="font-size:0.9rem; margin-top:0.5rem; min-height:1.2em; color: #f1c40f;"></p>
             </div>
+
+            <div class="section service-message-management">
+                <h2>Set Scrolling Service Message (Live Effect)</h2>
+                <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">Enter a message to display as a scrolling banner on the bottom of the arrivals board. Leave blank and save to remove the message.</p>
+                <div>
+                    <label for="inputServiceMessage">Service Message Text:</label>
+                    <input type="text" id="inputServiceMessage" placeholder="e.g., Service Update: Route X is diverted..." autocomplete="off">
+                </div>
+                <div style="margin-top: 0.75rem;">
+                    <button id="setServiceMessageButton" class="button">Set/Update Service Message</button>
+                </div>
+                <p id="serviceMessageStatus" style="font-size:0.9rem; margin-top:0.75rem; min-height:1.2em; color: #f1c40f;"></p>
+                <div class="current-details-display" style="margin-top: 1rem;">
+                    <p><strong>Current Live Service Message:</strong> <span id="currentLiveServiceMessageDisplay">- Loading... -</span></p>
+                </div>
+            </div>
             <div class="section route-colour-management">
                 <h2>Route Tile Colour Management</h2>
                 <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">Define custom colours for specific routes. These will override default colours on the arrivals board. Select a route from the dropdown (populated from your current working schedule).</p>
@@ -362,30 +378,31 @@
 
         </div> </div> <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-      import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js"; // Added Auth
+      import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
       import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
+      // IMPORTANT: Replace with your actual Firebase configuration
       const firebaseConfig = {
-        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", 
-        authDomain: "omsi-c5505.firebaseapp.com",
-        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", 
-        projectId: "omsi-c5505",
-        storageBucket: "omsi-c5505.appspot.com",
-        messagingSenderId: "503595375440",
-        appId: "1:503595375440:web:356be6684b77ff5909ea55",
-        measurementId: "G-VN7X65V3F9" 
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_AUTH_DOMAIN",
+        databaseURL: "YOUR_DATABASE_URL",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_STORAGE_BUCKET",
+        messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+        appId: "YOUR_APP_ID",
+        measurementId: "YOUR_MEASUREMENT_ID" // Optional
       };
 
       const app = initializeApp(firebaseConfig);
       const database = getDatabase(app);
-      const auth = getAuth(app); // Initialize Auth
+      const auth = getAuth(app);
 
       window.firebaseOMSI = {
           database: database,
-          auth: auth, // Add auth
+          auth: auth,
           dbRef: ref, dbSet: set, dbOnValue: onValue, dbGet: get,
           dbChild: child, dbUpdate: update, dbRemove: remove,
-          authOnAuthStateChanged: onAuthStateChanged, // Expose Auth functions
+          authOnAuthStateChanged: onAuthStateChanged,
           authSignInWithEmailAndPassword: signInWithEmailAndPassword,
           authSignOut: signOut
       };
@@ -458,18 +475,29 @@
         const authStatus = document.getElementById('auth-status'); // Already declared
         const loggedInUserEmailDisplay = document.getElementById('loggedInUserEmail'); // Already declared
 
+        // VVV THESE ARE THE NEW VARIABLES FOR THE SERVICE MESSAGE FEATURE VVV
+        const inputServiceMessage = document.getElementById('inputServiceMessage');
+        const setServiceMessageButton = document.getElementById('setServiceMessageButton');
+        const serviceMessageStatus = document.getElementById('serviceMessageStatus');
+        const currentLiveServiceMessageDisplay = document.getElementById('currentLiveServiceMessageDisplay');
+        // ^^^ THESE ARE THE NEW VARIABLES FOR THE SERVICE MESSAGE FEATURE ^^^
+
 
         let currentUser = null; 
         let currentWorkingSchedule = [];
         let ukBankHolidaysData = { dates: [], titles: {} };
-        const schoolHolidayDateRanges = [ ];
+        const schoolHolidayDateRanges = [ ]; // Define your school holiday ranges here
         let activeFilters = { stopID: '', lineName: '', operatingProfile: '' };
         let sortConfig = { key: null, direction: 'asc' };
         let closedStopIDs = [];
         let customRouteColours = {};
         let effectiveRouteColourMapTools = {};
 
-        const eventTypes = [ /* ... */ ];
+        const eventTypes = [ // Define your event types here
+            { name: "Delay Route (5-15 min)", type: "DELAY_ROUTE", minDelay: 5, maxDelay: 15 },
+            { name: "Delay From Stop (3-10 min)", type: "DELAY_FROM_STOP", minDelay: 3, maxDelay: 10 },
+            { name: "Curtail Service", type: "CURTAIL" }
+        ];
         const FB_PATH_LIVE_SCHEDULE_DATA = '/liveSchedule/allScheduledBusData';
         const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
         const FB_PATH_PENDING_SCHEDULE_DATA = '/pendingSchedule/allScheduledBusData';
@@ -479,9 +507,16 @@
         const FB_PATH_APPSTATE_LAST_UPDATED = '/appState/scheduleLastUpdated';
         const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
         const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
+        const FB_PATH_APPSTATE_SERVICE_MESSAGE = '/appState/serviceMessage'; // VVV NEW FIREBASE PATH CONSTANT VVV
         const CUSTOM_ROUTE_COLOURS_KEY = 'omsiCustomRouteTileColours';
 
-        const initialRouteColourMapForTools = { /* ... */ };
+        const initialRouteColourMapForTools = { /* Define your default route colours here */
+            "1": "#DC2626", "2": "#DC2626", "3": "#DC2626", "4": "#00783A", "5": "#00783A", "6": "#00783A",
+            "7": "#FFD300", "8": "#FFD300", "9": "#FFD300", "10": "#970006", "11": "#76D0BD", "12": "#F3A9BB",
+            "186": "#E32017", "32":  "#00A4A7", "N5":  "#0019A8", "C11": "#FFD300","107": "#76D0BD",
+            "221": "#93002F", "240": "#C9A0DC", "251": "#F8A960","303": "#868F98", "305": "#CF7EA2",
+            "SL1": "#5F259F", "SL10": "#A05A2C"
+        };
         const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
 
         // --- Authentication UI Update Function ---
@@ -499,10 +534,11 @@
                 if (authStatus) authStatus.textContent = 'Please log in to use the tools.';
                 if (loggedInUserEmailDisplay) loggedInUserEmailDisplay.textContent = '';
                 if (mainToolContentDiv) mainToolContentDiv.style.display = 'none';
+                 if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -"; // Update service message display on logout
             }
         }
 
-        // --- Helper Functions (Core Logic) ---
+        // --- Helper Functions (Core Logic - Keep your existing helper functions here) ---
         function parseLineName(lineNameStr) { const name = String(lineNameStr || "").toUpperCase().trim(); const numericPrefixRegex = new RegExp(/^(\d+)([A-Z]*)$/); const alphaNumericRegex = new RegExp(/^([A-Z]+)(\d+)?([A-Z]*)$/); const numericPrefixMatch = name.match(numericPrefixRegex); if (numericPrefixMatch) return { type: 'numeric', number: parseInt(numericPrefixMatch[1], 10), suffix: numericPrefixMatch[2] || '', original: name }; const alphaNumericMatch = name.match(alphaNumericRegex); if (alphaNumericMatch) return { type: 'alpha', prefix: alphaNumericMatch[1], number: alphaNumericMatch[2] ? parseInt(alphaNumericMatch[2], 10) : null, suffix: alphaNumericMatch[3] || '', original: name }; return { type: 'other', original: name }; }
         function compareLineNames(lineAStr, lineBStr) { const parsedA = parseLineName(lineAStr); const parsedB = parseLineName(lineBStr); if (parsedA.type === 'numeric' && parsedB.type === 'alpha') return -1; if (parsedA.type === 'alpha' && parsedB.type === 'numeric') return 1; if (parsedA.type === 'numeric' && parsedB.type === 'numeric') { if (parsedA.number < parsedB.number) return -1; if (parsedA.number > parsedB.number) return 1; return parsedA.suffix.localeCompare(parsedB.suffix); } if (parsedA.type === 'alpha' && parsedB.type === 'alpha') { const prefixCompare = parsedA.prefix.localeCompare(parsedB.prefix); if (prefixCompare !== 0) return prefixCompare; if (parsedA.number === null && parsedB.number !== null) return -1; if (parsedA.number !== null && parsedB.number === null) return 1; if (parsedA.number !== null && parsedB.number !== null) { if (parsedA.number < parsedB.number) return -1; if (parsedA.number > parsedB.number) return 1; } return parsedA.suffix.localeCompare(parsedB.suffix); } if (parsedA.type !== 'other' && parsedB.type === 'other') return -1; if (parsedA.type === 'other' && parsedB.type !== 'other') return 1; return (parsedA.original || "").localeCompare(parsedB.original || ""); }
         async function fetchBankHolidaysForSetup() { try { const response = await fetch('https://www.gov.uk/bank-holidays.json'); if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`); const data = await response.json(); if (data['england-and-wales'] && data['england-and-wales'].events) { const events = data['england-and-wales'].events; ukBankHolidaysData = { dates: events.map(event => event.date), titles: events.reduce((acc, event) => { acc[event.date] = event.title; return acc; }, {}) }; } else { console.warn("Setup: Bank holiday data not in expected format."); } } catch (error) { console.error("Setup: Failed to fetch UK bank holidays:", error); if(currentProfileDisplayElement) currentProfileDisplayElement.textContent = "Current Auto Profile: (Bank Hol. check failed)"; } updateCurrentProfileDisplayOnSetup(); }
@@ -541,7 +577,7 @@
                 dbUpdate(dbRef(database), updates)
                     .then(() => {
                         alert("Working schedule STAGED to Firebase.");
-                        updateStagingStatusDisplay(); // Refresh status based on Firebase
+                        updateStagingStatusDisplay(); 
                     })
                     .catch((error) => {
                         console.error("Error staging to Firebase: ", error);
@@ -571,31 +607,25 @@
                                 liveAllScheduledBusData = pendingData.allScheduledBusData.filter(item => item != null);
                             } else if (typeof pendingData.allScheduledBusData === 'object' && pendingData.allScheduledBusData !== null) {
                                 liveAllScheduledBusData = Object.values(pendingData.allScheduledBusData).filter(item => item != null);
-                                console.warn("/pendingSchedule/allScheduledBusData was an object, converted to array. Check data integrity.");
                             }
                             let liveUniqueBusStops = [];
                              if (Array.isArray(pendingData.uniqueBusStops)) {
                                 liveUniqueBusStops = pendingData.uniqueBusStops.filter(item => item != null);
                             } else if (typeof pendingData.uniqueBusStops === 'object' && pendingData.uniqueBusStops !== null) {
                                 liveUniqueBusStops = Object.values(pendingData.uniqueBusStops).filter(item => item != null);
-                                console.warn("/pendingSchedule/uniqueBusStops was an object, converted to array. Check data integrity.");
                             }
-                            console.log("Attempting to write to /liveSchedule. Data snapshot:");
-                            console.log("liveAllScheduledBusData (first 5 entries):", JSON.stringify(liveAllScheduledBusData.slice(0,5), null, 2));
-                            console.log("liveUniqueBusStops (first 5 entries):", JSON.stringify(liveUniqueBusStops.slice(0,5), null, 2));
                             let hasInvalidKeyInSchedule = false;
                             function checkKeysRecursively(obj, path) { if (typeof obj !== 'object' || obj === null) return; for (const key in obj) { if (/[.#$/\[\]]/.test(key)) { console.error(`INVALID KEY at ${path}: key='${key}'`); hasInvalidKeyInSchedule = true; } if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) { checkKeysRecursively(obj[key], `${path}.${key}`); } } }
-                            liveAllScheduledBusData.forEach((item, index) => { if (typeof item !== 'object' || item === null) { console.error(`Item at index ${index} in liveAllScheduledBusData is not an object or is null:`, item); hasInvalidKeyInSchedule = true; return; } checkKeysRecursively(item, `liveAllScheduledBusData[${index}]`); });
-                            liveUniqueBusStops.forEach((item, index) => { if (typeof item !== 'object' || item === null) { console.error(`Item at index ${index} in liveUniqueBusStops is not an object or is null:`, item); hasInvalidKeyInSchedule = true; return; } checkKeysRecursively(item, `liveUniqueBusStops[${index}]`); });
-                            if (hasInvalidKeyInSchedule) { alert("Found invalid keys in the schedule data. Cannot apply to Firebase. Check console for details."); console.error("Aborting Firebase write due to invalid keys in liveAllScheduledBusData or liveUniqueBusStops."); return; }
+                            liveAllScheduledBusData.forEach((item, index) => { if (typeof item !== 'object' || item === null) { hasInvalidKeyInSchedule = true; return; } checkKeysRecursively(item, `liveAllScheduledBusData[${index}]`); });
+                            liveUniqueBusStops.forEach((item, index) => { if (typeof item !== 'object' || item === null) { hasInvalidKeyInSchedule = true; return; } checkKeysRecursively(item, `liveUniqueBusStops[${index}]`); });
+                            if (hasInvalidKeyInSchedule) { alert("Found invalid keys in the schedule data. Cannot apply to Firebase. Check console for details."); return; }
 
                             const liveScheduleUpdates = {};
                             liveScheduleUpdates[FB_PATH_LIVE_SCHEDULE_DATA] = liveAllScheduledBusData;
                             liveScheduleUpdates[FB_PATH_LIVE_UNIQUE_STOPS] = liveUniqueBusStops;
                             
-                            dbUpdate(dbRef(database), liveScheduleUpdates) // Use update for specific paths
+                            dbUpdate(dbRef(database), liveScheduleUpdates) 
                             .then(() => {
-                                console.log("Successfully wrote to /liveSchedule paths");
                                 const appStateUpdates = {};
                                 appStateUpdates[FB_PATH_APPSTATE_LAST_UPDATED] = new Date().toISOString();
                                 appStateUpdates[FB_PATH_APPSTATE_STATUS] = 'idle';
@@ -607,7 +637,7 @@
                                 updateStagingStatusDisplay();
                             })
                             .catch(error => {
-                                console.error("Error applying staged schedule (set live or update appState) from Firebase: ", error);
+                                console.error("Error applying staged schedule from Firebase: ", error);
                                 alert("Error applying Firebase schedule. Check console. Error: " + error.message);
                             });
                         } else {
@@ -630,7 +660,7 @@
             let sourceMessage = "Loading data...";
             if (fileStatusElement) fileStatusElement.textContent = sourceMessage;
 
-            currentWorkingSchedule = []; // Reset before loading
+            currentWorkingSchedule = []; 
             closedStopIDs = [];
             customRouteColours = {};
 
@@ -646,8 +676,6 @@
                             ...entry,
                             internalId: entry.internalId || `${(entry.stopID || 's')}_${(entry.lineName||'l')}_${(entry.scheduledTime||"").replace(':','')}_${index}_fbloaded`
                         }));
-                    } else {
-                        console.log("Tools: No /liveSchedule/allScheduledBusData in Firebase, starting fresh.");
                     }
 
                     const closedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
@@ -665,8 +693,9 @@
             if (fileStatusElement) fileStatusElement.textContent = sourceMessage;
             loadAndApplyCustomRouteColoursForTools();
             renderScheduleTable();
-            updateStagingStatusDisplay(); // This also fetches from Firebase now
+            updateStagingStatusDisplay(); 
             populateStopStatusSelector();
+            // listenForLiveServiceMessage(); // Moved to onAuthStateChanged
         }
 
         async function updateStagingStatusDisplay() {
@@ -684,11 +713,9 @@
 
                     if (currentFbStatus === 'update_staged' && pendingTimestamp) {
                         applyNowButton.disabled = false;
-                    } else if (currentFbStatus !== 'update_staged') { // If status is idle or anything else, ensure pendingTimestamp also reflects no valid stage
-                        pendingTimestamp = null; // Force "no schedule staged" if status isn't 'update_staged'
+                    } else { 
+                        pendingTimestamp = null; 
                         applyNowButton.disabled = true;
-                    } else { // status is update_staged but no timestamp, or vice-versa (inconsistency)
-                        applyNowButton.disabled = true; // Safer to disable apply if inconsistent
                     }
 
                 } catch (e) { firebaseStatus = "Error fetching Firebase status."; console.error(firebaseStatus, e); applyNowButton.disabled = true;}
@@ -702,20 +729,15 @@
             if(stagingStatusMessage) stagingStatusMessage.innerHTML = msg;
         }
         
-        function saveClosedStops() { if (!currentUser) { alert("Please log in."); return; } localStorage.setItem('closedBusStopIDs', JSON.stringify(closedStopIDs)); console.log("Tools: Saved closed stops (localStorage):", closedStopIDs); if (window.firebaseOMSI) { const { database, dbSet, dbRef } = window.firebaseOMSI; const fbClosedStops = {}; closedStopIDs.forEach(id => fbClosedStops[id] = true); dbSet(dbRef(database, FB_PATH_APPSTATE_CLOSED_STOPS), fbClosedStops) .then(() => { console.log("Closed stops also saved to Firebase."); return dbSet(dbRef(database, FB_PATH_APPSTATE_LAST_UPDATED), new Date().toISOString()); }) .catch(error => console.error("Error saving closed stops to Firebase: ", error)); } }
-        function saveCustomRouteColours() { if (!currentUser) { alert("Please log in."); return; } localStorage.setItem(CUSTOM_ROUTE_COLOURS_KEY, JSON.stringify(customRouteColours)); if (window.firebaseOMSI) { const { database, dbSet, dbRef } = window.firebaseOMSI; dbSet(dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS), customRouteColours) .then(() => { console.log("Custom route colours also saved to Firebase."); return dbSet(dbRef(database, FB_PATH_APPSTATE_LAST_UPDATED), new Date().toISOString()); }) .catch(error => console.error("Error saving custom route colours to Firebase: ", error)); } if (routeColourStatusMessage) { routeColourStatusMessage.textContent = 'Custom colours saved.'; setTimeout(() => { if(routeColourStatusMessage) routeColourStatusMessage.textContent = ''; }, 4000); } loadAndApplyCustomRouteColoursForTools(); if(selectStopForDeparturesView.value) displayDeparturesForSelectedStop(); renderCustomRouteColours(); }
+        function saveClosedStops() { if (!currentUser) { alert("Please log in."); return; } localStorage.setItem('closedBusStopIDs', JSON.stringify(closedStopIDs)); if (window.firebaseOMSI) { const { database, dbSet, dbRef } = window.firebaseOMSI; const fbClosedStops = {}; closedStopIDs.forEach(id => fbClosedStops[id] = true); dbSet(dbRef(database, FB_PATH_APPSTATE_CLOSED_STOPS), fbClosedStops) .then(() => { return dbSet(dbRef(database, FB_PATH_APPSTATE_LAST_UPDATED), new Date().toISOString()); }) .catch(error => console.error("Error saving closed stops to Firebase: ", error)); } }
+        function saveCustomRouteColours() { if (!currentUser) { alert("Please log in."); return; } localStorage.setItem(CUSTOM_ROUTE_COLOURS_KEY, JSON.stringify(customRouteColours)); if (window.firebaseOMSI) { const { database, dbSet, dbRef } = window.firebaseOMSI; dbSet(dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS), customRouteColours) .then(() => { return dbSet(dbRef(database, FB_PATH_APPSTATE_LAST_UPDATED), new Date().toISOString()); }) .catch(error => console.error("Error saving custom route colours to Firebase: ", error)); } if (routeColourStatusMessage) { routeColourStatusMessage.textContent = 'Custom colours saved.'; setTimeout(() => { if(routeColourStatusMessage) routeColourStatusMessage.textContent = ''; }, 4000); } loadAndApplyCustomRouteColoursForTools(); if(selectStopForDeparturesView.value) displayDeparturesForSelectedStop(); renderCustomRouteColours(); }
         
         function populateRouteSelectorForEvents() { if (!selectEventRoute) return; const currentVal = selectEventRoute.value; selectEventRoute.innerHTML = '<option value="">-- Select a Route --</option>'; const uniqueLineNames = [...new Set(currentWorkingSchedule.map(entry => entry.lineName))].sort(compareLineNames); uniqueLineNames.forEach(lineName => { if (lineName) { const option = document.createElement('option'); option.value = lineName; option.textContent = lineName; selectEventRoute.appendChild(option); } }); if (uniqueLineNames.includes(currentVal)) selectEventRoute.value = currentVal; else selectEventRoute.value = ""; populateImpactStopSelector(); }
         function populateImpactStopSelector() { if (!selectEventImpactStop || !selectEventRoute) return; const selectedRoute = selectEventRoute.value; const currentVal = selectEventImpactStop.value; selectEventImpactStop.innerHTML = '<option value="">-- Route Wide / First Stop --</option>'; if (selectedRoute) { const stopsOnRoute = currentWorkingSchedule .filter(entry => entry.lineName === selectedRoute) .map(entry => ({ id: entry.stopID, name: entry.stopName, time: entry.scheduledTime })) .sort((a,b) => (a.time || "").replace(':','') - (b.time || "").replace(':','')); const uniqueStopsOnRoute = []; const seenStopIDs = new Set(); for (const stop of stopsOnRoute) { if (stop.id && !seenStopIDs.has(stop.id)) { uniqueStopsOnRoute.push(stop); seenStopIDs.add(stop.id); } } uniqueStopsOnRoute.forEach(stop => { const option = document.createElement('option'); option.value = stop.id; option.textContent = `${stop.id} - ${stop.name || 'Unknown'}`; selectEventImpactStop.appendChild(option); }); if (seenStopIDs.has(currentVal)) selectEventImpactStop.value = currentVal; else selectEventImpactStop.value = ""; } }
-        async function populateStopStatusSelector() { if (!selectStopForStatusChange || !window.firebaseOMSI) return; const currentVal = selectStopForStatusChange.value; selectStopForStatusChange.innerHTML = '<option value="">-- Select a Stop --</option>'; const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const snapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS)); let stopsToDisplay = []; if (snapshot.exists() && Array.isArray(snapshot.val())) { stopsToDisplay = snapshot.val(); } else if (snapshot.exists()) { // Handle if it's an object from Firebase due to sparse array like keys
-            stopsToDisplay = Object.values(snapshot.val());
-        }
-        stopsToDisplay.sort((a,b) => (a.stopName||"").localeCompare(b.stopName||""));
-        stopsToDisplay.forEach(stop => { if(!stop || !stop.stopID) return; const option = document.createElement('option'); option.value = stop.stopID; const isClosed = closedStopIDs.includes(stop.stopID); option.textContent = `${stop.stopName || stop.stopID} (${stop.stopID})${isClosed ? ' (Currently Closed)' : ''}`; selectStopForStatusChange.appendChild(option); }); if (currentVal && stopsToDisplay.find(s => s && s.stopID === currentVal)) { selectStopForStatusChange.value = currentVal; } else { selectStopForStatusChange.value = ""; }
-    } catch (e) {console.error("Error populating stop status selector from Firebase", e)} }
+        async function populateStopStatusSelector() { if (!selectStopForStatusChange || !window.firebaseOMSI) return; const currentVal = selectStopForStatusChange.value; selectStopForStatusChange.innerHTML = '<option value="">-- Select a Stop --</option>'; const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const snapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS)); let stopsToDisplay = []; if (snapshot.exists() && Array.isArray(snapshot.val())) { stopsToDisplay = snapshot.val(); } else if (snapshot.exists()) { stopsToDisplay = Object.values(snapshot.val());} stopsToDisplay.sort((a,b) => (a.stopName||"").localeCompare(b.stopName||"")); stopsToDisplay.forEach(stop => { if(!stop || !stop.stopID) return; const option = document.createElement('option'); option.value = stop.stopID; const isClosed = closedStopIDs.includes(stop.stopID); option.textContent = `${stop.stopName || stop.stopID} (${stop.stopID})${isClosed ? ' (Currently Closed)' : ''}`; selectStopForStatusChange.appendChild(option); }); if (currentVal && stopsToDisplay.find(s => s && s.stopID === currentVal)) { selectStopForStatusChange.value = currentVal; } else { selectStopForStatusChange.value = ""; } } catch (e) {console.error("Error populating stop status selector from Firebase", e)} }
         function handleStopStatusChange(action) { if (!currentUser) { alert("Please log in."); return; } const stopIDToChange = selectStopForStatusChange.value; if (!stopIDToChange) { stopStatusMessage.textContent = "Please select a stop."; return; } const stopIndexInClosedList = closedStopIDs.indexOf(stopIDToChange); const stopName = selectStopForStatusChange.options[selectStopForStatusChange.selectedIndex].text.split(' (')[0]; if (action === 'close') { if (stopIndexInClosedList === -1) { closedStopIDs.push(stopIDToChange); stopStatusMessage.textContent = `Stop '${stopName}' marked as closed.`; } else { stopStatusMessage.textContent = `Stop '${stopName}' is already closed.`; } } else if (action === 'reopen') { if (stopIndexInClosedList !== -1) { closedStopIDs.splice(stopIndexInClosedList, 1); stopStatusMessage.textContent = `Stop '${stopName}' marked as reopened.`; } else { stopStatusMessage.textContent = `Stop '${stopName}' is not currently closed.`; } } saveClosedStops(); populateStopStatusSelector(); }
-        function applyRandomEvent() { if (!currentUser) { alert("Please log in."); return; } /* ... same random event logic ... */ const selectedRoute = selectEventRoute.value; const impactFromStopID = selectEventImpactStop.value; if (!selectedRoute) { eventStatusMessage.textContent = "Please select a route to affect."; return; } const availableEventTypes = [...eventTypes]; if (!impactFromStopID) { const index = availableEventTypes.findIndex(e => e.type === "DELAY_FROM_STOP"); if (index > -1) availableEventTypes.splice(index, 1); } if (availableEventTypes.length === 0) { eventStatusMessage.textContent = "No applicable event types for current selection."; return; } const eventChoice = availableEventTypes[Math.floor(Math.random() * availableEventTypes.length)]; eventStatusMessage.textContent = `Applying event: ${eventChoice.name} to route ${selectedRoute} in working schedule...`; let eventApplied = false; let details = `Event: ${eventChoice.name}. `; switch (eventChoice.type) { case "DELAY_ROUTE": case "DELAY_FROM_STOP": const delayMinutes = Math.floor(Math.random() * (eventChoice.maxDelay - eventChoice.minDelay + 1)) + eventChoice.minDelay; let applyDelay = (eventChoice.type === "DELAY_ROUTE"); let delayedCount = 0; currentWorkingSchedule.forEach(entry => { if (entry.lineName === selectedRoute) { if (!applyDelay && eventChoice.type === "DELAY_FROM_STOP" && entry.stopID === impactFromStopID) { applyDelay = true; } if (applyDelay) { if (!entry.scheduledTime) return; const timeParts = entry.scheduledTime.split(':'); if (timeParts.length === 2) { let hours = parseInt(timeParts[0]); let minutes = parseInt(timeParts[1]); minutes += delayMinutes; hours += Math.floor(minutes / 60); minutes %= 60; hours %= 24; entry.scheduledTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`; entry.eventNotes = (entry.eventNotes || "") + ` Delayed +${delayMinutes}m.`; delayedCount++; eventApplied = true; } } } }); details += `${delayedCount} entries for route ${selectedRoute} delayed by ${delayMinutes} mins.`; if (!eventApplied && eventChoice.type === "DELAY_FROM_STOP" && impactFromStopID) details += " (Impact stop not found or no subsequent services)."; break; case "CURTAIL": const routeEntriesForCurtail = currentWorkingSchedule.filter(e => e.lineName === selectedRoute); if (routeEntriesForCurtail.length > 0) { const uniqueStopObjs = []; const stopIdsOnRoute = new Set(); const orderedRouteStops = [...routeEntriesForCurtail].sort((a,b) => (a.scheduledTime||"").localeCompare(b.scheduledTime||"")); orderedRouteStops.forEach(e => { if(!stopIdsOnRoute.has(e.stopID)) { uniqueStopObjs.push({id: e.stopID, name: e.stopName}); stopIdsOnRoute.add(e.stopID); } }); if (uniqueStopObjs.length > 1) { let newDestStop; let curtailAtIndex = -1; if (impactFromStopID) { curtailAtIndex = uniqueStopObjs.findIndex(s => s.id === impactFromStopID); if (curtailAtIndex >= 0 && curtailAtIndex < uniqueStopObjs.length -1) { newDestStop = uniqueStopObjs[curtailAtIndex]; } else if (curtailAtIndex === uniqueStopObjs.length -1 && uniqueStopObjs.length > 1) { newDestStop = uniqueStopObjs[curtailAtIndex -1]; curtailAtIndex = curtailAtIndex -1; } } if (!newDestStop && uniqueStopObjs.length > 1) { const maxIndex = uniqueStopObjs.length - 2; curtailAtIndex = Math.floor(Math.random() * (maxIndex + 1)); newDestStop = uniqueStopObjs[curtailAtIndex]; } if (newDestStop) { let actualCurtailments = 0; let destinationsUpdated = 0; currentWorkingSchedule = currentWorkingSchedule.filter(entry => { if (entry.lineName === selectedRoute) { const entryStopIndexInUnique = uniqueStopObjs.findIndex(s => s.id === entry.stopID); if (entryStopIndexInUnique > curtailAtIndex) { actualCurtailments++; eventApplied = true; return false; } } return true; }); currentWorkingSchedule.forEach(entry => { if(entry.lineName === selectedRoute && entry.destinationName !== newDestStop.name){ entry.destinationName = newDestStop.name; entry.eventNotes = (entry.eventNotes || "") + ` Curtailed to ${newDestStop.name}.`; destinationsUpdated++; eventApplied = true; } }); if (actualCurtailments > 0 || destinationsUpdated > 0) { details += `Route ${selectedRoute} services now terminate at ${newDestStop.name}. ${actualCurtailments} stops removed, ${destinationsUpdated} destinations updated.`; } else { details += "Could not apply curtailment (no entries changed or removed)."; } } else { details += "Could not determine a suitable curtailment point (e.g., route too short, or selected impact stop was the first)."; } } else { details += "Route too short to curtail (needs at least 2 unique stops)."; } } break; } if (eventApplied) { renderScheduleTable(); eventStatusMessage.textContent = details + " Changes are in the 'Working Schedule'. Stage or Apply to save."; } else { eventStatusMessage.textContent = details + " No changes applied to working schedule."; } populateRouteSelectorForEvents(); if(selectEventRoute) selectEventRoute.value = ""; populateImpactStopSelector(); }
-        function loadAndApplyCustomRouteColoursForTools() { effectiveRouteColourMapTools = { ...initialRouteColourMapForTools, ...customRouteColours }; console.log("Tools: Effective route colours for tools page:", effectiveRouteColourMapTools); }
+        function applyRandomEvent() { if (!currentUser) { alert("Please log in."); return; } const selectedRoute = selectEventRoute.value; const impactFromStopID = selectEventImpactStop.value; if (!selectedRoute) { eventStatusMessage.textContent = "Please select a route to affect."; return; } const availableEventTypes = [...eventTypes]; if (!impactFromStopID) { const index = availableEventTypes.findIndex(e => e.type === "DELAY_FROM_STOP"); if (index > -1) availableEventTypes.splice(index, 1); } if (availableEventTypes.length === 0) { eventStatusMessage.textContent = "No applicable event types for current selection."; return; } const eventChoice = availableEventTypes[Math.floor(Math.random() * availableEventTypes.length)]; eventStatusMessage.textContent = `Applying event: ${eventChoice.name} to route ${selectedRoute} in working schedule...`; let eventApplied = false; let details = `Event: ${eventChoice.name}. `; switch (eventChoice.type) { case "DELAY_ROUTE": case "DELAY_FROM_STOP": const delayMinutes = Math.floor(Math.random() * (eventChoice.maxDelay - eventChoice.minDelay + 1)) + eventChoice.minDelay; let applyDelay = (eventChoice.type === "DELAY_ROUTE"); let delayedCount = 0; currentWorkingSchedule.forEach(entry => { if (entry.lineName === selectedRoute) { if (!applyDelay && eventChoice.type === "DELAY_FROM_STOP" && entry.stopID === impactFromStopID) { applyDelay = true; } if (applyDelay) { if (!entry.scheduledTime) return; const timeParts = entry.scheduledTime.split(':'); if (timeParts.length === 2) { let hours = parseInt(timeParts[0]); let minutes = parseInt(timeParts[1]); minutes += delayMinutes; hours += Math.floor(minutes / 60); minutes %= 60; hours %= 24; entry.scheduledTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`; entry.eventNotes = (entry.eventNotes || "") + ` Delayed +${delayMinutes}m.`; delayedCount++; eventApplied = true; } } } }); details += `${delayedCount} entries for route ${selectedRoute} delayed by ${delayMinutes} mins.`; if (!eventApplied && eventChoice.type === "DELAY_FROM_STOP" && impactFromStopID) details += " (Impact stop not found or no subsequent services)."; break; case "CURTAIL": const routeEntriesForCurtail = currentWorkingSchedule.filter(e => e.lineName === selectedRoute); if (routeEntriesForCurtail.length > 0) { const uniqueStopObjs = []; const stopIdsOnRoute = new Set(); const orderedRouteStops = [...routeEntriesForCurtail].sort((a,b) => (a.scheduledTime||"").localeCompare(b.scheduledTime||"")); orderedRouteStops.forEach(e => { if(!stopIdsOnRoute.has(e.stopID)) { uniqueStopObjs.push({id: e.stopID, name: e.stopName}); stopIdsOnRoute.add(e.stopID); } }); if (uniqueStopObjs.length > 1) { let newDestStop; let curtailAtIndex = -1; if (impactFromStopID) { curtailAtIndex = uniqueStopObjs.findIndex(s => s.id === impactFromStopID); if (curtailAtIndex >= 0 && curtailAtIndex < uniqueStopObjs.length -1) { newDestStop = uniqueStopObjs[curtailAtIndex]; } else if (curtailAtIndex === uniqueStopObjs.length -1 && uniqueStopObjs.length > 1) { newDestStop = uniqueStopObjs[curtailAtIndex -1]; curtailAtIndex = curtailAtIndex -1; } } if (!newDestStop && uniqueStopObjs.length > 1) { const maxIndex = uniqueStopObjs.length - 2; curtailAtIndex = Math.floor(Math.random() * (maxIndex + 1)); newDestStop = uniqueStopObjs[curtailAtIndex]; } if (newDestStop) { let actualCurtailments = 0; let destinationsUpdated = 0; currentWorkingSchedule = currentWorkingSchedule.filter(entry => { if (entry.lineName === selectedRoute) { const entryStopIndexInUnique = uniqueStopObjs.findIndex(s => s.id === entry.stopID); if (entryStopIndexInUnique > curtailAtIndex) { actualCurtailments++; eventApplied = true; return false; } } return true; }); currentWorkingSchedule.forEach(entry => { if(entry.lineName === selectedRoute && entry.destinationName !== newDestStop.name){ entry.destinationName = newDestStop.name; entry.eventNotes = (entry.eventNotes || "") + ` Curtailed to ${newDestStop.name}.`; destinationsUpdated++; eventApplied = true; } }); if (actualCurtailments > 0 || destinationsUpdated > 0) { details += `Route ${selectedRoute} services now terminate at ${newDestStop.name}. ${actualCurtailments} stops removed, ${destinationsUpdated} destinations updated.`; } else { details += "Could not apply curtailment (no entries changed or removed)."; } } else { details += "Could not determine a suitable curtailment point (e.g., route too short, or selected impact stop was the first)."; } } else { details += "Route too short to curtail (needs at least 2 unique stops)."; } } break; } if (eventApplied) { renderScheduleTable(); eventStatusMessage.textContent = details + " Changes are in the 'Working Schedule'. Stage or Apply to save."; } else { eventStatusMessage.textContent = details + " No changes applied to working schedule."; } populateRouteSelectorForEvents(); if(selectEventRoute) selectEventRoute.value = ""; populateImpactStopSelector(); }
+        function loadAndApplyCustomRouteColoursForTools() { effectiveRouteColourMapTools = { ...initialRouteColourMapForTools, ...customRouteColours }; }
         function renderCustomRouteColours() { if (!currentRouteColoursList || !noCustomColoursMessage) return; currentRouteColoursList.innerHTML = ''; const uniqueScheduleRoutes = [...new Set(currentWorkingSchedule.map(entry => entry.lineName))] .filter(name => name && name.trim() !== "") .sort(compareLineNames); if (uniqueScheduleRoutes.length === 0) { noCustomColoursMessage.textContent = 'No routes in working schedule to assign colours to.'; noCustomColoursMessage.style.display = 'block'; return; } noCustomColoursMessage.style.display = 'none'; uniqueScheduleRoutes.forEach(routeName => { const upperRouteName = routeName.toUpperCase(); const isCustom = customRouteColours.hasOwnProperty(upperRouteName); const displayColour = isCustom ? customRouteColours[upperRouteName] : DEFAULT_ROUTE_COLOUR_TOOLS; const li = document.createElement('li'); const colourBox = document.createElement('span'); colourBox.className = 'colour-preview-box'; colourBox.style.backgroundColor = displayColour; const routeInfo = document.createElement('span'); routeInfo.className = 'route-info'; let statusText = isCustom ? "" : ` <small style="opacity:0.7;">(Default)</small>`; routeInfo.innerHTML = `Route: ${routeName} - Colour: ${displayColour.toUpperCase()}${statusText}`; const actionContainer = document.createElement('div'); actionContainer.style.marginLeft = 'auto'; if (isCustom) { const removeBtn = document.createElement('button'); removeBtn.textContent = 'Remove Custom'; removeBtn.classList.add('button', 'small-action', 'secondary'); removeBtn.onclick = () => handleRemoveRouteColour(upperRouteName); actionContainer.appendChild(removeBtn); } li.appendChild(colourBox); li.appendChild(routeInfo); li.appendChild(actionContainer); currentRouteColoursList.appendChild(li); }); }
         function populateRouteSelectorForColours() { if (!selectRouteNameColour) return; const currentVal = selectRouteNameColour.value; selectRouteNameColour.innerHTML = '<option value="">-- Select a Route --</option>'; const uniqueLineNames = [...new Set(currentWorkingSchedule.map(entry => entry.lineName))] .filter(name => name && name.trim() !== "") .sort(compareLineNames); uniqueLineNames.forEach(lineName => { const option = document.createElement('option'); option.value = lineName; option.textContent = lineName; selectRouteNameColour.appendChild(option); }); if (uniqueLineNames.includes(currentVal)) { selectRouteNameColour.value = currentVal; } selectRouteNameColour.dispatchEvent(new Event('change')); }
         function handleSaveRouteColour() { if (!currentUser) { alert("Please log in."); return; } if (!selectRouteNameColour || !inputRouteColour || !routeColourStatusMessage) return; const routeName = selectRouteNameColour.value; const colour = inputRouteColour.value; if (!routeName) { routeColourStatusMessage.textContent = 'Please select a route name.'; routeColourStatusMessage.style.color = '#e74c3c'; return; } if (!colour.match(/^#[0-9a-fA-F]{6}$/)) { routeColourStatusMessage.textContent = 'Invalid colour format. Please use hex (e.g., #RRGGBB).'; routeColourStatusMessage.style.color = '#e74c3c'; return; } customRouteColours[routeName.toUpperCase()] = colour.toUpperCase(); saveCustomRouteColours(); }
@@ -727,21 +749,70 @@
         function displayDeparturesForSelectedStop() { if (!selectStopForDeparturesView || !stopDeparturesList || !noDeparturesForStopMessage) return; const selectedStopID = selectStopForDeparturesView.value; stopDeparturesList.innerHTML = ''; if (!selectedStopID) { noDeparturesForStopMessage.textContent = 'Select a stop to view its scheduled departures.'; noDeparturesForStopMessage.style.display = 'block'; return; } const departures = currentWorkingSchedule .filter(entry => entry.stopID === selectedStopID) .sort((a, b) => { const timeA = (a.scheduledTime || "9999").replace(':', ''); const timeB = (b.scheduledTime || "9999").replace(':', ''); if (timeA !== timeB) { return timeA.localeCompare(timeB); } const dayOrderA = getDaySortOrder(a.OperatingProfile); const dayOrderB = getDaySortOrder(b.OperatingProfile); if (dayOrderA !== dayOrderB) { return dayOrderA - dayOrderB; } const lineNameComparison = compareLineNames(a.lineName, b.lineName); if (lineNameComparison !== 0) { return lineNameComparison; } const profileA = a.OperatingProfile || ""; const profileB = b.OperatingProfile || ""; return profileA.localeCompare(profileB); }); if (departures.length === 0) { noDeparturesForStopMessage.textContent = 'No scheduled departures found for this stop in the working schedule.'; noDeparturesForStopMessage.style.display = 'block'; } else { noDeparturesForStopMessage.style.display = 'none'; departures.forEach(dep => { const li = document.createElement('li'); const lineTile = document.createElement('span'); lineTile.classList.add('route-tile-tools-list'); lineTile.textContent = dep.lineName || 'N/A'; const tileBGColour = getRouteTileColourForTools(dep.lineName); lineTile.style.backgroundColor = tileBGColour; lineTile.style.color = getTextColourForBackgroundTools(tileBGColour); const textSpan = document.createElement('span'); textSpan.innerHTML = ` to ${dep.destinationName || 'Unknown'} <span style="font-weight: bold; margin-left: 0.5em;">at ${dep.scheduledTime || 'N/A'}</span> <small style="opacity: 0.7; margin-left: 0.75em;">(Profile: ${dep.OperatingProfile || 'N/A'})</small> ${dep.DayOffset && dep.DayOffset !== "0" ? `<small style="opacity:0.7; margin-left:0.3em;color:#FFD700;">(+${dep.DayOffset}d)</small>` : ''} `; li.appendChild(lineTile); li.appendChild(textSpan); stopDeparturesList.appendChild(li); }); } }
         function renderScheduleTable() { if (!currentScheduleTableBody || !entryCountElement) return; const dataToRender = applyFiltersAndSort(currentWorkingSchedule); currentScheduleTableBody.innerHTML = ''; entryCountElement.textContent = dataToRender.length + (currentWorkingSchedule.length !== dataToRender.length ? ` of ${currentWorkingSchedule.length} total (working)` : ' (working)'); if (dataToRender.length === 0) { const r=currentScheduleTableBody.insertRow(), c=r.insertCell(); c.colSpan=9; c.textContent=activeFilters.stopID||activeFilters.lineName||activeFilters.operatingProfile?"No entries match filters in working schedule.":"Working schedule is empty. Add or upload."; c.style.textAlign="center";c.style.padding="1rem";c.style.fontStyle="italic"; } else { dataToRender.forEach((entry) => { const originalIndex = currentWorkingSchedule.findIndex(item => item.internalId === entry.internalId); const r=currentScheduleTableBody.insertRow(); r.insertCell().textContent=entry.stopID||''; r.insertCell().textContent=entry.stopName||''; r.insertCell().textContent=entry.direction||''; r.insertCell().textContent=entry.lineName||''; r.insertCell().textContent=entry.destinationName||''; r.insertCell().textContent=entry.scheduledTime||''; r.insertCell().textContent=entry.OperatingProfile||''; r.insertCell().textContent=entry.DayOffset||'0'; const actCell=r.insertCell(); const editBtn=document.createElement('button'); editBtn.textContent="Edit";editBtn.classList.add('button','small-action','tertiary'); editBtn.onclick=()=>loadEntryForEdit(originalIndex);actCell.appendChild(editBtn); const delBtn=document.createElement('button'); delBtn.textContent="Del";delBtn.classList.add('button','small-action','secondary'); delBtn.onclick=()=>handleDeleteEntry(originalIndex);actCell.appendChild(delBtn); }); } updateSortArrows(); populateRouteSelectorForEvents(); populateStopStatusSelector(); populateRouteSelectorForColours(); populateStopSelectorForDeparturesView(); renderCustomRouteColours(); }
 
+        // VVV THESE ARE THE NEW JAVASCRIPT FUNCTIONS FOR THE SERVICE MESSAGE VVV
+        function handleSetServiceMessage() {
+            if (!currentUser) { alert("Please log in to set the service message."); return; }
+            if (!inputServiceMessage || !serviceMessageStatus) return;
+
+            const message = inputServiceMessage.value.trim();
+
+            if (window.firebaseOMSI) {
+                const { database, dbSet, dbRef } = window.firebaseOMSI;
+                serviceMessageStatus.textContent = 'Updating service message...';
+                serviceMessageStatus.style.color = '#f1c40f';
+
+                dbSet(dbRef(database, FB_PATH_APPSTATE_SERVICE_MESSAGE), message || null) // Store null if empty to remove
+                    .then(() => {
+                        serviceMessageStatus.textContent = message ? 'Service message updated successfully!' : 'Service message removed successfully!';
+                        serviceMessageStatus.style.color = '#2ecc71'; // Green for success
+                    })
+                    .catch((error) => {
+                        console.error("Error setting service message to Firebase: ", error);
+                        serviceMessageStatus.textContent = 'Error updating message. Check console.';
+                        serviceMessageStatus.style.color = '#e74c3c'; // Red for error
+                    });
+            } else {
+                serviceMessageStatus.textContent = 'Firebase not available. Message not set.';
+                serviceMessageStatus.style.color = '#e74c3c';
+            }
+        }
+
+        function listenForLiveServiceMessage() {
+            if (!window.firebaseOMSI || !currentLiveServiceMessageDisplay) return;
+            const { database, dbOnValue, dbRef } = window.firebaseOMSI;
+            const serviceMessageRefDb = dbRef(database, FB_PATH_APPSTATE_SERVICE_MESSAGE);
+
+            dbOnValue(serviceMessageRefDb, (snapshot) => {
+                const message = snapshot.val();
+                if (message && typeof message === 'string' && message.trim() !== "") {
+                    currentLiveServiceMessageDisplay.textContent = message.trim();
+                    if (inputServiceMessage) inputServiceMessage.value = message.trim(); // Pre-fill input
+                } else {
+                    currentLiveServiceMessageDisplay.textContent = "- No message set -";
+                    if (inputServiceMessage) inputServiceMessage.value = ''; // Clear input
+                }
+            });
+        }
+        // ^^^ THESE ARE THE NEW JAVASCRIPT FUNCTIONS FOR THE SERVICE MESSAGE ^^^
+
+
         document.addEventListener('DOMContentLoaded', () => {
             if (window.firebaseOMSI && window.firebaseOMSI.auth) {
-                console.log("Firebase Auth SDK is available in omsi_tools.html DOMContentLoaded.");
                 const { auth, authOnAuthStateChanged, authSignInWithEmailAndPassword, authSignOut } = window.firebaseOMSI;
 
                 authOnAuthStateChanged(auth, (user) => {
                     updateAuthUI(user); 
                     if (user) {
                         console.log("User signed in, proceeding to load initial data for tools.");
-                        fetchBankHolidaysForSetup(); // Can run this anytime
+                        fetchBankHolidaysForSetup();
                         loadInitialData(); 
+                        listenForLiveServiceMessage(); // VVV CALL NEW LISTENER ON LOGIN VVV
                     } else {
                         console.log("User signed out or not yet signed in. Tools data will not be loaded from Firebase yet.");
                         currentWorkingSchedule = []; renderScheduleTable(); 
-                        updateStagingStatusDisplay(); // Update status display for logged-out state
+                        updateStagingStatusDisplay(); 
+                        if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -";
+                        if(inputServiceMessage) inputServiceMessage.value = ''; // Clear input on logout
                     }
                 });
 
@@ -790,10 +861,13 @@
             if (saveRouteColourButton) saveRouteColourButton.addEventListener('click', handleSaveRouteColour);
             if (selectRouteNameColour) { selectRouteNameColour.addEventListener('change', () => { const selectedRoute = selectRouteNameColour.value; if (selectedRoute && customRouteColours[selectedRoute.toUpperCase()]) { inputRouteColour.value = customRouteColours[selectedRoute.toUpperCase()]; } else { inputRouteColour.value = DEFAULT_ROUTE_COLOUR_TOOLS; } }); }
             if (selectStopForDeparturesView) { selectStopForDeparturesView.addEventListener('change', displayDeparturesForSelectedStop); }
+            
+            // VVV ADD EVENT LISTENER FOR THE NEW SERVICE MESSAGE BUTTON VVV
+            if (setServiceMessageButton) {
+                setServiceMessageButton.addEventListener('click', handleSetServiceMessage);
+            }
 
-            fetchBankHolidaysForSetup(); // Call this early for profile display
-            // loadInitialData() is now called based on auth state.
-            // The one-time color migration function is removed.
+            fetchBankHolidaysForSetup(); 
         });
     </script>
 </body>

@@ -146,13 +146,30 @@
             margin: 0.2em;
             border-radius: 0.25rem;
             font-size: 0.70rem;
-            font-weight: ;
+            font-weight: bold; /* Made bold for better visibility, esp on white */
             color: white;
             text-align: center;
             line-height: 1.3;
             min-width: 28px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+            position: relative; /* For absolute positioning of X */
+            transition: background-color 0.3s, color 0.3s, filter 0.3s; /* Smooth transitions */
         }
+
+        .route-tile .diversion-x { /* Style for the X */
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            font-size: 1.6em; /* Make X prominent */
+            font-weight: bold;
+            line-height: 1; /* Ensure X is centered */
+            -webkit-text-stroke: 1px rgba(0,0,0,0.5); /* Outline for better visibility on varied backgrounds */
+            text-stroke: 1px rgba(0,0,0,0.5);
+            z-index: 1; /* Ensure X is on top */
+        }
+
 
         #bus-list {
             list-style-type: none !important;
@@ -253,8 +270,6 @@
         .bus-item-animate {
           animation: itemSlideUp 4s cubic-bezier(0.25, 0.8, 0.25, 1); 
         }
-
-        /* Service Message CSS Removed */
 
         #tfl-logo {
             position: absolute !important;
@@ -365,7 +380,6 @@
             #stop-letter-display .stop-letter-circle { width: 1.6em; height: 1.6em; font-size: 0.7rem;}
             #stop-selection-modal-content { padding: 1rem; }
             #stop-selection-modal-content h3 { font-size: 1rem; }
-            /* Removed service message container style for media query as well */
         }
     </style>
 </head>
@@ -421,14 +435,14 @@
       import { getDatabase, ref, onValue, get, child } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
 
       const firebaseConfig = {
-        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
-        authDomain: "omsi-c5505.firebaseapp.com",
-        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app",
-        projectId: "omsi-c5505",
-        storageBucket: "omsi-c5505.appspot.com",
-        messagingSenderId: "503595375440",
-        appId: "1:503595375440:web:356be6684b77ff5909ea55",
-        measurementId: "G-VN7X65V3F9"
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // REPLACE WITH YOUR ACTUAL CONFIG
+        authDomain: "omsi-c5505.firebaseapp.com",       // REPLACE
+        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", // REPLACE
+        projectId: "omsi-c5505",                         // REPLACE
+        storageBucket: "omsi-c5505.appspot.com",         // REPLACE
+        messagingSenderId: "503595375440",               // REPLACE
+        appId: "1:503595375440:web:356be6684b77ff5909ea55",             // REPLACE
+        measurementId: "G-VN7X65V3F9"                 // REPLACE (Optional)
       };
 
       const app = initializeApp(firebaseConfig);
@@ -450,7 +464,6 @@
             stopSelectionModalOverlay, closeStopModalButton,
             availableStopsList, stopSearchInput, disclaimerButton,
             disclaimerModalOverlayElement, disclaimerModalCloseButton,
-            // serviceMessageContainerElement, serviceMessageTextElement, // Removed
             closedStopIDsGlobal = [];
 
         let allScheduledData = [];
@@ -458,6 +471,9 @@
         let currentSelectedStopID = null;
         let ukBankHolidaysData = { dates: [], titles: {} };
         
+        // NEW: Global state for active route diversions
+        let activeRouteDiversions = {}; // Stores { stopID: { LINE_NAME_UPPERCASE: true } }
+
         const MAX_DISPLAY_ROWS = 4; 
         const CYCLING_ROWS_COUNT = 3; 
         const MAX_DEPARTURES_OVERALL = 10; 
@@ -472,7 +488,7 @@
         let currentDepartureCycleStartIndex = 0; 
         let allUpcomingBusesMasterList = []; 
         
-        const schoolHolidayDateRanges = [];
+        const schoolHolidayDateRanges = []; // Define your school holiday ranges here if any
 
         const initialRouteColourMap = {
             "1": "#DC2626", "2": "#DC2626", "3": "#DC2626", "4": "#00783A", "5": "#00783A", "6": "#00783A",
@@ -529,8 +545,6 @@
             if (busListElement) { busListElement.innerHTML = `<li class="system-update-message">Live bus arrivals are not available at this time.<br>System update in progress.</li>`; }
             if (liveUpdateIntervalId) { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; }
         }
-
-        // updateServiceMessageDisplay function removed
 
         function updateAndDisplayLiveArrivals() {
             if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
@@ -670,8 +684,12 @@
                     const fbClosedStops = appState.closedStopIDs || {};
                     closedStopIDsGlobal = [];
                     for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) { closedStopIDsGlobal.push(stopID); } }
-                    // Service message logic removed from here
-                } else { currentScheduleStatus = 'idle'; }
+                    
+                    // NEW: Load initial route diversions
+                    activeRouteDiversions = appState.routeDiversions || {};
+                    console.log("[ARRIVALS DEBUG] Initial route diversions loaded:", activeRouteDiversions);
+
+                } else { currentScheduleStatus = 'idle'; activeRouteDiversions = {}; }
 
                 const scheduleSnapshot = await dbGet(dbChild(dbRef(database), '/liveSchedule/allScheduledBusData'));
                 allScheduledData = scheduleSnapshot.exists() && Array.isArray(scheduleSnapshot.val()) ? scheduleSnapshot.val() : [];
@@ -686,8 +704,7 @@
                     for (const route in fbCustomColours) { effectiveRouteColourMap[route.toUpperCase()] = fbCustomColours[route]; }
                 }
                 
-                // Service message fetch removed
-                console.log("[ARRIVALS DEBUG] Data fetched (service message logic removed).");
+                console.log("[ARRIVALS DEBUG] Data fetched.");
 
                 if (uniqueStops.length > 0) {
                     populateStopSelectionModal();
@@ -736,7 +753,7 @@
                 }
             });
 
-            const appStateRef = dbRef(database, '/appState');
+            const appStateRef = dbRef(database, '/appState'); // This existing listener will now also pick up routeDiversions
             dbOnValue(appStateRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const appState = snapshot.val();
@@ -757,11 +774,21 @@
                         if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') updateAndDisplayLiveArrivals();
                         populateStopSelectionModal(); 
                     }
-                    // Service message update logic removed from here
+                    
+                    // NEW: Update local diversions and refresh display if needed
+                    const newDiversions = appState.routeDiversions || {};
+                    if (JSON.stringify(activeRouteDiversions) !== JSON.stringify(newDiversions)) {
+                        console.log("[ARRIVALS DEBUG] FB: routeDiversions updated via appState listener.");
+                        activeRouteDiversions = newDiversions;
+                        if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
+                            selectStop(currentSelectedStopID); // Re-render to show diversion changes
+                        }
+                    }
+
                 } else { 
                     currentScheduleStatus = 'idle'; 
-                    closedStopIDsGlobal = []; 
-                    // Service message clear logic removed
+                    closedStopIDsGlobal = [];
+                    activeRouteDiversions = {}; // Clear diversions if appState is gone
                 }
             });
 
@@ -773,9 +800,7 @@
                 else { console.log("[ARRIVALS DEBUG] Custom route colours node in Firebase is empty or deleted. Reverted to defaults.");}
                 if (currentSelectedStopID) selectStop(currentSelectedStopID); 
             });
-
-            // Dedicated service message listener removed
-            console.log("[ARRIVALS DEBUG] Firebase listeners set up (service message listener removed).");
+            console.log("[ARRIVALS DEBUG] Firebase listeners set up.");
         }
 
         function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID);  li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
@@ -787,7 +812,7 @@
 
         function selectStop(stopID) {
             console.log(`[ARRIVALS DEBUG] selectStop: ${stopID}`);
-            currentSelectedStopID = stopID;
+            currentSelectedStopID = stopID; // Make sure this is the stopID string
             localStorage.setItem('lastSelectedStopID', stopID);
             
             currentDepartureCycleStartIndex = 0;
@@ -841,9 +866,45 @@
                 const allServingRoutesEver = new Set();
                 allScheduledData.forEach(bus => { if (bus && bus.stopID === currentSelectedStopID && bus.lineName) allServingRoutesEver.add(bus.lineName); });
                 const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames);
-                if (sortedServingRoutes.length > 0) { routeTilesContainerElement.style.borderTop = "1px solid rgba(255,255,255,0.1)"; routeTilesContainerElement.style.paddingTop = "0.75rem"; routeTilesContainerElement.style.marginBottom = "1rem"; } 
-                else { routeTilesContainerElement.style.borderTop = "none"; routeTilesContainerElement.style.paddingTop = "0"; routeTilesContainerElement.style.marginBottom = "0"; }
-                sortedServingRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'route-tile'; tile.textContent = sanitize(lineName); const tileBGColour = getRouteTileColour(lineName); tile.style.backgroundColor = tileBGColour; tile.style.color = getTextColourForBackground(tileBGColour); routeTilesContainerElement.appendChild(tile); });
+                
+                if (sortedServingRoutes.length > 0) { 
+                    routeTilesContainerElement.style.borderTop = "1px solid rgba(255,255,255,0.1)"; 
+                    routeTilesContainerElement.style.paddingTop = "0.75rem"; 
+                    routeTilesContainerElement.style.marginBottom = "1rem"; 
+                } else { 
+                    routeTilesContainerElement.style.borderTop = "none"; 
+                    routeTilesContainerElement.style.paddingTop = "0"; 
+                    routeTilesContainerElement.style.marginBottom = "0"; 
+                }
+
+                sortedServingRoutes.forEach(lineName => {
+                    const tile = document.createElement('span');
+                    tile.className = 'route-tile';
+                    tile.textContent = sanitize(lineName);
+                    let tileBGColour = getRouteTileColour(lineName);
+                    let tileTextColour = getTextColourForBackground(tileBGColour);
+
+                    // ---- START DIVERSION CHECK & DISPLAY ----
+                    // Ensure currentSelectedStopID is a string and lineName is uppercase for matching
+                    const isDiverted = activeRouteDiversions[String(currentSelectedStopID)] && 
+                                       activeRouteDiversions[String(currentSelectedStopID)][lineName.toUpperCase()];
+
+                    if (isDiverted) {
+                        tileBGColour = '#FFFFFF'; // Change background to white
+                        tileTextColour = '#000000'; // Change text to black for contrast
+                        tile.style.filter = 'opacity(85%)'; // Slightly transparent to distinguish
+
+                        const diversionX = document.createElement('span');
+                        diversionX.className = 'diversion-x'; // Use class for styling
+                        diversionX.textContent = 'X';
+                        tile.appendChild(diversionX);
+                    }
+                    // ---- END DIVERSION CHECK & DISPLAY ----
+
+                    tile.style.backgroundColor = tileBGColour;
+                    tile.style.color = tileTextColour;
+                    routeTilesContainerElement.appendChild(tile);
+                });
             }
             
             if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { 
@@ -889,17 +950,18 @@
             disclaimerButton = document.getElementById('disclaimer-button');
             disclaimerModalOverlayElement = document.getElementById('disclaimer-modal-overlay');
             disclaimerModalCloseButton = document.getElementById('disclaimer-modal-close-button');
-            // serviceMessageContainerElement and serviceMessageTextElement assignments removed
 
             updateClock(); setInterval(updateClock, 1000);
             previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); 
 
             if (window.firebaseOMSI && window.firebaseOMSI.database) {
-                fetchBankHolidays().then(() => loadInitialData()).catch(() => loadInitialData());
+                fetchBankHolidays().then(() => loadInitialData()).catch((err) => {
+                    console.error("Error during initial data load sequence:", err);
+                    loadInitialData(); // Attempt to load data even if bank holidays fail
+                });
             } else {
                 console.error("Firebase not initialized! Arrivals will not work with Firebase.");
                 if(busListElement) busListElement.innerHTML = `<li class="error-message">Error: Firebase not connected.</li>`;
-                // Removed serviceMessageContainerElement.style.display if it existed
             }
 
             if (busStopHeader) busStopHeader.addEventListener('click', openStopSelectionModal);

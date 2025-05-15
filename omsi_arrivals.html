@@ -346,7 +346,7 @@
 </head>
 <body>
 
-    <img id="tfl-logo" src="assets/TfL.png" alt="Transport for London Logo">
+    <img id="tfl-logo" src="assets/tfl.png" alt="Transport for London Logo">
 
     <button id="disclaimer-button">Copyright Disclaimer</button>
     <div id="disclaimer-modal-overlay" class="modal-overlay">
@@ -391,38 +391,27 @@
     </div>
 
     <script type="module">
-      // Import the functions you need from the SDKs you need
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-      // import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js"; // Optional
       import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-      // Your web app's Firebase configuration
       const firebaseConfig = {
-        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // Replace with your actual API key
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // Your actual API key
         authDomain: "omsi-c5505.firebaseapp.com",
-        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", // YOUR CORRECTED DATABASE URL
+        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", 
         projectId: "omsi-c5505",
         storageBucket: "omsi-c5505.appspot.com",
         messagingSenderId: "503595375440",
         appId: "1:503595375440:web:356be6684b77ff5909ea55",
-        measurementId: "G-VN7X65V3F9" // Optional
+        measurementId: "G-VN7X65V3F9" 
       };
 
-      // Initialize Firebase
       const app = initializeApp(firebaseConfig);
-      // const analytics = getAnalytics(app); // Optional
       const database = getDatabase(app);
 
-      // Make Firebase database instance and SDK functions globally accessible
       window.firebaseOMSI = {
           database: database,
-          dbRef: ref,
-          dbSet: set,
-          dbOnValue: onValue,
-          dbGet: get,
-          dbChild: child,
-          dbUpdate: update,
-          dbRemove: remove
+          dbRef: ref, dbSet: set, dbOnValue: onValue, dbGet: get,
+          dbChild: child, dbUpdate: update, dbRemove: remove
       };
       console.log("Firebase Initialized for OMSI Arrivals.");
     </script>
@@ -443,7 +432,7 @@
         let previousArrivalsSnapshot = [];
         let liveUpdateIntervalId = null;
         let animationTimeoutId = null;
-        let currentScheduleStatus = 'idle'; // Holds current status from Firebase
+        let currentScheduleStatus = 'idle';
 
         const schoolHolidayDateRanges = [];
         const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
@@ -505,7 +494,6 @@
         }
 
         function updateAndDisplayLiveArrivals() {
-            // console.log("[ARRIVALS DEBUG] updateAndDisplayLiveArrivals. Status:", currentScheduleStatus, "StopID:", currentSelectedStopID);
             if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
             if (busListElement) { busListElement.classList.add('animating-list'); }
             if (animationTimeoutId) { clearTimeout(animationTimeoutId); }
@@ -530,9 +518,9 @@
                 const numTime = parseFloat(timeStr);
                 if (!isNaN(numTime) && numTime >= 0 && numTime < 1 && !timeStr.includes(':')) { const totalMins = Math.round(numTime * 1440); timeStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`; }
                 const parts = timeStr.match(/^(\d{1,2}):(\d{2})$/);
-                if (!parts) { /* console.warn(`Invalid time: "${bus.scheduledTime}" for ${bus.lineName}`);*/ return null; }
+                if (!parts) { return null; }
                 const hrs = parseInt(parts[1],10), mins = parseInt(parts[2],10);
-                if (isNaN(hrs)||hrs<0||hrs>23||isNaN(mins)||mins<0||mins>59) { /* console.warn(`Invalid time values: ${hrs}:${mins}`);*/ return null; }
+                if (isNaN(hrs)||hrs<0||hrs>23||isNaN(mins)||mins<0||mins>59) { return null; }
                 const dayOffset = parseInt(bus.DayOffset || "0") || 0;
                 const schedTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset, hrs, mins, 0);
                 const diffSecs = Math.round((schedTime.getTime() - now.getTime()) / 1000);
@@ -555,7 +543,6 @@
                 if(busListElement) busListElement.innerHTML = `<li class="error-message">Firebase connection error.</li>`;
                 return;
             }
-            // CORRECTED: Destructure all needed functions from window.firebaseOMSI
             const { database, dbGet, dbChild, dbRef } = window.firebaseOMSI;
 
             try {
@@ -573,10 +560,8 @@
                 const scheduleSnapshot = await dbGet(dbChild(dbRef(database), '/liveSchedule/allScheduledBusData'));
                 allScheduledData = scheduleSnapshot.exists() && Array.isArray(scheduleSnapshot.val()) ? scheduleSnapshot.val() : [];
 
-
                 const stopsSnapshot = await dbGet(dbChild(dbRef(database), '/liveSchedule/uniqueBusStops'));
                 uniqueStops = stopsSnapshot.exists() && Array.isArray(stopsSnapshot.val()) ? stopsSnapshot.val() : [];
-
 
                 const customColoursSnapshot = await dbGet(dbChild(dbRef(database), '/settings/customRouteColours'));
                 effectiveRouteColourMap = { ...initialRouteColourMap };
@@ -584,27 +569,25 @@
                     const fbCustomColours = customColoursSnapshot.val();
                     for (const route in fbCustomColours) { effectiveRouteColourMap[route.toUpperCase()] = fbCustomColours[route]; }
                 }
-
                 console.log("[ARRIVALS DEBUG] Data fetched:", { scheduleL: allScheduledData.length, stopsL: uniqueStops.length, status: currentScheduleStatus });
 
                 if (uniqueStops.length > 0) {
                     populateStopSelectionModal();
                     const lastStopFromLocalStorage = localStorage.getItem('lastSelectedStopID');
                     let stopToSelect = uniqueStops[0]?.stopID;
-                    if (lastStopFromLocalStorage && uniqueStops.find(s => s.stopID === lastStopFromLocalStorage)) { stopToSelect = lastStopFromLocalStorage; }
+                    if (lastStopFromLocalStorage && uniqueStops.find(s => s && s.stopID === lastStopFromLocalStorage)) { stopToSelect = lastStopFromLocalStorage; } 
                     if (stopToSelect) { selectStop(stopToSelect); }
                     else { if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No stops to select.</li>`; }
                 } else {
                     if(busStopHeader) busStopHeader.innerHTML = `<div class="main-stop-name-line">No Stops Available</div>`;
                     if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.</li>`;
                 }
-            } catch (error) { console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error); if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading. Check console.</li>`; }
+            } catch (error) { console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error); if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading. Check console. Error: ${error.message}</li>`; }
             setupFirebaseListeners();
         }
 
         function setupFirebaseListeners() {
             if (!window.firebaseOMSI || !window.firebaseOMSI.database) { console.error("Firebase not initialized. No listeners."); return; }
-            // CORRECTED: Destructure all needed functions
             const { database, dbOnValue, dbRef } = window.firebaseOMSI;
 
             const liveScheduleRef = dbRef(database, '/liveSchedule/allScheduledBusData');
@@ -620,9 +603,9 @@
                 console.log("[ARRIVALS DEBUG] FB: uniqueBusStops updated.");
                 uniqueStops = snapshot.exists() && Array.isArray(snapshot.val()) ? snapshot.val() : [];
                 populateStopSelectionModal();
-                if (currentSelectedStopID && !uniqueStops.find(s => s.stopID === currentSelectedStopID)) currentSelectedStopID = null;
-                if (!currentSelectedStopID && uniqueStops.length > 0) selectStop(uniqueStops[0].stopID);
-                else if (currentSelectedStopID) selectStop(currentSelectedStopID); // Reselect to refresh header
+                if (currentSelectedStopID && !uniqueStops.find(s => s && s.stopID === currentSelectedStopID)) currentSelectedStopID = null; 
+                if (!currentSelectedStopID && uniqueStops.length > 0 && uniqueStops[0]) selectStop(uniqueStops[0].stopID); 
+                else if (currentSelectedStopID) selectStop(currentSelectedStopID);
             });
 
             const appStateRef = dbRef(database, '/appState');
@@ -639,6 +622,7 @@
                     const fbClosedStops = appState.closedStopIDs || {};
                     const newClosed = []; for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID); }
                     if (JSON.stringify(closedStopIDsGlobal) !== JSON.stringify(newClosed)) {
+                        console.log("[ARRIVALS DEBUG] Closed stops changed. Old:", closedStopIDsGlobal, "New:", newClosed);
                         closedStopIDsGlobal = newClosed;
                         if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') updateAndDisplayLiveArrivals();
                         populateStopSelectionModal();
@@ -650,44 +634,294 @@
             dbOnValue(customColoursRef, (snapshot) => {
                 console.log("[ARRIVALS DEBUG] FB: customRouteColours updated.");
                 effectiveRouteColourMap = { ...initialRouteColourMap };
-                if (snapshot.exists()) { const fbCols = snapshot.val(); for (const r in fbCols) effectiveRouteColourMap[r.toUpperCase()] = fbCols[r];}
-                if (currentSelectedStopID) selectStop(currentSelectedStopID);
+                if (snapshot.exists()) { const fbCols = snapshot.val(); for (const r in fbCols) effectiveRouteColourMap[r.toUpperCase()] = fbCols[r]; console.log("[ARRIVALS DEBUG] Applied updated custom route colours from Firebase:", effectiveRouteColourMap);}
+                else { console.log("[ARRIVALS DEBUG] Custom route colours node in Firebase is empty or deleted. Reverted to defaults.");}
+                if (currentSelectedStopID) selectStop(currentSelectedStopID); 
             });
             console.log("[ARRIVALS DEBUG] Firebase listeners set up.");
         }
 
-        function populateStopSelectionModal(searchTerm = "") { /* ... same as before ... */ if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => (stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase())); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID);  li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
+        function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID);  li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
         function filterStopList() { if (stopSearchInput) populateStopSelectionModal(stopSearchInput.value); }
         function openDisclaimerModal() { if (disclaimerModalOverlayElement) { disclaimerModalOverlayElement.style.display = 'flex'; } }
         function closeDisclaimerModal() { if (disclaimerModalOverlayElement) { disclaimerModalOverlayElement.style.display = 'none'; } }
         function openStopSelectionModal() { if (!uniqueStops || uniqueStops.length === 0) { alert("No schedule data. Use Setup Page."); return; } if (stopSearchInput) stopSearchInput.value = ""; populateStopSelectionModal(); if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'flex'; }
         function closeStopSelectionModal() { if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'none'; }
+
+        // =======================================================================================
+        // START OF THE selectStop FUNCTION WITH DETAILED LOGGING FOR STOP LETTER SIZING
+        // =======================================================================================
         function selectStop(stopID) {
-            console.log("[ARRIVALS DEBUG] selectStop:", stopID, "Current Status:", currentScheduleStatus);
-            if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); if(busStopHeader) busStopHeader.innerHTML = ''; if(stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; if(busListElement) busListElement.innerHTML = ''; return; }
-            currentSelectedStopID = stopID; localStorage.setItem('lastSelectedStopID', stopID);
-            const selectedStopDetails = uniqueStops.find(s => s.stopID === stopID);
-            if(busStopHeader) busStopHeader.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; } if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = '';
-            if (!selectedStopDetails) { if(busStopHeader) busStopHeader.innerHTML = `<div class="main-stop-name-line">Stop Info Missing</div>`; if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Details missing for ${sanitize(stopID)}.</li>`; if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; }
-            let stopNameFull = selectedStopDetails.stopName || "Unknown Stop"; let mainNamePart = stopNameFull; let qualifierPart = null; let stopLetters = null; const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/; const qualifierMatch = mainNamePart.match(qualifierRegex); if (qualifierMatch) { mainNamePart = qualifierMatch[1].trim(); qualifierPart = qualifierMatch[2].trim(); } const letterRegex = /\(([A-Z0-9]{1,3})\)$/; let tempLetterMatch = mainNamePart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim(); } else if (qualifierPart) { tempLetterMatch = qualifierPart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim(); } }
-            const mainNameLineDiv = document.createElement('div'); mainNameLineDiv.className = 'main-stop-name-line'; mainNameLineDiv.textContent = sanitize(mainNamePart); if(busStopHeader) busStopHeader.appendChild(mainNameLineDiv); if (qualifierPart && qualifierPart !== "") { const qElem = document.createElement('div'); qElem.className = 'stop-name-qualifier'; qElem.textContent = sanitize(qualifierPart); if(busStopHeader) busStopHeader.appendChild(qElem); } if(busStopDirectionElement) { busStopDirectionElement.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; }
-            if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) { const allServingRoutesEver = new Set(); allScheduledData.forEach(bus => { if (bus && bus.stopID === currentSelectedStopID && bus.lineName) { allServingRoutesEver.add(bus.lineName); } }); const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames); if (sortedServingRoutes.length > 0) { routeTilesContainerElement.style.borderTop = "1px solid rgba(255,255,255,0.1)"; routeTilesContainerElement.style.paddingTop = "0.75rem"; routeTilesContainerElement.style.marginBottom = "1rem"; } else { routeTilesContainerElement.style.borderTop = "none"; routeTilesContainerElement.style.paddingTop = "0"; routeTilesContainerElement.style.marginBottom = "0"; } sortedServingRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'route-tile'; tile.textContent = sanitize(lineName); const tileBGColour = getRouteTileColour(lineName); tile.style.backgroundColor = tileBGColour; tile.style.color = getTextColourForBackground(tileBGColour); routeTilesContainerElement.appendChild(tile); }); }
-            if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { const circleElement = document.createElement('span'); circleElement.className = 'stop-letter-circle'; const letterSpan = document.createElement('span'); letterSpan.textContent = sanitize(stopLetters); circleElement.appendChild(letterSpan); stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.appendChild(circleElement); stopLetterDisplayElement.style.display = 'inline-flex'; requestAnimationFrame(() => { /* ... letter scaling logic ... */ }); } else if (stopLetterDisplayElement) { stopLetterDisplayElement.style.display = 'none';}
-            if (closedStopIDsGlobal.includes(stopID)) { if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;} if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; previousArrivalsSnapshot = []; return; }
-            previousArrivalsSnapshot = []; updateAndDisplayLiveArrivals();
+            console.log(`[ARRIVALS DEBUG] selectStop: ${stopID}, Current Status: ${currentScheduleStatus}, Stop Name from uniqueStops (if found): ${uniqueStops.find(s=>s.stopID===stopID)?.stopName || 'Not found in uniqueStops'}`);
+
+            if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
+                displaySystemUpdateMessage();
+                if(busStopHeader) busStopHeader.innerHTML = '';
+                if(stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none';
+                if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = '';
+                if(busListElement) busListElement.innerHTML = '';
+                return;
+            }
+            currentSelectedStopID = stopID;
+            localStorage.setItem('lastSelectedStopID', stopID);
+            const selectedStopDetails = uniqueStops.find(s => s && s.stopID === stopID);
+
+            // Clear previous state
+            if(busStopHeader) busStopHeader.innerHTML = '';
+            if(stopLetterDisplayElement) {
+                stopLetterDisplayElement.innerHTML = '';
+                stopLetterDisplayElement.style.display = 'none'; 
+            }
+            if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = '';
+
+            if (!selectedStopDetails) {
+                console.warn(`[ARRIVALS DEBUG] No details found for stopID (in selectStop): ${stopID}`);
+                if(busStopHeader) busStopHeader.innerHTML = `<div class="main-stop-name-line">Stop Info Missing</div>`;
+                if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Details missing for ${sanitize(stopID)}.</li>`;
+                if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId);
+                liveUpdateIntervalId = null;
+                return;
+            }
+
+            let stopNameFull = selectedStopDetails.stopName || "Unknown Stop";
+            console.log(`[DEBUG NAME PARSE] Initial stopNameFull for ${stopID}: "${stopNameFull}"`);
+
+            let mainNamePart = stopNameFull;
+            let qualifierPart = null;
+            let stopLetters = null; 
+
+            const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/;
+            const qualifierMatch = mainNamePart.match(qualifierRegex);
+            if (qualifierMatch) {
+                mainNamePart = qualifierMatch[1].trim();
+                qualifierPart = qualifierMatch[2].trim();
+                console.log(`[DEBUG NAME PARSE] After qualifier split: mainNamePart = "${mainNamePart}", qualifierPart = "${qualifierPart}"`);
+            } else {
+                console.log(`[DEBUG NAME PARSE] No qualifier ('/') found in stopNameFull.`);
+            }
+
+            const letterRegex = /\(([A-Z0-9]{1,3})\)$/; 
+            
+            console.log(`[DEBUG NAME PARSE] Attempting to find letters in mainNamePart: "${mainNamePart}"`);
+            let tempLetterMatch = mainNamePart.match(letterRegex);
+            if (tempLetterMatch) {
+                stopLetters = tempLetterMatch[1];
+                mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim();
+                console.log(`[DEBUG NAME PARSE] stopLetters FOUND in mainNamePart: "${stopLetters}". New mainNamePart: "${mainNamePart}"`);
+            } else if (qualifierPart) {
+                console.log(`[DEBUG NAME PARSE] No letters in mainNamePart. Attempting in qualifierPart: "${qualifierPart}"`);
+                tempLetterMatch = qualifierPart.match(letterRegex);
+                if (tempLetterMatch) {
+                    stopLetters = tempLetterMatch[1];
+                    qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim();
+                    console.log(`[DEBUG NAME PARSE] stopLetters FOUND in qualifierPart: "${stopLetters}". New qualifierPart: "${qualifierPart}"`);
+                } else {
+                    console.log(`[DEBUG NAME PARSE] No letters found in qualifierPart either.`);
+                }
+            } else {
+                 console.log(`[DEBUG NAME PARSE] No letters in mainNamePart and no qualifierPart to check.`);
+            }
+
+            if (!stopLetters) {
+                console.log(`[DEBUG NAME PARSE] FINAL: No stopLetters extracted for stop: "${stopNameFull}" (ID: ${stopID})`);
+            }
+
+
+            const mainNameLineDiv = document.createElement('div');
+            mainNameLineDiv.className = 'main-stop-name-line';
+            mainNameLineDiv.textContent = sanitize(mainNamePart);
+            if(busStopHeader) busStopHeader.appendChild(mainNameLineDiv);
+
+            if (qualifierPart && qualifierPart !== "") {
+                const qElem = document.createElement('div');
+                qElem.className = 'stop-name-qualifier';
+                qElem.textContent = sanitize(qualifierPart);
+                if(busStopHeader) busStopHeader.appendChild(qElem);
+            }
+
+            if(busStopDirectionElement) {
+                busStopDirectionElement.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : "";
+            }
+
+            // Route Tiles Logic
+            if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) {
+                const allServingRoutesEver = new Set();
+                allScheduledData.forEach(bus => {
+                    if (bus && bus.stopID === currentSelectedStopID && bus.lineName) {
+                        allServingRoutesEver.add(bus.lineName);
+                    }
+                });
+                const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames);
+                if (sortedServingRoutes.length > 0) {
+                    routeTilesContainerElement.style.borderTop = "1px solid rgba(255,255,255,0.1)";
+                    routeTilesContainerElement.style.paddingTop = "0.75rem";
+                    routeTilesContainerElement.style.marginBottom = "1rem";
+                } else {
+                    routeTilesContainerElement.style.borderTop = "none";
+                    routeTilesContainerElement.style.paddingTop = "0";
+                    routeTilesContainerElement.style.marginBottom = "0";
+                }
+                sortedServingRoutes.forEach(lineName => {
+                    const tile = document.createElement('span');
+                    tile.className = 'route-tile';
+                    tile.textContent = sanitize(lineName);
+                    const tileBGColour = getRouteTileColour(lineName);
+                    tile.style.backgroundColor = tileBGColour;
+                    tile.style.color = getTextColourForBackground(tileBGColour);
+                    routeTilesContainerElement.appendChild(tile);
+                });
+            }
+            
+            console.log("[DEBUG SIZING CHECK] Before letter sizing: stopLetters =", stopLetters, "stopLetterDisplayElement exists:", !!stopLetterDisplayElement, "mainNameLineDiv exists:", !!mainNameLineDiv);
+
+            if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) {
+                console.log("[LETTER SIZING ENTRY] Condition met. stopLetters:", stopLetters);
+                
+                const circleElement = document.createElement('span');
+                circleElement.className = 'stop-letter-circle';
+                const letterSpan = document.createElement('span');
+                letterSpan.textContent = sanitize(stopLetters);
+                circleElement.appendChild(letterSpan);
+                
+                stopLetterDisplayElement.innerHTML = ''; 
+                stopLetterDisplayElement.appendChild(circleElement);
+                stopLetterDisplayElement.style.display = 'inline-flex';
+
+                requestAnimationFrame(() => {
+                    console.log("[LETTER SIZING RAF ENTRY] requestAnimationFrame callback started for stopLetters:", stopLetters);
+                    if (!document.body.contains(circleElement) || !document.body.contains(mainNameLineDiv)) {
+                        console.warn("[LETTER SIZING RAF] Circle or MainNameLineDiv not in DOM within RAF. Aborting sizing.");
+                        return;
+                    }
+
+                    const mainStopNameComputedStyle = window.getComputedStyle(mainNameLineDiv);
+                    const baseStopNameFontSizePx = parseFloat(mainStopNameComputedStyle.fontSize);
+                    
+                    const circleStyle = window.getComputedStyle(circleElement);
+                    const circleDiameterPx = parseFloat(circleStyle.width); 
+
+                    console.log("[LETTER SIZING RAF] baseStopNameFontSizePx:", baseStopNameFontSizePx, "circleDiameterPx:", circleDiameterPx);
+
+                    if (isNaN(baseStopNameFontSizePx) || baseStopNameFontSizePx <= 0 || isNaN(circleDiameterPx) || circleDiameterPx <= 0) {
+                        console.warn("[LETTER SIZING RAF] Could not get valid font/circle size for letter sizing in RAF.");
+                        return;
+                    }
+
+                    const fontFamily = mainStopNameComputedStyle.fontFamily;
+                    const fontWeight = "bold"; 
+                    letterSpan.style.fontFamily = fontFamily;
+                    letterSpan.style.fontWeight = fontWeight;
+
+                    let currentLetterFontSize;
+                    const letterCount = stopLetters.length;
+                    console.log("[LETTER SIZING RAF] letterCount:", letterCount);
+                    let fitTargetWidth;
+                    const MIN_FONT_SIZE = 6; 
+
+                    if (letterCount === 1) {
+                        currentLetterFontSize = baseStopNameFontSizePx * 1.0; 
+                        fitTargetWidth = circleDiameterPx * 0.60; 
+                    } else if (letterCount === 2) {
+                        currentLetterFontSize = circleDiameterPx * 0.45; 
+                        fitTargetWidth = circleDiameterPx * 0.70; 
+                    } else { // 3 or more letters
+                        currentLetterFontSize = circleDiameterPx * 0.35; 
+                        fitTargetWidth = circleDiameterPx * 0.75; 
+                    }
+                    console.log(`[LETTER SIZING RAF] Initial estimate before clamp - Font: ${currentLetterFontSize.toFixed(2)}, TargetW: ${fitTargetWidth.toFixed(2)}`);
+
+                    if (letterCount === 1) {
+                        currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.80));
+                    } else { 
+                        currentLetterFontSize = Math.max(MIN_FONT_SIZE, Math.min(currentLetterFontSize, circleDiameterPx * 0.70)); 
+                    }
+                    console.log(`[LETTER SIZING RAF] After clamping - Font: ${currentLetterFontSize.toFixed(2)}`);
+
+                    const MAX_ITERATIONS = 50;
+                    let iterations = 0;
+                    let textMeasurementWidth;
+
+                    do {
+                        letterSpan.style.fontSize = currentLetterFontSize + "px";
+                        textMeasurementWidth = getTextWidth(stopLetters, `${fontWeight} ${currentLetterFontSize}px "${fontFamily}"`);
+                        console.log(`[LETTER SIZING RAF] Iter: ${iterations}, Font: ${currentLetterFontSize.toFixed(2)}, MeasuredW: ${textMeasurementWidth.toFixed(2)}, TargetW: ${fitTargetWidth.toFixed(2)}`);
+
+                        if (textMeasurementWidth > fitTargetWidth && currentLetterFontSize > MIN_FONT_SIZE) {
+                            currentLetterFontSize -= 0.5; 
+                        } else {
+                            break; 
+                        }
+                        iterations++;
+                    } while (iterations < MAX_ITERATIONS && currentLetterFontSize > MIN_FONT_SIZE); 
+
+                    letterSpan.style.fontSize = currentLetterFontSize + "px";
+                    console.log(`[LETTER SIZING RAF] Final - Font: ${currentLetterFontSize.toFixed(2)}px for '${stopLetters}'`);
+                });
+            } else {
+                console.log("[LETTER SIZING SKIPPED] Condition (stopLetters && stopLetterDisplayElement && mainNameLineDiv) was false.");
+                console.log("[LETTER SIZING SKIPPED DETAILS] stopLetters:", stopLetters, "stopLetterDisplayElement exists:", !!stopLetterDisplayElement, "mainNameLineDiv exists:", !!mainNameLineDiv);
+                if (stopLetterDisplayElement) { 
+                    stopLetterDisplayElement.style.display = 'none';
+                }
+            }
+            // ----- END OF MODIFIED SECTION FOR STOP LETTER SIZING -----
+
+            if (closedStopIDsGlobal.includes(stopID)) {
+                if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;}
+                if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId);
+                liveUpdateIntervalId = null;
+                previousArrivalsSnapshot = [];
+                return;
+            }
+            previousArrivalsSnapshot = [];
+            updateAndDisplayLiveArrivals();
             if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId);
             liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 10000);
         }
+        // =======================================================================================
+        // END OF THE selectStop FUNCTION
+        // =======================================================================================
 
         document.addEventListener('DOMContentLoaded', () => {
             console.log("[ARRIVALS DEBUG] DOMContentLoaded");
-            clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); busListElement = document.getElementById('bus-list'); busStopDirectionElement = document.getElementById('bus-stop-direction'); busStopHeader = document.getElementById('bus-stop-header'); stopLetterDisplayElement = document.getElementById('stop-letter-display'); routeTilesContainerElement = document.getElementById('route-tiles-container'); stopSelectionModalOverlay = document.getElementById('stop-selection-modal-overlay'); closeStopModalButton = document.getElementById('close-stop-modal-button'); availableStopsList = document.getElementById('available-stops-list'); stopSearchInput = document.getElementById('stop-search-input'); disclaimerButton = document.getElementById('disclaimer-button'); disclaimerModalOverlayElement = document.getElementById('disclaimer-modal-overlay'); disclaimerModalCloseButton = document.getElementById('disclaimer-modal-close-button');
+            clockTimeElement = document.getElementById('clock-time');
+            clockDateElement = document.getElementById('clock-date');
+            busListElement = document.getElementById('bus-list');
+            busStopDirectionElement = document.getElementById('bus-stop-direction');
+            busStopHeader = document.getElementById('bus-stop-header');
+            stopLetterDisplayElement = document.getElementById('stop-letter-display');
+            routeTilesContainerElement = document.getElementById('route-tiles-container');
+            stopSelectionModalOverlay = document.getElementById('stop-selection-modal-overlay');
+            closeStopModalButton = document.getElementById('close-stop-modal-button');
+            availableStopsList = document.getElementById('available-stops-list');
+            stopSearchInput = document.getElementById('stop-search-input');
+            disclaimerButton = document.getElementById('disclaimer-button');
+            disclaimerModalOverlayElement = document.getElementById('disclaimer-modal-overlay');
+            disclaimerModalCloseButton = document.getElementById('disclaimer-modal-close-button');
+            
             updateClock(); setInterval(updateClock, 1000);
+
             if (window.firebaseOMSI && window.firebaseOMSI.database) {
                 console.log("Firebase is ready in arrivals DOMContentLoaded. Fetching initial data.");
-                fetchBankHolidays().then(() => { console.log("[ARRIVALS DEBUG] Bank hols fetched, calling loadInitialData."); loadInitialData(); }).catch(error => { console.error("[ARRIVALS DEBUG] Bank hol fetch error:", error); loadInitialData(); });
-            } else { console.error("Firebase not initialized! Arrivals will not work with Firebase."); if(busListElement) busListElement.innerHTML = `<li class="error-message">Error: Firebase not connected.</li>`; }
-            if (busStopHeader) busStopHeader.addEventListener('click', openStopSelectionModal); if (closeStopModalButton) closeStopModalButton.addEventListener('click', closeStopSelectionModal); if (stopSelectionModalOverlay) stopSelectionModalOverlay.addEventListener('click', e => { if (e.target === stopSelectionModalOverlay) closeStopSelectionModal(); }); if (stopSearchInput) stopSearchInput.addEventListener('input', filterStopList); if (disclaimerButton) disclaimerButton.addEventListener('click', openDisclaimerModal); if (disclaimerModalCloseButton) disclaimerModalCloseButton.addEventListener('click', closeDisclaimerModal); if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.addEventListener('click', e => { if (e.target === disclaimerModalOverlayElement) closeDisclaimerModal(); });
+                fetchBankHolidays().then(() => {
+                    console.log("[ARRIVALS DEBUG] Bank hols fetched, calling loadInitialData.");
+                    loadInitialData();
+                }).catch(error => {
+                    console.error("[ARRIVALS DEBUG] Bank hol fetch error:", error);
+                    loadInitialData(); 
+                });
+            } else {
+                console.error("Firebase not initialized! Arrivals will not work with Firebase.");
+                if(busListElement) busListElement.innerHTML = `<li class="error-message">Error: Firebase not connected.</li>`;
+            }
+
+            if (busStopHeader) busStopHeader.addEventListener('click', openStopSelectionModal);
+            if (closeStopModalButton) closeStopModalButton.addEventListener('click', closeStopSelectionModal);
+            if (stopSelectionModalOverlay) stopSelectionModalOverlay.addEventListener('click', e => { if (e.target === stopSelectionModalOverlay) closeStopSelectionModal(); });
+            if (stopSearchInput) stopSearchInput.addEventListener('input', filterStopList);
+            if (disclaimerButton) disclaimerButton.addEventListener('click', openDisclaimerModal);
+            if (disclaimerModalCloseButton) disclaimerModalCloseButton.addEventListener('click', closeDisclaimerModal);
+            if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.addEventListener('click', e => { if (e.target === disclaimerModalOverlayElement) closeDisclaimerModal(); });
         });
     </script>
 </body>

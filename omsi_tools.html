@@ -210,6 +210,28 @@
         #stopDeparturesList li:last-child {
             border-bottom: none;
         }
+        /* Styles for statistics section */
+        .schedule-statistics p {
+            margin-bottom: 0.3rem;
+        }
+        .schedule-statistics h3 {
+            font-size: 1.1rem;
+            color: #ecf0f1;
+            border-bottom: 1px dashed rgba(255,255,255,0.2);
+            padding-bottom: 0.3rem;
+            margin-top: 1rem;
+            margin-bottom: 0.6rem;
+        }
+         #statOperatingProfileCounts ul, #statTopRoutes {
+            list-style-type: disc;
+            margin-left: 1.5em;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+        #statOperatingProfileCounts li, #statTopRoutes li {
+            margin-bottom: 0.2rem;
+        }
+
 
     </style>
 </head>
@@ -237,6 +259,33 @@
 
             <div id="current-profile-display-container" class="section">
                 <p id="current-profile-display">Today's Auto Profile: (determining...)</p>
+            </div>
+
+            <div class="section schedule-statistics">
+                <h2>Schedule Statistics (Working Schedule)</h2>
+                <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
+                    <div>
+                        <p><strong>Total Scheduled Journeys:</strong> <span id="statTotalJourneys">0</span></p>
+                    </div>
+                    <div>
+                        <p><strong>Number of Unique Routes:</strong> <span id="statUniqueRoutes">0</span></p>
+                    </div>
+                    <div>
+                        <p><strong>Number of Unique Stops:</strong> <span id="statUniqueStops">0</span></p>
+                    </div>
+                </div>
+                <div> 
+                    <h3>Journeys by Operating Profile:</h3>
+                    <div id="statOperatingProfileCounts">
+                        <p><em>(Calculating...)</em></p>
+                    </div>
+                </div>
+                 <div style="margin-top: 1rem;"> 
+                    <h3>Top 5 Routes by Service Count:</h3>
+                    <ol id="statTopRoutes">
+                        <li><em>(Calculating...)</em></li>
+                    </ol>
+                </div>
             </div>
 
             <div class="section manual-entry-form">
@@ -364,18 +413,19 @@
                 <button id="viewArrivalsButton" class="button" style="margin-left: 0.5rem;">View Arrivals Board</button>
             </div>
 
-        </div> </div> <script type="module">
+        </div>
+    </div>
+    <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
       import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
       import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-      // THIS IS YOUR ACTUAL FIREBASE CONFIGURATION
       const firebaseConfig = {
         apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
         authDomain: "omsi-c5505.firebaseapp.com",
         databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app",
         projectId: "omsi-c5505",
-        storageBucket: "omsi-c5505.appspot.com", 
+        storageBucket: "omsi-c5505.appspot.com",
         messagingSenderId: "503595375440",
         appId: "1:503595375440:web:356be6684b77ff5909ea55",
         measurementId: "G-VN7X65V3F9"
@@ -462,10 +512,12 @@
         const authStatus = document.getElementById('auth-status');
         const loggedInUserEmailDisplay = document.getElementById('loggedInUserEmail');
 
-        // const inputServiceMessage = document.getElementById('inputServiceMessage'); // Removed
-        // const setServiceMessageButton = document.getElementById('setServiceMessageButton'); // Removed
-        // const serviceMessageStatus = document.getElementById('serviceMessageStatus'); // Removed
-        // const currentLiveServiceMessageDisplay = document.getElementById('currentLiveServiceMessageDisplay'); // Removed
+        // Statistics Dashboard Elements
+        const statTotalJourneys = document.getElementById('statTotalJourneys');
+        const statUniqueRoutes = document.getElementById('statUniqueRoutes');
+        const statUniqueStops = document.getElementById('statUniqueStops');
+        const statOperatingProfileCounts = document.getElementById('statOperatingProfileCounts');
+        const statTopRoutes = document.getElementById('statTopRoutes');
 
 
         let currentUser = null; 
@@ -492,7 +544,6 @@
         const FB_PATH_APPSTATE_LAST_UPDATED = '/appState/scheduleLastUpdated';
         const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
         const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
-        // const FB_PATH_APPSTATE_SERVICE_MESSAGE = '/appState/serviceMessage';  // Removed
         const CUSTOM_ROUTE_COLOURS_KEY = 'omsiCustomRouteTileColours';
 
         const initialRouteColourMapForTools = { 
@@ -518,7 +569,6 @@
                 if (authStatus) authStatus.textContent = 'Please log in to use the tools.';
                 if (loggedInUserEmailDisplay) loggedInUserEmailDisplay.textContent = '';
                 if (mainToolContentDiv) mainToolContentDiv.style.display = 'none';
-                // if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -"; // Removed
             }
         }
 
@@ -535,7 +585,7 @@
         function handleAddOrUpdateEntry() { const schedTime=inputScheduledTime.value; if(!schedTime.match(/^([01]\d|2[0-3]):([0-5]\d)$/)){ alert("Scheduled Time must be in HH:MM format (e.g., 09:30 or 23:15)."); inputScheduledTime.focus();return; } if(!inputStopID.value.trim()||!inputLineName.value.trim()||!inputOperatingProfile.value.trim()){ alert("Stop ID, Line Name, and Operating Profile are required.");return; } const entry={ stopID:inputStopID.value.trim().toUpperCase(), stopName:inputStopName.value.trim(), direction:inputDirection.value.trim(), lineName:inputLineName.value.trim().toUpperCase(), destinationName:inputDestinationName.value.trim(), scheduledTime:schedTime, OperatingProfile:inputOperatingProfile.value.trim(), DayOffset:selectDayOffset.value, internalId:'' }; const editIdx=parseInt(editingEntryIndexInput.value); if(editIdx > -1 && editIdx < currentWorkingSchedule.length){ entry.internalId=currentWorkingSchedule[editIdx].internalId; currentWorkingSchedule[editIdx]=entry; } else { entry.internalId=`manual_${Date.now()}_${Math.random().toString(36).substr(2,5)}`; currentWorkingSchedule.push(entry); } sortConfig = { key: null, direction: 'asc' }; renderScheduleTable(); resetForm(); }
         function handleDeleteEntry(originalIndexPassed) { if(originalIndexPassed <0 || originalIndexPassed >=currentWorkingSchedule.length) { console.warn("Delete: Invalid index", originalIndexPassed); return; } if(confirm(`Delete ${currentWorkingSchedule[originalIndexPassed].lineName} at ${currentWorkingSchedule[originalIndexPassed].scheduledTime} from working schedule?`)){ currentWorkingSchedule.splice(originalIndexPassed,1); renderScheduleTable(); } }
         function isValidScheduleDataFromText(jsonData) { if (!jsonData || jsonData.length === 0) return false; const requiredColumns = ['StopID', 'StopName', 'Direction', 'LineName', 'DestinationName', 'ScheduledTime', 'OperatingProfile']; const firstEntry = jsonData[0]; const allColumnsPresent = requiredColumns.every(col => col in firstEntry); if (!allColumnsPresent) { const missingCols = requiredColumns.filter(col => !(col in firstEntry)); alert(`Uploaded .COUNT file is missing expected headers: ${missingCols.join(', ')}.\nExpected headers are: StopID, StopName, Direction, LineName, DestinationName, ScheduledTime, OperatingProfile (DayOffset is also common). Header case matters.`); return false; } return true; }
-        function handleCountFileUpload(event) { const file = event.target.files[0]; if (file) { if (fileStatusElement) fileStatusElement.textContent = `Processing ${file.name}...`; setTimeout(() => { const reader = new FileReader(); reader.onload = function(e) { try { const fileContent = e.target.result; const lines = fileContent.split(/\r?\n/); if (lines.length < 2) { alert("The .COUNT file is empty or does not contain enough data (header + at least one entry)."); if (fileStatusElement) fileStatusElement.textContent = "File processing failed: Not enough data."; if (countFileInput) countFileInput.value = ""; return; } const headers = lines[0].split('\t').map(h => h.trim()); const jsonData = []; for (let i = 1; i < lines.length; i++) { const line = lines[i].trim(); if (line === "") continue; const values = line.split('\t').map(v => v.trim()); if (values.length < headers.length && values.every(v => v === "")) continue; if (values.length < headers.length && values.length > 0) { console.warn(`Line ${i+1} has fewer columns (${values.length}) than headers (${headers.length}). Some data might be missing for this row. Row: "${line}"`); for(let k = values.length; k < headers.length; k++) { values.push(''); } } let entry = {}; headers.forEach((header, index) => { entry[header] = values[index] !== undefined ? values[index] : ""; }); jsonData.push(entry); } if (isValidScheduleDataFromText(jsonData)) { if (currentWorkingSchedule.length > 0 && !confirm("Uploading this .COUNT file will replace all entries in the current working schedule. Continue?")) { if (fileStatusElement) fileStatusElement.textContent = "Upload cancelled."; if (countFileInput) countFileInput.value = ""; return; } currentWorkingSchedule = jsonData.map((row, index) => { let scheduledTime = String(row.ScheduledTime || "").trim(); if (scheduledTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { const parts = scheduledTime.split(':'); scheduledTime = `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}`; } else if (scheduledTime.length === 4 && !scheduledTime.includes(':')) { scheduledTime = `${scheduledTime.substring(0,2)}:${scheduledTime.substring(2,4)}`; } else if (scheduledTime.length === 3 && !scheduledTime.includes(':')) { scheduledTime = `0${scheduledTime.substring(0,1)}:${scheduledTime.substring(1,3)}`; } return { internalId: `${String(row.StopID||'s').trim().toUpperCase()}_${String(row.LineName||'l').trim().toUpperCase()}_${scheduledTime.replace(':','')}_${index}_countfile`, stopID: String(row.StopID || "").trim().toUpperCase(), stopName: String(row.StopName || "").trim(), direction: String(row.Direction || "").trim(), lineName: String(row.LineName || "").trim().toUpperCase(), destinationName: String(row.DestinationName || "").trim(), scheduledTime: scheduledTime, OperatingProfile: String(row.OperatingProfile || "").trim(), DayOffset: String(row.DayOffset || "0").trim() }; }); sortConfig = { key: null, direction: 'asc' }; renderScheduleTable(); if (fileStatusElement) fileStatusElement.textContent = `${file.name} processed. ${currentWorkingSchedule.length} entries loaded into working schedule.`; } else { if (fileStatusElement) fileStatusElement.textContent = "File processing failed: Invalid file structure or missing/mismatched headers."; } } catch (error) { console.error("Error processing .COUNT file:", error); alert(`Error reading .COUNT file: ${error.message}.`); if (fileStatusElement) fileStatusElement.textContent = "Error loading file."; } if (countFileInput) countFileInput.value = ""; }; reader.onerror = () => { alert("Could not read the file."); if (fileStatusElement) fileStatusElement.textContent = "Error reading file."; if (countFileInput) countFileInput.value = ""; }; reader.readAsText(file); }, 50); } }
+        function handleCountFileUpload(event) { const file = event.target.files[0]; if (file) { if (fileStatusElement) fileStatusElement.textContent = `Processing ${file.name}...`; setTimeout(() => { const reader = new FileReader(); reader.onload = function(e) { try { const fileContent = e.target.result; const lines = fileContent.split(/\r?\n/); if (lines.length < 2) { alert("The .COUNT file is empty or does not contain enough data (header + at least one entry)."); if (fileStatusElement) fileStatusElement.textContent = "File processing failed: Not enough data."; if (countFileInput) countFileInput.value = ""; return; } const headers = lines[0].split('\t').map(h => h.trim()); const jsonData = []; for (let i = 1; i < lines.length; i++) { const line = lines[i].trim(); if (line === "") continue; const values = line.split('\t').map(v => v.trim()); if (values.length < headers.length && values.every(v => v === "")) continue; if (values.length < headers.length && values.length > 0) { console.warn(`Line ${i+1} has fewer columns (${values.length}) than headers (${headers.length}). Some data might be missing for this row. Row: "${line}"`); for(let k = values.length; k < headers.length; k++) { values.push(''); } } let entry = {}; headers.forEach((header, index) => { entry[header] = values[index] !== undefined ? values[index] : ""; }); jsonData.push(entry); } if (isValidScheduleDataFromText(jsonData)) { if (currentWorkingSchedule.length > 0 && !confirm("Uploading this .COUNT file will replace all entries in the current working schedule. Continue?")) { if (fileStatusElement) fileStatusElement.textContent = "Upload cancelled."; if (countFileInput) countFileInput.value = ""; return; } currentWorkingSchedule = jsonData.map((row, index) => { let scheduledTime = String(row.ScheduledTime || "").trim(); if (scheduledTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { const parts = scheduledTime.split(':'); scheduledTime = `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}`; } else if (scheduledTime.length === 4 && !scheduledTime.includes(':')) { scheduledTime = `${scheduledTime.substring(0,2)}:${scheduledTime.substring(2,4)}`; } else if (scheduledTime.length === 3 && !scheduledTime.includes(':')) { scheduledTime = `0${scheduledTime.substring(0,1)}:${scheduledTime.substring(1,3)}`; } return { internalId: `${String(row.StopID||'s').trim().toUpperCase()}_${String(row.LineName||'l').trim().toUpperCase()}_${scheduledTime.replace(':','')}_${index}_countfile`, stopID: String(row.StopID || "").trim().toUpperCase(), stopName: String(row.StopName || "").trim(), direction: String(row.Direction || "").trim(), lineName: String(row.LineName || "").trim().toUpperCase(), destinationName: String(row.DestinationName || "").trim(), scheduledTime: scheduledTime, OperatingProfile: String(row.OperatingProfile || "").trim(), DayOffset: String(row.DayOffset || "0").trim() }; }); sortConfig = { key: null, direction: 'asc' }; renderScheduleTable();  } else { if (fileStatusElement) fileStatusElement.textContent = "File processing failed: Invalid file structure or missing/mismatched headers."; } } catch (error) { console.error("Error processing .COUNT file:", error); alert(`Error reading .COUNT file: ${error.message}.`); if (fileStatusElement) fileStatusElement.textContent = "Error loading file."; } if (countFileInput) countFileInput.value = ""; }; reader.onerror = () => { alert("Could not read the file."); if (fileStatusElement) fileStatusElement.textContent = "Error reading file."; if (countFileInput) countFileInput.value = ""; }; reader.readAsText(file); }, 50); } }
         function handleBulkUpdateStopDetails() { if (!currentUser) { alert("Please log in."); return; } const targetStopID = bulkEditTargetStopIDInput.value.trim().toUpperCase(); const newStopName = bulkEditNewStopNameInput.value.trim(); const newDirection = bulkEditNewDirectionInput.value.trim(); if (!targetStopID) { alert("Please enter the Target Stop ID to update."); bulkEditTargetStopIDInput.focus(); return; } if (!newStopName && !newDirection) { alert("Please enter a new Stop Name or a new Direction to update."); return; } let updatedCount = 0; currentWorkingSchedule.forEach(entry => { if (entry.stopID && entry.stopID.toUpperCase() === targetStopID) { let entryChanged = false; if (newStopName) { entry.stopName = newStopName; entryChanged = true; } if (newDirection) { entry.direction = newDirection; entryChanged = true; } if (entryChanged) updatedCount++; } }); if (updatedCount > 0) { renderScheduleTable(); alert(`${updatedCount} entries for Stop ID "${targetStopID}" were updated in the working schedule.\nRemember to 'Stage' or 'Apply' your changes.`); bulkEditNewStopNameInput.value = ''; bulkEditNewDirectionInput.value = ''; displayCurrentDetailsForBulkStopEdit(); } else { alert(`No entries found with Stop ID "${targetStopID}" in working schedule. No changes made.`); } }
         function handleBulkUpdateRouteDestination() { if (!currentUser) { alert("Please log in."); return; } const targetLineName = bulkEditTargetLineNameInput.value.trim().toUpperCase(); const oldDestination = bulkEditOldDestinationInput.value.trim(); const newDestination = bulkEditNewDestinationInput.value.trim(); if (!targetLineName) { alert("Please enter a Target Line Name."); bulkEditTargetLineNameInput.focus(); return; } if (!newDestination) { alert("Please enter the New Destination Name."); bulkEditNewDestinationInput.focus(); return; } let updatedCount = 0; currentWorkingSchedule.forEach(entry => { if (entry.lineName && entry.lineName.toUpperCase() === targetLineName) { if (oldDestination) { if (entry.destinationName && entry.destinationName.toLowerCase() === oldDestination.toLowerCase()) { entry.destinationName = newDestination; updatedCount++; } } else { entry.destinationName = newDestination; updatedCount++; } } }); if (updatedCount > 0) { renderScheduleTable(); alert(`${updatedCount} entries for Line "${targetLineName}" had their destination updated to "${newDestination}" in the working schedule.\nRemember to 'Stage' or 'Apply' your changes.`); } else { alert(`No entries found for Line "${targetLineName}"` + (oldDestination ? ` with Old Destination "${oldDestination}"` : "") + " in working schedule. No changes made."); } }
         function displayCurrentDetailsForBulkStopEdit() { const targetStopID = bulkEditTargetStopIDInput.value.trim().toUpperCase(); if (!targetStopID) { currentBulkEditStopNameDisplay.textContent = "- Type Stop ID above -"; currentBulkEditDirectionDisplay.textContent = "- Type Stop ID above -"; return; } const existingEntry = currentWorkingSchedule.find(entry => entry.stopID && entry.stopID.toUpperCase() === targetStopID); if (existingEntry) { currentBulkEditStopNameDisplay.textContent = existingEntry.stopName || "N/A"; currentBulkEditDirectionDisplay.textContent = existingEntry.direction || "N/A"; } else { currentBulkEditStopNameDisplay.textContent = "- No match found in working schedule -"; currentBulkEditDirectionDisplay.textContent = "- No match found in working schedule -"; } }
@@ -675,10 +725,9 @@
             }
             if (fileStatusElement) fileStatusElement.textContent = sourceMessage;
             loadAndApplyCustomRouteColoursForTools();
-            renderScheduleTable();
+            renderScheduleTable(); // This will also call updateScheduleStatistics
             updateStagingStatusDisplay(); 
             populateStopStatusSelector();
-            // listenForLiveServiceMessage(); // Already removed in previous step, ensuring it's gone
         }
 
         async function updateStagingStatusDisplay() {
@@ -787,10 +836,114 @@
                 }); 
             } 
         }
-        function renderScheduleTable() { if (!currentScheduleTableBody || !entryCountElement) return; const dataToRender = applyFiltersAndSort(currentWorkingSchedule); currentScheduleTableBody.innerHTML = ''; entryCountElement.textContent = dataToRender.length + (currentWorkingSchedule.length !== dataToRender.length ? ` of ${currentWorkingSchedule.length} total (working)` : ' (working)'); if (dataToRender.length === 0) { const r=currentScheduleTableBody.insertRow(), c=r.insertCell(); c.colSpan=9; c.textContent=activeFilters.stopID||activeFilters.lineName||activeFilters.operatingProfile?"No entries match filters in working schedule.":"Working schedule is empty. Add or upload."; c.style.textAlign="center";c.style.padding="1rem";c.style.fontStyle="italic"; } else { dataToRender.forEach((entry) => { const originalIndex = currentWorkingSchedule.findIndex(item => item.internalId === entry.internalId); const r=currentScheduleTableBody.insertRow(); r.insertCell().textContent=entry.stopID||''; r.insertCell().textContent=entry.stopName||''; r.insertCell().textContent=entry.direction||''; r.insertCell().textContent=entry.lineName||''; r.insertCell().textContent=entry.destinationName||''; r.insertCell().textContent=entry.scheduledTime||''; r.insertCell().textContent=entry.OperatingProfile||''; r.insertCell().textContent=entry.DayOffset||'0'; const actCell=r.insertCell(); const editBtn=document.createElement('button'); editBtn.textContent="Edit";editBtn.classList.add('button','small-action','tertiary'); editBtn.onclick=()=>loadEntryForEdit(originalIndex);actCell.appendChild(editBtn); const delBtn=document.createElement('button'); delBtn.textContent="Del";delBtn.classList.add('button','small-action','secondary'); delBtn.onclick=()=>handleDeleteEntry(originalIndex);actCell.appendChild(delBtn); }); } updateSortArrows(); populateRouteSelectorForEvents(); populateStopStatusSelector(); populateRouteSelectorForColours(); populateStopSelectorForDeparturesView(); renderCustomRouteColours(); }
+        
+        function renderScheduleTable() { 
+            if (!currentScheduleTableBody || !entryCountElement) return; 
+            const dataToRender = applyFiltersAndSort(currentWorkingSchedule); 
+            currentScheduleTableBody.innerHTML = ''; 
+            entryCountElement.textContent = dataToRender.length + (currentWorkingSchedule.length !== dataToRender.length ? ` of ${currentWorkingSchedule.length} total (working)` : ' (working)'); 
+            if (dataToRender.length === 0) { 
+                const r=currentScheduleTableBody.insertRow(), c=r.insertCell(); 
+                c.colSpan=9; 
+                c.textContent=activeFilters.stopID||activeFilters.lineName||activeFilters.operatingProfile?"No entries match filters in working schedule.":"Working schedule is empty. Add or upload."; 
+                c.style.textAlign="center";c.style.padding="1rem";c.style.fontStyle="italic"; 
+            } else { 
+                dataToRender.forEach((entry) => { 
+                    const originalIndex = currentWorkingSchedule.findIndex(item => item.internalId === entry.internalId); 
+                    const r=currentScheduleTableBody.insertRow(); 
+                    r.insertCell().textContent=entry.stopID||''; 
+                    r.insertCell().textContent=entry.stopName||''; 
+                    r.insertCell().textContent=entry.direction||''; 
+                    r.insertCell().textContent=entry.lineName||''; 
+                    r.insertCell().textContent=entry.destinationName||''; 
+                    r.insertCell().textContent=entry.scheduledTime||''; 
+                    r.insertCell().textContent=entry.OperatingProfile||''; 
+                    r.insertCell().textContent=entry.DayOffset||'0'; 
+                    const actCell=r.insertCell(); 
+                    const editBtn=document.createElement('button'); 
+                    editBtn.textContent="Edit";
+                    editBtn.classList.add('button','small-action','tertiary'); 
+                    editBtn.onclick=()=>loadEntryForEdit(originalIndex);actCell.appendChild(editBtn); 
+                    const delBtn=document.createElement('button'); 
+                    delBtn.textContent="Del";delBtn.classList.add('button','small-action','secondary'); 
+                    delBtn.onclick=()=>handleDeleteEntry(originalIndex);actCell.appendChild(delBtn); 
+                }); 
+            } 
+            updateSortArrows(); 
+            populateRouteSelectorForEvents(); 
+            populateStopStatusSelector(); 
+            populateRouteSelectorForColours(); 
+            populateStopSelectorForDeparturesView(); 
+            renderCustomRouteColours(); 
+            updateScheduleStatistics(); // Added call here
+        }
 
-        // handleSetServiceMessage function removed
-        // listenForLiveServiceMessage function removed
+        function updateScheduleStatistics() {
+            if (!statTotalJourneys || !statUniqueRoutes || !statUniqueStops || !statOperatingProfileCounts || !statTopRoutes) {
+                // console.warn("Statistics display elements not found in DOM."); // Optional: for debugging
+                return;
+            }
+
+            const schedule = currentWorkingSchedule;
+
+            statTotalJourneys.textContent = schedule.length;
+
+            const uniqueRoutes = [...new Set(schedule.map(entry => entry.lineName).filter(ln => ln))];
+            statUniqueRoutes.textContent = uniqueRoutes.length;
+
+            const uniqueStopsList = [...new Set(schedule.map(entry => entry.stopID).filter(sid => sid))];
+            statUniqueStops.textContent = uniqueStopsList.length;
+
+            const profileCounts = {};
+            schedule.forEach(entry => {
+                if (entry.OperatingProfile) {
+                    const profiles = entry.OperatingProfile.split(',').map(p => p.trim()).filter(p => p);
+                    profiles.forEach(profile => {
+                        profileCounts[profile] = (profileCounts[profile] || 0) + 1;
+                    });
+                }
+            });
+
+            statOperatingProfileCounts.innerHTML = ''; 
+            if (Object.keys(profileCounts).length > 0) {
+                const profileListUL = document.createElement('ul');
+                // profileListUL.style.listStyleType = 'disc'; // Handled by CSS now
+                // profileListUL.style.marginLeft = '1.5em'; // Handled by CSS now
+                Object.entries(profileCounts)
+                    .sort(([, countA], [, countB]) => countB - countA) 
+                    .forEach(([profile, count]) => {
+                        const listItem = document.createElement('li');
+                        listItem.textContent = `${profile}: ${count} journeys`;
+                        profileListUL.appendChild(listItem);
+                    });
+                statOperatingProfileCounts.appendChild(profileListUL);
+            } else {
+                statOperatingProfileCounts.innerHTML = '<p><em>No operating profiles found or no journeys.</em></p>';
+            }
+
+            const routeServiceCounts = {};
+            schedule.forEach(entry => {
+                if (entry.lineName) {
+                    routeServiceCounts[entry.lineName] = (routeServiceCounts[entry.lineName] || 0) + 1;
+                }
+            });
+
+            statTopRoutes.innerHTML = ''; 
+            const sortedRoutes = Object.entries(routeServiceCounts)
+                .sort(([, countA], [, countB]) => countB - countA) 
+                .slice(0, 5); 
+
+            if (sortedRoutes.length > 0) {
+                sortedRoutes.forEach(([routeName, count]) => {
+                    const listItem = document.createElement('li');
+                    listItem.textContent = `Route ${routeName}: ${count} services`;
+                    statTopRoutes.appendChild(listItem);
+                });
+            } else {
+                statTopRoutes.innerHTML = '<li><em>No routes found or no services.</em></li>';
+            }
+        }
+
 
         document.addEventListener('DOMContentLoaded', () => {
             if (window.firebaseOMSI && window.firebaseOMSI.auth) {
@@ -802,13 +955,12 @@
                     if (user) {
                         console.log("User signed in, proceeding to load initial data for tools.");
                         fetchBankHolidaysForSetup();
-                        loadInitialData(); 
-                        // listenForLiveServiceMessage(); // Call removed
+                        loadInitialData(); // This will also call updateScheduleStatistics
                     } else {
                         console.log("User signed out or not yet signed in.");
-                        currentWorkingSchedule = []; renderScheduleTable(); 
+                        currentWorkingSchedule = []; 
+                        renderScheduleTable(); // This will also call updateScheduleStatistics
                         updateStagingStatusDisplay(); 
-                        // Service message display clear if needed (though elements are gone)
                     }
                 });
 
@@ -862,11 +1014,8 @@
             if (selectRouteNameColour) { selectRouteNameColour.addEventListener('change', () => { const selectedRoute = selectRouteNameColour.value; if (selectedRoute && customRouteColours[selectedRoute.toUpperCase()]) { inputRouteColour.value = customRouteColours[selectedRoute.toUpperCase()]; } else { inputRouteColour.value = DEFAULT_ROUTE_COLOUR_TOOLS; } }); }
             if (selectStopForDeparturesView) { selectStopForDeparturesView.addEventListener('change', displayDeparturesForSelectedStop); }
             
-            // Event listener for setServiceMessageButton removed
-
             fetchBankHolidaysForSetup(); 
         });
     </script>
 </body>
 </html>
-}

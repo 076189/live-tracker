@@ -470,7 +470,6 @@
     <script>
         // --- Global Variables & DOM Elements ---
         const inputStopID = document.getElementById('inputStopID');
-        // ... (all your other const declarations for DOM elements)
         const inputStopName = document.getElementById('inputStopName');
         const inputDirection = document.getElementById('inputDirection');
         const inputLineName = document.getElementById('inputLineName');
@@ -532,17 +531,33 @@
         let customRouteColours = {};
         let effectiveRouteColourMapTools = {};
 
-        const eventTypes = [ /* ... */ ];
-        const LIVE_SCHEDULE_KEY = 'live_allScheduledBusData'; /* ... and other localStorage keys ... */
-        const LIVE_STOPS_KEY = 'live_uniqueBusStops';
-        const LIVE_LAST_UPDATED_KEY = 'live_scheduleLastUpdated';
-        const PENDING_SCHEDULE_KEY = 'pending_allScheduledBusData';
-        const PENDING_STOPS_KEY = 'pending_uniqueBusStops';
-        const PENDING_TIMESTAMP_KEY = 'pending_schedule_uploadTimestamp';
-        const SCHEDULE_STATUS_KEY = 'schedule_update_status';
-        const CUSTOM_ROUTE_COLOURS_KEY = 'omsiCustomRouteTileColours';
+        const eventTypes = [
+            { name: "Traffic Delay (Route Wide)", type: "DELAY_ROUTE", minDelay: 3, maxDelay: 12 },
+            { name: "Traffic Delay (From Stop)", type: "DELAY_FROM_STOP", minDelay: 2, maxDelay: 8 },
+            { name: "Service Curtailed", type: "CURTAIL" }
+        ];
 
-        const initialRouteColourMapForTools = { /* ... */ };
+        // Constants for Firebase paths (optional, but good for consistency)
+        const FB_PATH_LIVE_SCHEDULE_DATA = '/liveSchedule/allScheduledBusData';
+        const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
+        const FB_PATH_PENDING_SCHEDULE_DATA = '/pendingSchedule/allScheduledBusData';
+        const FB_PATH_PENDING_UNIQUE_STOPS = '/pendingSchedule/uniqueBusStops';
+        const FB_PATH_PENDING_TIMESTAMP = '/pendingSchedule/uploadTimestamp';
+        const FB_PATH_APPSTATE_STATUS = '/appState/scheduleStatus';
+        const FB_PATH_APPSTATE_LAST_UPDATED = '/appState/scheduleLastUpdated';
+        const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
+        const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
+
+
+        const CUSTOM_ROUTE_COLOURS_KEY = 'omsiCustomRouteTileColours'; // For localStorage (will be less used)
+
+        const initialRouteColourMapForTools = {
+            "1": "#DC2626", "2": "#DC2626", "3": "#DC2626", "4": "#00783A", "5": "#00783A", "6": "#00783A",
+            "7": "#FFD300", "8": "#FFD300", "9": "#FFD300", "10": "#970006", "11": "#76D0BD", "12": "#F3A9BB",
+            "186": "#E32017", "32":  "#00A4A7", "N5":  "#0019A8", "C11": "#FFD300","107": "#76D0BD",
+            "221": "#93002F", "240": "#C9A0DC", "251": "#F8A960","303": "#868F98", "305": "#CF7EA2",
+            "SL1": "#5F259F", "SL10": "#A05A2C"
+        };
         const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
 
         // --- Helper Functions (Core Logic) ---
@@ -563,9 +578,9 @@
         function handleBulkUpdateStopDetails() { const targetStopID = bulkEditTargetStopIDInput.value.trim().toUpperCase(); const newStopName = bulkEditNewStopNameInput.value.trim(); const newDirection = bulkEditNewDirectionInput.value.trim(); if (!targetStopID) { alert("Please enter the Target Stop ID to update."); bulkEditTargetStopIDInput.focus(); return; } if (!newStopName && !newDirection) { alert("Please enter a new Stop Name or a new Direction to update."); return; } let updatedCount = 0; currentWorkingSchedule.forEach(entry => { if (entry.stopID && entry.stopID.toUpperCase() === targetStopID) { let entryChanged = false; if (newStopName) { entry.stopName = newStopName; entryChanged = true; } if (newDirection) { entry.direction = newDirection; entryChanged = true; } if (entryChanged) updatedCount++; } }); if (updatedCount > 0) { renderScheduleTable(); alert(`${updatedCount} entries for Stop ID "${targetStopID}" were updated in the working schedule.\nRemember to 'Stage' or 'Apply' your changes.`); bulkEditNewStopNameInput.value = ''; bulkEditNewDirectionInput.value = ''; displayCurrentDetailsForBulkStopEdit(); } else { alert(`No entries found with Stop ID "${targetStopID}" in working schedule. No changes made.`); } }
         function handleBulkUpdateRouteDestination() { const targetLineName = bulkEditTargetLineNameInput.value.trim().toUpperCase(); const oldDestination = bulkEditOldDestinationInput.value.trim(); const newDestination = bulkEditNewDestinationInput.value.trim(); if (!targetLineName) { alert("Please enter a Target Line Name."); bulkEditTargetLineNameInput.focus(); return; } if (!newDestination) { alert("Please enter the New Destination Name."); bulkEditNewDestinationInput.focus(); return; } let updatedCount = 0; currentWorkingSchedule.forEach(entry => { if (entry.lineName && entry.lineName.toUpperCase() === targetLineName) { if (oldDestination) { if (entry.destinationName && entry.destinationName.toLowerCase() === oldDestination.toLowerCase()) { entry.destinationName = newDestination; updatedCount++; } } else { entry.destinationName = newDestination; updatedCount++; } } }); if (updatedCount > 0) { renderScheduleTable(); alert(`${updatedCount} entries for Line "${targetLineName}" had their destination updated to "${newDestination}" in the working schedule.\nRemember to 'Stage' or 'Apply' your changes.`); } else { alert(`No entries found for Line "${targetLineName}"` + (oldDestination ? ` with Old Destination "${oldDestination}"` : "") + " in working schedule. No changes made."); } }
         function displayCurrentDetailsForBulkStopEdit() { const targetStopID = bulkEditTargetStopIDInput.value.trim().toUpperCase(); if (!targetStopID) { currentBulkEditStopNameDisplay.textContent = "- Type Stop ID above -"; currentBulkEditDirectionDisplay.textContent = "- Type Stop ID above -"; return; } const existingEntry = currentWorkingSchedule.find(entry => entry.stopID && entry.stopID.toUpperCase() === targetStopID); if (existingEntry) { currentBulkEditStopNameDisplay.textContent = existingEntry.stopName || "N/A"; currentBulkEditDirectionDisplay.textContent = existingEntry.direction || "N/A"; } else { currentBulkEditStopNameDisplay.textContent = "- No match found in working schedule -"; currentBulkEditDirectionDisplay.textContent = "- No match found in working schedule -"; } }
-        function handleStageSchedule() { if (currentWorkingSchedule.length === 0) { if (!confirm("The current working schedule is empty. Are you sure you want to stage an empty schedule? This would clear the live schedule upon next update.")) { stagingStatusMessage.textContent = "Staging of empty schedule cancelled."; stagingStatusMessage.style.color = "#e74c3c"; return; } } let dataToStage = JSON.parse(JSON.stringify(currentWorkingSchedule)); dataToStage.sort((a, b) => { const lineCmp = compareLineNames(a.lineName, b.lineName); if (lineCmp !== 0) return lineCmp; const timeA = (a.scheduledTime || "").replace(':', ''); const timeB = (b.scheduledTime || "").replace(':', ''); const timeCmp = timeA.localeCompare(timeB); if (timeCmp !== 0) return timeCmp; return (a.stopID || "").localeCompare(b.stopID || ""); }); const finalScheduleData = dataToStage.map((entry, index) => ({ ...entry, internalId: entry.internalId || `${entry.stopID.toUpperCase()}_${entry.lineName.toUpperCase()}_${(entry.scheduledTime||"").replace(':', '')}_${index}_staged` })); const stopsMap = new Map(); finalScheduleData.forEach(row => { if (row.stopID && !stopsMap.has(row.stopID)) { stopsMap.set(row.stopID, { stopID: row.stopID, stopName: row.stopName, direction: row.direction }); } }); const finalUniqueStops = Array.from(stopsMap.values()).sort((a,b)=>{ const nC=(a.stopName||"").localeCompare(b.stopName||""); return nC!==0?nC:(a.direction||"").localeCompare(b.direction||""); }); if (window.firebaseOMSI) { const { database, dbUpdate, dbRef } = window.firebaseOMSI; const updates = {}; updates['/pendingSchedule/allScheduledBusData'] = finalScheduleData; updates['/pendingSchedule/uniqueBusStops'] = finalUniqueStops; updates['/pendingSchedule/uploadTimestamp'] = new Date().toISOString(); updates['/appState/scheduleStatus'] = 'update_staged'; dbUpdate(dbRef(database), updates) .then(() => { alert("Working schedule STAGED to Firebase."); localStorage.setItem(PENDING_SCHEDULE_KEY, JSON.stringify(finalScheduleData)); localStorage.setItem(SCHEDULE_STATUS_KEY, 'update_staged'); updateStagingStatusDisplay(); }) .catch((error) => { console.error("Error staging to Firebase: ", error); alert("Error staging to Firebase. Check console."); stagingStatusMessage.textContent = "Error staging to Firebase."; stagingStatusMessage.style.color = "#e74c3c"; }); } else { console.warn("Firebase not available, using localStorage for staging."); localStorage.setItem(PENDING_SCHEDULE_KEY, JSON.stringify(finalScheduleData)); localStorage.setItem(PENDING_STOPS_KEY, JSON.stringify(finalUniqueStops)); localStorage.setItem(PENDING_TIMESTAMP_KEY, new Date().toISOString()); localStorage.setItem(SCHEDULE_STATUS_KEY, 'update_staged'); alert("Working schedule STAGED (localStorage)."); updateStagingStatusDisplay(); } }
-
-        // REFINED handleApplyNow with more specific key checking
+        function handleStageSchedule() { if (currentWorkingSchedule.length === 0) { if (!confirm("The current working schedule is empty. Are you sure you want to stage an empty schedule? This would clear the live schedule upon next update.")) { stagingStatusMessage.textContent = "Staging of empty schedule cancelled."; stagingStatusMessage.style.color = "#e74c3c"; return; } } let dataToStage = JSON.parse(JSON.stringify(currentWorkingSchedule)); dataToStage.sort((a, b) => { const lineCmp = compareLineNames(a.lineName, b.lineName); if (lineCmp !== 0) return lineCmp; const timeA = (a.scheduledTime || "").replace(':', ''); const timeB = (b.scheduledTime || "").replace(':', ''); const timeCmp = timeA.localeCompare(timeB); if (timeCmp !== 0) return timeCmp; return (a.stopID || "").localeCompare(b.stopID || ""); }); const finalScheduleData = dataToStage.map((entry, index) => ({ ...entry, internalId: entry.internalId || `${entry.stopID.toUpperCase()}_${entry.lineName.toUpperCase()}_${(entry.scheduledTime||"").replace(':', '')}_${index}_staged` })); const stopsMap = new Map(); finalScheduleData.forEach(row => { if (row.stopID && !stopsMap.has(row.stopID)) { stopsMap.set(row.stopID, { stopID: row.stopID, stopName: row.stopName, direction: row.direction }); } }); const finalUniqueStops = Array.from(stopsMap.values()).sort((a,b)=>{ const nC=(a.stopName||"").localeCompare(b.stopName||""); return nC!==0?nC:(a.direction||"").localeCompare(b.direction||""); }); if (window.firebaseOMSI) { const { database, dbUpdate, dbRef } = window.firebaseOMSI; const updates = {}; updates[FB_PATH_PENDING_SCHEDULE_DATA] = finalScheduleData; updates[FB_PATH_PENDING_UNIQUE_STOPS] = finalUniqueStops; updates[FB_PATH_PENDING_TIMESTAMP] = new Date().toISOString(); updates[FB_PATH_APPSTATE_STATUS] = 'update_staged'; dbUpdate(dbRef(database), updates) .then(() => { alert("Working schedule STAGED to Firebase."); updateStagingStatusDisplay(); }) .catch((error) => { console.error("Error staging to Firebase: ", error); alert("Error staging to Firebase. Check console."); stagingStatusMessage.textContent = "Error staging to Firebase."; stagingStatusMessage.style.color = "#e74c3c"; }); } else { console.warn("Firebase not available, cannot stage."); alert("Firebase not available. Staging failed.");}}
+        
+        // UPDATED handleApplyNow with more specific key checking
         function handleApplyNow() {
             if (window.firebaseOMSI) {
                 const { database, dbGet, dbSet, dbUpdate, dbRef, dbChild } = window.firebaseOMSI;
@@ -600,7 +615,7 @@
                             console.log("liveUniqueBusStops (first 5 entries):", JSON.stringify(liveUniqueBusStops.slice(0,5), null, 2));
 
                             let hasInvalidKeyInSchedule = false;
-                            function checkKeysRecursively(obj, path) { // Defined function to be callable
+                            function checkKeysRecursively(obj, path) {
                                 if (typeof obj !== 'object' || obj === null) return;
                                 for (const key in obj) {
                                     if (/[.#$/\[\]]/.test(key)) {
@@ -630,7 +645,6 @@
                                 checkKeysRecursively(item, `liveUniqueBusStops[${index}]`);
                             });
 
-
                             if (hasInvalidKeyInSchedule) {
                                 alert("Found invalid keys in the schedule data. Cannot apply to Firebase. Check console for details.");
                                 console.error("Aborting Firebase write due to invalid keys in liveAllScheduledBusData or liveUniqueBusStops.");
@@ -644,21 +658,19 @@
                             }).then(() => {
                                 console.log("Successfully wrote to /liveSchedule");
                                 const appStateUpdates = {};
-                                appStateUpdates['/appState/scheduleLastUpdated'] = new Date().toISOString();
-                                appStateUpdates['/appState/scheduleStatus'] = 'idle';
+                                appStateUpdates[FB_PATH_APPSTATE_LAST_UPDATED] = new Date().toISOString();
+                                appStateUpdates[FB_PATH_APPSTATE_STATUS] = 'idle';
                                 appStateUpdates['/pendingSchedule'] = null; 
 
                                 return dbUpdate(dbRef(database), appStateUpdates);
                             })
                             .then(() => {
                                 alert("Staged schedule from Firebase has been applied LIVE!");
-                                localStorage.setItem(LIVE_SCHEDULE_KEY, JSON.stringify(liveAllScheduledBusData));
-                                localStorage.setItem(LIVE_STOPS_KEY, JSON.stringify(liveUniqueBusStops));
-                                localStorage.removeItem(PENDING_SCHEDULE_KEY);
-                                localStorage.removeItem(PENDING_STOPS_KEY);
-                                localStorage.removeItem(PENDING_TIMESTAMP_KEY);
-                                localStorage.setItem(SCHEDULE_STATUS_KEY, 'idle');
-                                localStorage.setItem(LIVE_LAST_UPDATED_KEY, new Date().toISOString());
+                                // Optionally clear local storage pending keys if you were using them as a backup
+                                localStorage.removeItem('pending_allScheduledBusData');
+                                localStorage.removeItem('pending_uniqueBusStops');
+                                localStorage.removeItem('pending_schedule_uploadTimestamp');
+                                localStorage.setItem('schedule_update_status', 'idle'); // Reflect in local status
                                 updateStagingStatusDisplay();
                             })
                             .catch(error => {
@@ -673,53 +685,197 @@
                         console.error("Error fetching pending schedule from Firebase: ", error);
                         alert("Error fetching Firebase staged schedule. Check console. Error: " + error.message);
                     });
-
             } else {
-                console.warn("Firebase not available, using localStorage fallback for applyNow.");
-                const pendingDataJSON = localStorage.getItem(PENDING_SCHEDULE_KEY);
-                if (!pendingDataJSON) { alert("No localStorage staged schedule to apply."); if (stagingStatusMessage) { stagingStatusMessage.textContent = "No localStorage staged schedule to apply."; stagingStatusMessage.style.color = "#e74c3c"; } return; }
-                if (!confirm("Are you sure you want to apply the localStorage staged schedule to the live system NOW?")) { if (stagingStatusMessage) { stagingStatusMessage.textContent = "Immediate application cancelled."; stagingStatusMessage.style.color = "#e74c3c"; } return; }
-                const pendingUniqueStopsJSON = localStorage.getItem(PENDING_STOPS_KEY) || JSON.stringify([]);
-                localStorage.setItem(LIVE_SCHEDULE_KEY, pendingDataJSON);
-                localStorage.setItem(LIVE_STOPS_KEY, pendingUniqueStopsJSON);
-                localStorage.removeItem(PENDING_SCHEDULE_KEY); localStorage.removeItem(PENDING_STOPS_KEY); localStorage.removeItem(PENDING_TIMESTAMP_KEY);
-                localStorage.setItem(SCHEDULE_STATUS_KEY, 'idle'); localStorage.setItem(LIVE_LAST_UPDATED_KEY, new Date().toISOString());
-                alert("Staged schedule (localStorage) has been applied LIVE!"); updateStagingStatusDisplay();
+                console.warn("Firebase not available, cannot apply staged schedule.");
+                alert("Firebase not available. Apply failed.");
             }
         }
 
-        function loadInitialDataFromLocalStorage() {
-            console.log("loadInitialDataFromLocalStorage called - will need Firebase integration here.");
-            const storedPendingData = localStorage.getItem(PENDING_SCHEDULE_KEY);
-            const storedLiveData = localStorage.getItem(LIVE_SCHEDULE_KEY);
-            let dataToLoad = null;
-            let sourceMessage = "No schedule loaded. Add entries or upload new working schedule.";
-            if (storedPendingData) { try { dataToLoad = JSON.parse(storedPendingData); sourceMessage = "Loaded STAGED schedule (localStorage) into working area."; } catch (e) { dataToLoad = null; } }
-            if (!dataToLoad && storedLiveData) { try { dataToLoad = JSON.parse(storedLiveData); sourceMessage = "Loaded LIVE schedule (localStorage) into working area."; } catch (e) { dataToLoad = null; } }
-            if (dataToLoad) { currentWorkingSchedule = dataToLoad.map((entry, index) => ({ ...entry, internalId: entry.internalId || `${(entry.stopID || 'unknown').toUpperCase()}_${(entry.lineName||'unknown').toUpperCase()}_${(entry.scheduledTime||"").replace(':', '')}_${index}_loaded` })); } else { currentWorkingSchedule = []; }
-            if (fileStatusElement) fileStatusElement.textContent = sourceMessage;
-            loadClosedStops();
-            loadCustomRouteColours(); // This populates customRouteColours JS variable from localStorage
-            loadAndApplyCustomRouteColoursForTools();
+        async function loadInitialData() {
+            console.log("Tools: Attempting to load initial data, prioritizing Firebase...");
+            if (!window.firebaseOMSI) {
+                console.warn("Tools: Firebase not initialized. Cannot load data from Firebase.");
+                if (fileStatusElement) fileStatusElement.textContent = "Firebase not connected. Working with local data only (if any).";
+                // Fallback to trying to load from local storage if you want, or just start fresh
+                currentWorkingSchedule = [];
+                closedStopIDs = [];
+                customRouteColours = {};
+            } else {
+                const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
+                try {
+                    // Load live schedule as the base for currentWorkingSchedule
+                    const liveScheduleSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA));
+                    if (liveScheduleSnapshot.exists() && Array.isArray(liveScheduleSnapshot.val())) {
+                        currentWorkingSchedule = liveScheduleSnapshot.val().map((entry, index) => ({
+                            ...entry,
+                            internalId: entry.internalId || `${(entry.stopID || 's')}_${(entry.lineName||'l')}_${(entry.scheduledTime||"").replace(':','')}_${index}_fbloaded`
+                        }));
+                        console.log("Tools: Loaded currentWorkingSchedule from Firebase /liveSchedule", currentWorkingSchedule.length);
+                    } else {
+                        currentWorkingSchedule = [];
+                        console.log("Tools: No /liveSchedule/allScheduledBusData in Firebase, starting fresh for currentWorkingSchedule.");
+                    }
+
+                    const closedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
+                    closedStopIDs = [];
+                    if (closedStopsSnapshot.exists()) {
+                        const fbClosedStops = closedStopsSnapshot.val();
+                        for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) { closedStopIDs.push(stopID); } }
+                        console.log("Tools: Loaded closedStopIDs from Firebase:", closedStopIDs);
+                    }
+
+                    const customColoursSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_CUSTOM_COLOURS));
+                    customRouteColours = {};
+                    if (customColoursSnapshot.exists()) {
+                        customRouteColours = customColoursSnapshot.val();
+                        console.log("Tools: Loaded customRouteColours from Firebase:", customRouteColours);
+                    }
+                    if (fileStatusElement) fileStatusElement.textContent = "Data loaded from Firebase. Any changes made here need to be staged.";
+
+                } catch (error) {
+                    console.error("Tools: Error loading initial data from Firebase:", error);
+                    if (fileStatusElement) fileStatusElement.textContent = "Error loading data from Firebase. Check console.";
+                    currentWorkingSchedule = []; closedStopIDs = []; customRouteColours = {}; // Start fresh on error
+                }
+            }
+            // Always refresh UI based on what was loaded (either from Firebase or defaults)
+            loadAndApplyCustomRouteColoursForTools(); // Uses the JS customRouteColours variable
             renderScheduleTable();
-            updateStagingStatusDisplay();
-            displayDeparturesForSelectedStop();
+            updateStagingStatusDisplay(); // Will also try to fetch from Firebase
         }
-        function updateStagingStatusDisplay() { const pendingTimestamp = localStorage.getItem(PENDING_TIMESTAMP_KEY); const liveTimestamp = localStorage.getItem(LIVE_LAST_UPDATED_KEY); let msg = ""; if (pendingTimestamp) { msg = `A schedule was STAGED (localStorage) on: ${new Date(pendingTimestamp).toLocaleString()}.<br>Awaiting apply.`; if(stagingStatusMessage) stagingStatusMessage.style.color = "#2ecc71"; if(applyNowButton) applyNowButton.disabled = false; } else { msg = "No schedule is currently staged in localStorage."; if(stagingStatusMessage) stagingStatusMessage.style.color = "#f1c40f"; if(applyNowButton) applyNowButton.disabled = true; } if (liveTimestamp) { msg += `<br>Current LIVE schedule (localStorage) was last updated: ${new Date(liveTimestamp).toLocaleString()}`; } else { msg += "<br>No LIVE schedule (localStorage) has been set yet."; } if(stagingStatusMessage) stagingStatusMessage.innerHTML = msg; }
-        function loadClosedStops() { const stored = localStorage.getItem('closedBusStopIDs'); closedStopIDs = stored ? JSON.parse(stored) : []; console.log("Tools: Loaded closed stops (localStorage):", closedStopIDs); }
-        function saveClosedStops() { localStorage.setItem('closedBusStopIDs', JSON.stringify(closedStopIDs)); console.log("Tools: Saved closed stops (localStorage):", closedStopIDs); if (window.firebaseOMSI) { const { database, dbSet, dbRef } = window.firebaseOMSI; const fbClosedStops = {}; closedStopIDs.forEach(id => fbClosedStops[id] = true); dbSet(dbRef(database, '/appState/closedStopIDs'), fbClosedStops) .then(() => console.log("Closed stops also saved to Firebase.")) .catch(error => console.error("Error saving closed stops to Firebase: ", error)); } localStorage.setItem(LIVE_LAST_UPDATED_KEY, new Date().toISOString()); }
+
+
+        async function updateStagingStatusDisplay() {
+            let pendingTimestamp = null;
+            let liveTimestamp = null;
+            let firebaseStatus = "Checking Firebase...";
+
+            if (window.firebaseOMSI) {
+                const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
+                try {
+                    const pendingSnap = await dbGet(dbChild(dbRef(database), FB_PATH_PENDING_TIMESTAMP));
+                    if (pendingSnap.exists()) pendingTimestamp = pendingSnap.val();
+
+                    const liveSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_LAST_UPDATED));
+                    if (liveSnap.exists()) liveTimestamp = liveSnap.val();
+                    firebaseStatus = "Firebase status loaded.";
+                } catch (e) {
+                    firebaseStatus = "Error fetching Firebase status.";
+                    console.error(firebaseStatus, e);
+                }
+            } else {
+                firebaseStatus = "Firebase not available for status check.";
+            }
+
+
+            let msg = "";
+            if (pendingTimestamp) {
+                msg = `A schedule was STAGED to Firebase on: ${new Date(pendingTimestamp).toLocaleString()}.<br>Awaiting 'Apply Staged Schedule Live NOW'.`;
+                if(stagingStatusMessage) stagingStatusMessage.style.color = "#2ecc71"; // Green for staged
+                if(applyNowButton) applyNowButton.disabled = false;
+            } else {
+                msg = "No schedule is currently staged in Firebase. Changes here can be staged.";
+                if(stagingStatusMessage) stagingStatusMessage.style.color = "#f1c40f"; // Yellow for no staging
+                if(applyNowButton) applyNowButton.disabled = true;
+            }
+
+            if (liveTimestamp) {
+                msg += `<br>Current LIVE schedule in Firebase was last updated: ${new Date(liveTimestamp).toLocaleString()}`;
+            } else {
+                msg += "<br>No LIVE schedule has been set in Firebase yet.";
+            }
+            msg += `<br><small>(${firebaseStatus})</small>`;
+            if(stagingStatusMessage) stagingStatusMessage.innerHTML = msg;
+        }
+
+        // loadClosedStops and loadCustomRouteColours will now primarily be for initial load to Firebase if needed,
+        // or as a way to re-populate the JS variables if Firebase load fails.
+        // The authoritative source becomes Firebase.
+        function loadClosedStops() { /* Now loaded in loadInitialData */ }
+        function loadCustomRouteColours() { /* Now loaded in loadInitialData */ }
+
+
+        function saveClosedStops() {
+            // LocalStorage save can be removed if Firebase is the sole source of truth,
+            // or kept if you want a local backup/faster UI update before Firebase confirms.
+            localStorage.setItem('closedBusStopIDs', JSON.stringify(closedStopIDs));
+            console.log("Tools: Saved closed stops (localStorage):", closedStopIDs);
+
+            if (window.firebaseOMSI) {
+                const { database, dbSet, dbRef } = window.firebaseOMSI;
+                const fbClosedStops = {};
+                closedStopIDs.forEach(id => fbClosedStops[id] = true);
+                dbSet(dbRef(database, FB_PATH_APPSTATE_CLOSED_STOPS), fbClosedStops)
+                    .then(() => console.log("Closed stops also saved to Firebase."))
+                    .catch(error => console.error("Error saving closed stops to Firebase: ", error));
+                // Trigger an update for the live last updated timestamp to reflect a change
+                dbSet(dbRef(database, FB_PATH_APPSTATE_LAST_UPDATED), new Date().toISOString());
+            }
+        }
+        function saveCustomRouteColours() {
+            localStorage.setItem(CUSTOM_ROUTE_COLOURS_KEY, JSON.stringify(customRouteColours));
+            if (window.firebaseOMSI) {
+                const { database, dbSet, dbRef } = window.firebaseOMSI;
+                dbSet(dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS), customRouteColours)
+                    .then(() => console.log("Custom route colours also saved to Firebase."))
+                    .catch(error => console.error("Error saving custom route colours to Firebase: ", error));
+                dbSet(dbRef(database, FB_PATH_APPSTATE_LAST_UPDATED), new Date().toISOString());
+
+            }
+            if (routeColourStatusMessage) { /* ... */ }
+            loadAndApplyCustomRouteColoursForTools();
+            if(selectStopForDeparturesView.value) displayDeparturesForSelectedStop();
+            renderCustomRouteColours();
+        }
+
+        // ... (rest of your existing functions: populateRouteSelectorForEvents, populateImpactStopSelector, etc.)
+        // ... They should mostly work as is, operating on the JavaScript variables that are now populated from Firebase.
         function populateRouteSelectorForEvents() { if (!selectEventRoute) return; const currentVal = selectEventRoute.value; selectEventRoute.innerHTML = '<option value="">-- Select a Route --</option>'; const uniqueLineNames = [...new Set(currentWorkingSchedule.map(entry => entry.lineName))].sort(compareLineNames); uniqueLineNames.forEach(lineName => { if (lineName) { const option = document.createElement('option'); option.value = lineName; option.textContent = lineName; selectEventRoute.appendChild(option); } }); if (uniqueLineNames.includes(currentVal)) selectEventRoute.value = currentVal; else selectEventRoute.value = ""; populateImpactStopSelector(); }
         function populateImpactStopSelector() { if (!selectEventImpactStop || !selectEventRoute) return; const selectedRoute = selectEventRoute.value; const currentVal = selectEventImpactStop.value; selectEventImpactStop.innerHTML = '<option value="">-- Route Wide / First Stop --</option>'; if (selectedRoute) { const stopsOnRoute = currentWorkingSchedule .filter(entry => entry.lineName === selectedRoute) .map(entry => ({ id: entry.stopID, name: entry.stopName, time: entry.scheduledTime })) .sort((a,b) => (a.time || "").replace(':','') - (b.time || "").replace(':','')); const uniqueStopsOnRoute = []; const seenStopIDs = new Set(); for (const stop of stopsOnRoute) { if (stop.id && !seenStopIDs.has(stop.id)) { uniqueStopsOnRoute.push(stop); seenStopIDs.add(stop.id); } } uniqueStopsOnRoute.forEach(stop => { const option = document.createElement('option'); option.value = stop.id; option.textContent = `${stop.id} - ${stop.name || 'Unknown'}`; selectEventImpactStop.appendChild(option); }); if (seenStopIDs.has(currentVal)) selectEventImpactStop.value = currentVal; else selectEventImpactStop.value = ""; } }
-        function populateStopStatusSelector() { if (!selectStopForStatusChange) return; const currentVal = selectStopForStatusChange.value; selectStopForStatusChange.innerHTML = '<option value="">-- Select a Stop --</option>'; const allUniqueStopsMap = new Map(); const liveUniqueStopsData = localStorage.getItem(LIVE_STOPS_KEY); const liveUniqueStops = liveUniqueStopsData ? JSON.parse(liveUniqueStopsData) : []; liveUniqueStops.forEach(stop => { if (stop.stopID && !allUniqueStopsMap.has(stop.stopID)) { allUniqueStopsMap.set(stop.stopID, {id: stop.stopID, name: stop.stopName || stop.stopID}); } }); const sortedStops = Array.from(allUniqueStopsMap.values()).sort((a,b) => (a.name||"").localeCompare(b.name||"")); sortedStops.forEach(stop => { const option = document.createElement('option'); option.value = stop.id; const isClosed = closedStopIDs.includes(stop.id); option.textContent = `${stop.name} (${stop.id})${isClosed ? ' (Currently Closed)' : ''}`; selectStopForStatusChange.appendChild(option); }); if (currentVal && allUniqueStopsMap.has(currentVal)) selectStopForStatusChange.value = currentVal; else selectStopForStatusChange.value = ""; }
-        function handleStopStatusChange(action) { const stopIDToChange = selectStopForStatusChange.value; if (!stopIDToChange) { stopStatusMessage.textContent = "Please select a stop."; return; } const stopIndexInClosedList = closedStopIDs.indexOf(stopIDToChange); const stopName = selectStopForStatusChange.options[selectStopForStatusChange.selectedIndex].text.split(' (')[0]; if (action === 'close') { if (stopIndexInClosedList === -1) { closedStopIDs.push(stopIDToChange); stopStatusMessage.textContent = `Stop '${stopName}' marked as closed.`; } else { stopStatusMessage.textContent = `Stop '${stopName}' is already closed.`; } } else if (action === 'reopen') { if (stopIndexInClosedList !== -1) { closedStopIDs.splice(stopIndexInClosedList, 1); stopStatusMessage.textContent = `Stop '${stopName}' marked as reopened.`; } else { stopStatusMessage.textContent = `Stop '${stopName}' is not currently closed.`; } } saveClosedStops(); populateStopStatusSelector(); }
+        function populateStopStatusSelector() { // This might need adjustment to pull stops from uniqueStops (loaded from Firebase)
+            if (!selectStopForStatusChange) return;
+            const currentVal = selectStopForStatusChange.value;
+            selectStopForStatusChange.innerHTML = '<option value="">-- Select a Stop --</option>';
+
+            // Use uniqueStops loaded from Firebase (which should come from /liveSchedule/uniqueBusStops)
+            // For the tools page, it might be better to populate this from `currentWorkingSchedule`'s unique stops
+            // or ensure that `/liveSchedule/uniqueBusStops` is comprehensive.
+            // Let's assume for now it should reflect stops in the current *live* schedule for status changes.
+            if (window.firebaseOMSI) {
+                 const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
+                 dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS)).then(snapshot => {
+                    let stopsToDisplay = [];
+                    if (snapshot.exists() && Array.isArray(snapshot.val())) {
+                        stopsToDisplay = snapshot.val();
+                    }
+                    stopsToDisplay.sort((a,b) => (a.stopName||"").localeCompare(b.stopName||""));
+                    stopsToDisplay.forEach(stop => {
+                        const option = document.createElement('option');
+                        option.value = stop.stopID;
+                        const isClosed = closedStopIDs.includes(stop.stopID); // closedStopIDs is now from Firebase
+                        option.textContent = `${stop.stopName || stop.stopID} (${stop.stopID})${isClosed ? ' (Currently Closed)' : ''}`;
+                        selectStopForStatusChange.appendChild(option);
+                    });
+                    if (currentVal && stopsToDisplay.find(s => s.stopID === currentVal)) {
+                        selectStopForStatusChange.value = currentVal;
+                    } else {
+                        selectStopForStatusChange.value = "";
+                    }
+                 });
+            } else {
+                // Fallback if Firebase isn't ready (less ideal)
+                const localLiveStops = JSON.parse(localStorage.getItem('live_uniqueBusStops') || "[]");
+                localLiveStops.sort((a,b) => (a.stopName||"").localeCompare(b.stopName||""));
+                localLiveStops.forEach(stop => { /* ... populate ... */ });
+            }
+        }
+        function handleStopStatusChange(action) { const stopIDToChange = selectStopForStatusChange.value; if (!stopIDToChange) { stopStatusMessage.textContent = "Please select a stop."; return; } const stopIndexInClosedList = closedStopIDs.indexOf(stopIDToChange); const stopName = selectStopForStatusChange.options[selectStopForStatusChange.selectedIndex].text.split(' (')[0]; if (action === 'close') { if (stopIndexInClosedList === -1) { closedStopIDs.push(stopIDToChange); stopStatusMessage.textContent = `Stop '${stopName}' marked as closed.`; } else { stopStatusMessage.textContent = `Stop '${stopName}' is already closed.`; } } else if (action === 'reopen') { if (stopIndexInClosedList !== -1) { closedStopIDs.splice(stopIndexInClosedList, 1); stopStatusMessage.textContent = `Stop '${stopName}' marked as reopened.`; } else { stopStatusMessage.textContent = `Stop '${stopName}' is not currently closed.`; } } saveClosedStops(); populateStopStatusSelector(); } // saveClosedStops now saves to Firebase too
         function applyRandomEvent() { const selectedRoute = selectEventRoute.value; const impactFromStopID = selectEventImpactStop.value; if (!selectedRoute) { eventStatusMessage.textContent = "Please select a route to affect."; return; } const availableEventTypes = [...eventTypes]; if (!impactFromStopID) { const index = availableEventTypes.findIndex(e => e.type === "DELAY_FROM_STOP"); if (index > -1) availableEventTypes.splice(index, 1); } if (availableEventTypes.length === 0) { eventStatusMessage.textContent = "No applicable event types for current selection."; return; } const eventChoice = availableEventTypes[Math.floor(Math.random() * availableEventTypes.length)]; eventStatusMessage.textContent = `Applying event: ${eventChoice.name} to route ${selectedRoute} in working schedule...`; let eventApplied = false; let details = `Event: ${eventChoice.name}. `; switch (eventChoice.type) { case "DELAY_ROUTE": case "DELAY_FROM_STOP": const delayMinutes = Math.floor(Math.random() * (eventChoice.maxDelay - eventChoice.minDelay + 1)) + eventChoice.minDelay; let applyDelay = (eventChoice.type === "DELAY_ROUTE"); let delayedCount = 0; currentWorkingSchedule.forEach(entry => { if (entry.lineName === selectedRoute) { if (!applyDelay && eventChoice.type === "DELAY_FROM_STOP" && entry.stopID === impactFromStopID) { applyDelay = true; } if (applyDelay) { if (!entry.scheduledTime) return; const timeParts = entry.scheduledTime.split(':'); if (timeParts.length === 2) { let hours = parseInt(timeParts[0]); let minutes = parseInt(timeParts[1]); minutes += delayMinutes; hours += Math.floor(minutes / 60); minutes %= 60; hours %= 24; entry.scheduledTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`; entry.eventNotes = (entry.eventNotes || "") + ` Delayed +${delayMinutes}m.`; delayedCount++; eventApplied = true; } } } }); details += `${delayedCount} entries for route ${selectedRoute} delayed by ${delayMinutes} mins.`; if (!eventApplied && eventChoice.type === "DELAY_FROM_STOP" && impactFromStopID) details += " (Impact stop not found or no subsequent services)."; break; case "CURTAIL": const routeEntriesForCurtail = currentWorkingSchedule.filter(e => e.lineName === selectedRoute); if (routeEntriesForCurtail.length > 0) { const uniqueStopObjs = []; const stopIdsOnRoute = new Set(); const orderedRouteStops = [...routeEntriesForCurtail].sort((a,b) => (a.scheduledTime||"").localeCompare(b.scheduledTime||"")); orderedRouteStops.forEach(e => { if(!stopIdsOnRoute.has(e.stopID)) { uniqueStopObjs.push({id: e.stopID, name: e.stopName}); stopIdsOnRoute.add(e.stopID); } }); if (uniqueStopObjs.length > 1) { let newDestStop; let curtailAtIndex = -1; if (impactFromStopID) { curtailAtIndex = uniqueStopObjs.findIndex(s => s.id === impactFromStopID); if (curtailAtIndex >= 0 && curtailAtIndex < uniqueStopObjs.length -1) { newDestStop = uniqueStopObjs[curtailAtIndex]; } else if (curtailAtIndex === uniqueStopObjs.length -1 && uniqueStopObjs.length > 1) { newDestStop = uniqueStopObjs[curtailAtIndex -1]; curtailAtIndex = curtailAtIndex -1; } } if (!newDestStop && uniqueStopObjs.length > 1) { const maxIndex = uniqueStopObjs.length - 2; curtailAtIndex = Math.floor(Math.random() * (maxIndex + 1)); newDestStop = uniqueStopObjs[curtailAtIndex]; } if (newDestStop) { let actualCurtailments = 0; let destinationsUpdated = 0; currentWorkingSchedule = currentWorkingSchedule.filter(entry => { if (entry.lineName === selectedRoute) { const entryStopIndexInUnique = uniqueStopObjs.findIndex(s => s.id === entry.stopID); if (entryStopIndexInUnique > curtailAtIndex) { actualCurtailments++; eventApplied = true; return false; } } return true; }); currentWorkingSchedule.forEach(entry => { if(entry.lineName === selectedRoute && entry.destinationName !== newDestStop.name){ entry.destinationName = newDestStop.name; entry.eventNotes = (entry.eventNotes || "") + ` Curtailed to ${newDestStop.name}.`; destinationsUpdated++; eventApplied = true; } }); if (actualCurtailments > 0 || destinationsUpdated > 0) { details += `Route ${selectedRoute} services now terminate at ${newDestStop.name}. ${actualCurtailments} stops removed, ${destinationsUpdated} destinations updated.`; } else { details += "Could not apply curtailment (no entries changed or removed)."; } } else { details += "Could not determine a suitable curtailment point (e.g., route too short, or selected impact stop was the first)."; } } else { details += "Route too short to curtail (needs at least 2 unique stops)."; } } break; } if (eventApplied) { renderScheduleTable(); eventStatusMessage.textContent = details + " Changes are in the 'Working Schedule'. Stage or Apply to save."; } else { eventStatusMessage.textContent = details + " No changes applied to working schedule."; } populateRouteSelectorForEvents(); if(selectEventRoute) selectEventRoute.value = ""; populateImpactStopSelector(); }
-        function loadCustomRouteColours() { const OLD_KEY = 'omsiCustomRouteTileColors'; const NEW_KEY = CUSTOM_ROUTE_COLOURS_KEY; let loadedColours = {}; const storedColoursNewKey = localStorage.getItem(NEW_KEY); if (storedColoursNewKey) { try { loadedColours = JSON.parse(storedColoursNewKey); } catch (e) { console.error("Error parsing custom route colours from new key:", e); loadedColours = {}; } } else { const storedColoursOldKey = localStorage.getItem(OLD_KEY); if (storedColoursOldKey) { console.log("Migrating custom route colours from old key:", OLD_KEY); try { loadedColours = JSON.parse(storedColoursOldKey); localStorage.setItem(NEW_KEY, JSON.stringify(loadedColours)); localStorage.setItem(OLD_KEY + "_migrated_" + new Date().toISOString().substring(0,10), storedColoursOldKey); localStorage.removeItem(OLD_KEY); if (routeColourStatusMessage) { routeColourStatusMessage.textContent = "Custom colours migrated from previous version."; routeColourStatusMessage.style.color = '#2ecc71'; setTimeout(() => { if(routeColourStatusMessage) routeColourStatusMessage.textContent = ''; }, 7000); } } catch (e) { console.error("Error parsing/migrating custom route colours from old key:", e); loadedColours = {}; } } } customRouteColours = loadedColours; console.log("loadCustomRouteColours (from localStorage for tools):", customRouteColours); }
-        function saveCustomRouteColours() { localStorage.setItem(CUSTOM_ROUTE_COLOURS_KEY, JSON.stringify(customRouteColours)); if (window.firebaseOMSI) { const { database, dbSet, dbRef } = window.firebaseOMSI; dbSet(dbRef(database, '/settings/customRouteColours'), customRouteColours) .then(() => console.log("Custom route colours also saved to Firebase.")) .catch(error => console.error("Error saving custom route colours to Firebase: ", error)); } if (routeColourStatusMessage) { routeColourStatusMessage.textContent = 'Custom colours saved. Refresh arrivals board to see changes.'; routeColourStatusMessage.style.color = '#2ecc71'; setTimeout(() => { if(routeColourStatusMessage) routeColourStatusMessage.textContent = ''; }, 4000); } localStorage.setItem(LIVE_LAST_UPDATED_KEY, new Date().toISOString() + '_colour_update'); loadAndApplyCustomRouteColoursForTools(); if(selectStopForDeparturesView.value) displayDeparturesForSelectedStop(); renderCustomRouteColours(); }
+        function loadAndApplyCustomRouteColoursForTools() { effectiveRouteColourMapTools = { ...initialRouteColourMapForTools, ...customRouteColours }; console.log("Tools: Effective route colours for tools page:", effectiveRouteColourMapTools); }
         function renderCustomRouteColours() { if (!currentRouteColoursList || !noCustomColoursMessage) return; currentRouteColoursList.innerHTML = ''; const uniqueScheduleRoutes = [...new Set(currentWorkingSchedule.map(entry => entry.lineName))] .filter(name => name && name.trim() !== "") .sort(compareLineNames); if (uniqueScheduleRoutes.length === 0) { noCustomColoursMessage.textContent = 'No routes in working schedule to assign colours to.'; noCustomColoursMessage.style.display = 'block'; return; } noCustomColoursMessage.style.display = 'none'; uniqueScheduleRoutes.forEach(routeName => { const upperRouteName = routeName.toUpperCase(); const isCustom = customRouteColours.hasOwnProperty(upperRouteName); const displayColour = isCustom ? customRouteColours[upperRouteName] : DEFAULT_ROUTE_COLOUR_TOOLS; const li = document.createElement('li'); const colourBox = document.createElement('span'); colourBox.className = 'colour-preview-box'; colourBox.style.backgroundColor = displayColour; const routeInfo = document.createElement('span'); routeInfo.className = 'route-info'; let statusText = isCustom ? "" : ` <small style="opacity:0.7;">(Default)</small>`; routeInfo.innerHTML = `Route: ${routeName} - Colour: ${displayColour.toUpperCase()}${statusText}`; const actionContainer = document.createElement('div'); actionContainer.style.marginLeft = 'auto'; if (isCustom) { const removeBtn = document.createElement('button'); removeBtn.textContent = 'Remove Custom'; removeBtn.classList.add('button', 'small-action', 'secondary'); removeBtn.onclick = () => handleRemoveRouteColour(upperRouteName); actionContainer.appendChild(removeBtn); } li.appendChild(colourBox); li.appendChild(routeInfo); li.appendChild(actionContainer); currentRouteColoursList.appendChild(li); }); }
         function populateRouteSelectorForColours() { if (!selectRouteNameColour) return; const currentVal = selectRouteNameColour.value; selectRouteNameColour.innerHTML = '<option value="">-- Select a Route --</option>'; const uniqueLineNames = [...new Set(currentWorkingSchedule.map(entry => entry.lineName))] .filter(name => name && name.trim() !== "") .sort(compareLineNames); uniqueLineNames.forEach(lineName => { const option = document.createElement('option'); option.value = lineName; option.textContent = lineName; selectRouteNameColour.appendChild(option); }); if (uniqueLineNames.includes(currentVal)) { selectRouteNameColour.value = currentVal; } selectRouteNameColour.dispatchEvent(new Event('change')); }
         function handleSaveRouteColour() { if (!selectRouteNameColour || !inputRouteColour || !routeColourStatusMessage) return; const routeName = selectRouteNameColour.value; const colour = inputRouteColour.value; if (!routeName) { routeColourStatusMessage.textContent = 'Please select a route name.'; routeColourStatusMessage.style.color = '#e74c3c'; return; } if (!colour.match(/^#[0-9a-fA-F]{6}$/)) { routeColourStatusMessage.textContent = 'Invalid colour format. Please use hex (e.g., #RRGGBB).'; routeColourStatusMessage.style.color = '#e74c3c'; return; } customRouteColours[routeName.toUpperCase()] = colour.toUpperCase(); saveCustomRouteColours(); }
         function handleRemoveRouteColour(routeNameKey) { if (customRouteColours.hasOwnProperty(routeNameKey)) { if (confirm(`Are you sure you want to remove the custom colour for route ${routeNameKey}? It will revert to default.`)) { delete customRouteColours[routeNameKey]; saveCustomRouteColours(); if (selectRouteNameColour.value.toUpperCase() === routeNameKey) { inputRouteColour.value = DEFAULT_ROUTE_COLOUR_TOOLS; } } } }
-        function loadAndApplyCustomRouteColoursForTools() { effectiveRouteColourMapTools = { ...initialRouteColourMapForTools }; const storedCustomColours = localStorage.getItem(CUSTOM_ROUTE_COLOURS_KEY); if (storedCustomColours) { try { const loadedCustomColours = JSON.parse(storedCustomColours); for (const route in loadedCustomColours) { effectiveRouteColourMapTools[route.toUpperCase()] = loadedCustomColours[route]; } } catch (e) { console.error("Tools: Error loading/parsing custom route colours:", e); } } }
         function getRouteTileColourForTools(lineName) { const upperLineName = String(lineName || "").toUpperCase(); if (effectiveRouteColourMapTools[upperLineName]) { return effectiveRouteColourMapTools[upperLineName]; } if (upperLineName.startsWith("N")) return effectiveRouteColourMapTools["N5"] || DEFAULT_ROUTE_COLOUR_TOOLS; if (upperLineName.startsWith("SL")) return effectiveRouteColourMapTools["SL1"] || DEFAULT_ROUTE_COLOUR_TOOLS; return DEFAULT_ROUTE_COLOUR_TOOLS; }
         function getTextColourForBackgroundTools(hexColour) { if (!hexColour || hexColour.length < 7) return '#FFFFFF'; const r = parseInt(hexColour.slice(1, 3), 16); const g = parseInt(hexColour.slice(3, 5), 16); const b = parseInt(hexColour.slice(5, 7), 16); const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255; return luminance > 0.5 ? '#000000' : '#FFFFFF'; }
         function getDaySortOrder(profileString) { if (!profileString) return 99; const profiles = profileString.toUpperCase().split(',').map(p => p.trim()); if (profiles.some(p => p.startsWith("MO") && !p.startsWith("MO-FR"))) return 1; if (profiles.some(p => p.startsWith("TU"))) return 2; if (profiles.some(p => p.startsWith("WE"))) return 3; if (profiles.some(p => p.startsWith("TH"))) return 4; if (profiles.some(p => p.startsWith("FR") && !p.startsWith("MO-FR"))) return 5; if (profiles.some(p => p.startsWith("MF") || p.startsWith("MO-FR"))) return 6; if (profiles.some(p => p.startsWith("SA"))) return 7; if (profiles.some(p => p.startsWith("SU"))) return 8; if (profiles.includes("GOODFRIDAY")) return 10; if (profiles.includes("BANKHOLIDAY")) return 11; if (profiles.includes("XMASDAY")) return 12; if (profiles.includes("BOXINGDAY")) return 13; if (profiles.includes("NEWYEARSDAY")) return 14; if (profiles.includes("SCHOOLHOLIDAY")) return 20; return 99; }
@@ -727,43 +883,6 @@
         function displayDeparturesForSelectedStop() { if (!selectStopForDeparturesView || !stopDeparturesList || !noDeparturesForStopMessage) return; const selectedStopID = selectStopForDeparturesView.value; stopDeparturesList.innerHTML = ''; if (!selectedStopID) { noDeparturesForStopMessage.textContent = 'Select a stop to view its scheduled departures.'; noDeparturesForStopMessage.style.display = 'block'; return; } const departures = currentWorkingSchedule .filter(entry => entry.stopID === selectedStopID) .sort((a, b) => { const dayOrderA = getDaySortOrder(a.OperatingProfile); const dayOrderB = getDaySortOrder(b.OperatingProfile); if (dayOrderA !== dayOrderB) return dayOrderA - dayOrderB; const timeA = (a.scheduledTime || "").replace(':', ''); const timeB = (b.scheduledTime || "").replace(':', ''); if (timeA !== timeB) return timeA.localeCompare(timeB); const lineNameComparison = compareLineNames(a.lineName, b.lineName); if (lineNameComparison !== 0) return lineNameComparison; const profileA = a.OperatingProfile || ""; const profileB = b.OperatingProfile || ""; return profileA.localeCompare(profileB); }); if (departures.length === 0) { noDeparturesForStopMessage.textContent = 'No scheduled departures found for this stop in the working schedule.'; noDeparturesForStopMessage.style.display = 'block'; } else { noDeparturesForStopMessage.style.display = 'none'; departures.forEach(dep => { const li = document.createElement('li'); const lineTile = document.createElement('span'); lineTile.classList.add('route-tile-tools-list'); lineTile.textContent = dep.lineName || 'N/A'; const tileBGColour = getRouteTileColourForTools(dep.lineName); lineTile.style.backgroundColor = tileBGColour; lineTile.style.color = getTextColourForBackgroundTools(tileBGColour); const textSpan = document.createElement('span'); textSpan.innerHTML = ` to ${dep.destinationName || 'Unknown'} <span style="font-weight: bold; margin-left: 0.5em;">at ${dep.scheduledTime || 'N/A'}</span> <small style="opacity: 0.7; margin-left: 0.75em;">(Profile: ${dep.OperatingProfile || 'N/A'})</small> ${dep.DayOffset && dep.DayOffset !== "0" ? `<small style="opacity:0.7; margin-left:0.3em;color:#FFD700;">(+${dep.DayOffset}d)</small>` : ''} `; li.appendChild(lineTile); li.appendChild(textSpan); stopDeparturesList.appendChild(li); }); } }
         function renderScheduleTable() { if (!currentScheduleTableBody || !entryCountElement) return; const dataToRender = applyFiltersAndSort(currentWorkingSchedule); currentScheduleTableBody.innerHTML = ''; entryCountElement.textContent = dataToRender.length + (currentWorkingSchedule.length !== dataToRender.length ? ` of ${currentWorkingSchedule.length} total (working)` : ' (working)'); if (dataToRender.length === 0) { const r=currentScheduleTableBody.insertRow(), c=r.insertCell(); c.colSpan=9; c.textContent=activeFilters.stopID||activeFilters.lineName||activeFilters.operatingProfile?"No entries match filters in working schedule.":"Working schedule is empty. Add or upload."; c.style.textAlign="center";c.style.padding="1rem";c.style.fontStyle="italic"; } else { dataToRender.forEach((entry) => { const originalIndex = currentWorkingSchedule.findIndex(item => item.internalId === entry.internalId); const r=currentScheduleTableBody.insertRow(); r.insertCell().textContent=entry.stopID||''; r.insertCell().textContent=entry.stopName||''; r.insertCell().textContent=entry.direction||''; r.insertCell().textContent=entry.lineName||''; r.insertCell().textContent=entry.destinationName||''; r.insertCell().textContent=entry.scheduledTime||''; r.insertCell().textContent=entry.OperatingProfile||''; r.insertCell().textContent=entry.DayOffset||'0'; const actCell=r.insertCell(); const editBtn=document.createElement('button'); editBtn.textContent="Edit";editBtn.classList.add('button','small-action','tertiary'); editBtn.onclick=()=>loadEntryForEdit(originalIndex);actCell.appendChild(editBtn); const delBtn=document.createElement('button'); delBtn.textContent="Del";delBtn.classList.add('button','small-action','secondary'); delBtn.onclick=()=>handleDeleteEntry(originalIndex);actCell.appendChild(delBtn); }); } updateSortArrows(); populateRouteSelectorForEvents(); populateStopStatusSelector(); populateRouteSelectorForColours(); populateStopSelectorForDeparturesView(); renderCustomRouteColours(); }
 
-        /*
-        // --- TEMPORARY MIGRATION FUNCTION for Route Colours ---
-        function migrateRouteColoursToFirebaseOnce() {
-            if (!window.firebaseOMSI || customRouteColours === undefined) {
-                console.warn("Firebase not ready or no local customRouteColours to migrate (customRouteColours variable is undefined or null).");
-                return;
-            }
-
-            if (localStorage.getItem('firebaseRouteColoursMigrated_v1')) {
-                console.log("Route colours already marked as migrated to Firebase. Skipping.");
-                return;
-            }
-
-            console.log("Attempting to migrate customRouteColours from localStorage to Firebase...");
-            console.log("Local colours (from customRouteColours variable) to migrate:", JSON.stringify(customRouteColours));
-
-            if (customRouteColours && Object.keys(customRouteColours).length > 0) {
-                const { database, dbSet, dbRef } = window.firebaseOMSI;
-                const firebasePath = '/settings/customRouteColours';
-
-                dbSet(dbRef(database, firebasePath), customRouteColours)
-                    .then(() => {
-                        console.log("SUCCESS: Custom route colours migrated from localStorage to Firebase path:", firebasePath);
-                        alert("Custom route colours have been successfully migrated to Firebase!");
-                        localStorage.setItem('firebaseRouteColoursMigrated_v1', 'true');
-                    })
-                    .catch(error => {
-                        console.error("ERROR migrating custom route colours to Firebase:", error);
-                        alert("Error migrating route colours to Firebase. Check console.");
-                    });
-            } else {
-                console.log("No custom route colours found in local 'customRouteColours' variable to migrate.");
-                localStorage.setItem('firebaseRouteColoursMigrated_v1', 'true');
-            }
-        }
-        // --- END TEMPORARY MIGRATION FUNCTION ---
-        */
 
         document.addEventListener('DOMContentLoaded', () => {
             if (window.firebaseOMSI && window.firebaseOMSI.database) {
@@ -777,7 +896,6 @@
             if (applyNowButton) applyNowButton.addEventListener('click', handleApplyNow);
             if (viewArrivalsButton) viewArrivalsButton.addEventListener('click', () => { window.location.href = "omsi_arrivals.html"; });
             if (addEntryButton) addEntryButton.addEventListener('click', handleAddOrUpdateEntry);
-            // ... (all your other event listeners for buttons etc. are assumed to be here)
             if (updateEntryButton) updateEntryButton.addEventListener('click', handleAddOrUpdateEntry);
             if (cancelEditButton) cancelEditButton.addEventListener('click', resetForm);
             if (countFileInput) countFileInput.addEventListener('change', handleCountFileUpload);
@@ -800,12 +918,11 @@
             if (selectRouteNameColour) { selectRouteNameColour.addEventListener('change', () => { const selectedRoute = selectRouteNameColour.value; if (selectedRoute && customRouteColours[selectedRoute.toUpperCase()]) { inputRouteColour.value = customRouteColours[selectedRoute.toUpperCase()]; } else { inputRouteColour.value = DEFAULT_ROUTE_COLOUR_TOOLS; } }); }
             if (selectStopForDeparturesView) { selectStopForDeparturesView.addEventListener('change', displayDeparturesForSelectedStop); }
 
-
             fetchBankHolidaysForSetup();
-            loadInitialDataFromLocalStorage(); // This will call loadCustomRouteColours internally
-
-            // The migration function is now commented out as its job is done
-            // migrateRouteColoursToFirebaseOnce();
+            loadInitialData(); // <<<< CHANGED TO CALL THE NEW FUNCTION
+            
+            // The route color migration function call is now removed/commented out.
+            // migrateRouteColoursToFirebaseOnce(); 
         });
     </script>
 </body>

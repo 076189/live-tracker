@@ -152,10 +152,10 @@
         .current-details-display p { margin: 0.2rem 0; }
         .current-details-display span { font-style: italic; color: #ecf0f1; }
 
-        .event-section div, .stop-status-section div, .route-colour-management div, .view-stop-departures div, .service-message-management div {
+        .event-section div, .stop-status-section div, .route-colour-management div, .view-stop-departures div { /* Removed .service-message-management div */
             margin-bottom: 0.75rem;
         }
-        .event-section label, .stop-status-section label, .route-colour-management label, .view-stop-departures label, .service-message-management label {
+        .event-section label, .stop-status-section label, .route-colour-management label, .view-stop-departures label { /* Removed .service-message-management label */
              margin-bottom: 0.25rem;
         }
 
@@ -319,22 +319,6 @@
                 <p id="stopStatusMessage" style="font-size:0.9rem; margin-top:0.5rem; min-height:1.2em; color: #f1c40f;"></p>
             </div>
 
-            <div class="section service-message-management">
-                <h2>Set Scrolling Service Message (Live Effect)</h2>
-                <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">Enter a message to display as a scrolling banner on the bottom of the arrivals board. Leave blank and save to remove the message.</p>
-                <div>
-                    <label for="inputServiceMessage">Service Message Text:</label>
-                    <input type="text" id="inputServiceMessage" placeholder="e.g., Service Update: Route X is diverted..." autocomplete="off">
-                </div>
-                <div style="margin-top: 0.75rem;">
-                    <button id="setServiceMessageButton" class="button">Set/Update Service Message</button>
-                </div>
-                <p id="serviceMessageStatus" style="font-size:0.9rem; margin-top:0.75rem; min-height:1.2em; color: #f1c40f;"></p>
-                <div class="current-details-display" style="margin-top: 1rem;">
-                    <p><strong>Current Live Service Message:</strong> <span id="currentLiveServiceMessageDisplay">- Loading... -</span></p>
-                </div>
-            </div>
-
             <div class="section route-colour-management">
                 <h2>Route Tile Colour Management</h2>
                 <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">Define custom colours for specific routes. These will override default colours on the arrivals board. Select a route from the dropdown (populated from your current working schedule).</p>
@@ -478,11 +462,7 @@
         const authStatus = document.getElementById('auth-status');
         const loggedInUserEmailDisplay = document.getElementById('loggedInUserEmail');
 
-        const inputServiceMessage = document.getElementById('inputServiceMessage');
-        const setServiceMessageButton = document.getElementById('setServiceMessageButton');
-        const serviceMessageStatus = document.getElementById('serviceMessageStatus');
-        const currentLiveServiceMessageDisplay = document.getElementById('currentLiveServiceMessageDisplay');
-
+        // Service Message variables removed
 
         let currentUser = null; 
         let currentWorkingSchedule = [];
@@ -508,7 +488,7 @@
         const FB_PATH_APPSTATE_LAST_UPDATED = '/appState/scheduleLastUpdated';
         const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
         const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
-        const FB_PATH_APPSTATE_SERVICE_MESSAGE = '/appState/serviceMessage'; 
+        // FB_PATH_APPSTATE_SERVICE_MESSAGE removed
         const CUSTOM_ROUTE_COLOURS_KEY = 'omsiCustomRouteTileColours';
 
         const initialRouteColourMapForTools = { 
@@ -534,7 +514,6 @@
                 if (authStatus) authStatus.textContent = 'Please log in to use the tools.';
                 if (loggedInUserEmailDisplay) loggedInUserEmailDisplay.textContent = '';
                 if (mainToolContentDiv) mainToolContentDiv.style.display = 'none';
-                 if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -";
             }
         }
 
@@ -747,49 +726,7 @@
         function displayDeparturesForSelectedStop() { if (!selectStopForDeparturesView || !stopDeparturesList || !noDeparturesForStopMessage) return; const selectedStopID = selectStopForDeparturesView.value; stopDeparturesList.innerHTML = ''; if (!selectedStopID) { noDeparturesForStopMessage.textContent = 'Select a stop to view its scheduled departures.'; noDeparturesForStopMessage.style.display = 'block'; return; } const departures = currentWorkingSchedule .filter(entry => entry.stopID === selectedStopID) .sort((a, b) => { const timeA = (a.scheduledTime || "9999").replace(':', ''); const timeB = (b.scheduledTime || "9999").replace(':', ''); if (timeA !== timeB) { return timeA.localeCompare(timeB); } const dayOrderA = getDaySortOrder(a.OperatingProfile); const dayOrderB = getDaySortOrder(b.OperatingProfile); if (dayOrderA !== dayOrderB) { return dayOrderA - dayOrderB; } const lineNameComparison = compareLineNames(a.lineName, b.lineName); if (lineNameComparison !== 0) { return lineNameComparison; } const profileA = a.OperatingProfile || ""; const profileB = b.OperatingProfile || ""; return profileA.localeCompare(profileB); }); if (departures.length === 0) { noDeparturesForStopMessage.textContent = 'No scheduled departures found for this stop in the working schedule.'; noDeparturesForStopMessage.style.display = 'block'; } else { noDeparturesForStopMessage.style.display = 'none'; departures.forEach(dep => { const li = document.createElement('li'); const lineTile = document.createElement('span'); lineTile.classList.add('route-tile-tools-list'); lineTile.textContent = dep.lineName || 'N/A'; const tileBGColour = getRouteTileColourForTools(dep.lineName); lineTile.style.backgroundColor = tileBGColour; lineTile.style.color = getTextColourForBackgroundTools(tileBGColour); const textSpan = document.createElement('span'); textSpan.innerHTML = ` to ${dep.destinationName || 'Unknown'} <span style="font-weight: bold; margin-left: 0.5em;">at ${dep.scheduledTime || 'N/A'}</span> <small style="opacity: 0.7; margin-left: 0.75em;">(Profile: ${dep.OperatingProfile || 'N/A'})</small> ${dep.DayOffset && dep.DayOffset !== "0" ? `<small style="opacity:0.7; margin-left:0.3em;color:#FFD700;">(+${dep.DayOffset}d)</small>` : ''} `; li.appendChild(lineTile); li.appendChild(textSpan); stopDeparturesList.appendChild(li); }); } }
         function renderScheduleTable() { if (!currentScheduleTableBody || !entryCountElement) return; const dataToRender = applyFiltersAndSort(currentWorkingSchedule); currentScheduleTableBody.innerHTML = ''; entryCountElement.textContent = dataToRender.length + (currentWorkingSchedule.length !== dataToRender.length ? ` of ${currentWorkingSchedule.length} total (working)` : ' (working)'); if (dataToRender.length === 0) { const r=currentScheduleTableBody.insertRow(), c=r.insertCell(); c.colSpan=9; c.textContent=activeFilters.stopID||activeFilters.lineName||activeFilters.operatingProfile?"No entries match filters in working schedule.":"Working schedule is empty. Add or upload."; c.style.textAlign="center";c.style.padding="1rem";c.style.fontStyle="italic"; } else { dataToRender.forEach((entry) => { const originalIndex = currentWorkingSchedule.findIndex(item => item.internalId === entry.internalId); const r=currentScheduleTableBody.insertRow(); r.insertCell().textContent=entry.stopID||''; r.insertCell().textContent=entry.stopName||''; r.insertCell().textContent=entry.direction||''; r.insertCell().textContent=entry.lineName||''; r.insertCell().textContent=entry.destinationName||''; r.insertCell().textContent=entry.scheduledTime||''; r.insertCell().textContent=entry.OperatingProfile||''; r.insertCell().textContent=entry.DayOffset||'0'; const actCell=r.insertCell(); const editBtn=document.createElement('button'); editBtn.textContent="Edit";editBtn.classList.add('button','small-action','tertiary'); editBtn.onclick=()=>loadEntryForEdit(originalIndex);actCell.appendChild(editBtn); const delBtn=document.createElement('button'); delBtn.textContent="Del";delBtn.classList.add('button','small-action','secondary'); delBtn.onclick=()=>handleDeleteEntry(originalIndex);actCell.appendChild(delBtn); }); } updateSortArrows(); populateRouteSelectorForEvents(); populateStopStatusSelector(); populateRouteSelectorForColours(); populateStopSelectorForDeparturesView(); renderCustomRouteColours(); }
 
-        function handleSetServiceMessage() {
-            if (!currentUser) { alert("Please log in to set the service message."); return; }
-            if (!inputServiceMessage || !serviceMessageStatus) return;
-
-            const message = inputServiceMessage.value.trim();
-
-            if (window.firebaseOMSI) {
-                const { database, dbSet, dbRef } = window.firebaseOMSI;
-                serviceMessageStatus.textContent = 'Updating service message...';
-                serviceMessageStatus.style.color = '#f1c40f';
-
-                dbSet(dbRef(database, FB_PATH_APPSTATE_SERVICE_MESSAGE), message || null) 
-                    .then(() => {
-                        serviceMessageStatus.textContent = message ? 'Service message updated successfully!' : 'Service message removed successfully!';
-                        serviceMessageStatus.style.color = '#2ecc71';
-                    })
-                    .catch((error) => {
-                        console.error("Error setting service message to Firebase: ", error);
-                        serviceMessageStatus.textContent = 'Error updating message. Check console.';
-                        serviceMessageStatus.style.color = '#e74c3c';
-                    });
-            } else {
-                serviceMessageStatus.textContent = 'Firebase not available. Message not set.';
-                serviceMessageStatus.style.color = '#e74c3c';
-            }
-        }
-
-        function listenForLiveServiceMessage() {
-            if (!window.firebaseOMSI || !currentLiveServiceMessageDisplay) return;
-            const { database, dbOnValue, dbRef } = window.firebaseOMSI;
-            const serviceMessageRefDb = dbRef(database, FB_PATH_APPSTATE_SERVICE_MESSAGE);
-
-            dbOnValue(serviceMessageRefDb, (snapshot) => {
-                const message = snapshot.val();
-                if (message && typeof message === 'string' && message.trim() !== "") {
-                    currentLiveServiceMessageDisplay.textContent = message.trim();
-                    if (inputServiceMessage) inputServiceMessage.value = message.trim();
-                } else {
-                    currentLiveServiceMessageDisplay.textContent = "- No message set -";
-                    if (inputServiceMessage) inputServiceMessage.value = '';
-                }
-            });
-        }
+        // Service Message functions (handleSetServiceMessage, listenForLiveServiceMessage) removed
 
         document.addEventListener('DOMContentLoaded', () => {
             if (window.firebaseOMSI && window.firebaseOMSI.auth) {
@@ -802,13 +739,12 @@
                         console.log("User signed in, proceeding to load initial data for tools.");
                         fetchBankHolidaysForSetup();
                         loadInitialData(); 
-                        listenForLiveServiceMessage(); 
+                        // listenForLiveServiceMessage(); // Removed
                     } else {
                         console.log("User signed out or not yet signed in.");
                         currentWorkingSchedule = []; renderScheduleTable(); 
                         updateStagingStatusDisplay(); 
-                        if(currentLiveServiceMessageDisplay) currentLiveServiceMessageDisplay.textContent = "- Login to manage -";
-                        if(inputServiceMessage) inputServiceMessage.value = '';
+                        // Service message display clear if needed (though elements are gone)
                     }
                 });
 
@@ -862,9 +798,7 @@
             if (selectRouteNameColour) { selectRouteNameColour.addEventListener('change', () => { const selectedRoute = selectRouteNameColour.value; if (selectedRoute && customRouteColours[selectedRoute.toUpperCase()]) { inputRouteColour.value = customRouteColours[selectedRoute.toUpperCase()]; } else { inputRouteColour.value = DEFAULT_ROUTE_COLOUR_TOOLS; } }); }
             if (selectStopForDeparturesView) { selectStopForDeparturesView.addEventListener('change', displayDeparturesForSelectedStop); }
             
-            if (setServiceMessageButton) {
-                setServiceMessageButton.addEventListener('click', handleSetServiceMessage);
-            }
+            // Event listener for setServiceMessageButton removed
 
             fetchBankHolidaysForSetup(); 
         });

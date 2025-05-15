@@ -17,7 +17,7 @@
         /* Global and Body Styles */
         @font-face {
             font-family: 'NJFont Medium Web';
-            src: url('fonts/NJFont-Medium.ttf') format('truetype');
+            src: url('fonts/NJFont-Medium.ttf') format('truetype'); /* Relative path, should be fine */
             font-weight: normal;
             font-style: normal;
             font-display: swap;
@@ -43,19 +43,18 @@
         #clock-container {
             text-align: center;
             margin-bottom: 2rem;
-            /* margin-top: 13;!important -- Potentially adjust or remove if not needed */
+            margin-top: 13;!important
             padding-top: 1rem;
         }
         #clock-time {
-            font-size: 20vmin; 
+            font-size: 20vmin;
             font-weight: normal;
             text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.4);
-            line-height: 1; 
         }
         #clock-date {
-            font-size: clamp(1.25rem, 5vmin, 1.75rem); 
+            font-size: clamp(1.25rem, 5vmin, 1.75rem);
             opacity: 0.8;
-            margin-top: -2.5rem; 
+            margin-top: -2.5rem;!important
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
         }
 
@@ -342,17 +341,6 @@
         #available-stops-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
         #available-stops-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
 
-        @media (max-width: 600px) { 
-            #clock-time {
-                font-size: 25vmin; 
-                line-height: 0.9; 
-            }
-            #clock-date {
-                font-size: clamp(1.1rem, 4vmin, 1.6rem); 
-                margin-top: -2rem; 
-            }
-        }
-
         @media (max-height: 300px), (max-width: 300px) {
             body { padding-top: 0; }
             #clock-container {
@@ -360,14 +348,8 @@
                 padding-top: 0.5rem;
                 margin-bottom: 1rem;
             }
-            #clock-time { 
-                font-size: 20vmin; 
-                line-height: 0.8;
-            } 
-            #clock-date { 
-                font-size: clamp(1rem, 4.5vmin, 1.5rem); 
-                margin-top: -1.5rem; 
-            }
+            #clock-time { font-size: 18vmin; }
+            #clock-date { font-size: clamp(1rem, 4.5vmin, 1.5rem); margin-top: -0.5rem; }
             #bus-arrivals-container { padding: 1rem; }
             .main-stop-name-line { font-size: clamp(1rem, 4vmin, 1.3rem); }
             .stop-name-qualifier { font-size: clamp(0.7rem, 2.5vmin, 0.8rem); margin-top: -0.1em; }
@@ -483,8 +465,7 @@
         const MAX_DISPLAY_ROWS = 4; 
         const CYCLING_ROWS_COUNT = 3; 
         const MAX_DEPARTURES_OVERALL = 10; 
-        const MAX_TIME_TO_STATION_SECONDS = 1800; // 30 minutes
-        const OPERATIONAL_DAY_CUTOFF_HOUR = 3; // Services before 3 AM belong to the previous operational day
+        const MAX_TIME_TO_STATION_SECONDS = 1800; 
 
         let previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); 
 
@@ -510,68 +491,36 @@
         function updateClock() { const now=new Date(),h=String(now.getHours()).padStart(2,'0'),m=String(now.getMinutes()).padStart(2,'0'),s=String(now.getSeconds()).padStart(2,'0'),dn=now.toLocaleDateString(undefined,{weekday:'long'}),d=now.getDate(),mn=now.toLocaleDateString(undefined,{month:'long'}),y=now.getFullYear();if(clockTimeElement)clockTimeElement.textContent=`${h}:${m}:${s}`;if(clockDateElement)clockDateElement.textContent=`${dn} ${d} ${mn} ${y}`;}
         async function fetchBankHolidays(){try{const r=await fetch('https://www.gov.uk/bank-holidays.json');if(!r.ok)throw new Error(`HTTP error! ${r.status}`);const d=await r.json();if(d['england-and-wales']&&d['england-and-wales'].events){const e=d['england-and-wales'].events;ukBankHolidaysData={dates:e.map(ev=>ev.date),titles:e.reduce((a,ev)=>{a[ev.date]=ev.title;return a},{})};}else console.warn("Bank hol format error.")}catch(e){console.error("Failed to fetch bank hols:",e)}};
         function isSchoolHolidayPeriod(dObj){if(!schoolHolidayDateRanges||schoolHolidayDateRanges.length===0)return false;const cT=dObj.getTime();for(const r of schoolHolidayDateRanges){try{if(new Date(r.start+"T00:00:00").getTime()<=cT&&cT<=new Date(r.end+"T23:59:59").getTime())return true}catch(e){console.error("Invalid date in school ranges:",r,e)}}return false}
-        
-        // UPDATED getTargetOperatingCodes to consider the operational window for night buses
-        function getTargetOperatingCodes() {
-            const n = new Date(); // Current calendar date/time
-            const currentCalendarDOW = n.getDay(); // Current calendar day of week
-            const currentHour = n.getHours();
-            
-            let relevantDayObjects = [n]; // Start with the current calendar date object
 
-            // If it's early morning (before cutoff), also consider yesterday's calendar date
-            // as part of the operational window for fetching relevant profiles.
-            if (currentHour < OPERATIONAL_DAY_CUTOFF_HOUR) {
-                const yesterday = new Date(n);
-                yesterday.setDate(n.getDate() - 1);
-                relevantDayObjects.push(yesterday);
-            }
-
+        function getOperatingCodesForToday() {
+            const n = new Date();
+            const dOW = n.getDay();
+            const tds = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
             let dCodes = new Set();
-
-            relevantDayObjects.forEach(dateObjectToConsider => {
-                const dOW = dateObjectToConsider.getDay();
-                const dateString = `${dateObjectToConsider.getFullYear()}-${String(dateObjectToConsider.getMonth() + 1).padStart(2, '0')}-${String(dateObjectToConsider.getDate()).padStart(2, '0')}`;
-                let isBH = false;
-
-                if (ukBankHolidaysData && ukBankHolidaysData.dates.includes(dateString)) {
-                    const hT = ukBankHolidaysData.titles[dateString] || "";
-                    isBH = true;
-                    if (hT.toLowerCase().includes("good friday")) { dCodes.add("Sa"); } else { dCodes.add("Su"); }
+            let isBH = false;
+            if (ukBankHolidaysData && ukBankHolidaysData.dates.includes(tds)) {
+                const hT = ukBankHolidaysData.titles[tds] || "";
+                isBH = true;
+                if (hT.toLowerCase().includes("good friday")) { dCodes.add("Sa"); } else { dCodes.add("Su"); }
+            }
+            if (!isBH) {
+                const iSH = isSchoolHolidayPeriod(n); const sSuf = iSH ? "NSD" : "Sch"; let dCode = "";
+                switch (dOW) {
+                    case 0: dCode = "Su"; break; case 1: dCode = "Mo"; break; case 2: dCode = "Tu"; break;
+                    case 3: dCode = "We"; break; case 4: dCode = "Th"; break; case 5: dCode = "Fr"; break;
+                    case 6: dCode = "Sa"; break;
                 }
-
-                if (!isBH) {
-                    const iSH = isSchoolHolidayPeriod(dateObjectToConsider);
-                    const sSuf = iSH ? "NSD" : "Sch";
-                    let dayCode = "";
-                    switch (dOW) {
-                        case 0: dayCode = "Su"; break; case 1: dayCode = "Mo"; break; case 2: dayCode = "Tu"; break;
-                        case 3: dayCode = "We"; break; case 4: dayCode = "Th"; break; case 5: dayCode = "Fr"; break;
-                        case 6: dayCode = "Sa"; break;
-                    }
-                    if (dayCode) dCodes.add(dayCode); // Add base day code
-                    if (dOW >= 1 && dOW <= 5) { // Weekdays
-                        if (dayCode) dCodes.add(dayCode + sSuf); // e.g., MoSch
-                        dCodes.add("MF" + sSuf); 
-                        dCodes.add("Mo-Fr");
-                    }
-                    if (iSH) dCodes.add("SchoolHoliday");
-                } else { // If it was a BH for dateObjectToConsider
-                    const iSH_on_BH = isSchoolHolidayPeriod(dateObjectToConsider);
-                     if (iSH_on_BH) { 
-                        dCodes.add("SchoolHoliday"); 
-                        if (dCodes.has("Sa")) dCodes.add("SaNSD"); // If BH runs Sat service & it's school hol
-                        if (dCodes.has("Su") && !dCodes.has("Sa")) dCodes.add("SuNSD"); // If BH runs Sun service & it's school hol
-                    }
-                }
-            });
-            
-            // Optionally add a generic night bus code if you use one consistently in your data
-            // dCodes.add("N"); 
-
+                dCodes.add(dCode);
+                if (dOW >= 1 && dOW <= 5) { dCodes.add(dCode + sSuf); dCodes.add("MF" + sSuf); dCodes.add("Mo-Fr"); }
+                if (iSH) dCodes.add("SchoolHoliday");
+            } else {
+                const iSH_on_BH = isSchoolHolidayPeriod(n);
+                if (iSH_on_BH) { dCodes.add("SchoolHoliday"); if (dCodes.has("Sa")) dCodes.add("SaNSD"); if (dCodes.has("Su") && !dCodes.has("Sa")) dCodes.add("SuNSD");}
+            }
             return Array.from(dCodes);
         }
 
+        function getTargetOperatingCodes(){return getOperatingCodesForToday()}
         function generateArrivalText(s){return s<-59?null:(s<60?'due':`${Math.round(s/60)} min`)}
         function sanitize(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML}
         function getTextWidth(t,fS){const c=getTextWidth.canvas||(getTextWidth.canvas=document.createElement("canvas")),ctx=c.getContext("2d");ctx.font=fS;return ctx.measureText(t).width}
@@ -600,14 +549,7 @@
                 return;
             }
             
-            const now = new Date(); // Current actual date and time
-            
-            // Determine the calendar date that marks the "start" of the current operational service day
-            let operationalDayStartReference = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            if (now.getHours() < OPERATIONAL_DAY_CUTOFF_HOUR) {
-                operationalDayStartReference.setDate(operationalDayStartReference.getDate() - 1); // The service day is "yesterday's"
-            }
-
+            const now = new Date();
             const newPotentialMasterList = allScheduledData
                 .filter(bus => { 
                     if (!bus || bus.stopID !== currentSelectedStopID || !bus.OperatingProfile || typeof bus.OperatingProfile !== 'string' || bus.OperatingProfile.trim() === "") return false;
@@ -623,32 +565,14 @@
                     if (!parts) return null;
                     const hrs = parseInt(parts[1],10), mins = parseInt(parts[2],10);
                     if (isNaN(hrs)||hrs<0||hrs>23||isNaN(mins)||mins<0||mins>59) return null;
-                    
-                    const dayOffsetInData = parseInt(bus.DayOffset || "0") || 0;
-
-                    // Calculate scheduled datetime based on the operationalDayStartReference and the bus's DayOffset
-                    // This assumes DayOffset in data is relative to the start of the service day defined by its OperatingProfile
-                    // which should align with our operationalDayStartReference if getTargetOperatingCodes is correct.
-                    const schedTime = new Date(
-                        operationalDayStartReference.getFullYear(), 
-                        operationalDayStartReference.getMonth(), 
-                        operationalDayStartReference.getDate() + dayOffsetInData, 
-                        hrs, 
-                        mins, 
-                        0
-                    );
-
+                    const dayOffset = parseInt(bus.DayOffset || "0") || 0;
+                    const schedTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset, hrs, mins, 0);
                     const diffSecs = Math.round((schedTime.getTime() - now.getTime()) / 1000);
                     const arrTxt = generateArrivalText(diffSecs);
                     const internalId = bus.internalId || `${bus.stopID}_${bus.lineName}_${(bus.scheduledTime||"0000").replace(':', '')}_${hrs}${mins}_mapIdx${mapIndex}`;
-                    
-                    if (arrTxt === null || diffSecs < -300) { // Example: Don't show if more than 5 mins passed
-                        return null;
-                    }
-
-                    return { ...bus, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1 };
+                    return arrTxt === null ? null : { ...bus, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1 };
                 })
-                .filter(b => b !== null && b.timeToStationInSeconds < MAX_TIME_TO_STATION_SECONDS) 
+                .filter(b => b !== null && b.timeToStationInSeconds < MAX_TIME_TO_STATION_SECONDS)
                 .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds)
                 .slice(0, MAX_DEPARTURES_OVERALL) 
                 .map((bus, index) => ({ ...bus, originalMasterIndex: index })); 
@@ -728,7 +652,6 @@
             }
         }
 
-
         async function loadInitialData() {
             console.log("[ARRIVALS DEBUG] loadInitialData from Firebase called.");
             if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
@@ -765,7 +688,7 @@
                     for (const route in fbCustomColours) { effectiveRouteColourMap[route.toUpperCase()] = fbCustomColours[route]; }
                 }
                 
-                console.log("[ARRIVALS DEBUG] Data fetched.");
+                console.log("[ARRIVALS DEBUG] Data fetched (diversion logic removed).");
 
                 if (uniqueStops.length > 0) {
                     populateStopSelectionModal();
@@ -851,7 +774,7 @@
                 else { console.log("[ARRIVALS DEBUG] Custom route colours node in Firebase is empty or deleted. Reverted to defaults.");}
                 if (currentSelectedStopID) selectStop(currentSelectedStopID); 
             });
-            console.log("[ARRIVALS DEBUG] Firebase listeners set up.");
+            console.log("[ARRIVALS DEBUG] Firebase listeners set up (diversion listener removed).");
         }
 
         function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID);  li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
@@ -1008,7 +931,7 @@
             // PWA Service Worker Registration
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('/live-tracker/sw-omsi.js') 
+                    navigator.serviceWorker.register('/live-tracker/sw-omsi.js') // Ensure this path is correct
                     .then(registration => {
                         console.log('Service Worker (sw-omsi.js) registered successfully with scope:', registration.scope);
                     })

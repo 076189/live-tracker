@@ -698,9 +698,13 @@
                     <h2>Schedule Analytics & Validation</h2>
                     <div class="subsection analytics-subsection">
                         <h3 class="subsection-title">Duplicate Entry Detection</h3>
-                        <button id="detectDuplicatesButton" class="button">Find Duplicate Entries</button>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button id="detectDuplicatesButton" class="button">Find Duplicate Entries</button>
+                            <button id="removeDuplicateEntriesButton" class="button secondary">Remove All Duplicates (Keep First)</button>
+                        </div>
+                        <p id="removeDuplicatesStatusMessage" style="min-height:1.2em; margin-top: 0.75rem;"></p>
                         <div id="duplicateEntriesResults" style="margin-top: 0.75rem;">
-                            <p>Click the button to scan the current working schedule for duplicate entries.</p>
+                            <p>Click "Find Duplicate Entries" to scan the current working schedule.</p>
                         </div>
                     </div>
                 </div>
@@ -899,6 +903,9 @@ const allToolContentSections = document.querySelectorAll('.tool-content-section'
 
 const detectDuplicatesButton = document.getElementById('detectDuplicatesButton');
 const duplicateEntriesResults = document.getElementById('duplicateEntriesResults');
+const removeDuplicateEntriesButton = document.getElementById('removeDuplicateEntriesButton');
+const removeDuplicatesStatusMessage = document.getElementById('removeDuplicatesStatusMessage');
+
 
 // DOM Elements for Stop Management Tool
 const masterStopListFilterInput_SM = document.getElementById('masterStopListFilterInput_SM');
@@ -1578,17 +1585,22 @@ function gen_renderScheduleTable() {
 
     if (resultsHead.rows.length > 0) {
         let headerRow = resultsHead.rows[0];
-        // Check if "Actions" header exists by checking the text of the last cell
-        if (headerRow.cells.length > 0 && headerRow.cells[headerRow.cells.length -1].textContent !== "Actions") {
-             // If the last cell is not Actions, or if there are exactly 8 cells (meaning Actions is missing)
-             if (headerRow.cells.length === 8 || headerRow.cells[headerRow.cells.length -1].textContent !== "Actions") {
-                let th = document.createElement('th');
-                th.textContent = 'Actions';
-                headerRow.appendChild(th);
-            }
-        } else if (headerRow.cells.length === 0) { // No headers at all, create all
-             headerRow.innerHTML = `<th>StopID</th><th>StopName</th><th>Direction</th><th>LineName</th><th>DestinationName</th><th>ScheduledTime (HH:MM)</th><th>OperatingProfile</th><th>DayOffset</th><th>Actions</th>`;
+        if (headerRow.cells.length === 8 && headerRow.cells[7].textContent !== "Actions") {
+            let th = document.createElement('th');
+            th.textContent = 'Actions';
+            headerRow.appendChild(th);
+        } else if (headerRow.cells.length === 0) { 
+            headerRow.innerHTML = `<th>StopID</th><th>StopName</th><th>Direction</th><th>LineName</th><th>DestinationName</th><th>ScheduledTime (HH:MM)</th><th>OperatingProfile</th><th>DayOffset</th><th>Actions</th>`;
+        } else if (headerRow.cells.length > 0 && headerRow.cells[headerRow.cells.length - 1].textContent !== "Actions") {
+            // This case might occur if columns were added but not 'Actions' yet
+            let th = document.createElement('th');
+            th.textContent = 'Actions';
+            headerRow.appendChild(th);
         }
+    } else { // If no thead row at all
+        let header = resultsTable.createTHead();
+        let row = header.insertRow(0);
+        row.innerHTML = `<th>StopID</th><th>StopName</th><th>Direction</th><th>LineName</th><th>DestinationName</th><th>ScheduledTime (HH:MM)</th><th>OperatingProfile</th><th>DayOffset</th><th>Actions</th>`;
     }
 
 
@@ -2005,6 +2017,67 @@ function detectDuplicateEntries() {
             });
             html += `</ul>`;
             duplicateEntriesResults.innerHTML = html;
+        }
+    }
+}
+
+function handleRemoveDuplicateEntries() {
+    if (!currentUser) {
+        alert("Please log in to modify the schedule.");
+        if (removeDuplicatesStatusMessage) removeDuplicatesStatusMessage.textContent = "Not logged in.";
+        return;
+    }
+    if (!currentWorkingSchedule || currentWorkingSchedule.length === 0) {
+        alert("Working schedule is empty. Nothing to deduplicate.");
+        if (removeDuplicatesStatusMessage) removeDuplicatesStatusMessage.textContent = "Working schedule is empty.";
+        return;
+    }
+
+    const initialCount = currentWorkingSchedule.length;
+    const signaturesEncountered = new Set();
+    const deduplicatedSchedule = [];
+
+    currentWorkingSchedule.forEach(entry => {
+        const profileString = (entry.OperatingProfile || "").toLowerCase().split(',').map(s => s.trim()).sort().join(',');
+        const signature = [
+            (entry.stopID || "").toUpperCase(),
+            (entry.lineName || "").toUpperCase(),
+            entry.scheduledTime || "00:00", 
+            profileString,
+            entry.DayOffset || "0",
+            (entry.destinationName || "").trim()
+        ].join('|');
+
+        if (!signaturesEncountered.has(signature)) {
+            signaturesEncountered.add(signature);
+            deduplicatedSchedule.push(entry); 
+        }
+    });
+
+    const removedCount = initialCount - deduplicatedSchedule.length;
+
+    if (removedCount === 0) {
+        alert("No duplicate entries found based on the criteria (StopID, Line, Time, Profile, DayOffset, Destination).");
+        if (removeDuplicatesStatusMessage) {
+            removeDuplicatesStatusMessage.textContent = "No duplicates found.";
+            removeDuplicatesStatusMessage.style.color = ""; 
+        }
+        return;
+    }
+
+    if (confirm(`Found ${removedCount} duplicate schedule entries. Are you sure you want to remove them, keeping only the first occurrence of each?`)) {
+        currentWorkingSchedule = deduplicatedSchedule;
+        if (removeDuplicatesStatusMessage) {
+            removeDuplicatesStatusMessage.textContent = `${removedCount} duplicate entries removed. Working schedule updated.`;
+            removeDuplicatesStatusMessage.style.color = '#2ecc71'; 
+        }
+        alert(`${removedCount} duplicate entries removed.`);
+        renderUIDependentElements(); 
+        detectDuplicateEntries(); 
+    } else {
+        if (removeDuplicatesStatusMessage) {
+            removeDuplicatesStatusMessage.textContent = "Operation cancelled by user.";
+            removeDuplicatesStatusMessage.style.color = '#f1c40f'; 
         }
     }
 }
@@ -2539,8 +2612,7 @@ function displayRoutesServingSelectedStop_SM() {
 }
 
 // --- START: Functions for "Add/Remove Stop Details" section ---
-// Global function, accessible by both gen_suggestRandomStopId and handleSuggestStopId_ARS
-function generateUniqueStopId(format) {
+function generateUniqueStopId(format) { // Ensure this is globally accessible
     const existingStopIDs = new Set(currentWorkingSchedule.map(entry => entry.stopID.toUpperCase()));
     let nextId = "";
     let currentNum = 0;
@@ -2795,6 +2867,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if(detectDuplicatesButton) detectDuplicatesButton.addEventListener('click', detectDuplicateEntries);
+    if(removeDuplicateEntriesButton) removeDuplicateEntriesButton.addEventListener('click', handleRemoveDuplicateEntries);
+
 
     const inputNewStopId_ARS_El = document.getElementById('inputNewStopId_ARS');
     const newStopIdAvailability_ARS_El = document.getElementById('newStopIdAvailability_ARS');
@@ -2865,6 +2939,7 @@ document.addEventListener('DOMContentLoaded', () => {
                  if(addNewStopStatus_ARS) addNewStopStatus_ARS.textContent = '';
                  if(newStopIdAvailability_ARS_El) newStopIdAvailability_ARS_El.textContent = '';
                  if(removeStopStatus_ARS) removeStopStatus_ARS.textContent = '';
+                 if(removeDuplicatesStatusMessage) removeDuplicatesStatusMessage.textContent = '';
             }
         });
 
@@ -2933,13 +3008,7 @@ document.addEventListener('DOMContentLoaded', () => {
         buttonRemoveStop_ARS.addEventListener('click', handleRemoveStop_ARS);
     }
     
-    // Remove obsolete listeners for old "Add Stop with Route Times" section
-    // const oldButtonSuggestStopId = document.getElementById('buttonSuggestStopId'); // Original ID
-    // const oldButtonAddStopWithOffsetTimes = document.getElementById('buttonAddStopWithOffsetTimes'); // Original ID
-    // const oldSelectStopIdFormatRouteTimes = document.getElementById('selectStopIdFormatRouteTimes'); // Original ID
-    // These elements should no longer exist if HTML was updated correctly. If they do, their listeners might still fire.
-    // For cleanliness, ensure these elements are removed from HTML or their listeners are not added.
-    // The current setup should be fine if the old HTML for these elements was indeed removed.
+    // Removed obsolete listeners for elements that no longer exist (from old "Add Stop with Route Times")
 
 
     fetchBankHolidaysForSetup(); 

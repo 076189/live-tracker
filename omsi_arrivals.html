@@ -655,10 +655,6 @@
                     const todayCodes = getCodesForCalendarDay(todayCalDate).map(c=>c.toLowerCase());
                     let matchReason = "No specific day match determined initially"; 
 
-                    // Debug logs are commented out but can be re-enabled for troubleshooting
-                    // if (bus.OperatingProfile && (bus.OperatingProfile.toUpperCase() === "MF" || bus.OperatingProfile.toUpperCase() === "MO-FR") && dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() < earlyMorningThresholdHours) { /* console.logs */ }
-                    // if (bus.lineName === "YOUR_TARGET_LINE" && bus.scheduledTime === "YOUR_TARGET_TIME" && bus.stopID === currentSelectedStopID) { /* console.log */ }
-
                     if (dayOffsetFromFile > 0 && hrs >=0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() < earlyMorningThresholdHours) {
                         const yesterdayCalDate = new Date(nowForProcessing);
                         yesterdayCalDate.setDate(nowForProcessing.getDate() - 1);
@@ -814,7 +810,7 @@
 
                     const destinationSpan = document.createElement('span');
                     destinationSpan.className = 'bus-item-destination';
-                    destinationSpan.title = sanitize(busToDisplayInThisSlot.destinationName); // Title still sanitized
+                    destinationSpan.title = sanitize(busToDisplayInThisSlot.destinationName); 
                     destinationSpan.textContent = busToDisplayInThisSlot.destinationName; 
                     li.appendChild(destinationSpan);
 
@@ -905,7 +901,7 @@
                          const errorHeader = document.createElement('div');
                          errorHeader.className = 'main-stop-name-line';
                          errorHeader.style.textAlign = 'center';
-                         errorHeader.textContent = 'No Stops Available'; // Use textContent
+                         errorHeader.textContent = 'No Stops Available'; 
                          stopInfoArea.innerHTML = ''; 
                          stopInfoArea.appendChild(errorHeader);
                     }
@@ -921,9 +917,14 @@
 
             const liveScheduleRef = dbRef(database, '/liveSchedule/allScheduledBusData');
             dbOnValue(liveScheduleRef, (snapshot) => {
+                console.log("[ARRIVALS DEBUG] Live schedule data updated from Firebase.");
                 allScheduledData = snapshot.exists() && Array.isArray(snapshot.val()) ? snapshot.val() : [];
-                if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') updateAndDisplayLiveArrivals();
-                else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
+                if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
+                    // MODIFIED LINE: Call selectStop to re-render tiles and arrivals
+                    selectStop(currentSelectedStopID); 
+                } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
+                    displaySystemUpdateMessage();
+                }
             });
 
             const liveStopsRef = dbRef(database, '/liveSchedule/uniqueBusStops');
@@ -954,7 +955,8 @@
                         currentScheduleStatus = newStatus;
                         if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
                         else if (currentSelectedStopID) {
-                            updateAndDisplayLiveArrivals(); 
+                            // Call selectStop here as well if status change might affect routes/tiles
+                            selectStop(currentSelectedStopID); 
                         }
                     }
                     const fbClosedStops = appState.closedStopIDs || {};
@@ -970,7 +972,7 @@
                 } else { 
                     currentScheduleStatus = 'idle'; 
                     closedStopIDsGlobal = [];
-                     if (currentSelectedStopID) updateAndDisplayLiveArrivals(); 
+                     if (currentSelectedStopID) selectStop(currentSelectedStopID);  // Update display if appState cleared
                 }
             });
 
@@ -1036,7 +1038,6 @@
             const newBusStopHeader = document.createElement('div');
             newBusStopHeader.id = 'bus-stop-header'; 
             newBusStopHeader.title = 'Click to change stop';
-            // Applying styles consistent with your #bus-stop-header CSS
             newBusStopHeader.style.display = 'flex';
             newBusStopHeader.style.flexDirection = 'column';
             newBusStopHeader.style.alignItems = 'center';
@@ -1060,26 +1061,25 @@
             
             const mainNameLineDiv = document.createElement('div');
             mainNameLineDiv.className = 'main-stop-name-line';
-            mainNameLineDiv.textContent = mainNamePart; // Use raw text directly
+            mainNameLineDiv.textContent = mainNamePart; 
             newBusStopHeader.appendChild(mainNameLineDiv);
 
             if (qualifierPart && qualifierPart !== "") { 
                 const qElem = document.createElement('div'); 
                 qElem.className = 'stop-name-qualifier'; 
-                qElem.textContent = qualifierPart; // Use raw text directly
+                qElem.textContent = qualifierPart; 
                 newBusStopHeader.appendChild(qElem); 
             }
             
             const newBusStopDirection = document.createElement('p');
             newBusStopDirection.id = 'bus-stop-direction';
-            // Apply styles to newBusStopDirection from your CSS for #bus-stop-direction
             newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)';
             newBusStopDirection.style.fontWeight = 'normal';
             newBusStopDirection.style.textAlign = 'center';
             newBusStopDirection.style.opacity = '0.75';
             newBusStopDirection.style.marginTop = '0.25rem';
             newBusStopDirection.style.minHeight = '1.2em';
-            newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; // Use raw text directly
+            newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; 
             
             if(stopInfoArea) {
                  stopInfoArea.appendChild(newBusStopHeader);
@@ -1099,7 +1099,7 @@
                 sortedServingRoutes.forEach(lineName => {
                     const tile = document.createElement('span');
                     tile.className = 'route-tile';
-                    tile.textContent = lineName; // Use raw text directly
+                    tile.textContent = lineName; 
                     let tileBGColour = getRouteTileColour(lineName); 
                     let tileTextColour = getTextColourForBackground(tileBGColour);
                     tile.style.backgroundColor = tileBGColour;
@@ -1113,9 +1113,9 @@
                 circleElement.className = 'stop-letter-circle';
                 
                 const letterSpan = document.createElement('span');
-                letterSpan.textContent = stopLetters; // Use raw text
+                letterSpan.textContent = stopLetters; 
                 
-                circleElement.appendChild(letterSpan); // **** IMPORTANT FIX: Append letter to circle ****
+                circleElement.appendChild(letterSpan); 
                 circleElement.style.alignItems = 'center'; 
                 circleElement.style.justifyContent = 'center';
                 
@@ -1136,7 +1136,7 @@
 
                     const lCount=(stopLetters || "").length;
                     if(lCount===0) {
-                        letterSpan.textContent = ''; // Ensure it's empty if no letters
+                        letterSpan.textContent = ''; 
                         return; 
                     }
                     
@@ -1163,7 +1163,7 @@
                     } while(iter<50 && curSize>MIN_FS);
                     
                     letterSpan.style.fontSize=curSize+"px";
-                    letterSpan.style.lineHeight = circDiam + 'px'; // Helps with vertical centering
+                    letterSpan.style.lineHeight = circDiam + 'px'; 
                 });
             } else { 
                 if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; 
@@ -1208,7 +1208,6 @@
                 if(busListElement) busListElement.innerHTML = `<li class="error-message">Error: Firebase not connected.</li>`;
             }
 
-            // The #stop-info-area's child #bus-stop-header gets its click listener in selectStop()
             if (closeStopModalButton) closeStopModalButton.addEventListener('click', closeStopSelectionModal);
             if (stopSelectionModalOverlay) stopSelectionModalOverlay.addEventListener('click', e => { if (e.target === stopSelectionModalOverlay) closeStopSelectionModal(); });
             if (stopSearchInput) stopSearchInput.addEventListener('input', filterStopList);

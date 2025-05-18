@@ -17,7 +17,7 @@
         /* Global and Body Styles */
         @font-face {
             font-family: 'NJFont Medium Web';
-            src: url('fonts/NJFont-Medium.ttf') format('truetype');
+            src: url('fonts/NJFont-Medium.ttf') format('truetype'); /* Relative path, should be fine */
             font-weight: normal;
             font-style: normal;
             font-display: swap;
@@ -85,25 +85,25 @@
         }
         #stop-letter-display .stop-letter-circle {
             display: inline-flex;
-            align-items: center;
-            justify-content: center;
+            align-items: center;     /* ADDED for vertical centering of letterSpan */
+            justify-content: center; /* ADDED for horizontal centering of letterSpan */
             background-color: red;
             color: white;
             border-radius: 50%;
             font-weight: bold;
-            font-size: 1.25rem; 
-            width: 1.6em;
-            height: 1.6em;
-            line-height: 1;
+            font-size: 1.25rem; /* Base size for the circle itself */
+            width: 1.6em;       /* Width of circle relative to its font-size */
+            height: 1.6em;      /* Height of circle relative to its font-size */
+            line-height: 1;     /* Helps if letterSpan was direct child of this for line-height */
             box-sizing: border-box;
             overflow: hidden;
         }
-        #stop-letter-display .stop-letter-circle > span {
+        #stop-letter-display .stop-letter-circle > span { /* Styling for the inner letterSpan */
             display: block;
-            line-height: 1;
+            line-height: 1; /* Will be overridden by JS for precise centering */
             white-space: nowrap;
             text-align: center;
-            padding: 0.05em;
+            padding: 0.05em; /* Minimal padding, sizing mostly by JS */
         }
         
         #stop-info-area {
@@ -183,7 +183,7 @@
             padding: 0.25em 0.6em;  
             margin: 0.25em;         
             border-radius: 0.25rem;
-            font-size: 1rem; /* Base size, will adjust for mobile */
+            font-size: 1rem;     
             font-weight: normal; 
             color: white;
             text-align: center;
@@ -226,6 +226,7 @@
             padding-right: 0 !important;
             padding-top: 0.5rem !important;
             padding-bottom: 0.5rem !important;
+            /* border-bottom: 1px solid rgba(255, 255, 255, 0.1); */ 
             font-size: clamp(0.85rem, 3.2vmin, 1.05rem);
         }
         #bus-list li:last-child {
@@ -431,10 +432,10 @@
                 padding-bottom: 0.3rem !important; 
             }
 
-            #tfl-logo { /* Example: hide or resize logo on small screens */
+            #tfl-logo { 
                 width: 100px;
-                bottom: 10px;
-                right: 10px;
+                bottom: 10px !important; /* Ensures this overrides general !important */
+                right: 10px !important;  /* Ensures this overrides general !important */
             }
             #disclaimer-button {
                 bottom: 10px;
@@ -465,7 +466,7 @@
             #clock-container {
                 margin-top: 0;
                 padding-top: 0.5rem;
-                margin-bottom: 1rem; /* This was 0.5rem, then 1rem. Let's check the new one. */
+                margin-bottom: 1rem; 
             }
             #clock-time { font-size: 15vmin; } /* Further reduce if needed */
             #clock-date { font-size: clamp(0.9rem, 4vmin, 1.2rem); margin-top: -0.25rem; }
@@ -557,7 +558,7 @@
       import { getDatabase, ref, onValue, get, child } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
 
       const firebaseConfig = {
-        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // Replace with your actual API key if this is a placeholder
         authDomain: "omsi-c5505.firebaseapp.com",
         databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app",
         projectId: "omsi-c5505",
@@ -581,7 +582,6 @@
     </script>
 
     <script>
-        // ... your JavaScript remains the same ...
         console.log("TEST SCRIPT ALIVE: Main script block started at " + new Date().toLocaleTimeString()); 
 
         let clockTimeElement, clockDateElement, busListElement, 
@@ -704,19 +704,23 @@
             const upperLineName = String(lineName || "").toUpperCase();
             const currentStopId = currentSelectedStopID;
 
+            // 1. Check for stop-specific override
             if (currentStopId && stopSpecificRouteColours && 
                 stopSpecificRouteColours[currentStopId] && 
                 stopSpecificRouteColours[currentStopId][upperLineName]) {
                 return stopSpecificRouteColours[currentStopId][upperLineName];
             }
 
+            // 2. Check global custom colours (which has initial defaults merged in)
             if (globalCustomRouteColours[upperLineName]) {
                 return globalCustomRouteColours[upperLineName];
             }
             
+            // 3. Specific fallback for N* and SL* generic types if not in globalCustomRouteColours already
             if (upperLineName.startsWith("N")) return globalCustomRouteColours["N5"] || DEFAULT_ROUTE_COLOUR;
             if (upperLineName.startsWith("SL")) return globalCustomRouteColours["SL1"] || DEFAULT_ROUTE_COLOUR;
             
+            // 4. Final hardcoded default
             return DEFAULT_ROUTE_COLOUR;
         }
 
@@ -978,6 +982,7 @@
             const { database, dbGet, dbChild, dbRef } = window.firebaseOMSI;
 
             try {
+                // Fetch App State (Status and Closed Stops)
                 const appStateSnapshot = await dbGet(dbChild(dbRef(database), '/appState'));
                 if (appStateSnapshot.exists()) {
                     const appState = appStateSnapshot.val();
@@ -991,19 +996,23 @@
                     currentScheduleStatus = 'idle'; 
                 }
 
+                // Fetch Live Schedule Data
                 const scheduleSnapshot = await dbGet(dbChild(dbRef(database), '/liveSchedule/allScheduledBusData'));
                 allScheduledData = scheduleSnapshot.exists() && Array.isArray(scheduleSnapshot.val()) ? scheduleSnapshot.val() : [];
 
+                // Fetch Unique Stops
                 const stopsSnapshot = await dbGet(dbChild(dbRef(database), '/liveSchedule/uniqueBusStops'));
                 uniqueStops = stopsSnapshot.exists() && Array.isArray(stopsSnapshot.val()) ? stopsSnapshot.val() : [];
 
+                // Fetch Global Custom Route Colours
                 const customColoursSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_CUSTOM_COLOURS));
-                globalCustomRouteColours = { ...initialRouteColourMap }; 
+                globalCustomRouteColours = { ...initialRouteColourMap }; // Start with initial defaults
                 if (customColoursSnapshot.exists()) {
                     const fbCustomColours = customColoursSnapshot.val();
                     for (const route in fbCustomColours) { globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route]; }
                 }
                 
+                // Fetch Stop-Specific Route Colours (NEW)
                 const stopSpecificSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS));
                 if (stopSpecificSnapshot.exists()) {
                     stopSpecificRouteColours = stopSpecificSnapshot.val();
@@ -1043,7 +1052,7 @@
                 console.log("[ARRIVALS DEBUG] Live schedule data updated from Firebase.");
                 allScheduledData = snapshot.exists() && Array.isArray(snapshot.val()) ? snapshot.val() : [];
                 if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
-                    selectStop(currentSelectedStopID); 
+                    selectStop(currentSelectedStopID); // Refresh tiles and arrivals
                 } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
                     displaySystemUpdateMessage();
                 }
@@ -1097,19 +1106,20 @@
                 }
             });
 
-            const globalCustomColoursRef = dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS); 
+            const globalCustomColoursRef = dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS); // Global
             dbOnValue(globalCustomColoursRef, (snapshot) => {
                 globalCustomRouteColours = { ...initialRouteColourMap };
                 if (snapshot.exists()) { const fbCols = snapshot.val(); for (const r in fbCols) globalCustomRouteColours[r.toUpperCase()] = fbCols[r];}
                 if (currentSelectedStopID) selectStop(currentSelectedStopID); 
             });
 
+            // NEW Listener for stop-specific colours
             const stopSpecificColoursRef = dbRef(database, FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS);
             dbOnValue(stopSpecificColoursRef, (snapshot) => {
                 console.log("[ARRIVALS DEBUG] Stop-specific route colours updated from Firebase.");
                 stopSpecificRouteColours = snapshot.exists() ? snapshot.val() : {};
                 if (currentSelectedStopID) {
-                    selectStop(currentSelectedStopID); 
+                    selectStop(currentSelectedStopID); // Re-render tiles and arrivals
                 }
             });
         }
@@ -1202,11 +1212,11 @@
             
             const newBusStopDirection = document.createElement('p');
             newBusStopDirection.id = 'bus-stop-direction';
-            newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)';
+            newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; // This is general, media query will override for smaller screens
             newBusStopDirection.style.fontWeight = 'normal';
             newBusStopDirection.style.textAlign = 'center';
             newBusStopDirection.style.opacity = '0.75';
-            newBusStopDirection.style.marginTop = '0.25rem';
+            newBusStopDirection.style.marginTop = '0.25rem'; // This is general, media query will override
             newBusStopDirection.style.minHeight = '1.2em';
             newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; 
             
@@ -1269,30 +1279,31 @@
                         return; 
                     }
                     
-                    const MIN_FS=6;
+                    const MIN_FS=6; // Minimum font size
                     let curSize, tgtWidth;
 
-                    if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;}
-                    else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;}
-                    else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;}
+                    // Initial guesses for font size based on character count and circle diameter
+                    if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;} // Target width for one letter
+                    else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;}// Target width for two letters
+                    else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;} // Target width for three letters
                     
-                    curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); 
+                    curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); // Clamp initial size
 
                     let iter=0;
                     let txtMeasW;
-                    do{
+                    do{ // Iteratively reduce font size until text fits
                         letterSpan.style.fontSize=curSize+"px";
                         txtMeasW=getTextWidth(stopLetters,`bold ${curSize}px "${getComputedStyle(letterSpan).fontFamily}"`);
-                        if(txtMeasW > tgtWidth && curSize > MIN_FS) {
-                            curSize -= 0.5;
+                        if(txtMeasW > tgtWidth && curSize > MIN_FS) { // If text is too wide and size > min
+                            curSize -= 0.5; // Reduce font size
                         } else {
-                            break;
+                            break; // Fits or min size reached
                         }
                         iter++;
-                    } while(iter<50 && curSize>MIN_FS);
+                    } while(iter<50 && curSize>MIN_FS); // Max iterations and min font size guard
                     
-                    letterSpan.style.fontSize=curSize+"px";
-                    letterSpan.style.lineHeight = circDiam + 'px'; 
+                    letterSpan.style.fontSize=curSize+"px"; // Apply final font size
+                    letterSpan.style.lineHeight = circDiam + 'px'; // Vertically center using line-height trick
                 });
             } else { 
                 if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; 
@@ -1330,6 +1341,7 @@
             if (window.firebaseOMSI && window.firebaseOMSI.database) {
                 fetchBankHolidays().then(() => loadInitialData()).catch((err) => {
                     console.error("Error during initial data load sequence:", err);
+                    // Attempt to load data even if bank holidays fetch fails, as it might not be critical
                     loadInitialData(); 
                 });
             } else {
@@ -1337,8 +1349,8 @@
                 if(busListElement) busListElement.innerHTML = `<li class="error-message">Error: Firebase not connected.</li>`;
             }
 
-            const stopInfoHeader = document.getElementById('stop-info-area'); 
-            if (stopInfoHeader) stopInfoHeader.addEventListener('click', openStopSelectionModal); 
+            const stopInfoHeader = document.getElementById('stop-info-area'); // Target the container
+            if (stopInfoHeader) stopInfoHeader.addEventListener('click', openStopSelectionModal); // Attach to container
 
             if (closeStopModalButton) closeStopModalButton.addEventListener('click', closeStopSelectionModal);
             if (stopSelectionModalOverlay) stopSelectionModalOverlay.addEventListener('click', e => { if (e.target === stopSelectionModalOverlay) closeStopSelectionModal(); });
@@ -1347,9 +1359,10 @@
             if (disclaimerModalCloseButton) disclaimerModalCloseButton.addEventListener('click', closeDisclaimerModal);
             if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.addEventListener('click', e => { if (e.target === disclaimerModalOverlayElement) closeDisclaimerModal(); });
             
+            // Service Worker Registration
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('/live-tracker/sw-omsi.js') 
+                    navigator.serviceWorker.register('/live-tracker/sw-omsi.js') // Ensure this path is correct
                     .then(registration => {
                         console.log('Service Worker (sw-omsi.js) registered successfully with scope:', registration.scope);
                     })

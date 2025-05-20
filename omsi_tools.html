@@ -843,22 +843,30 @@
             </div>
 
             <div id="operating-profiles-section" class="tool-content-section section">
-                <h2>Unique Operating Profiles Viewer</h2>
-                <p style="opacity:0.8; margin-bottom:1.5rem; font-size:0.9em;">
-                    This tool lists all unique "OperatingProfile" strings currently found in your working schedule.
-                    This can help you see all the different day types or conditions your schedule caters to.
-                </p>
+    <h2>Unique Operating Profiles Viewer</h2>
+    <p style="opacity:0.8; margin-bottom:1.5rem; font-size:0.9em;">
+        This tool lists all unique "OperatingProfile" strings currently found in your working schedule.
+        Below that is a reference list of all conventionally defined profile strings.
+    </p>
 
-                <div class="subsection">
-                    <h3 class="subsection-title">Discovered Operating Profiles</h3>
-                    <button id="refreshOperatingProfilesButton" class="button" style="margin-bottom: 1rem;">Refresh List</button>
-                    <p id="operatingProfilesStatusMessage" style="min-height:1.2em; margin-bottom: 0.75rem; font-style: italic;"></p>
-                    <div id="uniqueOperatingProfilesListContainer" style="border: 1px solid #4A5568; border-radius: 0.25rem; padding: 0.75rem; margin-top: 1rem; max-height: 400px; overflow-y: auto; background-color: rgba(0,0,0,0.05);">
-                        <ul id="uniqueOperatingProfilesUL" style="list-style: disc; padding-left: 20px;">
-                        </ul>
-                    </div>
-                </div>
-            </div>
+    <div class="subsection">
+        <h3 class="subsection-title">Discovered Operating Profiles (from current data)</h3>
+        <button id="refreshOperatingProfilesButton" class="button" style="margin-bottom: 1rem;">Refresh Lists</button>
+        <p id="operatingProfilesStatusMessage" style="min-height:1.2em; margin-bottom: 0.75rem; font-style: italic;"></p>
+        <div id="uniqueOperatingProfilesListContainer" style="border: 1px solid #4A5568; border-radius: 0.25rem; padding: 0.75rem; margin-top: 1rem; max-height: 300px; overflow-y: auto; background-color: rgba(0,0,0,0.05);">
+            <ul id="uniqueOperatingProfilesUL" style="list-style: disc; padding-left: 20px;">
+                </ul>
+        </div>
+    </div>
+
+    <div class="subsection" style="margin-top: 2rem;">
+        <h3 class="subsection-title">Reference List of All Profile Strings</h3>
+        <div id="referenceOperatingProfilesListContainer" style="border: 1px solid #4A5568; border-radius: 0.25rem; padding: 0.75rem; margin-top: 1rem; background-color: rgba(0,0,0,0.05);">
+            <ul id="referenceOperatingProfilesUL" style="list-style: disc; padding-left: 20px;">
+                </ul>
+        </div>
+    </div>
+</div>
 
             <div id="bulk-edit-tools-section" class="tool-content-section">
                 <div class="section bulk-edit-route-destination">
@@ -1562,6 +1570,72 @@ function displayUniqueOperatingProfiles() {
     }
 }
 
+function displayReferenceOperatingProfiles() {
+    const referenceProfilesUL = document.getElementById('referenceOperatingProfilesUL');
+    if (!referenceProfilesUL) {
+        console.warn("Reference Operating Profiles UL element not found.");
+        return;
+    }
+
+    // This is the comprehensive sample list we curated (without Good Friday, Bank Hol, etc. as per last request)
+    const sampleReferenceScheduleData = [
+        { "OperatingProfile": "MF" }, 
+        { "OperatingProfile": "MFSch" },
+        { "OperatingProfile": "MFNSD" },
+        { "OperatingProfile": "Mo" },
+        { "OperatingProfile": "MoSch" },
+        { "OperatingProfile": "MoNSD" },
+        { "OperatingProfile": "Tu" },
+        { "OperatingProfile": "TuSch" },
+        { "OperatingProfile": "TuNSD" },
+        { "OperatingProfile": "We" },
+        { "OperatingProfile": "WeSch" },
+        { "OperatingProfile": "WeNSD" },
+        { "OperatingProfile": "Th" },
+        { "OperatingProfile": "ThSch" },
+        { "OperatingProfile": "ThNSD" },
+        { "OperatingProfile": "Fr" },
+        { "OperatingProfile": "FrSch" },
+        { "OperatingProfile": "FrNSD" },
+        { "OperatingProfile": "Sa" },
+        { "OperatingProfile": "Su" },
+        { "OperatingProfile": "Christmas Day" },
+        { "OperatingProfile": "Boxing Day" },
+        { "OperatingProfile": "New Year's Day" },
+        // Add duplicates to ensure Set logic works correctly for this static list too
+        { "OperatingProfile": "MF" }, 
+        { "OperatingProfile": "MoSch" } 
+    ];
+
+    const profileStrings = new Set();
+    sampleReferenceScheduleData.forEach(entry => {
+        if (entry.OperatingProfile && typeof entry.OperatingProfile === 'string' && entry.OperatingProfile.trim() !== '') {
+            profileStrings.add(entry.OperatingProfile.trim());
+        }
+    });
+
+    // Ensure getDaySortOrder is the one we refined previously for correct sorting
+    const sortedProfiles = Array.from(profileStrings).sort((a, b) => {
+        const orderA = getDaySortOrder(a); 
+        const orderB = getDaySortOrder(b);
+        if (orderA !== orderB) {
+            return orderA - orderB;
+        }
+        return String(a).toLowerCase().localeCompare(String(b).toLowerCase());
+    });
+
+    referenceProfilesUL.innerHTML = ''; // Clear previous list items
+    if (sortedProfiles.length > 0) {
+        sortedProfiles.forEach(profile => {
+            const li = document.createElement('li');
+            li.textContent = profile;
+            referenceProfilesUL.appendChild(li);
+        });
+    } else {
+        referenceProfilesUL.innerHTML = '<li>No reference profiles defined in the sample list.</li>';
+    }
+}
+
 function gen_populateRouteSelect() {
     const routeSelectEl = document.getElementById('gen_routeSelect');
     if (!routeSelectEl) return;
@@ -2078,63 +2152,109 @@ function populate_tg_selectRoute() {
 }
 
 function populate_tg_selectDirection() {
-    if (!tg_selectRoute || !tg_selectDirection) return;
-    const selectedRoute = tg_selectRoute.value;
-    const currentVal = tg_selectDirection.value;
-
-    tg_selectDirection.innerHTML = '<option value="">-- Select Direction --</option>';
-    // Reset timetable display when route changes or direction needs repopulating
-    if (tg_timetableTableBody) tg_timetableTableBody.innerHTML = '';
-    if (tg_timetablePlaceholder) {
-        tg_timetablePlaceholder.textContent = 'Select a direction to view timetable.';
-        tg_timetablePlaceholder.style.display = 'block';
+    if (!tg_selectRoute || !tg_selectDirection) {
+        console.error("populate_tg_selectDirection: Crucial select elements missing.");
+        return;
     }
-    if (tg_statusMessage) tg_statusMessage.textContent = '';
+    const selectedRoute = tg_selectRoute.value;
+    const previouslySelectedDirection = tg_selectDirection.value;
 
+    tg_selectDirection.innerHTML = ''; 
+
+    const defaultPromptOption = document.createElement('option');
+    defaultPromptOption.value = "";
 
     if (!selectedRoute) {
-        tg_selectDirection.innerHTML = '<option value="">-- Select Route First --</option>';
+        defaultPromptOption.textContent = "-- Select Route First --";
+        tg_selectDirection.appendChild(defaultPromptOption);
+        tg_selectDirection.dispatchEvent(new Event('change'));
         return;
     }
 
     if (!currentWorkingSchedule || currentWorkingSchedule.length === 0) {
-        tg_selectDirection.innerHTML = '<option value="">-- No Schedule Data --</option>';
+        defaultPromptOption.textContent = "-- No Schedule Data --";
+        tg_selectDirection.appendChild(defaultPromptOption);
+        tg_selectDirection.dispatchEvent(new Event('change'));
         return;
     }
 
-    const relevantEntries = currentWorkingSchedule.filter(e =>
+    const routeEntries = currentWorkingSchedule.filter(e =>
         e.lineName === selectedRoute && e.destinationName
     );
+    const uniqueDestinationNames = [...new Set(routeEntries.map(e => e.destinationName))].filter(Boolean);
 
-    const uniqueDestinations = [...new Set(relevantEntries.map(e => e.destinationName))]
-        .filter(Boolean) // Remove any undefined or empty destinationNames
-        .sort((a, b) => String(a || "").toLowerCase().localeCompare(String(b || "").toLowerCase()));
+    if (uniqueDestinationNames.length === 0) {
+        defaultPromptOption.textContent = `-- No Destinations for Route ${selectedRoute} --`;
+        tg_selectDirection.appendChild(defaultPromptOption);
+        tg_selectDirection.dispatchEvent(new Event('change'));
+        return;
+    }
 
-    if (uniqueDestinations.length === 0) {
-        tg_selectDirection.innerHTML = `<option value="">-- No Destinations for Route ${selectedRoute} --</option>`;
+    let endToEndDestinationsForDropdown = [];
+
+    if (uniqueDestinationNames.length > 0) {
+        const destSignificance = uniqueDestinationNames.map(destName => {
+            const entriesForThisDest = routeEntries.filter(e => e.destinationName === destName);
+            const uniqueStopsForThisDest = new Set(entriesForThisDest.map(e => e.stopID));
+            return { name: destName, stopCount: uniqueStopsForThisDest.size };
+        }).sort((a, b) => { 
+            if (b.stopCount !== a.stopCount) return b.stopCount - a.stopCount;
+            return String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase());
+        });
+
+        if (destSignificance.length > 0) {
+            endToEndDestinationsForDropdown.push(destSignificance[0].name);
+        }
+        if (destSignificance.length > 1) {
+            if (!endToEndDestinationsForDropdown.includes(destSignificance[1].name)) {
+                endToEndDestinationsForDropdown.push(destSignificance[1].name);
+            }
+        }
+        endToEndDestinationsForDropdown.sort((a,b) => String(a).toLowerCase().localeCompare(String(b).toLowerCase()));
+    }
+    
+    console.log(`TG_DEBUG (populate_tg_selectDirection): Identified end-to-end for dropdown for route '${selectedRoute}':`, JSON.stringify(endToEndDestinationsForDropdown));
+
+    if (endToEndDestinationsForDropdown.length === 0) {
+        defaultPromptOption.textContent = `-- No End-to-End Destinations Identified --`;
+        tg_selectDirection.appendChild(defaultPromptOption);
     } else {
-        uniqueDestinations.forEach(destName => {
+        if (endToEndDestinationsForDropdown.length > 1 || 
+            (endToEndDestinationsForDropdown.length === 1 && endToEndDestinationsForDropdown[0] !== previouslySelectedDirection && previouslySelectedDirection === "")) {
+            defaultPromptOption.textContent = "-- Select End-to-End Direction --";
+            tg_selectDirection.appendChild(defaultPromptOption);
+        }
+        endToEndDestinationsForDropdown.forEach(destName => {
             const opt = document.createElement('option');
             opt.value = destName;
             opt.textContent = destName;
             tg_selectDirection.appendChild(opt);
         });
-        if (uniqueDestinations.includes(currentVal)) {
-            tg_selectDirection.value = currentVal;
-        }
     }
-    // Trigger change to display timetable if a direction was re-selected or is now valid
+
+    if (endToEndDestinationsForDropdown.includes(previouslySelectedDirection)) {
+        tg_selectDirection.value = previouslySelectedDirection;
+    } else if (endToEndDestinationsForDropdown.length > 0 && tg_selectDirection.options.length > endToEndDestinationsForDropdown.length) {
+         tg_selectDirection.value = ""; 
+    } else if (endToEndDestinationsForDropdown.length === 1 && !tg_selectDirection.value) {
+        tg_selectDirection.value = endToEndDestinationsForDropdown[0];
+    }
+    
     tg_selectDirection.dispatchEvent(new Event('change'));
 }
 
 function display_tg_Timetable() {
+    console.log("--- display_tg_Timetable START (v7 Data-Aware Curtailment Logic) ---");
+
+    // ... (initial checks for UI elements as before)
     if (!tg_selectRoute || !tg_selectDirection || !tg_timetableTableBody || !tg_timetablePlaceholder || !tg_statusMessage) {
-        console.error("Timetable Generator UI elements missing.");
-        return;
+        console.error("Timetable Generator UI elements missing. Exiting."); return;
     }
 
     const selectedRoute = tg_selectRoute.value;
-    const mainSelectedDestination = tg_selectDirection.value; // The destination chosen by the user
+    const mainFocusDestination = tg_selectDirection.value; 
+
+    console.log(`TG_DEBUG: Selected Route: '${selectedRoute}', Main Focus Destination: '${mainFocusDestination}'`);
 
     const table = document.getElementById('tg_timetableTable');
     const thead = table ? table.getElementsByTagName('thead')[0] : null;
@@ -2143,96 +2263,139 @@ function display_tg_Timetable() {
     if (thead) thead.innerHTML = '';
     if (tbody) tbody.innerHTML = '';
 
-    if (!selectedRoute || !mainSelectedDestination) {
+    if (!selectedRoute || !mainFocusDestination) {
+        // ... (handle no route/destination selected as before)
         if (tg_timetablePlaceholder) {
-            tg_timetablePlaceholder.textContent = "Select a route and a primary direction to view timetable.";
+            tg_timetablePlaceholder.textContent = 'Select a route and direction to view timetable.';
             tg_timetablePlaceholder.style.display = 'block';
         }
         if (tg_statusMessage) tg_statusMessage.textContent = "";
         if (table) table.style.display = 'none';
-        return;
+        console.log("--- display_tg_Timetable END (no route/main dest chosen) ---"); return;
     }
 
     if (table) table.style.display = '';
     if (tg_timetablePlaceholder) tg_timetablePlaceholder.style.display = 'none';
 
     const allRouteEntries = currentWorkingSchedule.filter(entry =>
-        entry.lineName === selectedRoute && entry.destinationName
+        entry.lineName === selectedRoute && entry.destinationName 
     );
+    console.log(`TG_DEBUG: Fetched ${allRouteEntries.length} total entries for route '${selectedRoute}'.`);
 
-    if (allRouteEntries.length === 0) { /* ... (handle no entries for route) ... */ return; }
-
-    // --- New Filtering Logic ---
-    // 1. Calculate stop count for the mainSelectedDestination
-    let mainDestStopCount = 0;
-    const entriesForMainDest = allRouteEntries.filter(e => e.destinationName === mainSelectedDestination);
-    if (entriesForMainDest.length > 0) {
-        mainDestStopCount = new Set(entriesForMainDest.map(e => e.stopID)).size;
-    } else {
-        // If mainSelectedDestination has no trips (e.g. data issue or it's a conceptual destination not in trips)
-        // This strategy will be less effective. For now, assume it has trips.
-        // As a fallback, find its significance if it were among all destinations.
-        const mainDestInfo = uniqueDestinationsOnRoute.map(destName => { /* ... calc significance ... */ })
-                               .find(d => d.name === mainSelectedDestination);
-        if (mainDestInfo) mainDestStopCount = mainDestInfo.stopCount;
-    }
-
-
-    // 2. Filter allRouteEntries:
-    //    Keep trips to mainSelectedDestination.
-    //    Keep trips to other destinations ONLY IF they serve FEWER unique stops than mainSelectedDestination (curtailments).
-    const finalEntriesForTable = allRouteEntries.filter(entry => {
-        if (entry.destinationName === mainSelectedDestination) {
-            return true; // Always include the selected main destination trips
-        } else {
-            // For other destinations, calculate their stop count
-            const entriesForThisOtherDest = allRouteEntries.filter(e => e.destinationName === entry.destinationName);
-            const uniqueStopsForThisOtherDest = new Set(entriesForThisOtherDest.map(e => e.stopID));
-            const otherDestStopCount = uniqueStopsForThisOtherDest.size;
-
-            // Only include if this other destination serves strictly fewer stops than the main one
-            // This implies it's a curtailment.
-            // Add a small tolerance or a check that it's significantly less if needed.
-            // For example, allow if it's at least a few stops shorter.
-            // A simple rule: if it serves fewer stops, it's a candidate for a curtailment.
-            // If it serves same or more, it's likely an alternative full service or opposite direction.
-            if (mainDestStopCount === 0) { // If main destination has no trips/stops, hard to compare
-                return true; // Include by default, will be annotated
-            }
-            return otherDestStopCount < mainDestStopCount;
-        }
-    });
-    // --- End of New Filtering Logic ---
-
-
-    if (finalEntriesForTable.length === 0) {
-        if (tg_timetablePlaceholder) {
-            tg_timetablePlaceholder.textContent = `No services found for ${mainSelectedDestination} or its direct curtailments on route ${selectedRoute} (after filtering).`;
+    if (allRouteEntries.length === 0) {
+        // ... (handle no entries for route as before)
+         if (tg_timetablePlaceholder) {
+            tg_timetablePlaceholder.textContent = `No timetable entries found for route ${selectedRoute}.`;
             tg_timetablePlaceholder.style.display = 'block';
         }
         if (table) table.style.display = 'none';
         if (tg_statusMessage) tg_statusMessage.textContent = "";
+        console.log("--- display_tg_Timetable END (no entries initially for route) ---");
         return;
     }
-    
-    // The rest of the function (steps 4-9 from previous version) remains the same:
-    // - Get unique Operating Profiles from finalEntriesForTable for column headers
-    // - Determine stop order based on finalEntriesForTable
-    // - Prepare timetableData (Map<stopID, Map<profileKey, arrayOfTimeObjects>>) from finalEntriesForTable
-    // - Create Table Headers
-    // - Populate Table Body (using the same annotation logic for destinations different from mainSelectedDestination)
 
-    // 4. Get unique Operating Profiles from these final, filtered entries for column headers
+    // Calculate actualEndToEndDestinationsOnRoute consistently with how the dropdown is populated
+    let actualEndToEndDestinationsOnRoute = [];
+    const uniqueDestsForRoute = [...new Set(allRouteEntries.map(e => e.destinationName))].filter(Boolean);
+    if (uniqueDestsForRoute.length > 0) {
+        const destSignificance = uniqueDestsForRoute.map(dn => {
+            const entries = allRouteEntries.filter(e => e.destinationName === dn);
+            return { name: dn, stopCount: new Set(entries.map(e => e.stopID)).size };
+        }).sort((a, b) => {
+            if (b.stopCount !== a.stopCount) return b.stopCount - a.stopCount;
+            return String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase());
+        });
+        if (destSignificance.length > 0) actualEndToEndDestinationsOnRoute.push(destSignificance[0].name);
+        if (destSignificance.length > 1 && !actualEndToEndDestinationsOnRoute.includes(destSignificance[1].name)) {
+            actualEndToEndDestinationsOnRoute.push(destSignificance[1].name);
+        }
+    }
+    console.log(`TG_DEBUG (display_tg_Timetable): Identified actualEndToEndDestinationsOnRoute for filtering:`, JSON.stringify(actualEndToEndDestinationsOnRoute));
+
+    // Determine representativeDirectionText for the mainFocusDestination
+    let representativeDirectionText = "";
+    const mainFocusEntriesForDirectionText = allRouteEntries.filter(e => e.destinationName === mainFocusDestination);
+    if (mainFocusEntriesForDirectionText.length > 0) {
+        const directionCounts = mainFocusEntriesForDirectionText.reduce((acc, e) => {
+            if (e.direction) acc[e.direction] = (acc[e.direction] || 0) + 1;
+            return acc;
+        }, {});
+        let mostCommonDirection = "";
+        let maxCount = 0;
+        for (const dir in directionCounts) {
+            if (directionCounts[dir] > maxCount) {
+                mostCommonDirection = dir;
+                maxCount = directionCounts[dir];
+            }
+        }
+        representativeDirectionText = mostCommonDirection;
+    }
+    console.log(`TG_DEBUG: Representative Direction Text for '${mainFocusDestination}' is '${representativeDirectionText}'`);
+    if (!representativeDirectionText) {
+        console.warn(`TG_WARN: Could not determine a representative 'Direction' field for main focus destination: ${mainFocusDestination}. Curtailment filtering (Rule 3) will be ineffective if the 'Direction' field is expected to distinguish them.`);
+    }
+
+    // Filtering logic
+    const finalEntriesForTable = allRouteEntries.filter(entry => {
+        const entryDest = entry.destinationName;
+        const entryDirectionField = entry.direction;
+
+        // Rule 1: Always include trips explicitly to the mainFocusDestination
+        if (entryDest === mainFocusDestination) {
+            return true;
+        }
+
+        // Rule 2: Exclude trips that go to OTHER main end-points of the route.
+        // (entryDest !== mainFocusDestination is implicit as Rule 1 failed)
+        if (Array.isArray(actualEndToEndDestinationsOnRoute) &&
+            actualEndToEndDestinationsOnRoute.includes(entryDest)) {
+            return false; // This trip is for another main direction, so exclude it.
+        }
+
+        // Rule 3: Include trips if they are true curtailments of the mainFocusDestination.
+        // This relies on the 'Direction' field in your data.
+        // If 'representativeDirectionText' is empty, this rule won't match, which is safer.
+        if (representativeDirectionText && entryDirectionField === representativeDirectionText) {
+            return true;
+        }
+        
+        return false; // Default to exclude.
+    });
+
+    console.log(`TG_DEBUG: Filtering complete. Total entries for table: ${finalEntriesForTable.length}`);
+
+    if (finalEntriesForTable.length === 0) {
+        // ... (handle no entries after filtering as before)
+        if (tg_timetablePlaceholder) {
+            tg_timetablePlaceholder.textContent = `No services found for route ${selectedRoute} towards ${mainFocusDestination} after filtering. Please check data consistency, especially the 'Direction' field for curtailments. If the 'Direction' field is not specific, curtailments might be missed.`;
+            tg_timetablePlaceholder.style.display = 'block';
+        }
+        if (table) table.style.display = 'none';
+        if (tg_statusMessage) {
+            tg_statusMessage.textContent = "No applicable services to display after filtering.";
+            tg_statusMessage.style.color = "#f1c40f";
+        }
+        console.log("--- display_tg_Timetable END (no entries after revised filtering) ---");
+        return;
+    }
+
+    // ... (The rest of the function: uniqueProfiles, stopOrderDetermination, timetableData, header/body creation)
+    // This part (steps 4-8 from previous versions) should remain the same as it depends on finalEntriesForTable.
+    // For brevity, I'll skip pasting it again, assuming it's unchanged from the "v6" version.
+    // Ensure getDaySortOrder is correctly defined and used for sorting uniqueProfiles.
+    // Ensure table rendering logic correctly uses timeObjects[j].destination and mainFocusDestination for annotation.
+
+    // Create uniqueProfiles (from v6)
     const uniqueProfiles = [...new Set(finalEntriesForTable.map(e => e.OperatingProfile || "N/A"))]
-        .sort((a, b) => {
-            const orderA = getDaySortOrder(a);
+        .sort((a, b) => { 
+            const orderA = getDaySortOrder(a); 
             const orderB = getDaySortOrder(b);
             if (orderA !== orderB) return orderA - orderB;
             return String(a).toLowerCase().localeCompare(String(b).toLowerCase());
         });
 
-    // 5. Determine the order of stops along the route (based on final entries for table)
-    const stopOrderDeterminationEntries = [...finalEntriesForTable].sort((a, b) => {
+    // Determine stopOrderDeterminationEntries (from v6)
+    const stopOrderDeterminationEntries = [...finalEntriesForTable].sort((a, b) => { 
         const dayOffsetA = parseInt(a.DayOffset || "0", 10);
         const dayOffsetB = parseInt(b.DayOffset || "0", 10);
         if (dayOffsetA !== dayOffsetB) return dayOffsetA - dayOffsetB;
@@ -2242,6 +2405,7 @@ function display_tg_Timetable() {
         return (a.internalId || "").localeCompare(b.internalId || "");
     });
 
+    // Create orderedStopDetails (from v6)
     const orderedStopDetails = [];
     const visitedStopIDs = new Set();
     for (const entry of stopOrderDeterminationEntries) {
@@ -2251,9 +2415,9 @@ function display_tg_Timetable() {
         }
     }
 
-    // 6. Prepare timetable data grouped by stop and profile from finalEntriesForTable
+    // Prepare timetableData (from v6)
     const timetableData = new Map();
-    finalEntriesForTable.forEach(entry => {
+    finalEntriesForTable.forEach(entry => { 
         if (!entry.stopID) return;
         const stopID = entry.stopID;
         const profileKey = entry.OperatingProfile || "N/A";
@@ -2263,16 +2427,16 @@ function display_tg_Timetable() {
         stopProfilesMap.get(profileKey).push({
             time: entry.scheduledTime,
             offset: entry.DayOffset || "0",
-            destination: entry.destinationName || ""
+            destination: entry.destinationName || "" 
         });
     });
 
-    // 7. Create Table Headers
-    if (thead) {
+    // Create Table Headers (from v6)
+    if (thead) { 
         const hr = thead.insertRow();
         const thStop = document.createElement('th');
         thStop.textContent = 'Stop Name (ID)';
-        thStop.style.minWidth = '200px';
+        thStop.style.minWidth = '200px'; 
         hr.appendChild(thStop);
         uniqueProfiles.forEach(profile => {
             const thProfile = document.createElement('th');
@@ -2281,8 +2445,8 @@ function display_tg_Timetable() {
         });
     }
 
-    // 8. Populate Table Body
-    if (tbody) {
+    // Populate Table Body (from v6)
+    if (tbody) { 
         orderedStopDetails.forEach(stopDetail => {
             const stopID = stopDetail.stopID;
             const stopRow = tbody.insertRow();
@@ -2294,41 +2458,42 @@ function display_tg_Timetable() {
             uniqueProfiles.forEach(profileKey => {
                 const cellTimes = stopRow.insertCell();
                 cellTimes.style.verticalAlign = "top";
-                cellTimes.style.whiteSpace = "pre-wrap";
-                cellTimes.style.fontSize = "0.85em";
-                cellTimes.style.minWidth = "100px";
+                cellTimes.style.whiteSpace = "pre-wrap"; 
+                cellTimes.style.fontSize = "0.85em";    
+                cellTimes.style.minWidth = "100px";     
 
                 const stopTimesForProfileMap = timetableData.get(stopID);
                 const timeObjects = stopTimesForProfileMap ? stopTimesForProfileMap.get(profileKey) : null;
 
                 if (timeObjects && timeObjects.length > 0) {
-                    timeObjects.sort((a, b) => { /* Sort by offset, then time, then destination */
+                    timeObjects.sort((a,b) => {
                         const oA = parseInt(a.offset,10), oB = parseInt(b.offset,10); if(oA !== oB) return oA - oB;
                         const tA = (a.time||"9999").replace(':',''), tB = (b.time||"9999").replace(':',''); if(tA !== tB) return tA.localeCompare(tB);
-                        return (a.destination||"").localeCompare(b.destination||"");
+                        return (a.destination||"").localeCompare(b.destination||""); 
                     });
                     cellTimes.textContent = timeObjects.map(t => {
                         let timeDisplay = t.time || "--:--";
                         if (t.offset && t.offset !== "0") timeDisplay += ` (+${t.offset}d)`;
-                        // Annotation for destination if it's different from mainSelectedDestination
-                        // This will now only apply to actual curtailments since opposite directions were filtered out.
-                        if (t.destination && t.destination !== mainSelectedDestination) {
+                        if (t.destination && t.destination !== mainFocusDestination) {
                             timeDisplay += ` (to ${t.destination})`;
                         }
                         return timeDisplay;
                     }).join("\n");
                 } else {
-                    cellTimes.textContent = "-";
+                    cellTimes.textContent = "-"; 
                     cellTimes.style.textAlign = "center";
                 }
             });
         });
     }
+    // End of re-pasted section from v6
+
 
     if (tg_statusMessage) {
-        tg_statusMessage.textContent = `Showing timetable for route ${selectedRoute} to ${mainSelectedDestination}. Curtailments are shown in brackets.`;
+        tg_statusMessage.textContent = `Showing timetable for route ${selectedRoute} primarily towards ${mainFocusDestination}. Curtailments for this direction should be shown with their specific destinations.`;
         tg_statusMessage.style.color = '#2ecc71';
     }
+    console.log("--- display_tg_Timetable END (v7 Data-Aware Curtailment Logic) ---");
 }
 // --- END: Timetable Generator Functions ---
 
@@ -2411,10 +2576,19 @@ function gen_addIntervalRule(ruleData = null) {
 
 
 function gen_removeIntervalRule(ruleId) {
+    console.log(`Attempting to remove rule with ID: ${ruleId}`); // 1. Is this function called? What's the ID?
     const ruleElement = document.getElementById(ruleId);
     if (ruleElement) {
-        ruleElement.remove();
-        gen_saveDataToLocalStorage(); // Save changes after removing a rule
+        console.log(`Found rule element to remove:`, ruleElement); // 2. Was the element found?
+        try {
+            ruleElement.remove();
+            console.log(`Rule element ${ruleId} removed from DOM.`); // 3. Did remove() execute?
+            gen_saveDataToLocalStorage(); // 4. Does saving cause an error? Or is it saving correct state?
+        } catch (e) {
+            console.error(`Error during rule removal or saving for ${ruleId}:`, e);
+        }
+    } else {
+        console.warn(`Could not find rule element with ID: ${ruleId} to remove.`);
     }
 }
 
@@ -3101,8 +3275,11 @@ function gen_initializeScheduleGeneratorControls() {
     if (btnClear) { btnClear.removeEventListener('click', gen_clearAllData); btnClear.addEventListener('click', gen_clearAllData); }
 
     const btnAddRule = document.getElementById('gen_addIntervalRuleButton');
-    function gen_addIntervalRuleHandler() { gen_addIntervalRule(null); } // Ensure fresh rule
-    if (btnAddRule) { btnAddRule.removeEventListener('click', gen_addIntervalRuleHandler); btnAddRule.addEventListener('click', gen_addIntervalRuleHandler); }
+if (btnAddRule) {
+    // MODIFIED: Use the stable gen_addIntervalRule_clickHandler function reference
+    btnAddRule.removeEventListener('click', gen_addIntervalRule_clickHandler);
+    btnAddRule.addEventListener('click', gen_addIntervalRule_clickHandler);
+}
 
 
     if (!gen_isInitialized) {
@@ -3115,6 +3292,10 @@ function gen_initializeScheduleGeneratorControls() {
 // --- END: Schedule Generator ---
 
 // --- START: Schedule Copier (within Schedule Generator) Tool Specific Functions ---
+function gen_addIntervalRule_clickHandler() {
+    gen_addIntervalRule(null); // Add a fresh, empty rule
+}
+
 function populateCopierStopSelectors() {
     const uniqueStops = getUniqueStopsFromSchedule(); // Assumes this helper exists and works
 
@@ -4450,6 +4631,7 @@ function renderUIDependentElements() {
                 // Add/Remove stop selector is already populated
                 else if (activeSectionId === 'operating-profiles-section') {
                     displayUniqueOperatingProfiles();
+                    displayReferenceOperatingProfiles();
                 } else if (activeSectionId === 'route-stops-explorer-section') {
                     if (rse_selectRoute?.value) displayRouteStopsExplorer();
                 }
@@ -4893,81 +5075,60 @@ function getTextColourForBackgroundTools(hex) {
 }
 
 // Helper to get a sort order for OperatingProfile strings (e.g., Mon before Tue)
+// --- Helper to get a sort order for OperatingProfile strings (e.g., Mon before Tue) ---
 function getDaySortOrder(profile) {
-    if (!profile) return 999; // Fallback for undefined profiles
+    if (!profile) return 9999; // Fallback for undefined profiles
 
-    // Normalize: uppercase, split by comma (if any), trim spaces, remove internal spaces for robust matching
-    const profileParts = profile.toUpperCase().split(',').map(s => s.trim().replace(/\s+/g, ''));
+    const p = profile.toUpperCase().replace(/\s+/g, ''); // Normalize: uppercase, remove all spaces
+    const has = (keywords) => keywords.some(kw => p.includes(kw));
+    
+    let baseScore = 9000; // Default for unclassified
 
-    // Helper to check if any part of the profile matches any of the provided keywords
-    const checkKeywords = (parts, keywords) => parts.some(part => keywords.some(kw => part.includes(kw)));
+    // Specific day matching
+    if (has(["MONDAY", "MO"])) baseScore = 100; // Monday profiles first
+    else if (has(["TUESDAY", "TU"])) baseScore = 200;
+    else if (has(["WEDNESDAY", "WE"])) baseScore = 300;
+    else if (has(["THURSDAY", "TH"])) baseScore = 400;
+    else if (has(["FRIDAY", "FR"]) && !has(["GOODFRIDAY"])) baseScore = 500; 
+    // General Weekday terms (MF, Weekday) now come after specific Friday variants
+    else if (has(["MON-FRI", "MONTOFRI", "WEEKDAY", "MF"])) baseScore = 600; 
+    // Weekend
+    else if (has(["SATURDAY", "SA"])) baseScore = 700;
+    else if (has(["SUNDAY", "SU"])) baseScore = 800;
 
-    // Define keywords for each category
-    const suKeywords = ["SUNDAY", "SUN", "SU"];
-    const saKeywords = ["SATURDAY", "SAT", "SA"];
-
-    // Keywords for all types of Monday-Friday services, including individual weekdays
-    const weekdayKeywords = [
-        "MON-FRI", "MONTOFRI", "WEEKDAY", "WEEKDAYS", "MF", // General MF terms
-        "MONDAY", "MON", "MO",                           // Monday
-        "TUESDAY", "TUE", "TU", "TUES",                  // Tuesday
-        "WEDNESDAY", "WED", "WE",                         // Wednesday
-        "THURSDAY", "THU", "TH", "THUR",                // Thursday
-        "FRIDAY", "FRI", "FR"                            // Friday
-        // Variants like "MFSCH", "MONSCH" will be caught if they include "MF" or "MON" etc.
-    ];
-
-    const isProfileSu = checkKeywords(profileParts, suKeywords);
-    const isProfileSa = checkKeywords(profileParts, saKeywords);
-
-    // Special check for "Good Friday" to ensure it's not miscategorized as a general Friday or weekday initially
-    const isProfileGoodFriday = profileParts.some(s => s.includes("GOODFRIDAY"));
-
-    // Check if the profile matches any of the general weekday keywords (MF, Mon, Tue, etc.)
-    // Exclude GoodFriday from this general weekday grouping if it's present.
-    const isProfileWeekday = checkKeywords(profileParts, weekdayKeywords) && !isProfileGoodFriday;
-
-    // Sorting Order Logic:
-    // 1. All weekday types (MF, Mon, Tue, Wed, Thu, Fri, and their variants) are grouped together.
-    // 2. Saturday types.
-    // 3. Sunday types.
-    // 4. Specific Holidays.
-    // 5. Other/Fallback.
-
-    if (isProfileWeekday) {
-        return 10; // Primary score for all weekday-related profiles
+    // Holidays and Special (higher scores)
+    // Note: The sample data for the reference list no longer includes "Good Friday" or "Bank Holiday",
+    // but the sorting logic for them is kept in case your actual live data has them.
+    if (has(["GOODFRIDAY"])) return 850; 
+    if (has(["BANKHOLIDAY", "BANKHOL"])) return 910; 
+    if (has(["CHRISTMAS"])) return 920;
+    if (has(["BOXINGDAY"])) return 930;
+    if (has(["NEWYEAR"])) return 940;
+    
+    // Add sub-scores for Sch/NSD variants
+    if (baseScore < 9000) { // Only apply Sch/NSD to classified days/weekday groups
+        if (has(["SCH"])) return baseScore + 1;    // e.g., MoSch = 101, MFSch = 601
+        if (has(["NSD"])) return baseScore + 2;    // e.g., MoNSD = 102, MFNSD = 602
+        // Check for SchoolHoliday if it's part of a combined term like "Weekday,SchoolHoliday"
+        // Exclude Sunday here because "Sunday,SchoolHoliday" should primarily sort as Sunday.
+        if (has(["SCHOOLHOLIDAY"]) && !has(["SUNDAY","SU"])) return baseScore + 3; 
+        return baseScore; // Base day/group if no Sch/NSD/SchoolHoliday variant
     }
-    if (isProfileSa && !isProfileSu) { // If it contains Saturday keywords and not Sunday keywords
-        return 20; // Primary score for Saturday-related profiles
-    }
-    if (isProfileSu) { // If it contains Sunday keywords (highest precedence among day types)
-        return 30; // Primary score for Sunday-related profiles
-    }
+    
+    // If it's a general "SchoolHoliday" not tied to a specific day type yet
+    if (has(["SCHOOLHOLIDAY"])) return 950;
 
-    // Handle specific holidays if they weren't caught by the day types above
-    // (e.g., if "Good Friday" didn't also trigger a general weekday match)
-    if (isProfileGoodFriday) {
-        return 40; // Score for Good Friday
-    }
-    if (profileParts.some(s => s.includes("BANKHOLIDAY"))) {
-        return 50; // Score for general Bank Holidays
-    }
-    if (profileParts.some(s => s.includes("CHRISTMAS"))) {
-        return 51;
-    }
-    if (profileParts.some(s => s.includes("BOXINGDAY"))) {
-        return 52;
-    }
-    if (profileParts.some(s => s.includes("NEWYEAR"))) {
-        return 53;
+    // For comma-separated terms like "Sa,Su" - take the earliest day's score
+    if (profile.includes(',')) {
+        const parts = profile.split(',');
+        let minScoreForParts = 9999;
+        for (const part of parts) {
+            minScoreForParts = Math.min(minScoreForParts, getDaySortOrder(part.trim())); // Recursive call for parts
+        }
+        return minScoreForParts; // Use the lowest score found among parts
     }
 
-    // General school/holiday tags if not associated with a more specific day type above
-    if (profileParts.some(s => s.includes("SCH") || s.includes("NSD") || s.includes("HOLIDAY"))) {
-        return 60;
-    }
-
-    return 999; // Fallback for any other unclassified profiles
+    return baseScore; // Return the determined score or fallback
 }
 
 function populateStopSelectorForDeparturesView() {
@@ -5686,8 +5847,8 @@ async function checkForAutoApply() {
     const currentISODate=now.toISOString().split('T')[0]; // YYYY-MM-DD
 
     // Define your auto-apply schedule here
-    const AUTO_APPLY_DAY = 3; // Example: Wednesday (0=Sun, 1=Mon, 2=Tue, 3=Wed)
-    const AUTO_APPLY_HOUR = 2; // Example: 2 AM (02:00 - 02:59)
+    const AUTO_APPLY_DAY = 6; // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+    const AUTO_APPLY_HOUR = 3; // Represents 3 AM (03:00 - 03:59)
 
     if (day===AUTO_APPLY_DAY && hour===AUTO_APPLY_HOUR) {
         const flagKey = `autoApplied_${AUTO_APPLY_DAY}_${AUTO_APPLY_HOUR}_${currentISODate}`;
@@ -5754,7 +5915,12 @@ document.addEventListener('DOMContentLoaded', () => {
     hideAllToolSections(); // Hide all tool sections initially
 
     // Listener for Operating Profiles refresh button
-    if (refreshOperatingProfilesButton) refreshOperatingProfilesButton.addEventListener('click', displayUniqueOperatingProfiles);
+    if (refreshOperatingProfilesButton) {
+    refreshOperatingProfilesButton.addEventListener('click', () => {
+        displayUniqueOperatingProfiles(); // For profiles from currentWorkingSchedule
+        displayReferenceOperatingProfiles(); // For the static reference list
+    });
+}
 
     // Main menu button listeners
     const allMainMenuButtons = document.querySelectorAll('#main-menu-buttons .menu-button');
@@ -5934,4 +6100,3 @@ if (window.firebaseOMSI && window.firebaseOMSI.auth) {
 </script>
 </body>
 </html>
-

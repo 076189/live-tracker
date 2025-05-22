@@ -70,15 +70,20 @@
         .form-field-group { margin-bottom: 1rem; }
         label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: #bdc3c7; }
         input[type="text"], input[type="email"], input[type="password"], input[type="time"],
-        input[type="color"], input[type="number"], input[type="date"], select, textarea {
+        input[type="color"], input[type="number"], input[type="date"], input[type="datetime-local"], 
+        select, textarea {
             width: 100%; padding: 0.5rem; border-radius: 0.25rem; border: 1px solid #7f8c8d;
             background-color: #34495e; color: #ecf0f1; font-size:0.9rem; box-sizing: border-box;
         }
-        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.8); }
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="datetime-local"]::-webkit-calendar-picker-indicator { 
+            filter: invert(0.8); cursor:pointer;
+        }
         select option { background-color: #34495e; color: #ecf0f1; }
         .button {
             cursor: pointer; background-color: #3498db; color: white;
-            padding: 0.6rem 1.2rem; border-radius: 0.25rem; font-size: 0.9rem;
+            padding: 0.5rem 0.8rem; /* Standardized to smaller padding */
+            border-radius: 0.25rem; font-size: 0.9rem;
             transition: background-color 0.2s; border: none; margin-right: 0.5rem; margin-top:0.5rem;
         }
         .button:hover { background-color: #2980b9; }
@@ -90,7 +95,8 @@
         .button.tertiary:hover { background-color: #e67e22; }
         .button.neutral { background-color: #7f8c8d; }
         .button.neutral:hover { background-color: #95a5a6; color: #2c3e50; }
-         .button.small-action { padding: 0.2rem 0.4rem; font-size: 0.8rem; margin: 0 0.15rem; line-height: 1; min-width: 20px; text-align:center; font-weight: bold;}
+        .button.small-action { padding: 0.2rem 0.4rem; font-size: 0.8rem; margin: 0 0.15rem; line-height: 1; min-width: 20px; text-align:center; font-weight: bold;}
+        
         .schedule-generator-input { /* Also used for some inputs on this page */
             width: 100%; padding: 0.5rem; border-radius: 0.25rem; border: 1px solid #7f8c8d;
             background-color: #34495e; color: #ecf0f1; font-size: 0.9rem;
@@ -118,7 +124,7 @@
         .master-list-new-id-input { margin-bottom: 0.25rem; }
         .master-list-row-warning { font-size: 0.8em; color: #f39c12; min-height: 1.2em; margin-top: 0.25rem; }
         .master-stop-actions { margin-top: 0rem; padding-top: 0rem; border-top: none; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; } /* Aligned to start for button consistency */
-        .master-stop-actions .button.small-action { width: 100%; margin: 0; } /* Full width buttons in this column */
+        .master-stop-actions .button { width: 100%; margin: 0; /* Small-action padding already small */ } 
         .route-tile-tools-list {
             display: inline-block; padding: 0.2em 0.55em; margin-right: 0.3em; margin-bottom: 0.3em;
             border-radius: 0.25rem; font-size: 0.8em; font-weight: bold; color: white;
@@ -155,6 +161,27 @@
             border-color: #f1c40f; /* Highlight color for selected tiles */
             box-shadow: 0 0 6px 1px #f1c40f;
         }
+        /* Styles for duplicate stop name/direction results */
+        #duplicateStopsByNameDirResults_extra ul { list-style: none; padding-left: 0; }
+        #duplicateStopsByNameDirResults_extra li { margin-bottom: 0rem; }
+        .duplicate-set-to-merge {
+            border: 1px solid #4a5568;
+            padding: 0.75rem;
+            margin-bottom: 0.75rem;
+            border-radius: 0.25rem;
+            background-color: rgba(0,0,0,0.05);
+        }
+        .duplicate-set-to-merge p { margin-bottom: 0.35rem; }
+        .duplicate-set-to-merge .stop-id-options label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+         .duplicate-set-to-merge .stop-id-options input[type="radio"] {
+            margin-right: 0.35em;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
@@ -188,7 +215,7 @@
                 <button class="menu-button" data-section="day-profile-override-section_extra">Day Profile Override</button>
                 <button class="menu-button" data-section="stop-manager-tool-section_extra">Stop Management & Creation</button>
                 <button class="menu-button" data-section="global-route-deletion-section_extra">Global Route Deletion</button>
-            </div>
+                <button class="menu-button" data-section="custom-status-message-section_extra">Arrivals Status Message</button> </div>
         </div>
 
         <div id="tool-sections-wrapper_extra">
@@ -238,7 +265,7 @@
                     <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
                         <div>
                             <label for="inputNewStopName_extra">New Stop Name (influences ID suggestion)</label>
-                            <input type="text" id="inputNewStopName_extra" class="schedule-generator-input" placeholder="e.g., Main Street Library" autocomplete="off">
+                            <input type="text" id="inputNewStopName_extra" class="schedule-generator-input" placeholder="e.g., Yaddlethorpe Crossroads" autocomplete="off">
                         </div>
                         <div>
                              <label for="selectNewStopIdFormat_extra">System-Determined ID Format</label>
@@ -251,12 +278,12 @@
                         </div>
                         <div>
                             <label for="inputNewStopId_extra">New Stop ID (auto-suggested, editable)</label>
-                            <input type="text" id="inputNewStopId_extra" class="schedule-generator-input" placeholder="e.g., NEWSTOP123" autocomplete="off">
+                            <input type="text" id="inputNewStopId_extra" class="schedule-generator-input" placeholder="e.g., BP101" autocomplete="off">
                             <p id="newStopIdAvailability_extra"></p>
                         </div>
                         <div>
                             <label for="inputNewStopDirection_extra">New Stop Direction (Towards)</label>
-                            <input type="text" id="inputNewStopDirection_extra" class="schedule-generator-input" placeholder="e.g., Town Centre" autocomplete="off">
+                            <input type="text" id="inputNewStopDirection_extra" class="schedule-generator-input" placeholder="e.g., Ashby" autocomplete="off">
                         </div>
                     </div>
                      <p id="addNewStopStatus_extra" style="min-height:1.2em; margin-top: 0.75rem;"></p>
@@ -265,21 +292,18 @@
                     </div>
                 </div>
 
-                <div class="subsection">
-                    <h3 class="subsection-title">Bulk Merge or Add Stops (via Excel File)</h3>
+                <div class="subsection"> <h3 class="subsection-title">Bulk Merge or Add Stops (via Excel File)</h3>
                     <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">
-                        This tool will <strong style="color: #f1c40f;">MERGE</strong> data from the uploaded Excel file with your existing stops and schedules.
-                        <br>- If a <strong>StopID is provided</strong> in Excel and matches an existing stop, that stop's Name and Direction will be updated. New LineName(s) from Excel will be added as placeholder schedule entries if they don't already exist for that stop.
-                        <br>- If a <strong>StopID is provided</strong> but does not exist, it will be added as a new stop (ID must be unique).
-                        <br>- If <strong>StopID is blank</strong>, the system tries to match by StopName's base. If matched, details are updated. If not matched, a new stop with an auto-generated ID is created.
-                        <br>- Existing stops and schedule entries NOT mentioned in the Excel file will remain untouched. This tool primarily adds new information or updates existing stop details.
+                        This tool will <strong style="color: #f1c40f;">REPLACE ALL EXISTING STOPS AND SCHEDULES</strong> with data derived from the uploaded Excel file.
+                        <br>- The system will attempt to generate unique StopIDs based on StopName. If a StopID is provided in Column A, it will be used (must be unique within the file).
+                        <br>- LineName(s) from Excel will be used to create placeholder schedule entries for each stop.
                         <br><b>Expected Excel columns:</b>
-                        <br>Column A: <b>StopID</b> (Optional - if blank, logic above applies. Must be unique if creating a new stop with a provided ID.)
-                        <br>Column B: <b>StopName</b> (Required for new stops or if StopID is blank)
+                        <br>Column A: <b>StopID</b> (Optional - if blank, system generates. If provided, must be unique in the file.)
+                        <br>Column B: <b>StopName</b> (Required)
                         <br>Column C: <b>Direction</b> (Optional - "Towards" text)
-                        <br>Column D: <b>LineName(s)</b> (Optional - comma-separated, e.g., "10A,12,X26". Defaults to "INFO_ONLY" for new stops if blank, or if adding new lines to existing stops.)
+                        <br>Column D: <b>LineName(s)</b> (Optional - comma-separated, e.g., "9, 12, 34". Defaults to "INFO_ONLY".)
                         <br><i>The first row of the sheet should contain data, not headers.</i>
-                        All changes are saved directly to Firebase.
+                        All changes are saved directly to Firebase. <strong style="color: #e74c3c;">USE WITH EXTREME CAUTION.</strong>
                     </p>
                     <div class="form-field-group">
                         <label for="fileInputBulkAddStops_extra" class="button neutral" style="display: inline-block; margin-bottom: 0.5rem; background-color: #546E7A; cursor:pointer;">Choose Excel File (.xlsx, .xls)</label>
@@ -288,8 +312,7 @@
                     </div>
                     <p id="bulkAddNewStopsStatus_extra" style="min-height:1.2em; margin-top: 0.75rem; white-space: pre-line;"></p>
                     <div style="margin-top: 1rem;">
-                        <button id="buttonBulkAddNewStops_extra" class="button tertiary">Merge/Add Stops from File (Live)</button>
-                    </div>
+                        <button id="buttonBulkAddNewStops_extra" class="button tertiary">Replace All Stops & Schedules from File (Live)</button> </div>
                 </div>
 
                 <div class="subsection">
@@ -299,10 +322,14 @@
                         All proposed Stop ID changes are applied in bulk using the button at the bottom of this list.
                         Other actions (Edit Name / Direction, Delete, Open / Close) are immediate for that specific stop.
                     </p>
-                    <div class="form-grid" style="grid-template-columns: 1fr auto auto; gap: 0.75rem; margin-bottom: 0.5rem;">
+                    <div class="form-grid" style="grid-template-columns: 1fr auto auto auto; gap: 0.75rem; margin-bottom: 0.5rem;">
                         <input type="text" id="masterStopListFilterInput_extra" class="schedule-generator-input" placeholder="Filter by Stop ID, Name, Route, Status...">
                         <button id="refreshMasterStopListButton_extra" class="button neutral">Refresh List</button>
-                        <button id="exportUniqueStopsButton_extra" class="button" style="background-color: #00796B;">Export All Unique Stops</button>
+                        <button id="exportUniqueStopsButton_extra" class="button" style="background-color: #00796B;">Export Stops</button>
+                        <button id="findDuplicateStopsByNameDirButton_extra" class="button tertiary">Find Duplicates (Name / Direction)</button>
+                    </div>
+                    <div id="duplicateStopsByNameDirResults_extra" style="margin-bottom: 0.75rem; padding: 0.5rem; background-color: rgba(0,0,0,0.1); border-radius: 0.25rem; min-height: 1.5em; font-size: 0.85em;">
+                        Click "Find Duplicates" to check.
                     </div>
                     <div id="masterStopListContainer_extra" class="subsection" style="padding: 0.5rem; background-color: rgba(0,0,0,0.05); margin-top:0;">
                         <ul id="masterStopListUL_extra" style="list-style: none; padding: 0;"></ul>
@@ -332,24 +359,64 @@
                 <button id="deleteEntireRouteButton_el_extra" class="button secondary" style="margin-top: 0.5rem;">Delete Selected Route(s) (Live)</button>
                 <p id="deleteEntireRouteStatusMessage_el_extra" style="min-height:1.2em; margin-top:0.75rem;"></p>
             </div>
-        </div>
-    </div>
 
-    <script type="module">
-      // Firebase App initialization
+            <div id="custom-status-message-section_extra" class="tool-content-section section" style="display:none;">
+                <h2>Custom Arrivals Board Status Message</h2>
+                <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
+                    Configure a custom scrolling message to appear on the arrivals board (replaces the 4th arrival slot when active).
+                    Settings are saved to Firebase and will be picked up by the arrivals display page.
+                </p>
+                <div class="subsection">
+                    <h3 class="subsection-title">Message Configuration</h3>
+                    <div class="form-field-group">
+                        <label for="csm_messageText_extra">Message Text:</label>
+                        <textarea id="csm_messageText_extra" class="schedule-generator-input" rows="3" placeholder="e.g., Service 97 on diversion via High Street due to roadworks."></textarea>
+                    </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div>
+                            <label for="csm_startTime_extra">Display Start (Date & Time):</label>
+                            <input type="datetime-local" id="csm_startTime_extra" class="schedule-generator-input">
+                        </div>
+                        <div>
+                            <label for="csm_endTime_extra">Display End (Date & Time):</label>
+                            <input type="datetime-local" id="csm_endTime_extra" class="schedule-generator-input">
+                        </div>
+                    </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; margin-top: 1rem;">
+                        <div>
+                            <label for="csm_scrollSpeed_extra">Scroll Speed:</label>
+                            <select id="csm_scrollSpeed_extra" class="schedule-generator-input">
+                                <option value="slow">Slow (approx 25s)</option>
+                                <option value="medium" selected>Medium (approx 15s)</option>
+                                <option value="fast">Fast (approx 10s)</option>
+                                <option value="very_fast">Very Fast (approx 7s)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="csm_isEnabled_extra" style="margin-bottom: 0.5rem;">Enable Message:</label>
+                            <input type="checkbox" id="csm_isEnabled_extra" style="width:auto; height: 1.2em; width: 1.2em; vertical-align: middle;">
+                            <span style="vertical-align: middle; margin-left: 0.5em;">Show message on arrivals board</span>
+                        </div>
+                    </div>
+                    <button id="csm_saveButton_extra" class="button save" style="margin-top: 1.5rem;">Save Status Message Settings</button>
+                    <p id="csm_statusMessage_extra" style="min-height:1.2em; margin-top: 1rem; font-weight:bold;"></p>
+                </div>
+            </div>
+            </div> </div> <script type="module">
+      // Firebase App initialization (content unchanged)
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
       import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
       import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
       const firebaseConfig = {
-        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // Replace with your actual Firebase API Key
-        authDomain: "omsi-c5505.firebaseapp.com", // Replace with your actual Firebase Auth Domain
-        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", // Replace with your actual Firebase Database URL
-        projectId: "omsi-c5505", // Replace with your actual Firebase Project ID
-        storageBucket: "omsi-c5505.appspot.com", // Replace with your actual Firebase Storage Bucket
-        messagingSenderId: "503595375440", // Replace with your actual Firebase Messaging Sender ID
-        appId: "1:503595375440:web:356be6684b77ff5909ea55", // Replace with your actual Firebase App ID
-        measurementId: "G-VN7X65V3F9" // Replace with your actual Firebase Measurement ID
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
+        authDomain: "omsi-c5505.firebaseapp.com",
+        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "omsi-c5505",
+        storageBucket: "omsi-c5505.appspot.com",
+        messagingSenderId: "503595375440",
+        appId: "1:503595375440:web:356be6684b77ff5909ea55",
+        measurementId: "G-VN7X65V3F9"
       };
 
       const app = initializeApp(firebaseConfig);
@@ -365,11 +432,11 @@
           authSignOut: signOut
       };
       console.log("Firebase Initialized for OMSI Tools Extra.");
-document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebaseOMSI }));
-</script>
+      document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebaseOMSI }));
+    </script>
 
     <script>
-        // --- Global State Variables ---
+        // --- Global State Variables (content mostly unchanged, ensure all needed are here) ---
         let currentUser_extra = null;
         let pageSpecificSettings = {};
         let ukBankHolidaysData_extra = { dates: [], titles: {} };
@@ -381,7 +448,7 @@ document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebas
         let uniqueStopsMasterList_extra = [];
         let processedExcelStopsData_extra = [];
 
-        // --- Firebase Path Constants ---
+        // --- Firebase Path Constants (add new one) ---
         const FB_PATH_PAGE_EXTRA_SETTINGS = '/settings/extraModulesPageSettings';
         const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides';
         const FB_PATH_LIVE_SCHEDULE_DATA = '/liveSchedule/allScheduledBusData';
@@ -390,9 +457,10 @@ document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebas
         const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
         const FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS = '/settings/customRouteColours';
         const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
+        const FB_PATH_CUSTOM_STATUS_MESSAGE = '/appState/customStatusMessage'; // ++ NEW PATH ++
 
 
-        // --- DOM Elements ---
+        // --- DOM Elements (add new ones) ---
         const authSection_el_extra = document.getElementById('auth-section');
         const loginFormContainer_el_extra = document.getElementById('login-form-container_extra');
         const adminLoginForm_el_extra = document.getElementById('adminLoginForm_extra');
@@ -405,6 +473,8 @@ document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebas
         const toolSectionsWrapper_el_extra = document.getElementById('tool-sections-wrapper_extra');
         const currentProfileDisplayContainer_el = document.getElementById('current-profile-display-container');
         const currentProfileDisplayElement_el = document.getElementById('current-profile-display');
+        
+        // Day Profile Override Elements
         const overrideDateInput_el_extra = document.getElementById('overrideDate_extra');
         const overrideProfileInput_el_extra = document.getElementById('overrideProfile_extra');
         const setOverrideButton_el_extra = document.getElementById('setOverrideButton_extra');
@@ -414,6 +484,8 @@ document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebas
         const autoProfileForSelectedDate_el_extra = document.getElementById('autoProfileForSelectedDate_extra');
         const currentOverrideForSelectedDate_el_extra = document.getElementById('currentOverrideForSelectedDate_extra');
         const activeOverridesList_el_extra = document.getElementById('activeOverridesList_extra');
+        
+        // Stop Management Elements
         const selectNewStopIdFormat_el_extra = document.getElementById('selectNewStopIdFormat_extra');
         const inputNewStopId_el_extra = document.getElementById('inputNewStopId_extra');
         const newStopIdAvailability_el_extra = document.getElementById('newStopIdAvailability_extra');
@@ -432,12 +504,25 @@ document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebas
         const fileNameBulkAddStops_el_extra = document.getElementById('fileNameBulkAddStops_extra');
         const buttonBulkAddNewStops_el_extra = document.getElementById('buttonBulkAddNewStops_extra');
         const bulkAddNewStopsStatus_el_extra = document.getElementById('bulkAddNewStopsStatus_extra');
+        const findDuplicateStopsByNameDirButton_el_extra = document.getElementById('findDuplicateStopsByNameDirButton_extra');
+        const duplicateStopsByNameDirResults_el_extra = document.getElementById('duplicateStopsByNameDirResults_extra');
+
+        // Global Route Deletion Elements
         const globalRouteDeletionListContainer_el_extra = document.getElementById('globalRouteDeletionListContainer_el_extra');
         const deleteEntireRouteButton_el_extra = document.getElementById('deleteEntireRouteButton_el_extra');
         const deleteEntireRouteStatusMessage_el_extra = document.getElementById('deleteEntireRouteStatusMessage_el_extra');
 
+        // ++ Custom Status Message DOM Elements ++
+        const csm_messageText_el_extra = document.getElementById('csm_messageText_extra');
+        const csm_startTime_el_extra = document.getElementById('csm_startTime_extra');
+        const csm_endTime_el_extra = document.getElementById('csm_endTime_extra');
+        const csm_scrollSpeed_el_extra = document.getElementById('csm_scrollSpeed_extra');
+        const csm_isEnabled_el_extra = document.getElementById('csm_isEnabled_extra');
+        const csm_saveButton_el_extra = document.getElementById('csm_saveButton_extra');
+        const csm_statusMessage_el_extra = document.getElementById('csm_statusMessage_extra');
 
-        // --- Helper Functions ---
+
+        // --- Helper Functions (content mostly unchanged) ---
         function getYYYYMMDD_ExtraPage(dateSource) { const d = dateSource ? new Date(dateSource) : new Date(); const year = d.getFullYear(); const month = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; }
         function formatDateToDDMonthYYYY_ExtraPage(dateStringYYYYMMDD) { if (!dateStringYYYYMMDD || !/^\d{4}-\d{2}-\d{2}$/.test(dateStringYYYYMMDD)) return "Invalid Date"; const [year, month, day] = dateStringYYYYMMDD.split('-'); const dateObj = new Date(year, month - 1, day); const options = { day: '2-digit', month: 'long', year: 'numeric' }; return dateObj.toLocaleDateString('en-GB', options); }
         function getUniqueStopsFromSchedule_ExtraPage() { if (!currentWorkingSchedule_extra || currentWorkingSchedule_extra.length === 0) return []; const stopsMap = new Map(); currentWorkingSchedule_extra.forEach(entry => { if (entry.stopID && !stopsMap.has(entry.stopID.toUpperCase())) { stopsMap.set(entry.stopID.toUpperCase(), { stopID: entry.stopID, stopName: entry.stopName || "Unknown Name", direction: entry.direction || "No Direction" }); } }); return Array.from(stopsMap.values()).sort((a,b)=>(String(a.stopName||"").toLowerCase()).localeCompare(String(b.stopName||"").toLowerCase())); }
@@ -450,214 +535,256 @@ document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebas
         function isSchoolHolidayPeriod_ExtraPage(dateObject) { if (!schoolHolidayDateRanges_extra || schoolHolidayDateRanges_extra.length === 0) return false; const checkTime = dateObject.getTime(); for (const range of schoolHolidayDateRanges_extra) { try { const startTime = new Date(range.start + "T00:00:00").getTime(); const endTime = new Date(range.end + "T23:59:59").getTime(); if (checkTime >= startTime && checkTime <= endTime) return true; } catch (e) { console.error("Invalid date in schoolHolidayDateRanges_extra:", range, e); } } return false; }
         function getOperatingCodesForDate_ExtraPage(dateObject) { const n = dateObject; const dOW = n.getDay(); const todayDateString = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; let dateCodes = new Set(); let isBankHolidayToday = false; if (ukBankHolidaysData_extra && ukBankHolidaysData_extra.dates && ukBankHolidaysData_extra.dates.includes(todayDateString)) { const holidayTitle = ukBankHolidaysData_extra.titles[todayDateString] || ""; isBankHolidayToday = true; if (holidayTitle.toLowerCase().includes("good friday")) dateCodes.add("Sa"); else dateCodes.add("Su"); } if (!isBankHolidayToday) { const isSchHol = isSchoolHolidayPeriod_ExtraPage(n); const schoolSuffix = isSchHol ? "NSD" : "Sch"; let dayCode = ""; switch (dOW) { case 0: dayCode="Su"; break; case 1: dayCode="Mo"; break; case 2: dayCode="Tu"; break; case 3: dayCode="We"; break; case 4: dayCode="Th"; break; case 5: dayCode="Fr"; break; case 6: dayCode="Sa"; break; } dateCodes.add(dayCode); if (dOW >= 1 && dOW <= 5) { dateCodes.add(dayCode + schoolSuffix); dateCodes.add("MF" + schoolSuffix); dateCodes.add("MF"); } if ((dOW === 6 || dOW === 0) && isSchHol) dateCodes.add(dayCode + "NSD"); if (isSchHol) dateCodes.add("SchoolHoliday"); } else { const isSchHolOnBH = isSchoolHolidayPeriod_ExtraPage(n); if (isSchHolOnBH) { dateCodes.add("SchoolHoliday"); if(dateCodes.has("Sa")) dateCodes.add("SaNSD"); if(dateCodes.has("Su") && !dateCodes.has("Sa")) dateCodes.add("SuNSD");} } return Array.from(dateCodes); }
         function updateCurrentProfileDisplay_ExtraPage() { const now = new Date(); const dayOfWeek = now.getDay(); const todayDateString = getYYYYMMDD_ExtraPage(now); let profileDisplayText = ""; let isBankHol = false; let serviceTypeDisplay = ""; if (ukBankHolidaysData_extra.dates && ukBankHolidaysData_extra.dates.includes(todayDateString)) { const holidayTitle = ukBankHolidaysData_extra.titles[todayDateString] || "Bank Holiday"; isBankHol = true; if (holidayTitle.toLowerCase().includes("good friday")) { profileDisplayText = "Good Friday"; serviceTypeDisplay = "(Sat Service)"; } else { profileDisplayText = holidayTitle; serviceTypeDisplay = "(Sun Service)"; } } let dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek]; if (!isBankHol) { profileDisplayText = dayName; if (isSchoolHolidayPeriod_ExtraPage(now)) profileDisplayText += " (School Hol)"; } else { profileDisplayText += ` ${serviceTypeDisplay} - Observed on a ${dayName}`; if (isSchoolHolidayPeriod_ExtraPage(now)) profileDisplayText += " (School Hol Period)"; } const operatingCodes = getOperatingCodesForDate_ExtraPage(now); if (currentProfileDisplayElement_el) currentProfileDisplayElement_el.textContent = `Today's Auto Profile (Extra): ${profileDisplayText} [Codes: ${operatingCodes.join(', ')}]`; }
+        
+        // --- Day Profile Override Functions (content mostly unchanged) ---
         async function loadAndDisplayOverrides_ExtraPage() { if (!activeOverridesList_el_extra || !window.firebaseOMSI) return; activeOverridesList_el_extra.innerHTML = '<p>Loading active overrides...</p>'; const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const snapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES)); let html = ""; if (snapshot.exists()) { const overrides = snapshot.val(); const today = new Date(); today.setHours(0,0,0,0); const thirtyDaysLater = new Date(today); thirtyDaysLater.setDate(today.getDate() + 30); const relevantOverrides = []; for (const dateKey in overrides) { if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) { const overrideDate = new Date(dateKey + "T00:00:00"); if (overrideDate >= today && overrideDate <= thirtyDaysLater) { relevantOverrides.push({ date: dateKey, profile: overrides[dateKey] }); } } } relevantOverrides.sort((a,b) => a.date.localeCompare(b.date)); if (relevantOverrides.length > 0) { html = "<ul>"; relevantOverrides.forEach(ov => { html += `<li><strong>${formatDateToDDMonthYYYY_ExtraPage(ov.date)}:</strong> ${ov.profile}</li>`; }); html += "</ul>"; } else { html = "<p>No overrides set for the next 30 days.</p>"; } } else { html = "<p>No overrides currently set in the system.</p>"; } activeOverridesList_el_extra.innerHTML = html; } catch (error) { console.error("Error loading overrides:", error); activeOverridesList_el_extra.innerHTML = "<p>Error loading overrides.</p>"; } }
         async function updateSelectedDateInfo_ExtraPage() { if (!overrideDateInput_el_extra || !selectedDateDisplay_el_extra || !autoProfileForSelectedDate_el_extra || !currentOverrideForSelectedDate_el_extra || !clearOverrideButton_el_extra) return; const selectedDateStr = overrideDateInput_el_extra.value; clearOverrideButton_el_extra.style.display = 'none'; if (!selectedDateStr) { selectedDateDisplay_el_extra.textContent = "(select a date)"; autoProfileForSelectedDate_el_extra.textContent = "(select a date)"; currentOverrideForSelectedDate_el_extra.textContent = "(select a date)"; return; } selectedDateDisplay_el_extra.textContent = formatDateToDDMonthYYYY_ExtraPage(selectedDateStr); const dateObj = new Date(selectedDateStr + "T00:00:00"); const autoCodes = getOperatingCodesForDate_ExtraPage(dateObj); autoProfileForSelectedDate_el_extra.textContent = autoCodes.join(', ') || "N/A"; if (window.firebaseOMSI) { const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const overrideSnap = await dbGet(dbChild(dbRef(database), `${FB_PATH_OPERATIONAL_OVERRIDES}/${selectedDateStr}`)); if (overrideSnap.exists()) { currentOverrideForSelectedDate_el_extra.textContent = overrideSnap.val(); currentOverrideForSelectedDate_el_extra.style.color = "#f1c40f"; clearOverrideButton_el_extra.style.display = 'inline-block'; } else { currentOverrideForSelectedDate_el_extra.textContent = "(none)"; currentOverrideForSelectedDate_el_extra.style.color = ""; } } catch (error) { console.error("Error fetching override for selected date:", error); currentOverrideForSelectedDate_el_extra.textContent = "(error fetching)"; } } }
         async function handleSetOverride_ExtraPage() { if (!currentUser_extra || !overrideDateInput_el_extra || !overrideProfileInput_el_extra || !overrideStatusMessage_el_extra || !window.firebaseOMSI) { if (overrideStatusMessage_el_extra) overrideStatusMessage_el_extra.textContent = "Error: System not ready or not logged in."; return; } const dateKey = overrideDateInput_el_extra.value; const profile = overrideProfileInput_el_extra.value.trim(); if (!dateKey) { overrideStatusMessage_el_extra.textContent = "Please select a date."; overrideStatusMessage_el_extra.style.color="#e74c3c"; return; } if (!profile) { overrideStatusMessage_el_extra.textContent = "Please enter an override profile string."; overrideStatusMessage_el_extra.style.color="#e74c3c"; return; } const { database, dbSet, dbRef } = window.firebaseOMSI; try { await dbSet(dbRef(database, `${FB_PATH_OPERATIONAL_OVERRIDES}/${dateKey}`), profile); overrideStatusMessage_el_extra.textContent = `Override for ${formatDateToDDMonthYYYY_ExtraPage(dateKey)} set to "${profile}".`; overrideStatusMessage_el_extra.style.color="#2ecc71"; loadAndDisplayOverrides_ExtraPage(); updateSelectedDateInfo_ExtraPage(); } catch (error) { console.error("Error setting override:", error); overrideStatusMessage_el_extra.textContent = "Error setting override: " + error.message; overrideStatusMessage_el_extra.style.color="#e74c3c"; } }
         async function handleClearOverride_ExtraPage() { if (!currentUser_extra || !overrideDateInput_el_extra || !overrideStatusMessage_el_extra || !window.firebaseOMSI) return; const dateKey = overrideDateInput_el_extra.value; if (!dateKey) { overrideStatusMessage_el_extra.textContent = "Please select a date to clear its override."; overrideStatusMessage_el_extra.style.color="#e74c3c"; return; } if (!confirm(`Are you sure you want to clear the override for ${formatDateToDDMonthYYYY_ExtraPage(dateKey)}?`)) { overrideStatusMessage_el_extra.textContent = "Clear override cancelled."; overrideStatusMessage_el_extra.style.color="#7f8c8d"; return; } const { database, dbRemove, dbRef } = window.firebaseOMSI; try { await dbRemove(dbRef(database, `${FB_PATH_OPERATIONAL_OVERRIDES}/${dateKey}`)); overrideStatusMessage_el_extra.textContent = `Override for ${formatDateToDDMonthYYYY_ExtraPage(dateKey)} cleared.`; overrideStatusMessage_el_extra.style.color="#2ecc71"; loadAndDisplayOverrides_ExtraPage(); updateSelectedDateInfo_ExtraPage(); } catch (error) { console.error("Error clearing override:", error); overrideStatusMessage_el_extra.textContent = "Error clearing override: " + error.message; overrideStatusMessage_el_extra.style.color="#e74c3c"; } }
 
-        // --- Stop Management & Creation Functions ---
+        // --- Stop Management Functions (content mostly unchanged, ensure correct _el_extra and _ExtraPage suffixes) ---
         function getBaseStopName_ExtraPage(fullStopName) { if (!fullStopName) return ""; let baseName = String(fullStopName).trim(); baseName = baseName.replace(/\s*\(Stand [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\(Bay [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\(Stop [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\([A-Z0-9]\)\s*$/i, ''); baseName = baseName.replace(/\s*-\s*Bay\s*[A-Z0-9]+\s*$/i,''); baseName = baseName.replace(/\s*Stop\s*[A-Z0-9]+\s*$/i,''); return baseName.trim(); }
         function getRandomIdFormat_ExtraPage() { const formats = ["NUM", "BP", "LE", "RO"]; return formats[Math.floor(Math.random() * formats.length)]; }
         function generateUniqueStopId_ExtraPage(format, stopName = "", allExistingStopIDsSet) { const targetBaseName = getBaseStopName_ExtraPage(stopName).toUpperCase(); let prefix = ""; let numericRegex; let baseStartNumber = 1; const MAX_NUMERIC_PART = 99999; switch (format) { case "NUM": prefix = ""; numericRegex = /^(\d+)$/; baseStartNumber = 101; break; case "BP": prefix = "BP"; numericRegex = /^BP(\d+)$/; baseStartNumber = 1; break; case "LE": prefix = "LE"; numericRegex = /^LE(\d+)$/; baseStartNumber = 1; break; case "RO": prefix = "RO"; numericRegex = /^RO(\d+)$/; baseStartNumber = 1; break; default: console.warn(`generateUniqueStopId_ExtraPage: Unknown format "${format}", defaulting to NUM.`); format="NUM"; prefix = ""; numericRegex = /^(\d+)$/; baseStartNumber = 101; if (/^[A-Z]+$/.test(format)) {prefix = format.toUpperCase(); numericRegex = new RegExp(`^${prefix}(\\d+)$`); baseStartNumber = 1;} break; } let highestNumInNameSequence = 0; let nameSpecificSequenceFound = false; if (targetBaseName && currentWorkingSchedule_extra) { currentWorkingSchedule_extra.forEach(entry => { if (entry.stopName && entry.stopID) { const existingEntryBaseName = getBaseStopName_ExtraPage(entry.stopName).toUpperCase(); if (existingEntryBaseName === targetBaseName) { const match = entry.stopID.toUpperCase().match(numericRegex); if (match && match[1]) { const numPart = parseInt(match[1], 10); if (!isNaN(numPart) && numPart <= MAX_NUMERIC_PART && numPart > highestNumInNameSequence) { highestNumInNameSequence = numPart; } nameSpecificSequenceFound = true; } } } }); } let nextNumInSequence = nameSpecificSequenceFound ? highestNumInNameSequence + 1 : baseStartNumber; if (format === "NUM" && nextNumInSequence < 101) nextNumInSequence = 101; if (baseStartNumber > MAX_NUMERIC_PART) { console.warn(`Suggest ID (single): Base start ${baseStartNumber} for ${format} exceeds MAX. Fallback.`); return prefix + "MAX_S_ERR" + Math.floor(Math.random()*1000); } let attempts = 0; const maxAttempts = MAX_NUMERIC_PART + 2000; let candidateId = ""; while (attempts < maxAttempts) { if (nextNumInSequence > MAX_NUMERIC_PART) { console.warn(`Suggest ID (single): All numbers up to ${MAX_NUMERIC_PART} exhausted for ${prefix}, base ${targetBaseName}. Fallback.`); let fA = 0, fId; do { fId = prefix + "RND" + String(Date.now()).slice(-3) + (Math.floor(Math.random()*900)+100); fA++; if (fA > 50) return prefix + "FB_FAIL" + Math.floor(Math.random()*1000); } while (allExistingStopIDsSet.has(fId.toUpperCase())); return fId; } candidateId = prefix + nextNumInSequence; if (!allExistingStopIDsSet.has(candidateId.toUpperCase())) return candidateId; nextNumInSequence++; attempts++; } console.warn(`CRITICAL: Could not generate unique Stop ID for ${format}, name: "${stopName}". Final fallback.`); let fA2 = 0, fId2; do { fId2 = prefix + "ULTRA_FB" + String(Date.now()).slice(-5) + (Math.floor(Math.random()*90)+10); fA2++; if (fA2 > 50) return prefix + "ULTRA_CRIT_FAIL" + Math.floor(Math.random()*100); } while (allExistingStopIDsSet.has(fId2.toUpperCase())); return fId2; }
         function autoGenerateAndSetNewStopId_ExtraPage() { if (!currentUser_extra || !inputNewStopId_el_extra || !inputNewStopName_el_extra || !selectNewStopIdFormat_el_extra) return; const currentStopName = inputNewStopName_el_extra.value.trim(); if (!currentStopName) { inputNewStopId_el_extra.value = ""; selectNewStopIdFormat_el_extra.selectedIndex = 0; if(addNewStopStatus_el_extra) {addNewStopStatus_el_extra.textContent = "Enter stop name for ID suggestion."; addNewStopStatus_el_extra.style.color = "";} if (newStopIdAvailability_el_extra) newStopIdAvailability_el_extra.textContent = ''; return; } const actualBaseName = getBaseStopName_ExtraPage(currentStopName).toUpperCase(); let formatToUse = null; if (actualBaseName && currentWorkingSchedule_extra && currentWorkingSchedule_extra.length > 0) { for (const existingEntry of currentWorkingSchedule_extra) { if (existingEntry.stopID && existingEntry.stopName) { const existingEntryBaseName = getBaseStopName_ExtraPage(existingEntry.stopName).toUpperCase(); if (existingEntryBaseName === actualBaseName) { const existingId = existingEntry.stopID.toUpperCase(); if (existingId.startsWith("BP") && /BP\d+/.test(existingId)) formatToUse = "BP"; else if (existingId.startsWith("LE") && /LE\d+/.test(existingId)) formatToUse = "LE"; else if (existingId.startsWith("RO") && /RO\d+/.test(existingId)) formatToUse = "RO"; else if (/^\d+$/.test(existingId) && parseInt(existingId, 10) >= 100) formatToUse = "NUM"; if (formatToUse) break; } } } } if (!formatToUse) formatToUse = getRandomIdFormat_ExtraPage(); selectNewStopIdFormat_el_extra.value = formatToUse; const allCurrentScheduleIDs = new Set(currentWorkingSchedule_extra.map(e => e.stopID.toUpperCase())); const suggestedId = generateUniqueStopId_ExtraPage(formatToUse, currentStopName, allCurrentScheduleIDs); inputNewStopId_el_extra.value = suggestedId; inputNewStopId_el_extra.dispatchEvent(new Event('input', { bubbles: true, cancelable: true })); if (addNewStopStatus_el_extra) { addNewStopStatus_el_extra.textContent = `Auto-suggested ID: ${suggestedId} (Format: "${formatToUse}").`; addNewStopStatus_el_extra.style.color = '#bdc3c7'; } }
-        function handleAddStopDetails_ExtraPage() { if (!currentUser_extra || !addNewStopStatus_el_extra || !inputNewStopId_el_extra || !inputNewStopName_el_extra || !inputNewStopDirection_el_extra) return; const newStopID = inputNewStopId_el_extra.value.trim().toUpperCase(); const newStopName = inputNewStopName_el_extra.value.trim(); const newStopDirection = inputNewStopDirection_el_extra.value.trim(); if (!newStopID) { addNewStopStatus_el_extra.textContent = "New Stop ID is required."; addNewStopStatus_el_extra.style.color = '#e74c3c'; inputNewStopId_el_extra.focus(); return; } if (!/^[A-Z0-9]+$/.test(newStopID)) { addNewStopStatus_el_extra.textContent = "Stop ID: A-Z, 0-9 only."; addNewStopStatus_el_extra.style.color = '#e74c3c'; inputNewStopId_el_extra.focus(); return; } if (!newStopName) { addNewStopStatus_el_extra.textContent = "New Stop Name is required."; addNewStopStatus_el_extra.style.color = '#e74c3c'; inputNewStopName_el_extra.focus(); return; } const existingStopIDs = new Set(currentWorkingSchedule_extra.map(e => e.stopID.toUpperCase())); if (existingStopIDs.has(newStopID)) { addNewStopStatus_el_extra.textContent = `Stop ID "${newStopID}" already exists.`; if(newStopIdAvailability_el_extra){ newStopIdAvailability_el_extra.textContent = 'ID already exists.'; newStopIdAvailability_el_extra.style.color = '#e74c3c'; } inputNewStopId_el_extra.focus(); return; } const placeholderEntry = { internalId: `${newStopID}_placeholder_${Date.now()}`, stopID: newStopID, stopName: newStopName, direction: newStopDirection, lineName: "INFO_ONLY", destinationName: "Stop Definition Placeholder", scheduledTime: "00:00", OperatingProfile: "AllDays", DayOffset: "0" }; currentWorkingSchedule_extra.push(placeholderEntry); saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra).then(() => { addNewStopStatus_el_extra.textContent = `Stop "${newStopID} - ${newStopName}" added to Firebase.`; addNewStopStatus_el_extra.style.color = '#2ecc71'; inputNewStopId_el_extra.value = ''; inputNewStopName_el_extra.value = ''; inputNewStopDirection_el_extra.value = ''; if(newStopIdAvailability_el_extra) newStopIdAvailability_el_extra.textContent = ''; if(selectNewStopIdFormat_el_extra) selectNewStopIdFormat_el_extra.selectedIndex = 0; autoGenerateAndSetNewStopId_ExtraPage(); renderUIDependentElements_ExtraPage(); }).catch(error => { console.error("Error adding new stop:", error); addNewStopStatus_el_extra.textContent = "Error saving stop: " + error.message; addNewStopStatus_el_extra.style.color = '#e74c3c'; currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry => entry.internalId !== placeholderEntry.internalId); }); }
-
-        function generateUniqueStopId_ExtraPage_BulkAware(format, stopName, allExistingAndBatchIDsSet, newlyGeneratedForThisBaseNameAndFormatInBatch) {
-            const targetBaseName = getBaseStopName_ExtraPage(stopName).toUpperCase();
-            let prefix = ""; let numericRegex; let baseStartNumber = 1; const MAX_NUMERIC_PART = 99999;
-            switch (format) { case "NUM": prefix = ""; numericRegex = /^(\d+)$/; baseStartNumber = 101; break; case "BP": prefix = "BP"; numericRegex = /^BP(\d+)$/; baseStartNumber = 1; break; case "LE": prefix = "LE"; numericRegex = /^LE(\d+)$/; baseStartNumber = 1; break; case "RO": prefix = "RO"; numericRegex = /^RO(\d+)$/; baseStartNumber = 1; break; default: console.warn(`generateUniqueStopId_ExtraPage_BulkAware: Unknown format "${format}" for "${stopName}". Defaulting to NUM.`); format = "NUM"; prefix = ""; numericRegex = /^(\d+)$/; baseStartNumber = 101; break; }
-            let highestNumInNameAndFormatSequenceInBatch = 0;
-            newlyGeneratedForThisBaseNameAndFormatInBatch.forEach(generatedID => { const match = generatedID.toUpperCase().match(numericRegex); if (match && match[1]) { const numPart = parseInt(match[1], 10); if (!isNaN(numPart) && numPart <= MAX_NUMERIC_PART && numPart > highestNumInNameAndFormatSequenceInBatch) { highestNumInNameAndFormatSequenceInBatch = numPart; } } });
-            let nextNumInSequence = highestNumInNameAndFormatSequenceInBatch > 0 ? highestNumInNameAndFormatSequenceInBatch + 1 : baseStartNumber;
-            if (format === "NUM" && nextNumInSequence < 101) nextNumInSequence = 101;
-            if (baseStartNumber > MAX_NUMERIC_PART) { console.warn(`BulkAware: Base start ${baseStartNumber} for ${format} exceeds MAX. Fallback.`); return prefix + "B_MAX_S_ERR" + Math.floor(Math.random()*1000); }
-            let attempts = 0; const maxAttempts = MAX_NUMERIC_PART + 2000; let candidateId = "";
-            while (attempts < maxAttempts) {
-                if (nextNumInSequence > MAX_NUMERIC_PART) { console.warn(`BulkAware: All numbers up to ${MAX_NUMERIC_PART} exhausted for ${prefix}, base ${targetBaseName}. Fallback.`); let fA = 0, fId; do { fId = prefix + "BRND" + String(Date.now()).slice(-4) + (Math.floor(Math.random()*900)+100); fA++; if (fA > 50) return prefix + "B_FB_FAIL" + Math.floor(Math.random()*1000); } while (allExistingAndBatchIDsSet.has(fId.toUpperCase())); return fId; }
-                candidateId = prefix + nextNumInSequence;
-                if (!allExistingAndBatchIDsSet.has(candidateId.toUpperCase())) return candidateId;
-                nextNumInSequence++; attempts++;
-            }
-            console.warn(`CRITICAL_BULK: Could not generate unique Stop ID for ${format}, name: "${stopName}". Final fallback.`); let fA2 = 0, fId2; do { fId2 = prefix + "B_ULTRA_FB" + String(Date.now()).slice(-5) + (Math.floor(Math.random()*9000)+1000); fA2++; if (fA2 > 50) throw new Error("Bulk Fallback ID gen failed catastrophically."); } while (allExistingAndBatchIDsSet.has(fId2.toUpperCase())); return fId2;
-        }
-
-        async function handleBulkAddStops_ExtraPage() {
-            if (!currentUser_extra) { alert("Log in."); if(bulkAddNewStopsStatus_el_extra){bulkAddNewStopsStatus_el_extra.textContent="Not logged in."; bulkAddNewStopsStatus_el_extra.style.color="#e74c3c";} return; }
-            const stopsToProcessFromExcel = processedExcelStopsData_extra;
-            if (!stopsToProcessFromExcel || stopsToProcessFromExcel.length === 0) { if(bulkAddNewStopsStatus_el_extra){bulkAddNewStopsStatus_el_extra.textContent="No Excel data processed."; bulkAddNewStopsStatus_el_extra.style.color="#f1c40f";} return; }
-
-            if (!confirm(`This will MERGE stops from the Excel file with your current schedule.\n- Existing stops (matched by StopID or Base Name) will be UPDATED.\n- New stops will be ADDED.\n- LineName(s) from Excel will be added as placeholder entries if they don't exist for a stop.\n- NO STOPS WILL BE DELETED from your current schedule unless directly replaced by a StopID change.\n\nProceed with merging ${stopsToProcessFromExcel.length} definitions?`)) {
-                if(bulkAddNewStopsStatus_el_extra){bulkAddNewStopsStatus_el_extra.textContent="Bulk merge operation cancelled."; bulkAddNewStopsStatus_el_extra.style.color="#7f8c8d";} return;
-            }
-
-            if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = `Merging ${stopsToProcessFromExcel.length} definitions from file with existing schedule...`; bulkAddNewStopsStatus_el_extra.style.color = '#f1c40f'; }
-
-            let tempWorkingSchedule = JSON.parse(JSON.stringify(currentWorkingSchedule_extra));
-            const allExistingAndBatchIDs = new Set(tempWorkingSchedule.map(e => e.stopID.toUpperCase()));
-            const baseNameToFormatMapForThisBatch = new Map();
-            const baseNameAndFormatToGeneratedNumericPartsMap = new Map(); // Key: "BASENAME_FORMAT", Value: Set of numeric parts as strings
-
-            let errorsEncountered = 0;
-            let newStopsAddedCount = 0;
-            let existingStopsDetailsUpdatedCount = 0;
-            let newPlaceholdersAddedToExistingStopsCount = 0;
-            let newPlaceholdersForNewStopsCount = 0;
-            let statusMessages = [`Starting bulk merge (Excel rows: ${stopsToProcessFromExcel.length})...\n`];
-
-            for (const stopData of stopsToProcessFromExcel) {
-                const excelStopName = (stopData.stopName || "").trim();
-                const excelDirection = (stopData.direction || "").trim();
-                const excelUserProvidedStopID = (stopData.userProvidedStopID || "").trim();
-                const excelBaseName = getBaseStopName_ExtraPage(excelStopName).toUpperCase();
-                let excelLineNames = (stopData.lineNameInput && stopData.lineNameInput.trim() !== "") ? stopData.lineNameInput.split(',').map(ln => ln.trim().toUpperCase()).filter(ln => ln !== "") : ["INFO_ONLY"];
-                if (excelLineNames.length === 0) excelLineNames = ["INFO_ONLY"];
-
-                if (!excelStopName && !excelUserProvidedStopID) { statusMessages.push(`Row ${stopData.originalLineNumber}: Skipped. StopName or StopID required.`); errorsEncountered++; continue; }
-
-                let targetStopID = null;
-                let isNewStop = false;
-                let idSourceMessage = "";
-
-                if (excelUserProvidedStopID) {
-                    const providedIDUpper = excelUserProvidedStopID.toUpperCase();
-                    if (!/^[A-Z0-9]+$/.test(providedIDUpper)) { statusMessages.push(`Row ${stopData.originalLineNumber} ("${excelStopName}"): Provided StopID "${excelUserProvidedStopID}" invalid chars. Skipped.`); errorsEncountered++; continue; }
-                    
-                    const existingEntryWithThisID = tempWorkingSchedule.find(e => e.stopID.toUpperCase() === providedIDUpper);
-                    if (existingEntryWithThisID && getBaseStopName_ExtraPage(existingEntryWithThisID.stopName).toUpperCase() !== excelBaseName) {
-                        statusMessages.push(`Row ${stopData.originalLineNumber} ("${excelStopName}"): Provided StopID "${excelUserProvidedStopID}" conflicts with existing Stop "${existingEntryWithThisID.stopName}". Skipped.`); errorsEncountered++; continue;
-                    }
-                    if (!existingEntryWithThisID && allExistingAndBatchIDs.has(providedIDUpper)) { // ID in use by another processed item from batch, but not this base name
-                        statusMessages.push(`Row ${stopData.originalLineNumber} ("${excelStopName}"): Provided StopID "${excelUserProvidedStopID}" conflicts with another definition in this batch. Skipped.`); errorsEncountered++; continue;
-                    }
-                    targetStopID = excelUserProvidedStopID; // Use original casing from file
-                    idSourceMessage = "user-provided";
-                    if (!existingEntryWithThisID) isNewStop = true;
-                } else { // StopID is blank in Excel
-                    const existingMatchesByBaseName = tempWorkingSchedule.filter(e => getBaseStopName_ExtraPage(e.stopName).toUpperCase() === excelBaseName);
-                    if (existingMatchesByBaseName.length > 0) {
-                        targetStopID = existingMatchesByBaseName[0].stopID;
-                        idSourceMessage = "matched existing by name";
-                    } else { // New stop, generate ID
-                        isNewStop = true;
-                        let chosenFormat;
-                        if (baseNameToFormatMapForThisBatch.has(excelBaseName)) {
-                            chosenFormat = baseNameToFormatMapForThisBatch.get(excelBaseName);
-                        } else {
-                            chosenFormat = getRandomIdFormat_ExtraPage();
-                            baseNameToFormatMapForThisBatch.set(excelBaseName, chosenFormat);
-                        }
-                        const keyForMap = `${excelBaseName}_${chosenFormat}`;
-                        if (!baseNameAndFormatToGeneratedNumericPartsMap.has(keyForMap)) {
-                            baseNameAndFormatToGeneratedNumericPartsMap.set(keyForMap, new Set());
-                        }
-                        const numericPartsForThisGroup = baseNameAndFormatToGeneratedNumericPartsMap.get(keyForMap);
-                        targetStopID = generateUniqueStopId_ExtraPage_BulkAware(chosenFormat, excelStopName, allExistingAndBatchIDs, numericPartsForThisGroup);
-                        const matchRegex = chosenFormat === "NUM" ? /^(\d+)$/ : new RegExp(`^${chosenFormat}(\\d+)$`);
-                        const idMatch = targetStopID.match(matchRegex);
-                        if (idMatch && idMatch[1]) numericPartsForThisGroup.add(idMatch[1]); // Add numeric part as string
-                        idSourceMessage = `auto-gen (${chosenFormat})`;
-                    }
-                }
-
-                if (!targetStopID) { statusMessages.push(`Row ${stopData.originalLineNumber} ("${excelStopName}"): Could not determine/generate a unique StopID. Skipped.`); errorsEncountered++; continue;}
-                allExistingAndBatchIDs.add(targetStopID.toUpperCase());
-
-
-                if (isNewStop) {
-                    newStopsAddedCount++;
-                    excelLineNames.forEach(ln => {
-                        tempWorkingSchedule.push({
-                            internalId: `${targetStopID}_${ln.replace(/[^A-Z0-9]/ig, '')}_phNew_${Date.now()}_${tempWorkingSchedule.length}`,
-                            stopID: targetStopID, stopName: excelStopName, direction: excelDirection,
-                            lineName: ln, destinationName: "To Be Defined", scheduledTime: "00:00", OperatingProfile: "AllDays", DayOffset: "0"
-                        });
-                        newPlaceholdersForNewStopsCount++;
-                    });
-                    statusMessages.push(`Row ${stopData.originalLineNumber}: Added NEW StopID ${targetStopID} ("${excelStopName}") with LineName(s): ${excelLineNames.join(', ')}. ID source: ${idSourceMessage}.`);
-                } else { // Existing stop, update details and add new line associations
-                    let detailsActuallyUpdated = false;
-                    tempWorkingSchedule.forEach(entry => {
-                        if (entry.stopID.toUpperCase() === targetStopID.toUpperCase()) {
-                            if (excelStopName && entry.stopName !== excelStopName) { entry.stopName = excelStopName; detailsActuallyUpdated = true;}
-                            if (excelDirection && entry.direction !== excelDirection) { entry.direction = excelDirection; detailsActuallyUpdated = true;}
-                        }
-                    });
-                    if (detailsActuallyUpdated) existingStopsDetailsUpdatedCount++; // Count if name/direction changed
-
-                    let placeholdersAddedThisStop = 0;
-                    excelLineNames.forEach(ln => {
-                        const lineNameExistsForStop = tempWorkingSchedule.some(e => e.stopID.toUpperCase() === targetStopID.toUpperCase() && e.lineName.toUpperCase() === ln.toUpperCase());
-                        if (!lineNameExistsForStop) {
-                            tempWorkingSchedule.push({
-                                internalId: `${targetStopID}_${ln.replace(/[^A-Z0-9]/ig, '')}_phMerge_${Date.now()}_${tempWorkingSchedule.length}`,
-                                stopID: targetStopID, stopName: excelStopName, // Use Excel name for consistency if it was updated
-                                direction: excelDirection, // Use Excel direction
-                                lineName: ln, destinationName: "To Be Defined", scheduledTime: "00:00", OperatingProfile: "AllDays", DayOffset: "0"
-                            });
-                            placeholdersAddedThisStop++;
-                        }
-                    });
-                    if (placeholdersAddedThisStop > 0) newPlaceholdersAddedToExistingStopsCount += placeholdersAddedThisStop;
-                    statusMessages.push(`Row ${stopData.originalLineNumber}: Processed existing StopID ${targetStopID} ("${excelStopName}"). Details updated: ${detailsActuallyUpdated}. New LineName placeholders added: ${placeholdersAddedThisStop}. ID source: ${idSourceMessage}.`);
-                }
-            } // End loop
-
-            let finalSummaryParts = [];
-            if (newStopsAddedCount > 0) finalSummaryParts.push(`Added ${newStopsAddedCount} new stop definitions (with ${newPlaceholdersForNewStopsCount} placeholder entries).`);
-            if (existingStopsDetailsUpdatedCount > 0) finalSummaryParts.push(`Updated details for ${existingStopsDetailsUpdatedCount} existing stops.`);
-            if (newPlaceholdersAddedToExistingStopsCount > 0) finalSummaryParts.push(`Added ${newPlaceholdersAddedToExistingStopsCount} new LineName placeholder entries to existing stops.`);
-            if (errorsEncountered > 0) finalSummaryParts.push(`${errorsEncountered} row(s) from Excel skipped.`);
-            if (finalSummaryParts.length === 0 && errorsEncountered === 0) finalSummaryParts.push("No changes or new stops to apply from the file.");
-
-            statusMessages.push("\n--- Merge Summary ---\n" + finalSummaryParts.join('\n'));
-            if (bulkAddNewStopsStatus_el_extra) bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n');
-
-            const madeChanges = newStopsAddedCount > 0 || existingStopsDetailsUpdatedCount > 0 || newPlaceholdersAddedToExistingStopsCount > 0;
-            if (errorsEncountered > 0 && madeChanges) {
-                if (!confirm(`There were ${errorsEncountered} error(s) processing Excel rows. However, other changes are ready to be merged. Proceed?`)) {
-                    statusMessages.push("Bulk merge aborted by user due to errors.");
-                    if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; } return;
-                }
-                statusMessages.push("Attempting to save successfully merged changes...");
-            } else if (!madeChanges) {
-                 if (bulkAddNewStopsStatus_el_extra) bulkAddNewStopsStatus_el_extra.style.color = errorsEncountered > 0 ? '#e74c3c' : '#f1c40f'; return;
-            }
-            if (bulkAddNewStopsStatus_el_extra) bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n');
-
-            currentWorkingSchedule_extra = tempWorkingSchedule;
-            try {
-                await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra);
-                statusMessages.push(`\nSuccessfully MERGED stops with Firebase. Schedule now has ${currentWorkingSchedule_extra.length} entries.`);
-                if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); bulkAddNewStopsStatus_el_extra.style.color = '#2ecc71'; }
-                if (fileInputBulkAddStops_el_extra) fileInputBulkAddStops_el_extra.value = ''; if (fileNameBulkAddStops_el_extra) fileNameBulkAddStops_el_extra.textContent = 'No file selected.';
-                processedExcelStopsData_extra = []; renderUIDependentElements_ExtraPage();
-            } catch (error) {
-                statusMessages.push("\nDATABASE ERROR: Error saving merged schedule to Firebase!");
-                if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; }
-                console.error("Error bulk merging stops:", error);
-            }
-        }
-
-        function handleExcelFileForBulkAdd_ExtraPage(event) { const file = event.target.files[0]; if (!fileInputBulkAddStops_el_extra || !fileNameBulkAddStops_el_extra || !bulkAddNewStopsStatus_el_extra) return; if (!file) { fileNameBulkAddStops_el_extra.textContent = "No file selected."; processedExcelStopsData_extra = []; return; } fileNameBulkAddStops_el_extra.textContent = `Processing ${file.name}...`; bulkAddNewStopsStatus_el_extra.textContent = ""; processedExcelStopsData_extra = []; const reader = new FileReader(); reader.onload = function(e) { try { const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, {type: 'array'}); const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName]; const jsonData = XLSX.utils.sheet_to_json(worksheet, {header:1, defval:''}); if (jsonData.length === 0) { bulkAddNewStopsStatus_el_extra.textContent = "Excel file empty or no data."; bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; fileNameBulkAddStops_el_extra.textContent = `Error: ${file.name} is empty.`; fileInputBulkAddStops_el_extra.value = ''; return; } let validEntries = 0; let tempProcessedData = []; jsonData.forEach((row, index) => { if (!Array.isArray(row) || row.every(cell => String(cell).trim() === '')) return; const userProvidedStopID = String(row[0] || "").trim(); const stopName = String(row[1] || "").trim(); const direction = String(row[2] || "").trim(); const lineNameInput = String(row[3] || "").trim(); if (!stopName && !userProvidedStopID) { console.warn(`Skipping Excel row ${index + 1}: StopName and StopID both missing.`); return; } tempProcessedData.push({ originalLineNumber: index + 1, userProvidedStopID: userProvidedStopID, stopName: stopName, direction: direction, lineNameInput: lineNameInput }); validEntries++; }); processedExcelStopsData_extra = tempProcessedData; if (validEntries > 0) { fileNameBulkAddStops_el_extra.textContent = `${file.name} (${validEntries} valid rows ready).`; bulkAddNewStopsStatus_el_extra.textContent = `${validEntries} stop definitions processed. Ready for Bulk Merge/Add operation.`; bulkAddNewStopsStatus_el_extra.style.color = '#2ecc71'; } else { fileNameBulkAddStops_el_extra.textContent = `No valid data in ${file.name}.`; bulkAddNewStopsStatus_el_extra.textContent = "No valid definitions (StopName/StopID required)."; bulkAddNewStopsStatus_el_extra.style.color = '#f1c40f'; fileInputBulkAddStops_el_extra.value = ''; } } catch (error) { console.error("Error processing Excel:", error); fileNameBulkAddStops_el_extra.textContent = `Error processing ${file.name}.`; bulkAddNewStopsStatus_el_extra.textContent = "Error processing Excel: " + error.message; bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; fileInputBulkAddStops_el_extra.value = ''; } }; reader.onerror = () => { fileNameBulkAddStops_el_extra.textContent = "Error reading file."; bulkAddNewStopsStatus_el_extra.textContent = "Could not read file."; bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; fileInputBulkAddStops_el_extra.value = ''; }; reader.readAsArrayBuffer(file); }
-        function populateMasterStopList_ExtraPage() { if (!masterStopListUL_el_extra || !masterStopListStatus_el_extra) return; uniqueStopsMasterList_extra = getUniqueStopsFromSchedule_ExtraPage(); const filterText = masterStopListFilterInput_el_extra.value.toLowerCase().trim(); masterStopListUL_el_extra.innerHTML = ''; let displayedCount = 0; if (uniqueStopsMasterList_extra.length === 0) { masterStopListStatus_el_extra.textContent = 'No unique stops loaded.'; return; } uniqueStopsMasterList_extra.forEach(stop => { if (!stop || !stop.stopID) return; const stopIdLower = stop.stopID.toLowerCase(); const stopNameLower = (stop.stopName || "").toLowerCase(); const stopDirectionLower = (stop.direction || "").toLowerCase(); const isClosed = closedStopIDs_extra.includes(stop.stopID.toUpperCase()); const closureStatus = isClosed ? "Closed" : "Open"; if (filterText && !stopIdLower.includes(filterText) && !stopNameLower.includes(filterText) && !stopDirectionLower.includes(filterText) && !closureStatus.toLowerCase().includes(filterText)) return; displayedCount++; const li = document.createElement('li'); li.classList.add('master-stop-list-item'); li.dataset.originalStopid = stop.stopID; const originalInfoDiv = document.createElement('div'); originalInfoDiv.classList.add('master-stop-original-info'); let originalContent = `<span class="stop-name-master">${stop.stopName}</span><br><span class="stop-direction-master">Towards: ${stop.direction}</span><br><span class="stop-id-master">Stop ID: ${stop.stopID}</span>`; const servingRoutesData = new Map(); currentWorkingSchedule_extra.forEach(entry => { if (entry.stopID === stop.stopID && entry.lineName) servingRoutesData.set(entry.lineName, true); }); const sortedRouteNames = Array.from(servingRoutesData.keys()).sort(compareLineNames_ExtraPage); if (sortedRouteNames.length > 0) { originalContent += `<div class="serving-routes-container" style="margin-top:0.3rem;">`; sortedRouteNames.slice(0, 10).forEach(lineName => { const bgColor = getRouteTileColour_ExtraPage(lineName, stop.stopID); const textColor = getTextColourForBackground_ExtraPage(bgColor); originalContent += `<span class="route-tile-tools-list" style="background-color:${bgColor};color:${textColor}; font-size:0.7em; padding:0.15em 0.4em;">${lineName}</span>`; }); if(sortedRouteNames.length > 10) originalContent += `<span style="font-size:0.7em; opacity:0.8;">...and ${sortedRouteNames.length - 10} more.</span>`; originalContent += `</div>`; } originalInfoDiv.innerHTML = originalContent; const newIdSectionDiv = document.createElement('div'); newIdSectionDiv.classList.add('master-stop-new-id-section'); const newIdLabel = document.createElement('label'); newIdLabel.textContent = 'Propose New ID (optional):'; const newIdInput = document.createElement('input'); newIdInput.type = 'text'; newIdInput.classList.add('schedule-generator-input', 'master-list-new-id-input'); newIdInput.dataset.originalId = stop.stopID; newIdInput.placeholder = "Enter new ID, then Apply Bulk"; newIdInput.value = stop.stopID; const warningP = document.createElement('p'); warningP.classList.add('master-list-row-warning'); newIdInput.addEventListener('input', () => { const enteredID = newIdInput.value.trim().toUpperCase(); warningP.textContent = ''; warningP.style.color = '#f39c12'; if (!enteredID) return; if (enteredID === stop.stopID.toUpperCase()) return; if (!/^[A-Z0-9]+$/.test(enteredID)) { warningP.textContent = 'Invalid chars in ID.'; return; } const allCurrentAndProposedIDs = new Set(currentWorkingSchedule_extra.map(e => e.stopID.toUpperCase())); document.querySelectorAll('.master-list-new-id-input').forEach(inp => { if (inp !== newIdInput) { const otherProposed = inp.value.trim().toUpperCase(); if (otherProposed && otherProposed !== inp.dataset.originalId.toUpperCase()) allCurrentAndProposedIDs.add(otherProposed); } }); if (allCurrentAndProposedIDs.has(enteredID)) warningP.textContent = 'ID taken or proposed elsewhere!'; else { warningP.textContent = 'New ID available.'; warningP.style.color = '#2ecc71'; } }); newIdSectionDiv.appendChild(newIdLabel); newIdSectionDiv.appendChild(newIdInput); newIdSectionDiv.appendChild(warningP); const actionsDiv = document.createElement('div'); actionsDiv.classList.add('master-stop-actions'); const editBtn = document.createElement('button'); editBtn.className = 'button small-action'; editBtn.textContent = 'Edit Name/Dir'; editBtn.addEventListener('click', () => handleEditStopFromMasterList_ExtraPage(stop.stopID, stop.stopName, stop.direction)); const deleteBtn = document.createElement('button'); deleteBtn.className = 'button small-action secondary'; deleteBtn.textContent = 'Delete Stop'; deleteBtn.addEventListener('click', () => handleDeleteStopFromMasterList_ExtraPage(stop.stopID)); const toggleBtn = document.createElement('button'); toggleBtn.className = `button small-action ${isClosed ? "tertiary" : "neutral"}`; toggleBtn.textContent = isClosed ? "Reopen Stop" : "Close Stop"; toggleBtn.style.backgroundColor = isClosed ? '#27ae60' : '#e74c3c'; toggleBtn.addEventListener('click', () => handleToggleStopStatusFromMasterList_ExtraPage(stop.stopID)); actionsDiv.appendChild(editBtn); actionsDiv.appendChild(deleteBtn); actionsDiv.appendChild(toggleBtn); li.appendChild(originalInfoDiv); li.appendChild(newIdSectionDiv); li.appendChild(actionsDiv); masterStopListUL_el_extra.appendChild(li); }); masterStopListStatus_el_extra.textContent = `Showing ${displayedCount} of ${uniqueStopsMasterList_extra.length} unique stops. ${filterText ? `Filter: "${filterText}"` : ''}`; }
+        async function handleAddStopDetails_ExtraPage() { if (!currentUser_extra || !addNewStopStatus_el_extra || !inputNewStopId_el_extra || !inputNewStopName_el_extra || !inputNewStopDirection_el_extra) return; const newStopID = inputNewStopId_el_extra.value.trim().toUpperCase(); const newStopName = inputNewStopName_el_extra.value.trim(); const newStopDirection = inputNewStopDirection_el_extra.value.trim(); if (!newStopID) { addNewStopStatus_el_extra.textContent = "New Stop ID is required."; addNewStopStatus_el_extra.style.color = '#e74c3c'; inputNewStopId_el_extra.focus(); return; } if (!/^[A-Z0-9]+$/.test(newStopID)) { addNewStopStatus_el_extra.textContent = "Stop ID: A-Z, 0-9 only."; addNewStopStatus_el_extra.style.color = '#e74c3c'; inputNewStopId_el_extra.focus(); return; } if (!newStopName) { addNewStopStatus_el_extra.textContent = "New Stop Name is required."; addNewStopStatus_el_extra.style.color = '#e74c3c'; inputNewStopName_el_extra.focus(); return; } const existingStopIDs = new Set(currentWorkingSchedule_extra.map(e => e.stopID.toUpperCase())); if (existingStopIDs.has(newStopID)) { addNewStopStatus_el_extra.textContent = `Stop ID "${newStopID}" already exists.`; if(newStopIdAvailability_el_extra){ newStopIdAvailability_el_extra.textContent = 'ID already exists.'; newStopIdAvailability_el_extra.style.color = '#e74c3c'; } inputNewStopId_el_extra.focus(); return; } const placeholderEntry = { internalId: `${newStopID}_placeholder_${Date.now()}`, stopID: newStopID, stopName: newStopName, direction: newStopDirection, lineName: "INFO_ONLY", destinationName: "Stop Definition Placeholder", scheduledTime: "00:00", OperatingProfile: "AllDays", DayOffset: "0" }; currentWorkingSchedule_extra.push(placeholderEntry); try { await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra); addNewStopStatus_el_extra.textContent = `Stop "${newStopID} - ${newStopName}" added to Firebase.`; addNewStopStatus_el_extra.style.color = '#2ecc71'; inputNewStopId_el_extra.value = ''; inputNewStopName_el_extra.value = ''; inputNewStopDirection_el_extra.value = ''; if(newStopIdAvailability_el_extra) newStopIdAvailability_el_extra.textContent = ''; if(selectNewStopIdFormat_el_extra) selectNewStopIdFormat_el_extra.selectedIndex = 0; autoGenerateAndSetNewStopId_ExtraPage(); renderUIDependentElements_ExtraPage(); } catch (error) { console.error("Error adding new stop:", error); addNewStopStatus_el_extra.textContent = "Error saving stop: " + error.message; addNewStopStatus_el_extra.style.color = '#e74c3c'; currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry => entry.internalId !== placeholderEntry.internalId); } }
+        function generateUniqueStopId_ExtraPage_BulkAware(format, stopName, newlyGeneratedIDsInBatchSet, baseNameAndFormatToGeneratedNumericPartsMap) { const targetBaseName = getBaseStopName_ExtraPage(stopName).toUpperCase(); let prefix = ""; let numericRegex; let baseStartNumber = 1; const MAX_NUMERIC_PART = 99999; switch (format) { case "NUM": prefix = ""; numericRegex = /^(\d+)$/; baseStartNumber = 101; break; case "BP": prefix = "BP"; numericRegex = /^BP(\d+)$/; baseStartNumber = 1; break; case "LE": prefix = "LE"; numericRegex = /^LE(\d+)$/; baseStartNumber = 1; break; case "RO": prefix = "RO"; numericRegex = /^RO(\d+)$/; baseStartNumber = 1; break; default: console.warn(`generateUniqueStopId_ExtraPage_BulkAware (Replace Mode): Unknown format "${format}" for "${stopName}". Defaulting to NUM.`); format = "NUM"; prefix = ""; numericRegex = /^(\d+)$/; baseStartNumber = 101; break; } const keyForMap = `${targetBaseName}_${format}`; if (!baseNameAndFormatToGeneratedNumericPartsMap.has(keyForMap)) { baseNameAndFormatToGeneratedNumericPartsMap.set(keyForMap, new Set()); } const numericPartsForThisGroup = baseNameAndFormatToGeneratedNumericPartsMap.get(keyForMap); let highestNumInGroup = 0; numericPartsForThisGroup.forEach(numStr => { const num = parseInt(numStr, 10); if (!isNaN(num) && num > highestNumInGroup) highestNumInGroup = num; }); let nextNumInSequence = highestNumInGroup > 0 ? highestNumInGroup + 1 : baseStartNumber; if (format === "NUM" && nextNumInSequence < 101) nextNumInSequence = 101; if (baseStartNumber > MAX_NUMERIC_PART) { console.warn(`BulkAware (Replace): Base start ${baseStartNumber} for ${format} exceeds MAX. Fallback.`); return prefix + "B_MAX_S_ERR" + Math.floor(Math.random()*1000); } let attempts = 0; const maxAttempts = MAX_NUMERIC_PART + 2000; let candidateId = ""; while (attempts < maxAttempts) { if (nextNumInSequence > MAX_NUMERIC_PART) { console.warn(`BulkAware (Replace): All numbers up to ${MAX_NUMERIC_PART} exhausted for ${prefix}, base ${targetBaseName}. Fallback.`); let fA = 0, fId; do { fId = prefix + "BRND" + String(Date.now()).slice(-4) + (Math.floor(Math.random()*900)+100); fA++; if (fA > 50) return prefix + "B_FB_FAIL" + Math.floor(Math.random()*1000); } while (newlyGeneratedIDsInBatchSet.has(fId.toUpperCase())); return fId; } candidateId = prefix + nextNumInSequence; if (!newlyGeneratedIDsInBatchSet.has(candidateId.toUpperCase())) { const match = candidateId.match(numericRegex); if(match && match[1]) numericPartsForThisGroup.add(match[1]); return candidateId; } nextNumInSequence++; attempts++; } console.warn(`CRITICAL_BULK (Replace): Could not generate unique Stop ID for ${format}, name: "${stopName}". Final fallback.`); let fA2 = 0, fId2; do { fId2 = prefix + "B_ULTRA_FB" + String(Date.now()).slice(-5) + (Math.floor(Math.random()*9000)+1000); fA2++; if (fA2 > 50) throw new Error("Bulk Fallback ID gen failed catastrophically."); } while (newlyGeneratedIDsInBatchSet.has(fId2.toUpperCase())); return fId2; }
+        async function handleBulkAddStops_ExtraPage() { if (!currentUser_extra) { alert("Log in."); if(bulkAddNewStopsStatus_el_extra){bulkAddNewStopsStatus_el_extra.textContent="Not logged in."; bulkAddNewStopsStatus_el_extra.style.color="#e74c3c";} return; } const stopsToProcessFromExcel = processedExcelStopsData_extra; if (!stopsToProcessFromExcel || stopsToProcessFromExcel.length === 0) { if(bulkAddNewStopsStatus_el_extra){bulkAddNewStopsStatus_el_extra.textContent="No Excel data processed."; bulkAddNewStopsStatus_el_extra.style.color="#f1c40f";} return; } if (!confirm(`DANGER! This will DELETE ALL existing stops and their schedules, and then add the ${stopsToProcessFromExcel.length} stop definition(s) from the Excel file. This action CANNOT BE UNDONE. Proceed with replacing all stops?`)) { if(bulkAddNewStopsStatus_el_extra){bulkAddNewStopsStatus_el_extra.textContent="Bulk replace operation cancelled."; bulkAddNewStopsStatus_el_extra.style.color="#7f8c8d";} return; } if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = `Replacing all stops with ${stopsToProcessFromExcel.length} definitions from file...`; bulkAddNewStopsStatus_el_extra.style.color = '#f1c40f'; } let newScheduleEntries = []; const newlyGeneratedOrUsedIDsInThisBatch = new Set(); const baseNameToFormatMapForThisBatch = new Map(); const baseNameAndFormatToGeneratedNumericPartsMap = new Map(); let errorsEncountered = 0; let totalPlaceholdersCreated = 0; let uniqueStopIDsAddedCount = 0; let statusMessages = [`Starting bulk replacement (Excel rows: ${stopsToProcessFromExcel.length})...\n`]; for (const stopData of stopsToProcessFromExcel) { const excelStopName = (stopData.stopName || "").trim(); const excelDirection = (stopData.direction || "").trim(); const excelUserProvidedStopID = (stopData.userProvidedStopID || "").trim(); const excelBaseName = getBaseStopName_ExtraPage(excelStopName).toUpperCase(); let excelLineNames = (stopData.lineNameInput && stopData.lineNameInput.trim() !== "") ? stopData.lineNameInput.split(',').map(ln => ln.trim().toUpperCase()).filter(ln => ln !== "") : ["INFO_ONLY"]; if (excelLineNames.length === 0) excelLineNames = ["INFO_ONLY"]; if (!excelStopName && !excelUserProvidedStopID) { statusMessages.push(`Row ${stopData.originalLineNumber}: Skipped. StopName or StopID required.`); errorsEncountered++; continue; } let finalStopID = ""; let idSourceMessage = ""; let chosenFormatForThisStop = ""; if (excelUserProvidedStopID) { const providedIDUpper = excelUserProvidedStopID.toUpperCase(); if (!/^[A-Z0-9]+$/.test(providedIDUpper)) { statusMessages.push(`Row ${stopData.originalLineNumber} ("${excelStopName}"): Provided StopID "${excelUserProvidedStopID}" invalid chars. Skipped.`); errorsEncountered++; continue; } if (newlyGeneratedOrUsedIDsInThisBatch.has(providedIDUpper)) { statusMessages.push(`Row ${stopData.originalLineNumber} ("${excelStopName}"): Provided StopID "${excelUserProvidedStopID}" is duplicated within this Excel file. Skipped.`); errorsEncountered++; continue; } finalStopID = excelUserProvidedStopID; idSourceMessage = "user-provided"; if (finalStopID.startsWith("BP")) chosenFormatForThisStop = "BP"; else if (finalStopID.startsWith("LE")) chosenFormatForThisStop = "LE"; else if (finalStopID.startsWith("RO")) chosenFormatForThisStop = "RO"; else if (/^\d+$/.test(finalStopID)) chosenFormatForThisStop = "NUM"; else chosenFormatForThisStop = "Custom"; } else { if (baseNameToFormatMapForThisBatch.has(excelBaseName)) { chosenFormatForThisStop = baseNameToFormatMapForThisBatch.get(excelBaseName); } else { chosenFormatForThisStop = getRandomIdFormat_ExtraPage(); baseNameToFormatMapForThisBatch.set(excelBaseName, chosenFormatForThisStop); } finalStopID = generateUniqueStopId_ExtraPage_BulkAware(chosenFormatForThisStop, excelStopName, newlyGeneratedOrUsedIDsInThisBatch, baseNameAndFormatToGeneratedNumericPartsMap); idSourceMessage = `auto-gen (${chosenFormatForThisStop})`; } if (!finalStopID) { statusMessages.push(`Row ${stopData.originalLineNumber} ("${excelStopName}"): Failed to obtain a final StopID. Skipped.`); errorsEncountered++; continue;} newlyGeneratedOrUsedIDsInThisBatch.add(finalStopID.toUpperCase()); uniqueStopIDsAddedCount++; excelLineNames.forEach(ln => { newScheduleEntries.push({ internalId: `${finalStopID}_${ln.replace(/[^A-Z0-9]/ig, '')}_phReplace_${Date.now()}_${newScheduleEntries.length}`, stopID: finalStopID, stopName: excelStopName, direction: excelDirection, lineName: ln, destinationName: "To Be Defined", scheduledTime: "00:00", OperatingProfile: "AllDays", DayOffset: "0" }); totalPlaceholdersCreated++; }); statusMessages.push(`Row ${stopData.originalLineNumber}: Processed "${excelStopName}" -> ID: ${finalStopID} [${idSourceMessage}]. Routes: ${excelLineNames.join(', ')}.`); } let finalSummaryParts = []; if (totalPlaceholdersCreated > 0) finalSummaryParts.push(`Prepared ${totalPlaceholdersCreated} placeholder schedule entries for ${uniqueStopIDsAddedCount} unique StopIDs from the file.`); if (errorsEncountered > 0) finalSummaryParts.push(`${errorsEncountered} row(s) from Excel skipped due to errors.`); if (newScheduleEntries.length === 0 && errorsEncountered === 0) finalSummaryParts.push("No valid stop definitions found in the file to process."); statusMessages.push("\n--- Summary ---\n" + finalSummaryParts.join('\n')); if (bulkAddNewStopsStatus_el_extra) bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); if (errorsEncountered > 0 && newScheduleEntries.length > 0) { if (!confirm(`There were ${errorsEncountered} error(s) processing rows from the Excel file. However, ${newScheduleEntries.length} placeholder schedule entries for ${uniqueStopIDsAddedCount} unique StopIDs are ready to REPLACE the entire schedule. Proceed?`)) { statusMessages.push("Bulk replacement aborted by user due to errors during file processing."); if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; } return; } statusMessages.push("Attempting to save successfully processed entries and replace schedule..."); } else if (newScheduleEntries.length === 0) { if (bulkAddNewStopsStatus_el_extra) bulkAddNewStopsStatus_el_extra.style.color = errorsEncountered > 0 ? '#e74c3c' : '#f1c40f'; return; } if (bulkAddNewStopsStatus_el_extra) bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); currentWorkingSchedule_extra = newScheduleEntries; closedStopIDs_extra = []; stopSpecificRouteColours_extra = {}; try { await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra); await saveClosedStopsToFirebase_ExtraPage(); await saveStopSpecificColoursToFirebase_ExtraPage(); statusMessages.push(`\nSuccessfully REPLACED all stops. Added ${totalPlaceholdersCreated} placeholder entries for ${uniqueStopIDsAddedCount} StopIDs to Firebase.`); if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); bulkAddNewStopsStatus_el_extra.style.color = '#2ecc71'; } if (fileInputBulkAddStops_el_extra) fileInputBulkAddStops_el_extra.value = ''; if (fileNameBulkAddStops_el_extra) fileNameBulkAddStops_el_extra.textContent = 'No file selected.'; processedExcelStopsData_extra = []; renderUIDependentElements_ExtraPage(); } catch (error) { statusMessages.push("\nDATABASE ERROR: Error saving replaced schedule to Firebase!"); if (bulkAddNewStopsStatus_el_extra) { bulkAddNewStopsStatus_el_extra.textContent = statusMessages.join('\n'); bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; } console.error("Error bulk replacing stops and saving to Firebase:", error); } }
+        function handleExcelFileForBulkAdd_ExtraPage(event) { const file = event.target.files[0]; if (!fileInputBulkAddStops_el_extra || !fileNameBulkAddStops_el_extra || !bulkAddNewStopsStatus_el_extra) return; if (!file) { fileNameBulkAddStops_el_extra.textContent = "No file selected."; processedExcelStopsData_extra = []; return; } fileNameBulkAddStops_el_extra.textContent = `Processing ${file.name}...`; bulkAddNewStopsStatus_el_extra.textContent = ""; processedExcelStopsData_extra = []; const reader = new FileReader(); reader.onload = function(e) { try { const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, {type: 'array'}); const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName]; const jsonData = XLSX.utils.sheet_to_json(worksheet, {header:1, defval:''}); if (jsonData.length === 0) { bulkAddNewStopsStatus_el_extra.textContent = "Excel file empty or no data."; bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; fileNameBulkAddStops_el_extra.textContent = `Error: ${file.name} is empty.`; fileInputBulkAddStops_el_extra.value = ''; return; } let validEntries = 0; let tempProcessedData = []; jsonData.forEach((row, index) => { if (!Array.isArray(row) || row.every(cell => String(cell).trim() === '')) return; const userProvidedStopID = String(row[0] || "").trim(); const stopName = String(row[1] || "").trim(); const direction = String(row[2] || "").trim(); const lineNameInput = String(row[3] || "").trim(); if (!stopName && !userProvidedStopID) { console.warn(`Skipping Excel row ${index + 1}: StopName and StopID both missing.`); return; } tempProcessedData.push({ originalLineNumber: index + 1, userProvidedStopID: userProvidedStopID, stopName: stopName, direction: direction, lineNameInput: lineNameInput }); validEntries++; }); processedExcelStopsData_extra = tempProcessedData; if (validEntries > 0) { fileNameBulkAddStops_el_extra.textContent = `${file.name} (${validEntries} valid rows ready).`; bulkAddNewStopsStatus_el_extra.textContent = `${validEntries} stop definitions processed. Ready for Bulk Replace operation.`; bulkAddNewStopsStatus_el_extra.style.color = '#2ecc71'; } else { fileNameBulkAddStops_el_extra.textContent = `No valid data in ${file.name}.`; bulkAddNewStopsStatus_el_extra.textContent = "No valid definitions (StopName/StopID required)."; bulkAddNewStopsStatus_el_extra.style.color = '#f1c40f'; fileInputBulkAddStops_el_extra.value = ''; } } catch (error) { console.error("Error processing Excel:", error); fileNameBulkAddStops_el_extra.textContent = `Error processing ${file.name}.`; bulkAddNewStopsStatus_el_extra.textContent = "Error processing Excel: " + error.message; bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; fileInputBulkAddStops_el_extra.value = ''; } }; reader.onerror = () => { fileNameBulkAddStops_el_extra.textContent = "Error reading file."; bulkAddNewStopsStatus_el_extra.textContent = "Could not read file."; bulkAddNewStopsStatus_el_extra.style.color = '#e74c3c'; fileInputBulkAddStops_el_extra.value = ''; }; reader.readAsArrayBuffer(file); }
+        function populateMasterStopList_ExtraPage() { if (!masterStopListUL_el_extra || !masterStopListStatus_el_extra) return; uniqueStopsMasterList_extra = getUniqueStopsFromSchedule_ExtraPage(); const filterText = masterStopListFilterInput_el_extra.value.toLowerCase().trim(); masterStopListUL_el_extra.innerHTML = ''; let displayedCount = 0; if (uniqueStopsMasterList_extra.length === 0) { masterStopListStatus_el_extra.textContent = 'No unique stops loaded.'; return; } uniqueStopsMasterList_extra.forEach(stop => { if (!stop || !stop.stopID) return; const stopIdLower = stop.stopID.toLowerCase(); const stopNameLower = (stop.stopName || "").toLowerCase(); const stopDirectionLower = (stop.direction || "").toLowerCase(); const isClosed = closedStopIDs_extra.includes(stop.stopID.toUpperCase()); const closureStatus = isClosed ? "Closed" : "Open"; if (filterText && !stopIdLower.includes(filterText) && !stopNameLower.includes(filterText) && !stopDirectionLower.includes(filterText) && !closureStatus.toLowerCase().includes(filterText)) return; displayedCount++; const li = document.createElement('li'); li.classList.add('master-stop-list-item'); li.dataset.originalStopid = stop.stopID; const originalInfoDiv = document.createElement('div'); originalInfoDiv.classList.add('master-stop-original-info'); let originalContent = `<span class="stop-name-master">${stop.stopName}</span><br><span class="stop-direction-master">Towards: ${stop.direction}</span><br><span class="stop-id-master">Stop ID: ${stop.stopID}</span>`; const servingRoutesData = new Map(); currentWorkingSchedule_extra.forEach(entry => { if (entry.stopID === stop.stopID && entry.lineName) servingRoutesData.set(entry.lineName, true); }); const sortedRouteNames = Array.from(servingRoutesData.keys()).sort(compareLineNames_ExtraPage); if (sortedRouteNames.length > 0) { originalContent += `<div class="serving-routes-container" style="margin-top:0.3rem;">`; sortedRouteNames.slice(0, 10).forEach(lineName => { const bgColor = getRouteTileColour_ExtraPage(lineName, stop.stopID); const textColor = getTextColourForBackground_ExtraPage(bgColor); originalContent += `<span class="route-tile-tools-list" style="background-color:${bgColor};color:${textColor}; font-size:0.7em; padding:0.15em 0.4em;">${lineName}</span>`; }); if(sortedRouteNames.length > 10) originalContent += `<span style="font-size:0.7em; opacity:0.8;">...and ${sortedRouteNames.length - 10} more.</span>`; originalContent += `</div>`; } originalInfoDiv.innerHTML = originalContent; const newIdSectionDiv = document.createElement('div'); newIdSectionDiv.classList.add('master-stop-new-id-section'); const newIdLabel = document.createElement('label'); newIdLabel.textContent = 'Propose New ID (optional):'; const newIdInput = document.createElement('input'); newIdInput.type = 'text'; newIdInput.classList.add('schedule-generator-input', 'master-list-new-id-input'); newIdInput.dataset.originalId = stop.stopID; newIdInput.placeholder = "Enter new ID, then Apply Bulk"; newIdInput.value = stop.stopID; const warningP = document.createElement('p'); warningP.classList.add('master-list-row-warning'); newIdInput.addEventListener('input', () => { const enteredID = newIdInput.value.trim().toUpperCase(); warningP.textContent = ''; warningP.style.color = '#f39c12'; if (!enteredID) return; if (enteredID === stop.stopID.toUpperCase()) return; if (!/^[A-Z0-9]+$/.test(enteredID)) { warningP.textContent = 'Invalid chars in ID.'; return; } const allCurrentAndProposedIDs = new Set(currentWorkingSchedule_extra.map(e => e.stopID.toUpperCase())); document.querySelectorAll('.master-list-new-id-input').forEach(inp => { if (inp !== newIdInput) { const otherProposed = inp.value.trim().toUpperCase(); if (otherProposed && otherProposed !== inp.dataset.originalId.toUpperCase()) allCurrentAndProposedIDs.add(otherProposed); } }); if (allCurrentAndProposedIDs.has(enteredID)) warningP.textContent = 'ID taken or proposed elsewhere!'; else { warningP.textContent = 'New ID available.'; warningP.style.color = '#2ecc71'; } }); newIdSectionDiv.appendChild(newIdLabel); newIdSectionDiv.appendChild(newIdInput); newIdSectionDiv.appendChild(warningP); const actionsDiv = document.createElement('div'); actionsDiv.classList.add('master-stop-actions'); const editBtn = document.createElement('button'); editBtn.className = 'button small-action'; editBtn.textContent = 'Edit Name / Direction'; editBtn.addEventListener('click', () => handleEditStopFromMasterList_ExtraPage(stop.stopID, stop.stopName, stop.direction)); const deleteBtn = document.createElement('button'); deleteBtn.className = 'button small-action secondary'; deleteBtn.textContent = 'Delete Stop'; deleteBtn.addEventListener('click', () => handleDeleteStopFromMasterList_ExtraPage(stop.stopID)); const toggleBtn = document.createElement('button'); toggleBtn.className = `button small-action ${isClosed ? "save" : "secondary"}`; toggleBtn.textContent = isClosed ? "Reopen Stop" : "Close Stop"; toggleBtn.addEventListener('click', () => handleToggleStopStatusFromMasterList_ExtraPage(stop.stopID)); actionsDiv.appendChild(editBtn); actionsDiv.appendChild(deleteBtn); actionsDiv.appendChild(toggleBtn); li.appendChild(originalInfoDiv); li.appendChild(newIdSectionDiv); li.appendChild(actionsDiv); masterStopListUL_el_extra.appendChild(li); }); masterStopListStatus_el_extra.textContent = `Showing ${displayedCount} of ${uniqueStopsMasterList_extra.length} unique stops. ${filterText ? `Filter: "${filterText}"` : ''}`; }
         async function handleEditStopFromMasterList_ExtraPage(stopID, currentName, currentDirection) { if (!currentUser_extra) { alert("Log in."); return; } const newStopName = prompt(`Editing Stop: ${stopID}\nNew Name (current: "${currentName}"):`, currentName); if (newStopName === null) return; const newDirection = prompt(`Editing Stop: ${stopID}\nNew Direction (current: "${currentDirection}"):`, currentDirection); if (newDirection === null) return; const nameChanged = newStopName.trim() !== currentName.trim(); const directionChanged = newDirection.trim() !== currentDirection.trim(); if (!nameChanged && !directionChanged) { alert("No changes."); return; } let updatedCount = 0; currentWorkingSchedule_extra.forEach(entry => { if (entry.stopID && entry.stopID.toUpperCase() === stopID.toUpperCase()) { if (nameChanged) entry.stopName = newStopName.trim(); if (directionChanged) entry.direction = newDirection.trim(); updatedCount++; } }); if (updatedCount > 0) { try { await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra); alert(`${updatedCount} entries for StopID "${stopID}" updated in Firebase.`); renderUIDependentElements_ExtraPage(); } catch (error) { alert("Error saving edits: " + error.message); } } else { alert(`No entries for StopID "${stopID}" to update.`); } }
         async function handleDeleteStopFromMasterList_ExtraPage(stopIdToRemove) { if (!currentUser_extra) { alert("Log in."); return; } const stopDetails = uniqueStopsMasterList_extra.find(s => s.stopID === stopIdToRemove); const stopNameToConfirm = stopDetails ? `${stopDetails.stopName} (${stopIdToRemove})` : stopIdToRemove; if (!confirm(`ARE YOU SURE?\nRemove stop "${stopNameToConfirm}" and ALL its schedule entries from Firebase?`)) return; const initialLength = currentWorkingSchedule_extra.length; currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(e => e.stopID.toUpperCase() !== stopIdToRemove.toUpperCase()); const removedCount = initialLength - currentWorkingSchedule_extra.length; const closedIdx = closedStopIDs_extra.indexOf(stopIdToRemove.toUpperCase()); if (closedIdx > -1) closedStopIDs_extra.splice(closedIdx, 1); if (stopSpecificRouteColours_extra[stopIdToRemove.toUpperCase()]) delete stopSpecificRouteColours_extra[stopIdToRemove.toUpperCase()]; try { await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra); await saveClosedStopsToFirebase_ExtraPage(); await saveStopSpecificColoursToFirebase_ExtraPage(); alert(`Stop "${stopNameToConfirm}" and ${removedCount} entries removed from Firebase.`); renderUIDependentElements_ExtraPage(); } catch (error) { alert("Error deleting stop: " + error.message); } }
         async function handleToggleStopStatusFromMasterList_ExtraPage(stopID) { if (!currentUser_extra) { alert("Log in."); return; } const stopIdUpper = stopID.toUpperCase(); const idx = closedStopIDs_extra.indexOf(stopIdUpper); if (idx === -1) closedStopIDs_extra.push(stopIdUpper); else closedStopIDs_extra.splice(idx, 1); try { await saveClosedStopsToFirebase_ExtraPage(); const status = idx === -1 ? "closed" : "reopened"; alert(`Stop "${stopID}" marked ${status} in Firebase.`); populateMasterStopList_ExtraPage(); } catch (error) { alert("Error saving status: " + error.message); if (idx === -1) closedStopIDs_extra.pop(); else closedStopIDs_extra.splice(idx, 0, stopIdUpper); } }
         async function handleApplyMasterListStopIdChangesButton_ExtraPage() { if (!currentUser_extra || !masterStopListUL_el_extra || !masterListApplyChangesStatus_el_extra) return; masterListApplyChangesStatus_el_extra.textContent = "Processing ID changes..."; masterListApplyChangesStatus_el_extra.style.color = '#f1c40f'; const idChangeProposals = []; const allInputs = masterStopListUL_el_extra.querySelectorAll('.master-list-new-id-input'); let hasErrors = false; const newProposedIDsInThisBatch = new Set(); allInputs.forEach(input => { const originalId = input.dataset.originalId; const newId = input.value.trim().toUpperCase(); const warningElement = input.parentElement.querySelector('.master-list-row-warning'); if (warningElement) warningElement.textContent = ''; if (newId && newId !== originalId.toUpperCase()) { if (!/^[A-Z0-9]+$/.test(newId)) { if(warningElement) warningElement.textContent = "Invalid chars!"; hasErrors = true; return; } if (newProposedIDsInThisBatch.has(newId)) { if(warningElement) warningElement.textContent = "Duplicate New ID!"; hasErrors = true; return; } const existingStopConflict = currentWorkingSchedule_extra.some(e => e.stopID.toUpperCase() === newId && !Array.from(allInputs).some(inp => inp.dataset.originalId.toUpperCase() === newId)); if (existingStopConflict) { if(warningElement) warningElement.textContent = "Conflicts existing ID!"; hasErrors = true; return; } idChangeProposals.push({ originalId: originalId, newId: newId }); newProposedIDsInThisBatch.add(newId); } }); if (hasErrors) { masterListApplyChangesStatus_el_extra.textContent = "Errors in proposed IDs. Correct and retry."; masterListApplyChangesStatus_el_extra.style.color = '#e74c3c'; return; } if (idChangeProposals.length === 0) { masterListApplyChangesStatus_el_extra.textContent = "No Stop ID changes proposed."; masterListApplyChangesStatus_el_extra.style.color = '#7f8c8d'; return; } if (!confirm(`Apply ${idChangeProposals.length} Stop ID changes to Firebase?`)) { masterListApplyChangesStatus_el_extra.textContent = "Bulk ID change cancelled."; masterListApplyChangesStatus_el_extra.style.color = '#7f8c8d'; return; } let actualUpdateCount = 0; const originalToNewIdMap = new Map(idChangeProposals.map(p => [p.originalId.toUpperCase(), p.newId])); currentWorkingSchedule_extra.forEach(entry => { const originalEntryStopIDUpper = entry.stopID.toUpperCase(); if (originalToNewIdMap.has(originalEntryStopIDUpper)) { entry.stopID = originalToNewIdMap.get(originalEntryStopIDUpper); actualUpdateCount++; } }); const updatedClosedStopIDs = new Set(); closedStopIDs_extra.forEach(closedId => { updatedClosedStopIDs.add(originalToNewIdMap.get(closedId.toUpperCase()) || closedId); }); closedStopIDs_extra = Array.from(updatedClosedStopIDs); const updatedStopSpecificColours = {}; for (const oldStopIdKey in stopSpecificRouteColours_extra) { updatedStopSpecificColours[originalToNewIdMap.get(oldStopIdKey.toUpperCase()) || oldStopIdKey] = stopSpecificRouteColours_extra[oldStopIdKey]; } stopSpecificRouteColours_extra = updatedStopSpecificColours; if (actualUpdateCount > 0 || idChangeProposals.some(p => closedStopIDs_extra.includes(p.newId.toUpperCase()) || stopSpecificRouteColours_extra[p.newId.toUpperCase()])) { try { await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra); await saveClosedStopsToFirebase_ExtraPage(); await saveStopSpecificColoursToFirebase_ExtraPage(); masterListApplyChangesStatus_el_extra.textContent = `Applied ${idChangeProposals.length} Stop ID change(s) (${actualUpdateCount} entries) to Firebase.`; masterListApplyChangesStatus_el_extra.style.color = '#2ecc71'; renderUIDependentElements_ExtraPage(); } catch (error) { console.error("Error applying bulk ID changes:", error); masterListApplyChangesStatus_el_extra.textContent = "Error saving bulk ID changes: " + error.message; masterListApplyChangesStatus_el_extra.style.color = '#e74c3c'; alert("Critical error saving bulk Stop ID changes. Data may be inconsistent. Please refresh."); } } else { masterListApplyChangesStatus_el_extra.textContent = "No schedule entries affected by proposed changes."; masterListApplyChangesStatus_el_extra.style.color = '#f1c40f'; } }
         function populateGlobalRouteToDeleteList_ExtraPage() { if (!globalRouteDeletionListContainer_el_extra) return; globalRouteDeletionListContainer_el_extra.innerHTML = ''; if (!currentWorkingSchedule_extra || currentWorkingSchedule_extra.length === 0) { globalRouteDeletionListContainer_el_extra.innerHTML = '<p>No routes loaded.</p>'; return; } const uniqueRoutes = [...new Set(currentWorkingSchedule_extra.map(e => e.lineName).filter(Boolean))].sort(compareLineNames_ExtraPage); if (uniqueRoutes.length === 0) { globalRouteDeletionListContainer_el_extra.innerHTML = '<p>No valid routes to list.</p>'; return; } const tileContainer = document.createElement('div'); tileContainer.className = 'selectable-route-tile-container'; uniqueRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'selectable-route-tile'; tile.textContent = lineName; tile.dataset.lineName = lineName; const bgColor = getRouteTileColour_ExtraPage(lineName); tile.style.backgroundColor = bgColor; tile.style.color = getTextColourForBackground_ExtraPage(bgColor); tile.setAttribute('role', 'checkbox'); tile.setAttribute('aria-checked', 'false'); tile.tabIndex = 0; tile.addEventListener('click', () => { const isSelected = tile.classList.toggle('selected'); tile.setAttribute('aria-checked', isSelected.toString()); }); tile.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); tile.click(); }}); tileContainer.appendChild(tile); }); globalRouteDeletionListContainer_el_extra.appendChild(tileContainer); }
         async function handleDeleteEntireRouteGlobally_ExtraPage() { if (!currentUser_extra || !deleteEntireRouteStatusMessage_el_extra || !globalRouteDeletionListContainer_el_extra) return; const selectedTiles = globalRouteDeletionListContainer_el_extra.querySelectorAll('.selectable-route-tile.selected'); if (selectedTiles.length === 0) { deleteEntireRouteStatusMessage_el_extra.textContent = "Select route(s) to delete."; deleteEntireRouteStatusMessage_el_extra.style.color = '#f1c40f'; return; } const routesToDelete = Array.from(selectedTiles).map(t => t.dataset.lineName); if (!confirm(`EXTREME CAUTION!\nDelete ALL data for route(s): ${routesToDelete.join(', ')} from Firebase? CANNOT BE UNDONE.`)) { deleteEntireRouteStatusMessage_el_extra.textContent = "Global deletion cancelled."; return; } deleteEntireRouteStatusMessage_el_extra.textContent = `Deleting route(s): ${routesToDelete.join(', ')}...`; deleteEntireRouteStatusMessage_el_extra.style.color = '#f1c40f'; let scheduleEntriesRemovedCount = 0; const originalScheduleLength = currentWorkingSchedule_extra.length; currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry => !(entry.lineName && routesToDelete.map(r=>r.toUpperCase()).includes(entry.lineName.toUpperCase()))); scheduleEntriesRemovedCount = originalScheduleLength - currentWorkingSchedule_extra.length; let globalColoursRemoved = false; routesToDelete.forEach(route => { if (globalCustomRouteColours_extra[route.toUpperCase()]) { delete globalCustomRouteColours_extra[route.toUpperCase()]; globalColoursRemoved = true; } }); let specificColoursRemovedCount = 0; let specificColoursNeedSave = false; Object.keys(stopSpecificRouteColours_extra).forEach(stopID => { routesToDelete.forEach(route => { if (stopSpecificRouteColours_extra[stopID] && stopSpecificRouteColours_extra[stopID][route.toUpperCase()]) { delete stopSpecificRouteColours_extra[stopID][route.toUpperCase()]; specificColoursRemovedCount++; if (Object.keys(stopSpecificRouteColours_extra[stopID]).length === 0) delete stopSpecificRouteColours_extra[stopID]; specificColoursNeedSave = true; } }); }); try { await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra); if (globalColoursRemoved) await saveGlobalColoursToFirebase_ExtraPage(); if (specificColoursNeedSave) await saveStopSpecificColoursToFirebase_ExtraPage(); deleteEntireRouteStatusMessage_el_extra.textContent = `Route(s) ${routesToDelete.join(', ')} deleted. ${scheduleEntriesRemovedCount} entries removed. Colours updated.`; deleteEntireRouteStatusMessage_el_extra.style.color = '#2ecc71'; renderUIDependentElements_ExtraPage(); } catch (error) { console.error("Error deleting route(s) globally:", error); deleteEntireRouteStatusMessage_el_extra.textContent = "Error saving deletions: " + error.message; deleteEntireRouteStatusMessage_el_extra.style.color = '#e74c3c'; alert("Critical error saving global route deletions. Data may be inconsistent. Please refresh."); } }
-
+        function findDuplicateStopsByNameAndDirection_ExtraPage() { if (!currentUser_extra) { alert("Please log in to check for duplicate stops."); if (duplicateStopsByNameDirResults_el_extra) duplicateStopsByNameDirResults_el_extra.textContent = "Please log in."; return; } if (!duplicateStopsByNameDirResults_el_extra) { console.error("Result display element for duplicate stops (name/direction) not found."); return; } duplicateStopsByNameDirResults_el_extra.innerHTML = "<p>Checking for duplicates by name and direction...</p>"; duplicateStopsByNameDirResults_el_extra.style.color = "#f1c40f"; const stopsToCheck = getUniqueStopsFromSchedule_ExtraPage(); if (!stopsToCheck || stopsToCheck.length === 0) { duplicateStopsByNameDirResults_el_extra.textContent = "No stops loaded to check for duplicates."; return; } const signatureMap = new Map(); stopsToCheck.forEach(stop => { if (stop.stopName && stop.stopID) { const name = stop.stopName.trim().toLowerCase(); const direction = (stop.direction || "").trim().toLowerCase(); const signature = `${name}|${direction}`; if (!signatureMap.has(signature)) signatureMap.set(signature, []); signatureMap.get(signature).push({id: stop.stopID, name: stop.stopName, direction: stop.direction}); } }); let duplicateSets = []; signatureMap.forEach((stops, signature) => { if (stops.length > 1) { duplicateSets.push({ signature: signature, name: stops[0].name, direction: stops[0].direction || "", stops: stops.map(s => ({ id: s.id, entryCount: currentWorkingSchedule_extra.filter(entry => entry.stopID === s.id).length })).sort((a,b) => b.entryCount - a.entryCount || a.id.localeCompare(b.id)) }); } }); if (duplicateSets.length === 0) { duplicateStopsByNameDirResults_el_extra.textContent = "No duplicate stops found based on Stop Name and Direction."; duplicateStopsByNameDirResults_el_extra.style.color = "#2ecc71"; } else { let html = `<p>${duplicateSets.length} set(s) of duplicate stops found (same name & direction but different StopIDs):</p><ul>`; duplicateSets.forEach((set, index) => { html += `<li class="duplicate-set-to-merge">`; html += `<p><strong>Name:</strong> "${set.name}", <strong>Direction:</strong> "${set.direction || '(None)'}"</p>`; html += `<p>Conflicting StopIDs (select one to keep):</p><div class="stop-id-options">`; set.stops.forEach((stop, radioIndex) => { const radioName = `master_for_set_${index}`; const isChecked = radioIndex === 0 ? "checked" : ""; html += `<label><input type="radio" name="${radioName}" value="${stop.id}" ${isChecked}> ${stop.id} (${stop.entryCount} schedule entries)</label><br>`; }); html += `</div></li>`; }); html += `</ul><button id="mergeDuplicateStopsButton_extra" class="button save" style="margin-top:1rem;">Merge Selected Duplicates</button>`; html += `<p id="mergeDuplicateStopsStatus_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>`; duplicateStopsByNameDirResults_el_extra.innerHTML = html; duplicateStopsByNameDirResults_el_extra.style.color = "#e74c3c"; const mergeButton = document.getElementById('mergeDuplicateStopsButton_extra'); if (mergeButton) mergeButton.addEventListener('click', handleMergeDuplicateStops_ExtraPage); } }
+        async function handleMergeDuplicateStops_ExtraPage() { if (!currentUser_extra) { alert("Please log in."); return; } const mergeStatusEl = document.getElementById('mergeDuplicateStopsStatus_extra'); if (!mergeStatusEl) { console.error("Merge status element not found"); return; } mergeStatusEl.textContent = "Processing merges..."; mergeStatusEl.style.color = "#f1c40f"; const duplicateSetElements = duplicateStopsByNameDirResults_el_extra.querySelectorAll('.duplicate-set-to-merge'); if (duplicateSetElements.length === 0) { mergeStatusEl.textContent = "No duplicate sets were presented to merge."; return; } let changesMade = false; let totalEntriesReassigned = 0; let stopIDsMergedAwayOverall = new Set(); for (let i = 0; i < duplicateSetElements.length; i++) { const radioName = `master_for_set_${i}`; const selectedRadio = duplicateStopsByNameDirResults_el_extra.querySelector(`input[name="${radioName}"]:checked`); if (!selectedRadio) { console.warn(`No master StopID selected for duplicate set ${i}. Skipping this set.`); continue; } const masterStopID = selectedRadio.value; const masterStopDetails = uniqueStopsMasterList_extra.find(s => s.stopID === masterStopID) || currentWorkingSchedule_extra.find(e => e.stopID === masterStopID); if (!masterStopDetails) { console.error(`Could not find details for selected master StopID: ${masterStopID}. Skipping set ${i}.`); continue; } const masterStopName = masterStopDetails.stopName; const masterStopDirection = masterStopDetails.direction; const allRadiosInSet = duplicateStopsByNameDirResults_el_extra.querySelectorAll(`input[name="${radioName}"]`); const stopIDsInThisSet = Array.from(allRadiosInSet).map(radio => radio.value); const stopIDsToMergeAway = stopIDsInThisSet.filter(id => id !== masterStopID); if (stopIDsToMergeAway.length > 0) { changesMade = true; stopIDsToMergeAway.forEach(idToMerge => { stopIDsMergedAwayOverall.add(idToMerge.toUpperCase()); currentWorkingSchedule_extra.forEach(entry => { if (entry.stopID === idToMerge) { entry.stopID = masterStopID; entry.stopName = masterStopName; entry.direction = masterStopDirection; totalEntriesReassigned++; } }); }); } } if (!changesMade) { mergeStatusEl.textContent = "No merges selected or no changes to apply."; mergeStatusEl.style.color = "#7f8c8d"; return; } closedStopIDs_extra = closedStopIDs_extra.filter(id => !stopIDsMergedAwayOverall.has(id.toUpperCase())); stopIDsMergedAwayOverall.forEach(idToMergeUpper => { if (stopSpecificRouteColours_extra[idToMergeUpper]) delete stopSpecificRouteColours_extra[idToMergeUpper]; }); try { await saveScheduleAndStopsToFirebase_ExtraPage(currentWorkingSchedule_extra); await saveClosedStopsToFirebase_ExtraPage(); await saveStopSpecificColoursToFirebase_ExtraPage(); mergeStatusEl.textContent = `Successfully merged duplicate stops. ${totalEntriesReassigned} schedule entries reassigned.`; mergeStatusEl.style.color = "#2ecc71"; renderUIDependentElements_ExtraPage(); findDuplicateStopsByNameAndDirection_ExtraPage(); } catch (error) { console.error("Error saving merged stops to Firebase:", error); mergeStatusEl.textContent = "Error saving merged stops: " + error.message; mergeStatusEl.style.color = "#e74c3c"; alert("CRITICAL: Error saving merged stops. Data may be inconsistent. Please refresh and re-verify."); } }
         async function saveScheduleAndStopsToFirebase_ExtraPage(scheduleDataToSave) { if (!currentUser_extra || !window.firebaseOMSI) throw new Error("Not logged in or Firebase not available."); const { database, dbUpdate, dbRef } = window.firebaseOMSI; let finalScheduleData = JSON.parse(JSON.stringify(scheduleDataToSave)); finalScheduleData.sort((a, b) => { const lineCompare = compareLineNames_ExtraPage(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare; const stopCompare = (a.stopName || "").localeCompare(b.stopName || ""); if (stopCompare !== 0) return stopCompare; const timeA = (a.scheduledTime || "9999").replace(':', ''); const timeB = (b.scheduledTime || "9999").replace(':', ''); return timeA.localeCompare(timeB); }); finalScheduleData = finalScheduleData.map((entry, index) => ({ ...entry, internalId: entry.internalId || `${(entry.stopID||'s').toUpperCase()}_${(entry.lineName||'l').toUpperCase()}_${(entry.scheduledTime||"0000").replace(':','')}_${index}_fbsaveX_${Date.now()}` })); const stopsMap = new Map(); finalScheduleData.forEach(row => { if (row.stopID && !stopsMap.has(row.stopID.toUpperCase())) { stopsMap.set(row.stopID.toUpperCase(), { stopID: row.stopID, stopName: row.stopName, direction: row.direction }); } }); const finalUniqueStops = Array.from(stopsMap.values()).sort((a,b)=>(a.stopName||"").localeCompare(b.stopName||"")); const updates = {}; updates[FB_PATH_LIVE_SCHEDULE_DATA] = finalScheduleData; updates[FB_PATH_LIVE_UNIQUE_STOPS] = finalUniqueStops; updates[FB_PATH_APPSTATE_LAST_UPDATED] = new Date().toISOString(); await dbUpdate(dbRef(database), updates); console.log("Live schedule and unique stops updated in Firebase (Extra Page)."); }
         async function saveClosedStopsToFirebase_ExtraPage() { if (!currentUser_extra || !window.firebaseOMSI) throw new Error("Not logged in or Firebase not available."); const { database, dbSet, dbRef } = window.firebaseOMSI; const fbClosedObject = {}; closedStopIDs_extra.forEach(id => fbClosedObject[id.toUpperCase()] = true); await dbSet(dbRef(database, FB_PATH_APPSTATE_CLOSED_STOPS), fbClosedObject); console.log("Closed stops saved to Firebase (Extra Page)."); }
         async function saveGlobalColoursToFirebase_ExtraPage() { if (!currentUser_extra || !window.firebaseOMSI) throw new Error("Not logged in or Firebase not available."); const { database, dbSet, dbRef } = window.firebaseOMSI; await dbSet(dbRef(database, FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS), globalCustomRouteColours_extra); console.log("Global custom route colours saved to Firebase (Extra Page)."); }
         async function saveStopSpecificColoursToFirebase_ExtraPage() { if (!currentUser_extra || !window.firebaseOMSI) throw new Error("Not logged in or Firebase not available."); const { database, dbSet, dbRef } = window.firebaseOMSI; await dbSet(dbRef(database, FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS), stopSpecificRouteColours_extra); console.log("Stop-specific route colours saved to Firebase (Extra Page)."); }
+        
+        // ++ Custom Status Message Functions START ++
+        async function loadCustomStatusMessageSettings_ExtraPage() {
+            if (!currentUser_extra || !window.firebaseOMSI || !csm_messageText_el_extra) { 
+                if(csm_statusMessage_el_extra) csm_statusMessage_el_extra.textContent = "Login or system error.";
+                return;
+            }
+            const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
+            csm_statusMessage_el_extra.textContent = "Loading settings...";
+            csm_statusMessage_el_extra.style.color = "#f1c40f";
+            try {
+                const snapshot = await dbGet(dbChild(dbRef(database), FB_PATH_CUSTOM_STATUS_MESSAGE));
+                if (snapshot.exists()) {
+                    const settings = snapshot.val();
+                    csm_messageText_el_extra.value = settings.text || "";
+                    if (settings.startTimeISO) {
+                        const localStartTime = new Date(settings.startTimeISO);
+                        localStartTime.setMinutes(localStartTime.getMinutes() - localStartTime.getTimezoneOffset());
+                        csm_startTime_el_extra.value = localStartTime.toISOString().slice(0,16);
+                    } else {
+                        csm_startTime_el_extra.value = "";
+                    }
+                    if (settings.endTimeISO) {
+                        const localEndTime = new Date(settings.endTimeISO);
+                        localEndTime.setMinutes(localEndTime.getMinutes() - localEndTime.getTimezoneOffset());
+                        csm_endTime_el_extra.value = localEndTime.toISOString().slice(0,16);
+                    } else {
+                        csm_endTime_el_extra.value = "";
+                    }
+                    csm_scrollSpeed_el_extra.value = settings.scrollSpeed || "medium";
+                    csm_isEnabled_el_extra.checked = settings.isEnabled === true;
+                    csm_statusMessage_el_extra.textContent = "Current settings loaded.";
+                    csm_statusMessage_el_extra.style.color = "#2ecc71";
+                } else {
+                    csm_statusMessage_el_extra.textContent = "No settings found. Using defaults.";
+                    csm_statusMessage_el_extra.style.color = "#7f8c8d";
+                    csm_messageText_el_extra.value = "";
+                    csm_startTime_el_extra.value = "";
+                    csm_endTime_el_extra.value = "";
+                    csm_scrollSpeed_el_extra.value = "medium";
+                    csm_isEnabled_el_extra.checked = false;
+                }
+            } catch (error) {
+                console.error("Error loading custom status message settings:", error);
+                csm_statusMessage_el_extra.textContent = "Error loading settings: " + error.message;
+                csm_statusMessage_el_extra.style.color = "#e74c3c";
+            }
+        }
 
-        function showExtraPageSection(sectionId) { const allSections = toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section'); allSections.forEach(s => s.style.display = 'none'); const sectionToShow = document.getElementById(sectionId); if (sectionToShow) { sectionToShow.style.display = 'block'; localStorage.setItem('omsiExtraToolsActiveSection', sectionId); if (sectionId === 'day-profile-override-section_extra') { loadAndDisplayOverrides_ExtraPage(); updateSelectedDateInfo_ExtraPage(); } else if (sectionId === 'stop-manager-tool-section_extra') { populateMasterStopList_ExtraPage(); if (!inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value) autoGenerateAndSetNewStopId_ExtraPage(); } else if (sectionId === 'global-route-deletion-section_extra') populateGlobalRouteToDeleteList_ExtraPage(); } }
+        async function handleSaveCustomStatusMessage_ExtraPage() {
+            if (!currentUser_extra || !window.firebaseOMSI || !csm_messageText_el_extra) {
+                 if(csm_statusMessage_el_extra) csm_statusMessage_el_extra.textContent = "Not logged in or system error.";
+                return;
+            }
+
+            const messageText = csm_messageText_el_extra.value.trim();
+            const startTimeLocal = csm_startTime_el_extra.value; 
+            const endTimeLocal = csm_endTime_el_extra.value;     
+            const scrollSpeed = csm_scrollSpeed_el_extra.value;
+            const isEnabled = csm_isEnabled_el_extra.checked;
+
+            if (!messageText && isEnabled) {
+                if(csm_statusMessage_el_extra) {
+                    csm_statusMessage_el_extra.textContent = "Message text cannot be empty if message is enabled.";
+                    csm_statusMessage_el_extra.style.color = "#e74c3c";
+                }
+                return;
+            }
+            if (isEnabled && (!startTimeLocal || !endTimeLocal)) {
+                 if(csm_statusMessage_el_extra) {
+                    csm_statusMessage_el_extra.textContent = "Start and End date/time are required if message is enabled.";
+                    csm_statusMessage_el_extra.style.color = "#e74c3c";
+                }
+                return;
+            }
+
+            let startTimeISO = null;
+            let endTimeISO = null;
+
+            if (startTimeLocal) { startTimeISO = new Date(startTimeLocal).toISOString(); }
+            if (endTimeLocal) { endTimeISO = new Date(endTimeLocal).toISOString(); }
+
+            if (isEnabled && startTimeISO && endTimeISO && new Date(endTimeISO) <= new Date(startTimeISO)) {
+                if(csm_statusMessage_el_extra) {
+                    csm_statusMessage_el_extra.textContent = "End time must be after start time.";
+                    csm_statusMessage_el_extra.style.color = "#e74c3c";
+                }
+                return;
+            }
+            
+            const settings = {
+                text: messageText,
+                startTimeISO: isEnabled && startTimeISO ? startTimeISO : null,
+                endTimeISO: isEnabled && endTimeISO ? endTimeISO : null,
+                scrollSpeed: scrollSpeed,
+                isEnabled: isEnabled
+            };
+
+            const { database, dbSet, dbRef } = window.firebaseOMSI;
+            csm_statusMessage_el_extra.textContent = "Saving settings to Firebase...";
+            csm_statusMessage_el_extra.style.color = "#f1c40f";
+            try {
+                await dbSet(dbRef(database, FB_PATH_CUSTOM_STATUS_MESSAGE), settings);
+                csm_statusMessage_el_extra.textContent = "Status message settings saved successfully!";
+                csm_statusMessage_el_extra.style.color = "#2ecc71";
+            } catch (error) {
+                console.error("Error saving custom status message settings:", error);
+                csm_statusMessage_el_extra.textContent = "Error saving settings: " + error.message;
+                csm_statusMessage_el_extra.style.color = "#e74c3c";
+            }
+        }
+        // ++ Custom Status Message Functions END ++
+
+
+        // --- Page Setup ---
+        function showExtraPageSection(sectionId) { 
+            const allSections = toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section'); 
+            allSections.forEach(s => s.style.display = 'none'); 
+            const sectionToShow = document.getElementById(sectionId); 
+            if (sectionToShow) { 
+                sectionToShow.style.display = 'block'; 
+                localStorage.setItem('omsiExtraToolsActiveSection', sectionId); 
+                if (sectionId === 'day-profile-override-section_extra') { 
+                    loadAndDisplayOverrides_ExtraPage(); 
+                    updateSelectedDateInfo_ExtraPage(); 
+                } else if (sectionId === 'stop-manager-tool-section_extra') { 
+                    populateMasterStopList_ExtraPage(); 
+                    if (!inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value) autoGenerateAndSetNewStopId_ExtraPage(); 
+                    if(duplicateStopsByNameDirResults_el_extra) duplicateStopsByNameDirResults_el_extra.innerHTML = 'Click "Find Duplicates (Name/Dir)" to check.';
+                } else if (sectionId === 'global-route-deletion-section_extra') {
+                    populateGlobalRouteToDeleteList_ExtraPage();
+                } else if (sectionId === 'custom-status-message-section_extra') { // ++ NEW CASE ++
+                    loadCustomStatusMessageSettings_ExtraPage();
+                }
+            } else {
+                console.warn("showExtraPageSection: Could not find section with ID:", sectionId);
+            }
+        }
         function updateAuthUI_ExtraPage(user) { currentUser_extra = user; if (user) { if(authSection_el_extra) authSection_el_extra.style.display = 'none'; if(topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block'; if(logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'block'; if(loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none'; if(authStatus_el_extra) authStatus_el_extra.textContent = ''; if(loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email; if(currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block'; loadInitialData_ExtraPage(); const lastSection = localStorage.getItem('omsiExtraToolsActiveSection'); const firstButton = topMenuBar_el_extra.querySelector('.menu-button'); if (lastSection && document.getElementById(lastSection)) showExtraPageSection(lastSection); else if (firstButton && firstButton.dataset.section) showExtraPageSection(firstButton.dataset.section); } else { if(authSection_el_extra) authSection_el_extra.style.display = 'block'; if(topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none'; if(logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none'; if(loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block'; if(authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.'; if(loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = ''; if(currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none'; if(toolSectionsWrapper_el_extra) toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none'); currentWorkingSchedule_extra = []; closedStopIDs_extra = []; globalCustomRouteColours_extra = {}; stopSpecificRouteColours_extra = {}; pageSpecificSettings = {}; renderUIDependentElements_ExtraPage(); } }
         async function loadInitialData_ExtraPage() { let msg = "Loading data for Extra Modules..."; console.log(msg); currentWorkingSchedule_extra = []; closedStopIDs_extra = []; globalCustomRouteColours_extra = {}; stopSpecificRouteColours_extra = {}; if (!window.firebaseOMSI || !window.firebaseOMSI.database) msg = "Firebase not connected."; else { const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const liveSnap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA)); if (liveSnap.exists()) { const data = liveSnap.val(); currentWorkingSchedule_extra = (Array.isArray(data) ? data : (data ? Object.values(data) : [])).filter(e => e != null).map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbloadX`}));} const closedSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS)); if (closedSnap.exists()) { const fbC = closedSnap.val(); for(const id in fbC) {if(fbC[id]===true)closedStopIDs_extra.push(id.toUpperCase());}} const globalCSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS)); if (globalCSnap.exists()) globalCustomRouteColours_extra = globalCSnap.val() || {}; const stopSpecificCSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS)); if (stopSpecificCSnap.exists()) stopSpecificRouteColours_extra = stopSpecificCSnap.val() || {}; msg = `Extra Modules: Data loaded. ${currentWorkingSchedule_extra.length} entries.`; } catch (error) { console.error("Firebase Load Error (Extra):", error); msg = "Error loading data (Extra)."; } } console.log(msg); await fetchBankHolidays_ExtraPage(); renderUIDependentElements_ExtraPage(); }
-        function renderUIDependentElements_ExtraPage() { const activeSection = localStorage.getItem('omsiExtraToolsActiveSection'); if (document.getElementById('day-profile-override-section_extra')) if (!activeSection || activeSection === 'day-profile-override-section_extra') { loadAndDisplayOverrides_ExtraPage(); updateSelectedDateInfo_ExtraPage(); } if (document.getElementById('stop-manager-tool-section_extra')) if (!activeSection || activeSection === 'stop-manager-tool-section_extra') { populateMasterStopList_ExtraPage(); } if (document.getElementById('global-route-deletion-section_extra')) if (!activeSection || activeSection === 'global-route-deletion-section_extra') populateGlobalRouteToDeleteList_ExtraPage(); if (activeSection && document.getElementById(activeSection)?.style.display === 'block') showExtraPageSection(activeSection); else if (!activeSection && topMenuBar_el_extra && topMenuBar_el_extra.querySelector('.menu-button')) { const firstButton = topMenuBar_el_extra.querySelector('.menu-button'); if (firstButton && firstButton.dataset.section) showExtraPageSection(firstButton.dataset.section); } }
+        function renderUIDependentElements_ExtraPage() { const activeSection = localStorage.getItem('omsiExtraToolsActiveSection'); if (document.getElementById('day-profile-override-section_extra')) if (!activeSection || activeSection === 'day-profile-override-section_extra') { loadAndDisplayOverrides_ExtraPage(); updateSelectedDateInfo_ExtraPage(); } if (document.getElementById('stop-manager-tool-section_extra')) if (!activeSection || activeSection === 'stop-manager-tool-section_extra') { populateMasterStopList_ExtraPage(); if(duplicateStopsByNameDirResults_el_extra) duplicateStopsByNameDirResults_el_extra.innerHTML = 'Click "Find Duplicates (Name/Dir)" to check.';} if (document.getElementById('global-route-deletion-section_extra')) if (!activeSection || activeSection === 'global-route-deletion-section_extra') populateGlobalRouteToDeleteList_ExtraPage(); if(document.getElementById('custom-status-message-section_extra')) if (!activeSection || activeSection === 'custom-status-message-section_extra') loadCustomStatusMessageSettings_ExtraPage(); if (activeSection && document.getElementById(activeSection)?.style.display === 'block') showExtraPageSection(activeSection); else if (!activeSection && topMenuBar_el_extra && topMenuBar_el_extra.querySelector('.menu-button')) { const firstButton = topMenuBar_el_extra.querySelector('.menu-button'); if (firstButton && firstButton.dataset.section) showExtraPageSection(firstButton.dataset.section); } }
 
-        document.addEventListener('DOMContentLoaded', () => { console.log("OMSI Tools Extra DOMContentLoaded"); updateAuthUI_ExtraPage(null); function initializeExtraAppLogic() { console.log("Firebase ready, Extra app logic init."); const { auth, authOnAuthStateChanged, authSignInWithEmailAndPassword, authSignOut } = window.firebaseOMSI; authOnAuthStateChanged(auth, user => { updateAuthUI_ExtraPage(user); if (user && selectNewStopIdFormat_el_extra) autoGenerateAndSetNewStopId_ExtraPage(); }); if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) { adminLoginForm_el_extra.addEventListener('submit', (e) => { e.preventDefault(); authStatus_el_extra.textContent = 'Logging in...'; authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value).catch(err => { authStatus_el_extra.textContent = `Login Error: ${err.message}`; }); }); } const logoutButton = logoutContainer_el_extra.querySelector('button'); if (logoutButton) logoutButton.addEventListener('click', () => { localStorage.removeItem('omsiExtraToolsActiveSection'); authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e)); }); } if (window.firebaseOMSI && window.firebaseOMSI.auth) initializeExtraAppLogic(); else document.addEventListener('firebaseReady', () => { if (window.firebaseOMSI && window.firebaseOMSI.auth) initializeExtraAppLogic(); else console.error("Extra Tools: Firebase still not ready!"); }, { once: true }); const menuButtons = topMenuBar_el_extra.querySelectorAll('.menu-button'); menuButtons.forEach(button => button.addEventListener('click', () => { if (currentUser_extra) showExtraPageSection(button.dataset.section); else alert("Please log in."); })); if(overrideDateInput_el_extra) overrideDateInput_el_extra.addEventListener('change', updateSelectedDateInfo_ExtraPage); if(setOverrideButton_el_extra) setOverrideButton_el_extra.addEventListener('click', handleSetOverride_ExtraPage); if(clearOverrideButton_el_extra) clearOverrideButton_el_extra.addEventListener('click', handleClearOverride_ExtraPage); if (inputNewStopName_el_extra) inputNewStopName_el_extra.addEventListener('input', autoGenerateAndSetNewStopId_ExtraPage); if (inputNewStopId_el_extra && newStopIdAvailability_el_extra) { inputNewStopId_el_extra.addEventListener('input', () => { const newStopId = inputNewStopId_el_extra.value.trim().toUpperCase(); if (!newStopId) { newStopIdAvailability_el_extra.textContent = ''; return; } if (!/^[A-Z0-9]+$/.test(newStopId)) { newStopIdAvailability_el_extra.textContent = 'ID invalid chars.'; newStopIdAvailability_el_extra.style.color = '#e74c3c'; return; } const existingStopIDs = new Set(currentWorkingSchedule_extra.map(e => e.stopID.toUpperCase())); if (existingStopIDs.has(newStopId)) { newStopIdAvailability_el_extra.textContent = 'ID already exists!'; newStopIdAvailability_el_extra.style.color = '#e74c3c'; } else { newStopIdAvailability_el_extra.textContent = 'ID available.'; newStopIdAvailability_el_extra.style.color = '#2ecc71'; } }); } if (buttonAddNewStop_el_extra) buttonAddNewStop_el_extra.addEventListener('click', handleAddStopDetails_ExtraPage); if (fileInputBulkAddStops_el_extra) fileInputBulkAddStops_el_extra.addEventListener('change', handleExcelFileForBulkAdd_ExtraPage); if (buttonBulkAddNewStops_el_extra) buttonBulkAddNewStops_el_extra.addEventListener('click', handleBulkAddStops_ExtraPage); if(masterStopListFilterInput_el_extra) masterStopListFilterInput_el_extra.addEventListener('input', populateMasterStopList_ExtraPage); if(refreshMasterStopListButton_el_extra) refreshMasterStopListButton_el_extra.addEventListener('click', ()=>{ loadInitialData_ExtraPage().then(()=>populateMasterStopList_ExtraPage()); }); if(applyMasterListStopIdChangesButton_el_extra) applyMasterListStopIdChangesButton_el_extra.addEventListener('click', handleApplyMasterListStopIdChangesButton_ExtraPage); if(exportUniqueStopsButton_el_extra) exportUniqueStopsButton_el_extra.addEventListener('click', () => { if (!currentUser_extra) { alert("Log in to export."); return; } const uniqueStops = getUniqueStopsFromSchedule_ExtraPage(); if (uniqueStops.length === 0) { alert("No unique stops to export."); return; } const dataToExport = uniqueStops.map(stop => { const servingLineNames = new Set(); currentWorkingSchedule_extra.forEach(entry => { if (entry.stopID === stop.stopID && entry.lineName && entry.lineName.trim() !== "" && entry.lineName.toUpperCase() !== "INFO_ONLY") servingLineNames.add(entry.lineName); }); return { "StopID": stop.stopID, "StopName": stop.stopName, "Direction": stop.direction, "LineName(s)": Array.from(servingLineNames).sort(compareLineNames_ExtraPage).join(',') }; }); const headers = ["StopID", "StopName", "Direction", "LineName(s)"]; const worksheetData = [ headers, ...dataToExport.map(row => headers.map(header => row[header])) ]; const worksheet = XLSX.utils.aoa_to_sheet(worksheetData); const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "UniqueStops"); XLSX.writeFile(workbook, "unique_stops_export.xlsx"); }); if(deleteEntireRouteButton_el_extra) deleteEntireRouteButton_el_extra.addEventListener('click', handleDeleteEntireRouteGlobally_ExtraPage); });
+        // --- DOMContentLoaded ---
+        document.addEventListener('DOMContentLoaded', () => { 
+            console.log("OMSI Tools Extra DOMContentLoaded"); 
+            updateAuthUI_ExtraPage(null); 
+            function initializeExtraAppLogic() { 
+                console.log("Firebase ready, Extra app logic init."); 
+                const { auth, authOnAuthStateChanged, authSignInWithEmailAndPassword, authSignOut } = window.firebaseOMSI; 
+                authOnAuthStateChanged(auth, user => { 
+                    updateAuthUI_ExtraPage(user); 
+                    if (user && selectNewStopIdFormat_el_extra) autoGenerateAndSetNewStopId_ExtraPage(); 
+                }); 
+                if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) { 
+                    adminLoginForm_el_extra.addEventListener('submit', (e) => { 
+                        e.preventDefault(); authStatus_el_extra.textContent = 'Logging in...'; 
+                        authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value)
+                        .catch(err => { authStatus_el_extra.textContent = `Login Error: ${err.message}`; }); 
+                    }); 
+                } 
+                const logoutButton = logoutContainer_el_extra.querySelector('button'); 
+                if (logoutButton) logoutButton.addEventListener('click', () => { 
+                    localStorage.removeItem('omsiExtraToolsActiveSection'); 
+                    authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e)); 
+                }); 
+            } 
+            if (window.firebaseOMSI && window.firebaseOMSI.auth) initializeExtraAppLogic(); 
+            else document.addEventListener('firebaseReady', () => { 
+                if (window.firebaseOMSI && window.firebaseOMSI.auth) initializeExtraAppLogic(); 
+                else console.error("Extra Tools: Firebase still not ready!"); 
+            }, { once: true }); 
+
+            const menuButtons = topMenuBar_el_extra.querySelectorAll('.menu-button'); 
+            menuButtons.forEach(button => button.addEventListener('click', () => { 
+                if (currentUser_extra) showExtraPageSection(button.dataset.section); 
+                else alert("Please log in."); 
+            })); 
+            if(overrideDateInput_el_extra) overrideDateInput_el_extra.addEventListener('change', updateSelectedDateInfo_ExtraPage); 
+            if(setOverrideButton_el_extra) setOverrideButton_el_extra.addEventListener('click', handleSetOverride_ExtraPage); 
+            if(clearOverrideButton_el_extra) clearOverrideButton_el_extra.addEventListener('click', handleClearOverride_ExtraPage); 
+            if (inputNewStopName_el_extra) inputNewStopName_el_extra.addEventListener('input', autoGenerateAndSetNewStopId_ExtraPage); 
+            if (inputNewStopId_el_extra && newStopIdAvailability_el_extra) { 
+                inputNewStopId_el_extra.addEventListener('input', () => { 
+                    const newStopId = inputNewStopId_el_extra.value.trim().toUpperCase(); 
+                    if (!newStopId) { newStopIdAvailability_el_extra.textContent = ''; return; } 
+                    if (!/^[A-Z0-9]+$/.test(newStopId)) { newStopIdAvailability_el_extra.textContent = 'ID invalid chars.'; newStopIdAvailability_el_extra.style.color = '#e74c3c'; return; } 
+                    const existingStopIDs = new Set(currentWorkingSchedule_extra.map(e => e.stopID.toUpperCase())); 
+                    if (existingStopIDs.has(newStopId)) { newStopIdAvailability_el_extra.textContent = 'ID already exists!'; newStopIdAvailability_el_extra.style.color = '#e74c3c'; } 
+                    else { newStopIdAvailability_el_extra.textContent = 'ID available.'; newStopIdAvailability_el_extra.style.color = '#2ecc71'; } 
+                }); 
+            } 
+            if (buttonAddNewStop_el_extra) buttonAddNewStop_el_extra.addEventListener('click', handleAddStopDetails_ExtraPage); 
+            if (fileInputBulkAddStops_el_extra) fileInputBulkAddStops_el_extra.addEventListener('change', handleExcelFileForBulkAdd_ExtraPage); 
+            if (buttonBulkAddNewStops_el_extra) buttonBulkAddNewStops_el_extra.addEventListener('click', handleBulkAddStops_ExtraPage); 
+            if(masterStopListFilterInput_el_extra) masterStopListFilterInput_el_extra.addEventListener('input', populateMasterStopList_ExtraPage); 
+            if(refreshMasterStopListButton_el_extra) refreshMasterStopListButton_el_extra.addEventListener('click', ()=>{ loadInitialData_ExtraPage().then(()=>populateMasterStopList_ExtraPage()); }); 
+            if(applyMasterListStopIdChangesButton_el_extra) applyMasterListStopIdChangesButton_el_extra.addEventListener('click', handleApplyMasterListStopIdChangesButton_ExtraPage); 
+            if(exportUniqueStopsButton_el_extra) exportUniqueStopsButton_el_extra.addEventListener('click', () => { 
+                if (!currentUser_extra) { alert("Log in to export."); return; } 
+                const uniqueStops = getUniqueStopsFromSchedule_ExtraPage(); 
+                if (uniqueStops.length === 0) { alert("No unique stops to export."); return; } 
+                const dataToExport = uniqueStops.map(stop => { 
+                    const servingLineNames = new Set(); 
+                    currentWorkingSchedule_extra.forEach(entry => { 
+                        if (entry.stopID === stop.stopID && entry.lineName && entry.lineName.trim() !== "" && entry.lineName.toUpperCase() !== "INFO_ONLY") servingLineNames.add(entry.lineName); 
+                    }); 
+                    return { "StopID": stop.stopID, "StopName": stop.stopName, "Direction": stop.direction, "LineName(s)": Array.from(servingLineNames).sort(compareLineNames_ExtraPage).join(', ') }; 
+                }); 
+                const headers = ["StopID", "StopName", "Direction", "LineName(s)"]; 
+                const worksheetData = [ headers, ...dataToExport.map(row => headers.map(header => row[header])) ]; 
+                const worksheet = XLSX.utils.aoa_to_sheet(worksheetData); 
+                const workbook = XLSX.utils.book_new(); 
+                XLSX.utils.book_append_sheet(workbook, worksheet, "OMSI Bus Stops"); 
+                XLSX.writeFile(workbook, "OMSI_Bus_Stops_Extra.xlsx"); 
+            }); 
+            if(deleteEntireRouteButton_el_extra) deleteEntireRouteButton_el_extra.addEventListener('click', handleDeleteEntireRouteGlobally_ExtraPage);
+            if(findDuplicateStopsByNameDirButton_el_extra) findDuplicateStopsByNameDirButton_el_extra.addEventListener('click', findDuplicateStopsByNameAndDirection_ExtraPage);
+            
+            // ++ Add event listener for the new Custom Status Message save button ++
+            if(csm_saveButton_el_extra) csm_saveButton_el_extra.addEventListener('click', handleSaveCustomStatusMessage_ExtraPage);
+        });
     </script>
 </body>
 </html>

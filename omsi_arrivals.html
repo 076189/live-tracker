@@ -217,7 +217,7 @@
             display: none !important;
         }
 
-        #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message) {
+        #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message):not(.custom-status-message-li) {
             display: flex;
             justify-content: space-between; 
             align-items: baseline;
@@ -291,6 +291,41 @@
         .bus-item-animate {
           animation: itemSlideUp 4s cubic-bezier(0.25, 0.8, 0.25, 1); 
         }
+
+        /* Custom Status Message CSS */
+        .custom-status-message-li {
+            display: flex; 
+            justify-content: flex-start; 
+            align-items: center;
+            padding-top: 0.5rem !important;    
+            padding-bottom: 0.5rem !important;
+            padding-left: 0 !important; 
+            padding-right: 0 !important;
+            font-size: clamp(0.85rem, 3.2vmin, 1.05rem); 
+            overflow: hidden;      
+            box-sizing: border-box;
+            color: #FFD700; 
+            font-weight: bold;
+            width: 100%; 
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .custom-status-message-text {
+            display: inline-block; 
+            white-space: nowrap;  
+            animation: scrollTextAnimation var(--scroll-duration, 15s) linear infinite;
+            padding-right: 2em; /* Ensure message fully scrolls off before re-appearing if needed */
+        }
+
+        @keyframes scrollTextAnimation {
+          0%   { transform: translateX(100%); } 
+          100% { transform: translateX(-100%); } 
+        }
+
+        #bus-list li.custom-status-message-li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message) {
+            justify-content: flex-start; 
+        }
+
 
         #tfl-logo {
             position: absolute !important;
@@ -426,11 +461,15 @@
             #bus-list {
                 height: 150px; /* Adjust height or make it auto */
             }
-             #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message) {
+             #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message):not(.custom-status-message-li) {
                 font-size: clamp(0.8rem, 3vw, 0.95rem); /* Adjust list item font size */
                 padding-top: 0.3rem !important;    
                 padding-bottom: 0.3rem !important; 
             }
+            .custom-status-message-li { /* Adjust for smaller screens */
+                 font-size: clamp(0.8rem, 3vw, 0.95rem);
+            }
+
 
             #tfl-logo { 
                 width: 100px;
@@ -498,10 +537,13 @@
                 border-top: 1px solid rgba(255,255,255,0.1); 
             }
             #bus-list { height: 100px; } 
-            #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message) {
+            #bus-list li:not(.loading-message):not(.error-message):not(.no-buses-message):not(.stop-closed-message):not(.system-update-message):not(.custom-status-message-li) {
                 padding-top: 0.3rem !important;    
                 padding-bottom: 0.3rem !important; 
                 font-size: clamp(0.7rem, 2.5vmin, 0.9rem);
+            }
+            .custom-status-message-li { /* Adjust for very small screens */
+                 font-size: clamp(0.7rem, 2.5vmin, 0.9rem);
             }
             #stop-letter-display .stop-letter-circle { width: 1.4em; height: 1.4em; font-size: 0.6rem;}
             #stop-selection-modal-content { padding: 0.75rem; }
@@ -597,7 +639,7 @@
         let ukBankHolidaysData = { dates: [], titles: {} };
         
         const MAX_DISPLAY_ROWS = 4; 
-        const CYCLING_ROWS_COUNT = 3; 
+        const CYCLING_ROWS_COUNT = 3; // This defines the size of the cycling portion of the display IF NO message
         const MAX_DEPARTURES_OVERALL = 10; 
         const MAX_TIME_TO_STATION_SECONDS = 1800; 
         const earlyMorningThresholdHours = 5; 
@@ -620,12 +662,23 @@
             "SL1": "#5F259F", "SL10": "#A05A2C"
         };
         const DEFAULT_ROUTE_COLOUR = "#73809C";
-        let globalCustomRouteColours = { ...initialRouteColourMap }; // Will hold global overrides merged with initial
-        let stopSpecificRouteColours = {}; // Will hold { STOP_ID: { ROUTE_NAME: "#color" } }
+        let globalCustomRouteColours = { ...initialRouteColourMap }; 
+        let stopSpecificRouteColours = {}; 
 
         // Firebase Path Constants
-        const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours'; // Global colours
-        const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours'; // New path
+        const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
+        const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
+        const FB_PATH_CUSTOM_STATUS_MESSAGE = '/appState/customStatusMessage'; // Added
+
+        // Custom Status Message Settings Global Variable
+        let customMessageSettings = {
+            text: "",
+            startTimeISO: null,
+            endTimeISO: null,
+            scrollSpeed: "medium", 
+            isEnabled: false
+        };
+
 
         function updateClock() { const now=new Date(),h=String(now.getHours()).padStart(2,'0'),m=String(now.getMinutes()).padStart(2,'0'),s=String(now.getSeconds()).padStart(2,'0'),dn=now.toLocaleDateString(undefined,{weekday:'long'}),d=now.getDate(),mn=now.toLocaleDateString(undefined,{month:'long'}),y=now.getFullYear();if(clockTimeElement)clockTimeElement.textContent=`${h}:${m}:${s}`;if(clockDateElement)clockDateElement.textContent=`${dn} ${d} ${mn} ${y}`;}
         async function fetchBankHolidays(){try{const r=await fetch('https://www.gov.uk/bank-holidays.json');if(!r.ok)throw new Error(`HTTP error! ${r.status}`);const d=await r.json();if(d['england-and-wales']&&d['england-and-wales'].events){const e=d['england-and-wales'].events;ukBankHolidaysData={dates:e.map(ev=>ev.date),titles:e.reduce((a,ev)=>{a[ev.date]=ev.title;return a},{})};}else console.warn("Bank hol format error.")}catch(e){console.error("Failed to fetch bank hols:",e)}};
@@ -704,23 +757,16 @@
             const upperLineName = String(lineName || "").toUpperCase();
             const currentStopId = currentSelectedStopID;
 
-            // 1. Check for stop-specific override
             if (currentStopId && stopSpecificRouteColours && 
                 stopSpecificRouteColours[currentStopId] && 
                 stopSpecificRouteColours[currentStopId][upperLineName]) {
                 return stopSpecificRouteColours[currentStopId][upperLineName];
             }
-
-            // 2. Check global custom colours (which has initial defaults merged in)
             if (globalCustomRouteColours[upperLineName]) {
                 return globalCustomRouteColours[upperLineName];
             }
-            
-            // 3. Specific fallback for N* and SL* generic types if not in globalCustomRouteColours already
             if (upperLineName.startsWith("N")) return globalCustomRouteColours["N5"] || DEFAULT_ROUTE_COLOUR;
             if (upperLineName.startsWith("SL")) return globalCustomRouteColours["SL1"] || DEFAULT_ROUTE_COLOUR;
-            
-            // 4. Final hardcoded default
             return DEFAULT_ROUTE_COLOUR;
         }
 
@@ -731,6 +777,33 @@
             if (busListElement) { busListElement.innerHTML = `<li class="system-update-message">Live bus arrivals are not available at this time.<br>System update in progress.</li>`; }
             if (liveUpdateIntervalId) { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; }
         }
+
+        /**
+         * Checks if the custom status message should be active based on its settings and current time.
+         * @returns {boolean} True if the message is enabled and within its scheduled time, false otherwise.
+         */
+        function isCustomMessageActive() {
+            if (!customMessageSettings || !customMessageSettings.isEnabled || !customMessageSettings.text) {
+                return false;
+            }
+            const now = new Date();
+            const startTime = customMessageSettings.startTimeISO ? new Date(customMessageSettings.startTimeISO) : null;
+            const endTime = customMessageSettings.endTimeISO ? new Date(customMessageSettings.endTimeISO) : null;
+
+            if (customMessageSettings.isEnabled && customMessageSettings.text && !startTime && !endTime) {
+                return true; // Enabled, has text, no time constraints means always show.
+            }
+
+            if (startTime && endTime) {
+                return now >= startTime && now <= endTime;
+            } else if (startTime) { 
+                return now >= startTime;
+            } else if (endTime) { 
+                return now <= endTime;
+            }
+            return false; 
+        }
+
 
         function updateAndDisplayLiveArrivals() {
             if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
@@ -746,7 +819,13 @@
                 return;
             }
             
-            const nowForProcessing = new Date(); 
+            const nowForProcessing = new Date();
+            const messageActive = isCustomMessageActive();
+            
+            const busDisplaySlotsCount = messageActive ? MAX_DISPLAY_ROWS - 1 : MAX_DISPLAY_ROWS;
+            // If message is active, it takes the 4th row. Bus 1 is fixed in row 1. Rows 2 & 3 for cycling.
+            const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
+
 
             const processedBuses = allScheduledData 
                 .filter(bus => bus.stopID === currentSelectedStopID) 
@@ -875,6 +954,7 @@
                 .slice(0, MAX_DEPARTURES_OVERALL) 
                 .map((bus, index) => ({ ...bus, originalMasterIndex: index })); 
 
+
             const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
             const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
 
@@ -883,93 +963,153 @@
             }
             allUpcomingBusesMasterList = processedBuses; 
 
-            const finalBusesToDisplayInSlots = new Array(MAX_DISPLAY_ROWS).fill(null);
+            const finalItemsToDisplayInSlots = new Array(MAX_DISPLAY_ROWS).fill(null);
 
             if (allUpcomingBusesMasterList.length > 0) {
-                finalBusesToDisplayInSlots[0] = { ...allUpcomingBusesMasterList[0], displayNumber: 1 };
+                finalItemsToDisplayInSlots[0] = { 
+                    ...allUpcomingBusesMasterList[0], 
+                    displayNumber: 1, 
+                    type: 'bus' 
+                };
 
                 const cyclingCandidates = allUpcomingBusesMasterList.slice(1); 
                 if (cyclingCandidates.length > 0) {
                     if (currentDepartureCycleStartIndex >= cyclingCandidates.length) {
                         currentDepartureCycleStartIndex = 0;
                     }
+                    
                     const busesForThisCycle = cyclingCandidates.slice(
                         currentDepartureCycleStartIndex, 
-                        currentDepartureCycleStartIndex + CYCLING_ROWS_COUNT
+                        currentDepartureCycleStartIndex + effectiveCyclingRowsCount 
                     );
+
                     busesForThisCycle.forEach((bus, cycleIndex) => {
                         const masterListIndex = allUpcomingBusesMasterList.findIndex(masterBus => masterBus.internalId === bus.internalId);
-                        finalBusesToDisplayInSlots[1 + cycleIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex +1 };
+                        const targetSlotIndex = 1 + cycleIndex;
+                        if (targetSlotIndex < busDisplaySlotsCount) { 
+                             finalItemsToDisplayInSlots[targetSlotIndex] = { 
+                                ...bus, 
+                                displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex +1,
+                                type: 'bus'
+                            };
+                        }
                     });
-                    currentDepartureCycleStartIndex += CYCLING_ROWS_COUNT;
+                    currentDepartureCycleStartIndex += effectiveCyclingRowsCount; 
                     if (currentDepartureCycleStartIndex >= cyclingCandidates.length) {
                         currentDepartureCycleStartIndex = 0; 
                     }
                 }
             }
             
+            if (messageActive) {
+                let scrollDuration = "15s"; 
+                switch(customMessageSettings.scrollSpeed) {
+                    case "slow": scrollDuration = "25s"; break;
+                    case "fast": scrollDuration = "10s"; break;
+                    case "very_fast": scrollDuration = "7s"; break;
+                }
+                finalItemsToDisplayInSlots[MAX_DISPLAY_ROWS - 1] = { 
+                    type: 'message',
+                    text: customMessageSettings.text,
+                    scrollDuration: scrollDuration,
+                    internalId: 'custom_message_slot_' + customMessageSettings.text 
+                };
+            }
+            
             if (busListElement) busListElement.innerHTML = ''; 
             const newSnapshotForThisUpdate = new Array(MAX_DISPLAY_ROWS).fill(null);
 
             for (let i = 0; i < MAX_DISPLAY_ROWS; i++) {
-                const busToDisplayInThisSlot = finalBusesToDisplayInSlots[i];
+                const itemToDisplay = finalItemsToDisplayInSlots[i];
                 const prevSnapshotForThisSlot = previousArrivalsSnapshot[i];
 
-                if (busToDisplayInThisSlot) {
+                if (itemToDisplay) {
                     const li = document.createElement('li');
                     
-                    const numberSpan = document.createElement('span');
-                    numberSpan.className = 'bus-item-number';
-                    numberSpan.textContent = busToDisplayInThisSlot.displayNumber + ".";
-                    li.appendChild(numberSpan);
+                    if (itemToDisplay.type === 'bus') {
+                        const numberSpan = document.createElement('span');
+                        numberSpan.className = 'bus-item-number';
+                        numberSpan.textContent = itemToDisplay.displayNumber + ".";
+                        li.appendChild(numberSpan);
 
-                    const lineCodeSpan = document.createElement('span');
-                    lineCodeSpan.className = 'bus-item-linecode';
-                    lineCodeSpan.textContent = busToDisplayInThisSlot.lineName; 
-                    li.appendChild(lineCodeSpan);
+                        const lineCodeSpan = document.createElement('span');
+                        lineCodeSpan.className = 'bus-item-linecode';
+                        lineCodeSpan.textContent = itemToDisplay.lineName; 
+                        li.appendChild(lineCodeSpan);
 
-                    const destinationSpan = document.createElement('span');
-                    destinationSpan.className = 'bus-item-destination';
-                    destinationSpan.title = sanitize(busToDisplayInThisSlot.destinationName); 
-                    destinationSpan.textContent = busToDisplayInThisSlot.destinationName; 
-                    li.appendChild(destinationSpan);
+                        const destinationSpan = document.createElement('span');
+                        destinationSpan.className = 'bus-item-destination';
+                        destinationSpan.title = sanitize(itemToDisplay.destinationName); 
+                        destinationSpan.textContent = itemToDisplay.destinationName; 
+                        li.appendChild(destinationSpan);
 
-                    const timeSpan = document.createElement('span');
-                    timeSpan.className = 'bus-item-time';
-                    timeSpan.textContent = busToDisplayInThisSlot.calculatedArrivalText; 
-                    li.appendChild(timeSpan);
-                    
-                    let shouldAnimate = false;
-                    if (!prevSnapshotForThisSlot) { 
-                        shouldAnimate = true;
-                    } else {
-                        if (busToDisplayInThisSlot.internalId !== prevSnapshotForThisSlot.slot_internalId ||
-                            busToDisplayInThisSlot.calculatedArrivalText !== prevSnapshotForThisSlot.slot_calculatedArrivalText ||
-                            busToDisplayInThisSlot.displayNumber !== prevSnapshotForThisSlot.slot_displayNumber) { 
+                        const timeSpan = document.createElement('span');
+                        timeSpan.className = 'bus-item-time';
+                        timeSpan.textContent = itemToDisplay.calculatedArrivalText; 
+                        li.appendChild(timeSpan);
+                        
+                        let shouldAnimate = false;
+                        if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'bus') { 
                             shouldAnimate = true;
+                        } else {
+                            if (itemToDisplay.internalId !== prevSnapshotForThisSlot.slot_internalId ||
+                                itemToDisplay.calculatedArrivalText !== prevSnapshotForThisSlot.slot_calculatedArrivalText ||
+                                itemToDisplay.displayNumber !== prevSnapshotForThisSlot.slot_displayNumber) { 
+                                shouldAnimate = true;
+                            }
                         }
-                    }
 
-                    if (shouldAnimate) {
-                        li.classList.remove('bus-item-animate');
-                        void li.offsetWidth; 
-                        setTimeout(() => {
-                            li.classList.add('bus-item-animate');
-                        }, 10); 
+                        if (shouldAnimate) {
+                            li.classList.remove('bus-item-animate');
+                            void li.offsetWidth; 
+                            setTimeout(() => {
+                                li.classList.add('bus-item-animate');
+                            }, 10); 
+                        }
+                        newSnapshotForThisUpdate[i] = {
+                            slot_type: 'bus', 
+                            slot_internalId: itemToDisplay.internalId,
+                            slot_calculatedArrivalText: itemToDisplay.calculatedArrivalText,
+                            slot_displayNumber: itemToDisplay.displayNumber
+                        };
+
+                    } else if (itemToDisplay.type === 'message') {
+                        li.classList.add('custom-status-message-li');
+                        const marqueeSpan = document.createElement('span');
+                        marqueeSpan.className = 'custom-status-message-text';
+                        marqueeSpan.textContent = itemToDisplay.text;
+                        li.style.setProperty('--scroll-duration', itemToDisplay.scrollDuration);
+                        li.appendChild(marqueeSpan);
+
+                        let shouldAnimateMessage = false;
+                        if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'message' ||
+                            prevSnapshotForThisSlot.slot_internalId !== itemToDisplay.internalId) { 
+                            shouldAnimateMessage = true;
+                        }
+                        if (shouldAnimateMessage) {
+                             li.classList.remove('bus-item-animate');
+                             void li.offsetWidth; 
+                             setTimeout(() => {
+                                 li.classList.add('bus-item-animate'); 
+                             }, 10);
+                        }
+                        newSnapshotForThisUpdate[i] = {
+                            slot_type: 'message', 
+                            slot_internalId: itemToDisplay.internalId, 
+                        };
                     }
                     busListElement.appendChild(li);
-                    newSnapshotForThisUpdate[i] = {
-                        slot_internalId: busToDisplayInThisSlot.internalId,
-                        slot_calculatedArrivalText: busToDisplayInThisSlot.calculatedArrivalText,
-                        slot_displayNumber: busToDisplayInThisSlot.displayNumber
-                    };
+                } else {
+                     newSnapshotForThisUpdate[i] = null; 
                 }
             }
             previousArrivalsSnapshot = newSnapshotForThisUpdate;
 
-            if (allUpcomingBusesMasterList.length === 0 && currentSelectedStopID && !closedStopIDsGlobal.includes(currentSelectedStopID)) {
+            const actualBusesShownCount = finalItemsToDisplayInSlots.filter(item => item && item.type === 'bus').length;
+
+            if (actualBusesShownCount === 0 && !messageActive && currentSelectedStopID && !closedStopIDsGlobal.includes(currentSelectedStopID)) {
                  if (busListElement) busListElement.innerHTML = `<li class="no-buses-message">Live bus arrivals are not available at this time.</li>`;
-            }
+            } 
         }
 
         async function loadInitialData() {
@@ -996,6 +1136,15 @@
                     currentScheduleStatus = 'idle'; 
                 }
 
+                // Fetch Custom Status Message Settings
+                const customMessageSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_CUSTOM_STATUS_MESSAGE));
+                if (customMessageSnapshot.exists()) {
+                    customMessageSettings = customMessageSnapshot.val();
+                } else {
+                    customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
+                }
+
+
                 // Fetch Live Schedule Data
                 const scheduleSnapshot = await dbGet(dbChild(dbRef(database), '/liveSchedule/allScheduledBusData'));
                 allScheduledData = scheduleSnapshot.exists() && Array.isArray(scheduleSnapshot.val()) ? scheduleSnapshot.val() : [];
@@ -1006,13 +1155,12 @@
 
                 // Fetch Global Custom Route Colours
                 const customColoursSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_CUSTOM_COLOURS));
-                globalCustomRouteColours = { ...initialRouteColourMap }; // Start with initial defaults
+                globalCustomRouteColours = { ...initialRouteColourMap }; 
                 if (customColoursSnapshot.exists()) {
                     const fbCustomColours = customColoursSnapshot.val();
                     for (const route in fbCustomColours) { globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route]; }
                 }
                 
-                // Fetch Stop-Specific Route Colours (NEW)
                 const stopSpecificSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS));
                 if (stopSpecificSnapshot.exists()) {
                     stopSpecificRouteColours = stopSpecificSnapshot.val();
@@ -1052,7 +1200,7 @@
                 console.log("[ARRIVALS DEBUG] Live schedule data updated from Firebase.");
                 allScheduledData = snapshot.exists() && Array.isArray(snapshot.val()) ? snapshot.val() : [];
                 if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
-                    selectStop(currentSelectedStopID); // Refresh tiles and arrivals
+                    selectStop(currentSelectedStopID); 
                 } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
                     displaySystemUpdateMessage();
                 }
@@ -1106,20 +1254,35 @@
                 }
             });
 
-            const globalCustomColoursRef = dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS); // Global
+            const globalCustomColoursRef = dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS); 
             dbOnValue(globalCustomColoursRef, (snapshot) => {
                 globalCustomRouteColours = { ...initialRouteColourMap };
                 if (snapshot.exists()) { const fbCols = snapshot.val(); for (const r in fbCols) globalCustomRouteColours[r.toUpperCase()] = fbCols[r];}
                 if (currentSelectedStopID) selectStop(currentSelectedStopID); 
             });
 
-            // NEW Listener for stop-specific colours
             const stopSpecificColoursRef = dbRef(database, FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS);
             dbOnValue(stopSpecificColoursRef, (snapshot) => {
                 console.log("[ARRIVALS DEBUG] Stop-specific route colours updated from Firebase.");
                 stopSpecificRouteColours = snapshot.exists() ? snapshot.val() : {};
                 if (currentSelectedStopID) {
-                    selectStop(currentSelectedStopID); // Re-render tiles and arrivals
+                    selectStop(currentSelectedStopID); 
+                }
+            });
+
+            // Listener for Custom Status Message (NEW)
+            const customMessageRef = dbRef(database, FB_PATH_CUSTOM_STATUS_MESSAGE);
+            dbOnValue(customMessageRef, (snapshot) => {
+                console.log("[ARRIVALS DEBUG] Custom status message settings updated from Firebase.");
+                if (snapshot.exists()) {
+                    customMessageSettings = snapshot.val();
+                } else {
+                    customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false }; 
+                }
+                if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
+                    updateAndDisplayLiveArrivals(); 
+                } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
+                    displaySystemUpdateMessage();
                 }
             });
         }
@@ -1212,11 +1375,11 @@
             
             const newBusStopDirection = document.createElement('p');
             newBusStopDirection.id = 'bus-stop-direction';
-            newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; // This is general, media query will override for smaller screens
+            newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; 
             newBusStopDirection.style.fontWeight = 'normal';
             newBusStopDirection.style.textAlign = 'center';
             newBusStopDirection.style.opacity = '0.75';
-            newBusStopDirection.style.marginTop = '0.25rem'; // This is general, media query will override
+            newBusStopDirection.style.marginTop = '0.25rem'; 
             newBusStopDirection.style.minHeight = '1.2em';
             newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; 
             
@@ -1279,31 +1442,30 @@
                         return; 
                     }
                     
-                    const MIN_FS=6; // Minimum font size
+                    const MIN_FS=6; 
                     let curSize, tgtWidth;
 
-                    // Initial guesses for font size based on character count and circle diameter
-                    if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;} // Target width for one letter
-                    else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;}// Target width for two letters
-                    else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;} // Target width for three letters
+                    if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;} 
+                    else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;}
+                    else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;} 
                     
-                    curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); // Clamp initial size
+                    curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); 
 
                     let iter=0;
                     let txtMeasW;
-                    do{ // Iteratively reduce font size until text fits
+                    do{ 
                         letterSpan.style.fontSize=curSize+"px";
                         txtMeasW=getTextWidth(stopLetters,`bold ${curSize}px "${getComputedStyle(letterSpan).fontFamily}"`);
-                        if(txtMeasW > tgtWidth && curSize > MIN_FS) { // If text is too wide and size > min
-                            curSize -= 0.5; // Reduce font size
+                        if(txtMeasW > tgtWidth && curSize > MIN_FS) { 
+                            curSize -= 0.5; 
                         } else {
-                            break; // Fits or min size reached
+                            break; 
                         }
                         iter++;
-                    } while(iter<50 && curSize>MIN_FS); // Max iterations and min font size guard
+                    } while(iter<50 && curSize>MIN_FS); 
                     
-                    letterSpan.style.fontSize=curSize+"px"; // Apply final font size
-                    letterSpan.style.lineHeight = circDiam + 'px'; // Vertically center using line-height trick
+                    letterSpan.style.fontSize=curSize+"px"; 
+                    letterSpan.style.lineHeight = circDiam + 'px'; 
                 });
             } else { 
                 if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; 
@@ -1341,7 +1503,6 @@
             if (window.firebaseOMSI && window.firebaseOMSI.database) {
                 fetchBankHolidays().then(() => loadInitialData()).catch((err) => {
                     console.error("Error during initial data load sequence:", err);
-                    // Attempt to load data even if bank holidays fetch fails, as it might not be critical
                     loadInitialData(); 
                 });
             } else {
@@ -1349,8 +1510,8 @@
                 if(busListElement) busListElement.innerHTML = `<li class="error-message">Error: Firebase not connected.</li>`;
             }
 
-            const stopInfoHeader = document.getElementById('stop-info-area'); // Target the container
-            if (stopInfoHeader) stopInfoHeader.addEventListener('click', openStopSelectionModal); // Attach to container
+            const stopInfoHeader = document.getElementById('stop-info-area'); 
+            if (stopInfoHeader) stopInfoHeader.addEventListener('click', openStopSelectionModal); 
 
             if (closeStopModalButton) closeStopModalButton.addEventListener('click', closeStopSelectionModal);
             if (stopSelectionModalOverlay) stopSelectionModalOverlay.addEventListener('click', e => { if (e.target === stopSelectionModalOverlay) closeStopSelectionModal(); });
@@ -1359,10 +1520,9 @@
             if (disclaimerModalCloseButton) disclaimerModalCloseButton.addEventListener('click', closeDisclaimerModal);
             if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.addEventListener('click', e => { if (e.target === disclaimerModalOverlayElement) closeDisclaimerModal(); });
             
-            // Service Worker Registration
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('/live-tracker/sw-omsi.js') // Ensure this path is correct
+                    navigator.serviceWorker.register('/live-tracker/sw-omsi.js') 
                     .then(registration => {
                         console.log('Service Worker (sw-omsi.js) registered successfully with scope:', registration.scope);
                     })

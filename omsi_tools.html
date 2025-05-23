@@ -1324,9 +1324,9 @@ let copiedScheduleEntries = [];
 
 // --- Constants ---
 const LOCAL_STORAGE_ACTIVE_SECTION_KEY = 'omsiToolsActiveSection';
-const FB_PATH_LIVE_SCHEDULE_DATA = '/liveSchedule/allScheduledBusData';
+const FB_PATH_LIVE_SCHEDULE_DATA = '/liveSchedule/schedulesByRoute';
 const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
-const FB_PATH_PENDING_SCHEDULE_DATA = '/pendingSchedule/allScheduledBusData';
+const FB_PATH_PENDING_SCHEDULE_DATA = '/pendingSchedule/schedulesByRoute';
 const FB_PATH_PENDING_UNIQUE_STOPS = '/pendingSchedule/uniqueBusStops';
 const FB_PATH_PENDING_TIMESTAMP = '/pendingSchedule/uploadTimestamp';
 const FB_PATH_APPSTATE_STATUS = '/appState/scheduleStatus';
@@ -1339,6 +1339,11 @@ const initialRouteColourMapForTools = {};
 const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
 const NIGHT_BUS_BLUE_COLOR = (initialRouteColourMapForTools["N35"] || "#4CDBE6").toUpperCase();
 const DAY_BUS_GREY_COLOR = DEFAULT_ROUTE_COLOUR_TOOLS.toUpperCase();
+
+function sanitizeFirebaseKey(text) {
+    if (typeof text !== 'string') return '';
+    return text.replace(/[.#$[\]]/g, '_');
+}
 
 // --- START: Schedule Generator (from COUNT_generator.html) ---
 let gen_ruleCounter = 0;
@@ -2841,75 +2846,203 @@ function gen_deleteScheduleEntry(index) {
 
 
 // Render the current schedule entries into the HTML table
+// In omsi_tools.html, inside the main <script> block:
+
+// REPLACE the existing gen_renderScheduleTable function with this:
 function gen_renderScheduleTable() {
     const resultsTable = document.getElementById('gen_resultsTable');
     if (!resultsTable) return;
     const resultsBody = resultsTable.getElementsByTagName('tbody')[0];
-    const resultsHead = resultsTable.getElementsByTagName('thead')[0]; // Get thead
-    if (!resultsBody || !resultsHead) return; // Ensure both body and head exist
+    const resultsHead = resultsTable.getElementsByTagName('thead')[0];
+    if (!resultsBody || !resultsHead) return;
 
     resultsBody.innerHTML = ''; // Clear existing rows
 
-    // Ensure table headers are correct, especially the "Actions" column
+    // Ensure table headers are correct (Actions column should be last)
     if (resultsHead.rows.length > 0) {
         let headerRow = resultsHead.rows[0];
-        // Check if the last header is "Actions", add if not or if headers are missing
-        if (headerRow.cells.length === 8 && headerRow.cells[7].textContent !== "Actions") { // 8 columns without Actions
-            let th = document.createElement('th');
-            th.textContent = 'Actions';
-            headerRow.appendChild(th);
-        } else if (headerRow.cells.length === 0) { // No headers at all
+        if (headerRow.cells.length === 0 || headerRow.cells[headerRow.cells.length - 1].textContent !== "Actions") {
             headerRow.innerHTML = `<th>StopID</th><th>StopName</th><th>Direction</th><th>LineName</th><th>DestinationName</th><th>ScheduledTime (HH:MM)</th><th>OperatingProfile</th><th>DayOffset</th><th>Actions</th>`;
-        } else if (headerRow.cells.length > 0 && headerRow.cells[headerRow.cells.length - 1].textContent !== "Actions") { // Headers exist, but last isn't Actions
-            let th = document.createElement('th');
-            th.textContent = 'Actions';
-            headerRow.appendChild(th);
         }
-    } else { // Thead might be missing entirely
+    } else {
         let header = resultsTable.createTHead();
         let row = header.insertRow(0);
         row.innerHTML = `<th>StopID</th><th>StopName</th><th>Direction</th><th>LineName</th><th>DestinationName</th><th>ScheduledTime (HH:MM)</th><th>OperatingProfile</th><th>DayOffset</th><th>Actions</th>`;
     }
 
+    if (!gen_currentScheduleEntries || gen_currentScheduleEntries.length === 0) {
+        // Optionally display a message like "No data in generator table."
+        return;
+    }
 
-    gen_currentScheduleEntries.forEach((entry, index) => {
-        let newRow = resultsBody.insertRow();
-        newRow.insertCell().textContent = entry.stopId || '';
-        newRow.insertCell().textContent = entry.stopName || '';
-        newRow.insertCell().textContent = entry.direction || '';
-        newRow.insertCell().textContent = entry.lineName || '';
-        newRow.insertCell().textContent = entry.destinationName || '';
+    const groupedDisplayEntries = new Map();
 
-        // Format time for display (HH:MM)
-        let displayTime = entry.scheduledTime || "";
-        if (displayTime.length === 4 && !isNaN(displayTime)) {
-            displayTime = `${displayTime.substring(0,2)}:${displayTime.substring(2,4)}`;
-        } else if (displayTime.length === 3 && !isNaN(displayTime)) { // e.g. 745 -> 07:45
-             displayTime = `0${displayTime.substring(0,1)}:${displayTime.substring(1,3)}`;
+    // Group entries by all fields except time, collecting original indices
+    gen_currentScheduleEntries.forEach((entry, originalIndex) => {
+        const key = [
+            (entry.stopId || "").trim().toUpperCase(),
+            (entry.stopName || "").trim(),
+            (entry.direction || "").trim(),
+            (entry.lineName || "").trim().toUpperCase(),
+            (entry.destinationName || "").trim(),
+            (entry.operatingProfile || "").trim(),
+            String(entry.dayOffset || "0").trim()
+        ].join("⁂"); // Unique delimiter
+
+        let timeForThisEntry = entry.scheduledTime || ""; // Expected HHMM string
+
+        if (!groupedDisplayEntries.has(key)) {
+            groupedDisplayEntries.set(key, {
+                stopId: (entry.stopId || "").trim().toUpperCase(),
+                stopName: (entry.stopName || "").trim(),
+                direction: (entry.direction || "").trim(),
+                lineName: (entry.lineName || "").trim().toUpperCase(),
+                destinationName: (entry.destinationName || "").trim(),
+                operatingProfile: (entry.operatingProfile || "").trim(),
+                dayOffset: String(entry.dayOffset || "0").trim(),
+                // Store objects with time (HHMM) and originalIndex
+                timeEntries: [] 
+            });
         }
-        newRow.insertCell().textContent = displayTime;
+        
+        // Add the HHMM time and its original index to the group's timeEntries array
+        if (timeForThisEntry.match(/^\d{3,4}$/)) { // e.g. "0745", "1230"
+             groupedDisplayEntries.get(key).timeEntries.push({ time: timeForThisEntry.padStart(4, '0'), originalIndex: originalIndex });
+        } else if (timeForThisEntry.match(/^\d{2}:\d{2}$/)) { // If it was already HH:MM
+             groupedDisplayEntries.get(key).timeEntries.push({ time: timeForThisEntry.replace(':', '').padStart(4,'0'), originalIndex: originalIndex });
+        } else {
+            console.warn("RenderTable: Skipping invalid time format during grouping:", timeForThisEntry, "for entry at index:", originalIndex);
+        }
+    });
 
-        newRow.insertCell().textContent = entry.operatingProfile || '';
-        newRow.insertCell().textContent = String(entry.dayOffset || '0'); // Ensure dayOffset is a string
+    // Iterate through the grouped entries to build the table rows
+    groupedDisplayEntries.forEach((group, groupKey) => {
+        let newRow = resultsBody.insertRow();
+        newRow.insertCell().textContent = group.stopId;
+        newRow.insertCell().textContent = group.stopName;
+        newRow.insertCell().textContent = group.direction;
+        newRow.insertCell().textContent = group.lineName;
+        newRow.insertCell().textContent = group.destinationName;
 
-        // Add action cell with delete button
+        // Sort timeEntries by HHMM time string
+        group.timeEntries.sort((a, b) => a.time.localeCompare(b.time));
+
+        // Format HHMM times to HH:MM for display
+        const displayTimesArray = group.timeEntries.map(te => {
+            const hhmm = te.time;
+            if (hhmm.length === 4) return `${hhmm.substring(0, 2)}:${hhmm.substring(2, 4)}`;
+            // Fallback for safety, though times should be 4-digit HHMM
+            return hhmm; 
+        });
+        newRow.insertCell().textContent = displayTimesArray.join(', ');
+
+        newRow.insertCell().textContent = group.operatingProfile;
+        newRow.insertCell().textContent = group.dayOffset;
+
+        // Add action cell with delete button for the group
         let actionCell = newRow.insertCell();
         let deleteButton = document.createElement('button');
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = 'Delete'; // "Delete Group" might be too long for small button
         deleteButton.classList.add('button', 'small-action', 'secondary');
-        deleteButton.style.padding = '0.2rem 0.4rem'; // Ensure consistent styling
-        deleteButton.style.fontSize = '0.8rem';
-        deleteButton.addEventListener('click', () => gen_deleteScheduleEntry(index));
+        
+        const originalIndicesForThisGroup = group.timeEntries.map(te => te.originalIndex);
+        deleteButton.addEventListener('click', () => gen_deleteScheduleEntriesByGroup(originalIndicesForThisGroup, group)); // Pass group for confirmation msg
         actionCell.appendChild(deleteButton);
     });
 }
 
-
-function gen_exportToCountFile() {
-    if (gen_currentScheduleEntries.length === 0) {
-        alert("No schedule data to export from generator. Please generate a schedule first.");
+// REPLACE the existing gen_deleteScheduleEntry function with gen_deleteScheduleEntriesByGroup
+// (or remove gen_deleteScheduleEntry if it's no longer called from anywhere else)
+function gen_deleteScheduleEntriesByGroup(originalIndicesToDelete, groupDetails) {
+    if (!originalIndicesToDelete || originalIndicesToDelete.length === 0) {
+        console.error("No indices provided for deletion.");
         return;
     }
+
+    let confirmationMessage = `Are you sure you want to delete this group of ${originalIndicesToDelete.length} time entries from the generator's table?`;
+    if (groupDetails) {
+        const timesToDisplay = groupDetails.timeEntries.map(te => {
+            const hhmm = te.time;
+            if (hhmm.length === 4) return `${hhmm.substring(0, 2)}:${hhmm.substring(2, 4)}`;
+            return hhmm;
+        }).slice(0, 5).join(', '); // Show up to 5 times
+        
+        confirmationMessage = `Are you sure you want to delete all times for:\nStop: ${groupDetails.stopName} (${groupDetails.stopId})\nLine: ${groupDetails.lineName}\nDest: ${groupDetails.destinationName}\nProfile: ${groupDetails.operatingProfile}\nTimes: ${timesToDisplay}${groupDetails.timeEntries.length > 5 ? '...' : ''}\n\nThis will remove ${originalIndicesToDelete.length} underlying schedule entries.`;
+    }
+
+
+    if (confirm(confirmationMessage)) {
+        // Remove entries from gen_currentScheduleEntries by original indices.
+        // Must remove in reverse order of index to avoid issues with shifting array indices.
+        originalIndicesToDelete.sort((a, b) => b - a); // Sort indices descending
+        
+        originalIndicesToDelete.forEach(index => {
+            if (index >= 0 && index < gen_currentScheduleEntries.length) {
+                gen_currentScheduleEntries.splice(index, 1);
+            } else {
+                console.warn("gen_deleteScheduleEntriesByGroup: Invalid index attempted for deletion:", index);
+            }
+        });
+        
+        gen_renderScheduleTable(); // Re-render the table (which will re-group)
+        gen_saveDataToLocalStorage(); // Save the updated gen_currentScheduleEntries
+        console.log("Group of entries deleted from generator list and local storage updated.");
+    }
+}
+
+
+// In omsi_tools.html, inside the main <script> block,
+// replace the existing gen_exportToCountFile function with this:
+
+function gen_exportToCountFile() {
+    if (!gen_currentScheduleEntries || gen_currentScheduleEntries.length === 0) {
+        alert("No schedule data to export from generator. Please generate or load a schedule first.");
+        return;
+    }
+
+    const groupedEntries = new Map();
+
+    // Group entries by all fields except time
+    gen_currentScheduleEntries.forEach(entry => {
+        // Create a consistent key for grouping.
+        // Note: entry.scheduledTime is expected to be an HHMM string (e.g., "0845")
+        // from the generator's internal storage.
+        const key = [
+            (entry.stopId || "").trim().toUpperCase(),
+            (entry.stopName || "").trim(),
+            (entry.direction || "").trim(),
+            (entry.lineName || "").trim().toUpperCase(),
+            (entry.destinationName || "").trim(),
+            (entry.operatingProfile || "").trim(), // OperatingProfile is case-sensitive
+            String(entry.dayOffset || "0").trim()
+        ].join("⁂"); // Using a less common delimiter for the key
+
+        let timeForThisEntry = entry.scheduledTime || ""; // Expected HHMM string e.g., "0745", "1230"
+
+        if (!groupedEntries.has(key)) {
+            groupedEntries.set(key, {
+                // Store common data from the first entry encountered for this group
+                stopId: (entry.stopId || "").trim().toUpperCase(),
+                stopName: (entry.stopName || "").trim(),
+                direction: (entry.direction || "").trim(),
+                lineName: (entry.lineName || "").trim().toUpperCase(),
+                destinationName: (entry.destinationName || "").trim(),
+                operatingProfile: (entry.operatingProfile || "").trim(),
+                dayOffset: String(entry.dayOffset || "0").trim(),
+                times: [] // Store times as HHMM strings initially for sorting
+            });
+        }
+
+        // Add the HHMM time to the group's times array if it's a valid 3 or 4 digit string
+        // The generator should already store them padded, but good to be safe.
+        if (timeForThisEntry.match(/^\d{3,4}$/)) {
+             groupedEntries.get(key).times.push(timeForThisEntry.padStart(4, '0'));
+        } else if (timeForThisEntry.match(/^\d{2}:\d{2}$/)) { // If somehow it's already HH:MM
+             groupedEntries.get(key).times.push(timeForThisEntry.replace(':', '').padStart(4, '0'));
+        } else {
+            console.warn("Export: Skipping invalid time format during grouping:", timeForThisEntry, "for entry:", entry);
+        }
+    });
 
     const headers = [
         "StopID", "StopName", "Direction", "LineName",
@@ -2917,21 +3050,34 @@ function gen_exportToCountFile() {
     ];
     let tabText = headers.join("\t") + "\n"; // Header row
 
-    gen_currentScheduleEntries.forEach(entry => {
-        // Ensure time is in HH:MM format for export
-        let formattedTime = entry.scheduledTime;
-        if (formattedTime && formattedTime.length === 4 && !formattedTime.includes(':')) { // HHMM to HH:MM
-            formattedTime = `${formattedTime.substring(0,2)}:${formattedTime.substring(2,4)}`;
-        } else if (formattedTime && formattedTime.length === 3 && !formattedTime.includes(':')) { // HMM to HH:MM (e.g. 745 to 07:45)
-            formattedTime = `0${formattedTime.substring(0,1)}:${formattedTime.substring(1,3)}`;
-        }
+    // Iterate through the grouped entries to build the export string
+    groupedEntries.forEach(group => {
+        // Sort times (which are HHMM strings like "0745", "1230")
+        group.times.sort((a, b) => a.localeCompare(b)); // Standard string sort works for HHMM
+
+        // Format HHMM times to HH:MM for the comma-separated string
+        const formattedTimesArray = group.times.map(hhmm => {
+            if (hhmm.length === 4) {
+                return `${hhmm.substring(0, 2)}:${hhmm.substring(2, 4)}`;
+            }
+            // This case should ideally not be hit if times are stored as padded HHMM
+            if (hhmm.length === 3) { 
+                return `0${hhmm.substring(0, 1)}:${hhmm.substring(1, 3)}`;
+            }
+            return hhmm; // Fallback, though input should be HHMM
+        });
+
+        // Join with comma and a space for readability, matching your example format
+        // Your import logic uses .trim() so it handles the space fine.
+        const commaSeparatedTimes = formattedTimesArray.join(', '); 
 
         const rowValues = [
-            entry.stopId, entry.stopName, entry.direction, entry.lineName,
-            entry.destinationName, formattedTime, entry.operatingProfile, String(entry.dayOffset || '0')
+            group.stopId, group.stopName, group.direction, group.lineName,
+            group.destinationName, commaSeparatedTimes, group.operatingProfile, group.dayOffset
         ];
+        
         // Replace any tabs or newlines within fields to prevent breaking TSV format
-        tabText += rowValues.map(val => String(val || '').replace(/\t|\n|\r/g, " ")).join("\t") + "\n";
+        tabText += rowValues.map(val => String(val === undefined || val === null ? '' : val).replace(/\t|\n|\r/g, " ")).join("\t") + "\n";
     });
 
     const blob = new Blob([tabText], { type: 'text/plain;charset=utf-8;' });
@@ -3983,10 +4129,13 @@ function isValidScheduleDataFromText(jsonData) {
     return true;
 }
 
+// In omsi_tools.html, replace the existing handleCountFileUpload function with this:
+
 function handleCountFileUpload(event) {
     const file = event.target.files[0];
     if (file) {
         if (fileStatusElement) fileStatusElement.textContent = `Processing ${file.name}...`;
+        
         // Use setTimeout to allow UI to update before potentially blocking file processing
         setTimeout(() => {
             const reader = new FileReader();
@@ -3995,68 +4144,134 @@ function handleCountFileUpload(event) {
                     const fileContent = e.target.result;
                     const lines = fileContent.split(/\r?\n/); // Split by newline characters
 
-                    if (lines.length < 2) { // Must have header + at least one data row
-                        alert("File is empty or contains no data rows after the header.");
-                        if(fileStatusElement) fileStatusElement.textContent="File processing failed: Not enough data.";
+                    if (lines.length < 1) { // Check if file has any content at all
+                        alert("File is empty.");
+                        if(fileStatusElement) fileStatusElement.textContent="File processing failed: File is empty.";
                         if(countFileInput) countFileInput.value=""; // Reset file input
                         return;
                     }
 
-                    const headers = lines[0].split('\t').map(h=>h.trim()); // Get headers from first line
-                    const jsonData = [];
+                    // Trim the first line to handle potential BOM or leading/trailing whitespace
+                    const headerLine = lines[0].trim();
+                    const headers = headerLine.split('\t').map(h => h.trim());
+
+                    // New function to validate header structure
+                    if (!isValidHeaderStructure(headers)) { // isValidHeaderStructure defined below
+                        if(fileStatusElement) fileStatusElement.textContent = "File processing failed: Invalid header structure.";
+                        if(countFileInput) countFileInput.value = "";
+                        return; // Stop processing if headers are not valid
+                    }
+                    
+                    if (lines.length < 2 && lines[0].trim() !== "") { // Header exists but no data rows
+                         alert("File contains headers but no data rows.");
+                        if(fileStatusElement) fileStatusElement.textContent="File processing failed: No data rows.";
+                        if(countFileInput) countFileInput.value="";
+                        return;
+                    }
+
+
+                    const newScheduleEntries = []; // This will hold all individual schedule entries
+
                     for (let i = 1; i < lines.length; i++) { // Start from second line for data
                         const line = lines[i].trim();
                         if (line === "") continue; // Skip empty lines
 
-                        const values = line.split('\t').map(v=>v.trim());
-                        // Handle rows that might have fewer columns than headers (e.g. trailing empty tabs)
-                        // or rows that are just empty tabs
-                        if (values.length < headers.length && values.every(v=>v==="")) continue; // Skip if all values are empty (likely an empty line with tabs)
-                        if (values.length < headers.length && values.length > 0) { // Pad if some values missing but not all
-                            for(let k=values.length; k < headers.length; k++) values.push('');
-                        }
-
-                        let entry = {};
-                        headers.forEach((h,idx)=>entry[h]=values[idx]!==undefined?values[idx]:""); // Map values to headers
-                        jsonData.push(entry);
-                    }
-
-                    if (isValidScheduleDataFromText(jsonData)) {
-                        if (currentWorkingSchedule.length > 0 && !confirm("This will replace the current working schedule with the contents of this file. Are you sure?")) {
-                            if(fileStatusElement)fileStatusElement.textContent="Upload cancelled by user.";
-                            if(countFileInput)countFileInput.value="";
-                            return;
-                        }
-                        // Process and transform data for currentWorkingSchedule
-                        currentWorkingSchedule = jsonData.map((row,idx) => {
-                            // Standardize scheduledTime to HH:MM
-                            let schTime = String(row.ScheduledTime||"").trim();
-                            if(schTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)){ // Already HH:MM or H:MM or HH:MM:SS
-                                const p=schTime.split(':'); schTime=`${String(p[0]).padStart(2,'0')}:${String(p[1]).padStart(2,'0')}`;
-                            } else if(schTime.length===4 && !schTime.includes(':')) { // HHMM
-                                schTime=`${schTime.substring(0,2)}:${schTime.substring(2,4)}`;
-                            } else if(schTime.length===3 && !schTime.includes(':')) { // HMM (e.g. 745 -> 07:45)
-                                schTime=`0${schTime.substring(0,1)}:${schTime.substring(1,3)}`;
-                            } // else, keep as is or handle other formats if necessary
-
-                            return {
-                                internalId: `${String(row.StopID||'s').trim().toUpperCase()}_${String(row.LineName||'l').trim().toUpperCase()}_${schTime.replace(':','')}_${idx}_countfile`,
-                                stopID: String(row.StopID||"").trim().toUpperCase(),
-                                stopName: String(row.StopName||"").trim(),
-                                direction: String(row.Direction||"").trim(),
-                                lineName: String(row.LineName||"").trim().toUpperCase(),
-                                destinationName: String(row.DestinationName||"").trim(),
-                                scheduledTime: schTime,
-                                OperatingProfile: String(row.OperatingProfile||"").trim(),
-                                DayOffset: String(row.DayOffset||"0").trim() // Default to "0" if missing
-                            };
+                        const values = line.split('\t').map(v => v.trim());
+                        
+                        // Create a temporary row object to easily access data by header name
+                        let rowObject = {};
+                        headers.forEach((header, idx) => {
+                            rowObject[header] = values[idx] !== undefined ? values[idx] : "";
                         });
-                        renderUIDependentElements(); // Refresh UI based on new schedule
-                        updateStagingStatusDisplay(); // Update staging status
-                        if(fileStatusElement) fileStatusElement.textContent = `${file.name} processed. ${currentWorkingSchedule.length} entries loaded into working schedule.`;
-                    } else { // isValidScheduleDataFromText would have shown an alert
-                        if(fileStatusElement) fileStatusElement.textContent = "File processing failed: Invalid structure or missing headers.";
+
+                        // Get common fields for this row
+                        const stopIDFromFile = String(rowObject.StopID || "").trim().toUpperCase();
+                        const stopNameFromFile = String(rowObject.StopName || "").trim();
+                        const directionFromFile = String(rowObject.Direction || "").trim();
+                        const lineNameFromFile = String(rowObject.LineName || "").trim().toUpperCase();
+                        const destinationNameFromFile = String(rowObject.DestinationName || "").trim();
+                        const operatingProfileFromFile = String(rowObject.OperatingProfile || "").trim();
+                        const dayOffsetFromFile = String(rowObject.DayOffset || "0").trim();
+                        
+                        // Check for essential data missing in the row (StopID and LineName are good candidates)
+                        if (!stopIDFromFile || !lineNameFromFile) {
+                            console.warn(`Skipping row ${i+1} due to missing StopID or LineName.`);
+                            continue; // Skip this entire row from the file
+                        }
+
+
+                        let rawScheduledTimes = String(rowObject.ScheduledTime || "").trim();
+                        const timeStrings = rawScheduledTimes.split(',')
+                                                  .map(t => t.trim())
+                                                  .filter(t => t !== ""); // Filter out empty strings if any result from ",, "
+
+                        if (timeStrings.length === 0 && rawScheduledTimes !== "") {
+                             console.warn(`Row ${i+1}: ScheduledTime column '${rawScheduledTimes}' parsed to zero valid times. Skipping times for this row.`);
+                             // If you want to skip the entire row if ScheduledTime is present but unparseable: continue;
+                        }
+                        
+                        timeStrings.forEach((singleTimeStr, timeIdx) => {
+                            let schTime = singleTimeStr;
+                            // Standardize time format to HH:MM
+                            if (schTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { // Already HH:MM or H:MM or HH:MM:SS
+                                const p = schTime.split(':');
+                                schTime = `${String(p[0]).padStart(2, '0')}:${String(p[1]).padStart(2, '0')}`;
+                            } else if (schTime.length === 4 && !schTime.includes(':')) { // HHMM
+                                schTime = `${schTime.substring(0, 2)}:${schTime.substring(2, 4)}`;
+                            } else if (schTime.length === 3 && !schTime.includes(':')) { // HMM (e.g. 745 -> 07:45)
+                                schTime = `0${schTime.substring(0, 1)}:${schTime.substring(1, 3)}`;
+                            } else {
+                                console.warn(`Row ${i+1}, Time #${timeIdx+1}: Unrecognized time format '${singleTimeStr}'. Skipping this specific time.`);
+                                return; // Skips this single time, processes next time in timeStrings
+                            }
+
+                            // Validate the standardized time
+                            const timeParts = schTime.split(':');
+                            const h = parseInt(timeParts[0], 10);
+                            const m = parseInt(timeParts[1], 10);
+                            if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+                                console.warn(`Row ${i+1}, Time #${timeIdx+1}: Invalid time value '${schTime}' after standardization. Skipping this specific time.`);
+                                return; // Skips this single time
+                            }
+
+                            newScheduleEntries.push({
+                                internalId: `${stopIDFromFile}_${lineNameFromFile}_${schTime.replace(':', '')}_row${i}_t${timeIdx}_countfile`,
+                                stopID: stopIDFromFile,
+                                stopName: stopNameFromFile,
+                                direction: directionFromFile,
+                                lineName: lineNameFromFile,
+                                destinationName: destinationNameFromFile,
+                                scheduledTime: schTime,
+                                OperatingProfile: operatingProfileFromFile,
+                                DayOffset: dayOffsetFromFile
+                            });
+                        });
                     }
+
+                    if (newScheduleEntries.length === 0 && lines.length > 1 && lines[0].trim() !== "") { // File had data rows but none were valid
+                        alert("No valid schedule entries could be processed from the file. Please check the format and data.");
+                        if(fileStatusElement) fileStatusElement.textContent="File processing failed: No valid entries found.";
+                        if(countFileInput) countFileInput.value="";
+                        return;
+                    }
+                    if (newScheduleEntries.length === 0 && (lines.length <=1 || lines[0].trim() === "")) { // File was effectively empty
+                        alert("File appears to be empty or contains only headers without data.");
+                        // Status already handled by earlier checks.
+                        return;
+                    }
+
+
+                    if (currentWorkingSchedule.length > 0 && !confirm("This will REPLACE the current working schedule with the contents of this file. Are you sure?")) {
+                        if(fileStatusElement) fileStatusElement.textContent="Upload cancelled by user.";
+                        if(countFileInput) countFileInput.value="";
+                        return;
+                    }
+                    
+                    currentWorkingSchedule = newScheduleEntries;
+                    renderUIDependentElements(); // Refresh UI based on new schedule
+                    updateStagingStatusDisplay(); // Update staging status
+                    if(fileStatusElement) fileStatusElement.textContent = `${file.name} processed. ${currentWorkingSchedule.length} individual departures loaded into working schedule.`;
+
                 } catch (error) {
                     console.error("Error processing .COUNT file:", error);
                     alert(`An error occurred while processing the file: ${error.message}. Please check file format and content.`);
@@ -4072,6 +4287,21 @@ function handleCountFileUpload(event) {
             reader.readAsText(file); // Read file as plain text
         }, 50); // Small timeout
     }
+}
+
+// Add this new helper function or integrate its logic if you have a similar one
+function isValidHeaderStructure(parsedHeaders) {
+    // Convert all parsed headers to uppercase for case-insensitive comparison
+    const upperParsedHeaders = parsedHeaders.map(h => h.toUpperCase());
+    const requiredHeaders = ['STOPID', 'STOPNAME', 'DIRECTION', 'LINENAME', 'DESTINATIONNAME', 'SCHEDULEDTIME', 'OPERATINGPROFILE']; // DayOffset is optional but good to have
+    
+    const missingHeaders = requiredHeaders.filter(rh => !upperParsedHeaders.includes(rh));
+
+    if (missingHeaders.length > 0) {
+        alert(`Uploaded .COUNT file is missing essential headers: ${missingHeaders.join(', ')}.\nExpected headers (case-insensitive) are at least: ${requiredHeaders.join(', ')}. The 'DayOffset' header is also recommended.`);
+        return false;
+    }
+    return true;
 }
 
 function handleBulkUpdateRouteDestination() {
@@ -4110,182 +4340,239 @@ function handleBulkUpdateRouteDestination() {
 
 
 // --- Firebase Data Interaction ---
-function handleStageSchedule() {
-    if (!currentUser) { alert("Please log in to stage the schedule."); return; }
+// REPLACE your existing handleStageSchedule function in omsi_tools.html with this:
+
+async function handleStageSchedule() { // <--- Added async here
+    if (!currentUser) {
+        alert("Please log in to stage the schedule.");
+        return;
+    }
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        alert("Firebase is not available. Cannot stage schedule.");
+        return;
+    }
+
+    const { database, dbSet, dbUpdate, dbRef } = window.firebaseOMSI;
+
     if (currentWorkingSchedule.length === 0) {
-        if (!confirm("The working schedule is currently empty. Are you sure you want to stage an empty schedule? This will clear the live data if applied.")) {
-            stagingStatusMessage.textContent = "Staging of empty schedule cancelled.";
-            stagingStatusMessage.style.color = "#e74c3c";
+        if (!confirm("The working schedule is currently empty. Are you sure you want to stage an empty schedule? This will clear any previously staged data and the live data if applied.")) {
+            if (stagingStatusMessage) {
+                stagingStatusMessage.textContent = "Staging of empty schedule cancelled.";
+                stagingStatusMessage.style.color = "#e74c3c";
+            }
             return;
         }
     }
 
-    // Create a deep copy to sort without affecting the original `currentWorkingSchedule`
-    let dataToStage = JSON.parse(JSON.stringify(currentWorkingSchedule));
+    if (stagingStatusMessage) {
+        stagingStatusMessage.textContent = "Preparing to stage schedule... This may take a moment for large schedules.";
+        stagingStatusMessage.style.color = "#f1c40f"; // Yellow for in-progress
+    }
 
-    // Sort data before staging for consistency, e.g., by lineName, then time, then stopID
-    dataToStage.sort((a, b) => {
-        const lineCmp = compareLineNames(a.lineName, b.lineName); // Use your existing compareLineNames
-        if (lineCmp !== 0) return lineCmp;
-        const timeA = (a.scheduledTime || "").replace(':', ''); // HHMM format for sort
-        const timeB = (b.scheduledTime || "").replace(':', '');
-        const timeCmp = timeA.localeCompare(timeB);
-        if (timeCmp !== 0) return timeCmp;
-        return (a.stopID || "").localeCompare(b.stopID || ""); // Fallback sort by stopID
-    });
+    try {
+        // 1. Clear the existing pending schedules base path first.
+        console.log(`Staging: Clearing existing data at ${FB_PATH_PENDING_SCHEDULE_DATA}...`);
+        await dbSet(dbRef(database, FB_PATH_PENDING_SCHEDULE_DATA), null);
+        console.log("Staging: Pending schedule path cleared.");
 
-    // Ensure all entries have a unique internalId
-    const finalScheduleData = dataToStage.map((entry, index) => ({
-        ...entry,
-        internalId: entry.internalId || `${entry.stopID.toUpperCase()}_${entry.lineName.toUpperCase()}_${(entry.scheduledTime||"").replace(':','')}_${index}_staged_${Date.now()}`
-    }));
+        // 2. Group currentWorkingSchedule entries by Route/Profile/Destination
+        const groupedByRPD = {};
+        currentWorkingSchedule.forEach((entry, index) => {
+            if (!entry.lineName || !entry.OperatingProfile || !entry.destinationName) {
+                console.warn("Staging: Skipping entry with missing route/profile/destination for structure:", entry);
+                return;
+            }
+            // Ensure sanitizeFirebaseKey is available in this scope
+            const saneRoute = sanitizeFirebaseKey(entry.lineName);
+            const saneProfile = sanitizeFirebaseKey(entry.OperatingProfile);
+            const saneDest = sanitizeFirebaseKey(entry.destinationName);
+            const pathKey = `${saneRoute}/${saneProfile}/${saneDest}`;
 
+            if (!groupedByRPD[pathKey]) {
+                groupedByRPD[pathKey] = [];
+            }
+            
+            const entryForStaging = { ...entry };
+            if (!entryForStaging.internalId || entryForStaging.internalId.includes("_fbload_flat") || entryForStaging.internalId.includes("_countfile")) {
+                 entryForStaging.internalId = `${(entry.stopID||'s').toUpperCase()}_${(entry.lineName||'l').toUpperCase()}_${(entry.scheduledTime||"").replace(':','')}_staged_${Date.now()}_${index}`;
+            }
+            groupedByRPD[pathKey].push(entryForStaging);
+        });
 
-    // Generate uniqueBusStops from the final staged schedule data
-    const stopsMap = new Map();
-    finalScheduleData.forEach(row => {
-        if (row.stopID && !stopsMap.has(row.stopID.toUpperCase())) { // Ensure stopID is not null/empty
-            stopsMap.set(row.stopID.toUpperCase(), {
-                stopID: row.stopID,
-                stopName: row.stopName,
-                direction: row.direction
+        // 3. Write each group (R/P/D's entries) to Firebase separately
+        console.log(`Staging: Preparing to write ${Object.keys(groupedByRPD).length} individual R/P/D groups to Firebase.`);
+        const writePromises = [];
+        for (const rpdKey in groupedByRPD) {
+            const entriesForThisRPD = groupedByRPD[rpdKey];
+            entriesForThisRPD.sort((a, b) => { // Sort for consistency
+                const timeA = (a.scheduledTime || "99:99").replace(':', '');
+                const timeB = (b.scheduledTime || "99:99").replace(':', '');
+                const timeCompare = timeA.localeCompare(timeB);
+                if (timeCompare !== 0) return timeCompare;
+                return (a.stopID || "").localeCompare(b.stopID || "");
             });
+
+            const specificFirebasePath = `${FB_PATH_PENDING_SCHEDULE_DATA}/${rpdKey}/entries`;
+            writePromises.push(dbSet(dbRef(database, specificFirebasePath), entriesForThisRPD));
         }
-    });
-    const finalUniqueStops = Array.from(stopsMap.values()).sort((a,b)=>{
-        const nameCompare = (a.stopName||"").localeCompare(b.stopName||"");
-        return nameCompare !== 0 ? nameCompare : (a.direction||"").localeCompare(b.direction||"");
-    });
 
+        await Promise.all(writePromises);
+        console.log("Staging: All individual R/P/D schedule parts written to Firebase pending path.");
 
-    if (window.firebaseOMSI && window.firebaseOMSI.database) {
-        const { database, dbUpdate, dbRef } = window.firebaseOMSI;
-        const updates = {};
-        updates[FB_PATH_PENDING_SCHEDULE_DATA] = finalScheduleData;
-        updates[FB_PATH_PENDING_UNIQUE_STOPS] = finalUniqueStops; // Staging unique stops derived from schedule
-        updates[FB_PATH_PENDING_TIMESTAMP] = new Date().toISOString();
-        updates[FB_PATH_APPSTATE_STATUS] = 'update_staged'; // Set status to 'staged'
+        // 4. Generate and save ancillary data (unique stops, timestamp, status)
+        const stopsMap = new Map();
+        currentWorkingSchedule.forEach(row => {
+            if (row.stopID && !stopsMap.has(row.stopID.toUpperCase())) {
+                stopsMap.set(row.stopID.toUpperCase(), {
+                    stopID: row.stopID, stopName: row.stopName, direction: row.direction
+                });
+            }
+        });
+        const finalUniqueStops = Array.from(stopsMap.values()).sort((a,b)=>{
+            const nameCompare = (a.stopName||"").localeCompare(b.stopName||"");
+            return nameCompare !== 0 ? nameCompare : (a.direction||"").localeCompare(b.direction||"");
+        });
 
-        dbUpdate(dbRef(database), updates)
-            .then(() => {
-                alert("Schedule STAGED successfully to Firebase. It can now be applied live.");
-                updateStagingStatusDisplay(); // Refresh status display
-            })
-            .catch((error) => {
-                console.error("Firebase Staging Error: ", error);
-                alert("Error staging schedule to Firebase: " + error.message);
-                if(stagingStatusMessage) { stagingStatusMessage.textContent = "Firebase Staging Error."; stagingStatusMessage.style.color = "#e74c3c"; }
-            });
-    } else {
-        alert("Firebase is not available. Cannot stage schedule.");
+        const ancillaryUpdates = {};
+        ancillaryUpdates[FB_PATH_PENDING_UNIQUE_STOPS] = finalUniqueStops;
+        ancillaryUpdates[FB_PATH_PENDING_TIMESTAMP] = new Date().toISOString();
+        ancillaryUpdates[FB_PATH_APPSTATE_STATUS] = 'update_staged';
+
+        await dbUpdate(dbRef(database), ancillaryUpdates);
+
+        alert("Schedule STAGED successfully to Firebase using granular writes. It can now be applied live.");
+        updateStagingStatusDisplay();
+
+    } catch (error) {
+        console.error("Firebase Staging Error (granular writes): ", error);
+        alert("Error staging schedule to Firebase: " + error.message + ". Check console for details.");
+        if(stagingStatusMessage) {
+            stagingStatusMessage.textContent = "Firebase Staging Error. Data might be partially staged. It's advisable to try staging again.";
+            stagingStatusMessage.style.color = "#e74c3c";
+        }
     }
 }
 
-function handleApplyNow() {
-    if (!currentUser) { alert("Please log in to apply the staged schedule."); return; }
+// REPLACE your existing handleApplyNow function in omsi_tools.html with this:
 
-    if (window.firebaseOMSI && window.firebaseOMSI.database) {
-        const { database, dbGet, dbUpdate, dbRef, dbChild } = window.firebaseOMSI;
-
-        // First, get the pending schedule from Firebase
-        dbGet(dbChild(dbRef(database), '/pendingSchedule'))
-            .then((snapshot) => {
-                if (snapshot.exists()) {
-                    const pendingData = snapshot.val();
-
-                    if (!confirm("Are you sure you want to apply the STAGED schedule LIVE NOW? This will overwrite the current live data.")) {
-                        if (stagingStatusMessage) { stagingStatusMessage.textContent = "Apply operation cancelled by user."; stagingStatusMessage.style.color = "#f1c40f"; }
-                        return;
-                    }
-
-                    // Prepare data for live update
-                    // Ensure data is array and filter out nulls if Firebase stored sparse arrays as objects
-                    let liveAllScheduledBusData = Array.isArray(pendingData.allScheduledBusData) ?
-                        pendingData.allScheduledBusData.filter(item => item != null) :
-                        (typeof pendingData.allScheduledBusData === 'object' && pendingData.allScheduledBusData !== null ?
-                            Object.values(pendingData.allScheduledBusData).filter(item => item != null) : []);
-
-                    let liveUniqueBusStops = Array.isArray(pendingData.uniqueBusStops) ?
-                        pendingData.uniqueBusStops.filter(item => item != null) :
-                        (typeof pendingData.uniqueBusStops === 'object' && pendingData.uniqueBusStops !== null ?
-                            Object.values(pendingData.uniqueBusStops).filter(item => item != null) : []);
-
-                    // Firebase keys cannot contain '.', '#', '$', '/', '[', or ']'
-                    // Perform a quick check for invalid keys (primarily for object structures, though arrays are used here)
-                    let hasInvalidKey = false;
-                    function checkFirebaseObjectKeys(obj, path = '') {
-                        if (typeof obj !== 'object' || obj === null) return;
-                        for (const key in obj) {
-                            if (/[.#$/\[\]]/.test(key)) {
-                                console.error(`INVALID FIREBASE KEY at ${path}: key='${key}'`);
-                                hasInvalidKey = true;
-                            }
-                            // Recursively check nested objects if they are not arrays
-                            if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
-                                checkFirebaseObjectKeys(obj[key], `${path}.${key}`);
-                            }
-                        }
-                    }
-                    // Check schedule items (though they are expected to be flat objects in an array)
-                    liveAllScheduledBusData.forEach((item, i) => {
-                        if (typeof item !== 'object' || item === null) { hasInvalidKey = true; console.error(`Schedule item at index ${i} is not an object or is null.`); return; }
-                        checkFirebaseObjectKeys(item, `schedule[${i}]`);
-                    });
-                    // Check stop items
-                    liveUniqueBusStops.forEach((item, i) => {
-                        if (typeof item !== 'object' || item === null) { hasInvalidKey = true; console.error(`Stop item at index ${i} is not an object or is null.`); return; }
-                        checkFirebaseObjectKeys(item, `stops[${i}]`);
-                    });
-
-                    if (hasInvalidKey) {
-                        alert("Invalid characters (e.g. '.', '#', '$', '/', '[', ']') found in keys of the data to be applied. This can happen if data was manually edited in Firebase or uploaded with such keys. Cannot apply.");
-                        return;
-                    }
-
-
-                    const liveUpdates = {};
-                    liveUpdates[FB_PATH_LIVE_SCHEDULE_DATA] = liveAllScheduledBusData;
-                    liveUpdates[FB_PATH_LIVE_UNIQUE_STOPS] = liveUniqueBusStops;
-
-                    // Update the live schedule paths
-                    dbUpdate(dbRef(database), liveUpdates)
-                        .then(() => {
-                            // After successful live update, update app state and clear pending
-                            const appUpdates = {};
-                            appUpdates[FB_PATH_APPSTATE_LAST_UPDATED] = new Date().toISOString();
-                            appUpdates[FB_PATH_APPSTATE_STATUS] = 'idle'; // Reset status
-                            appUpdates['/pendingSchedule'] = null;      // Clear the pending schedule
-
-                            return dbUpdate(dbRef(database), appUpdates);
-                        })
-                        .then(() => {
-                            alert("Staged schedule APPLIED LIVE successfully!");
-                            updateStagingStatusDisplay(); // Refresh display
-                        })
-                        .catch(error => {
-                            console.error("Firebase Apply Error: ", error);
-                            alert("Error applying schedule live: " + error.message);
-                        });
-                } else {
-                    alert("No Firebase staged schedule found to apply.");
-                    if (stagingStatusMessage) { stagingStatusMessage.textContent = "No Firebase staged schedule available."; stagingStatusMessage.style.color = "#e74c3c"; }
-                }
-            })
-            .catch(error => {
-                console.error("Firebase Fetch Pending Schedule Error: ", error);
-                alert("Error fetching staged schedule from Firebase: " + error.message);
-            });
-    } else {
+async function handleApplyNow() { // Added async here
+    if (!currentUser) {
+        alert("Please log in to apply the staged schedule.");
+        return;
+    }
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         alert("Firebase is not available. Cannot apply schedule.");
+        return;
+    }
+
+    const { database, dbGet, dbSet, dbUpdate, dbRef, dbChild } = window.firebaseOMSI;
+
+    if (stagingStatusMessage) {
+        stagingStatusMessage.textContent = "Fetching staged data to apply live...";
+        stagingStatusMessage.style.color = "#f1c40f";
+    }
+
+    try {
+        // 1. Get the entire pending schedule node
+        const pendingSnapshot = await dbGet(dbChild(dbRef(database), '/pendingSchedule'));
+
+        if (!pendingSnapshot.exists()) {
+            alert("No Firebase staged schedule found to apply.");
+            if (stagingStatusMessage) {
+                stagingStatusMessage.textContent = "No Firebase staged schedule available.";
+                stagingStatusMessage.style.color = "#e74c3c";
+            }
+            return;
+        }
+
+        const pendingDataContainer = pendingSnapshot.val();
+        // Extract the actual nested schedule data and unique stops
+        // The keys here should match how they are stored in FB_PATH_PENDING_SCHEDULE_DATA and FB_PATH_PENDING_UNIQUE_STOPS
+        const pendingSchedulesByRoute = pendingDataContainer[FB_PATH_PENDING_SCHEDULE_DATA.split('/').pop()]; // e.g., "schedulesByRoute"
+        const pendingUniqueBusStops = pendingDataContainer[FB_PATH_PENDING_UNIQUE_STOPS.split('/').pop()]; // e.g., "uniqueBusStops"
+
+        if (!pendingSchedulesByRoute) {
+            alert("Staged schedule data (schedulesByRoute object) is missing or in an unexpected format within the pending data. Cannot apply.");
+            console.error("Pending data dump (missing schedulesByRoute):", pendingDataContainer);
+            if (stagingStatusMessage) stagingStatusMessage.textContent = "Error: Staged schedule data missing.";
+            return;
+        }
+        if (!pendingUniqueBusStops) {
+            alert("Staged unique bus stops data is missing. Cannot apply.");
+            console.error("Pending data dump (missing uniqueBusStops):", pendingDataContainer);
+            if (stagingStatusMessage) stagingStatusMessage.textContent = "Error: Staged unique stops missing.";
+            return;
+        }
+
+        if (!confirm("Are you sure you want to apply the STAGED schedule LIVE NOW? This will overwrite the current live data.")) {
+            if (stagingStatusMessage) {
+                stagingStatusMessage.textContent = "Apply operation cancelled by user.";
+                stagingStatusMessage.style.color = "#f1c40f";
+            }
+            return;
+        }
+
+        if (stagingStatusMessage) {
+            stagingStatusMessage.textContent = "Applying staged schedule live... This may take a moment.";
+            stagingStatusMessage.style.color = "#f1c40f";
+        }
+
+        // 2. Clear the existing live schedules base path.
+        console.log(`ApplyNow: Clearing existing data at ${FB_PATH_LIVE_SCHEDULE_DATA}...`);
+        await dbSet(dbRef(database, FB_PATH_LIVE_SCHEDULE_DATA), null);
+        console.log("ApplyNow: Live schedule path cleared.");
+
+        // 3. Write each R/P/D's entries from pendingSchedulesByRoute to the live path
+        console.log(`ApplyNow: Preparing to write ${Object.keys(pendingSchedulesByRoute).length} individual R/P/D groups to live path.`);
+        const liveWritePromises = [];
+        for (const saneRoute in pendingSchedulesByRoute) {
+            for (const saneProfile in pendingSchedulesByRoute[saneRoute]) {
+                for (const saneDest in pendingSchedulesByRoute[saneRoute][saneProfile]) {
+                    const entriesForThisRPD = pendingSchedulesByRoute[saneRoute][saneProfile][saneDest].entries;
+                    if (entriesForThisRPD && Array.isArray(entriesForThisRPD)) {
+                        const specificLivePath = `${FB_PATH_LIVE_SCHEDULE_DATA}/${saneRoute}/${saneProfile}/${saneDest}/entries`;
+                        liveWritePromises.push(dbSet(dbRef(database, specificLivePath), entriesForThisRPD));
+                    } else {
+                        console.warn(`ApplyNow: Missing or invalid 'entries' array for ${saneRoute}/${saneProfile}/${saneDest} in pending data.`);
+                    }
+                }
+            }
+        }
+
+        await Promise.all(liveWritePromises);
+        console.log("ApplyNow: All individual R/P/D schedule parts written to Firebase live path.");
+
+        // 4. Update ancillary live data and clear pending area
+        const appUpdates = {};
+        appUpdates[FB_PATH_LIVE_UNIQUE_STOPS] = pendingUniqueBusStops; // Write the staged unique stops
+        appUpdates[FB_PATH_APPSTATE_LAST_UPDATED] = new Date().toISOString();
+        appUpdates[FB_PATH_APPSTATE_STATUS] = 'idle';
+        appUpdates['/pendingSchedule'] = null;      // Clear the entire pendingSchedule node
+
+        await dbUpdate(dbRef(database), appUpdates);
+
+        alert("Staged schedule APPLIED LIVE successfully (using granular writes)!");
+        
+        // IMPORTANT: Reload data into currentWorkingSchedule from the new live structured data
+        // This ensures the local in-memory state matches the newly applied live state.
+        await loadInitialData(); // Make sure loadInitialData is also async if it wasn't already
+        // updateStagingStatusDisplay() will be called by loadInitialData via renderUIDependentElements -> updateStagingStatusDisplay
+
+    } catch (error) {
+        console.error("Firebase Apply Error (granular writes): ", error);
+        alert("Error applying schedule live: " + error.message + ". Check console for details.");
+        if (stagingStatusMessage) {
+            stagingStatusMessage.textContent = "Firebase Apply Error. Live data might be incomplete or old data might not be fully cleared. Please review carefully or try staging and applying again.";
+            stagingStatusMessage.style.color = "#e74c3c";
+        }
     }
 }
 
 async function loadInitialData() {
-    console.log("Tools: Loading initial data from Firebase...");
+    console.log("Tools: Loading initial data from Firebase (new structure)...");
     let msg = "Loading data from Firebase...";
     if (fileStatusElement) fileStatusElement.textContent = msg;
 
-    // Reset local caches before loading
     currentWorkingSchedule = [];
     closedStopIDs = [];
     globalCustomRouteColours = {};
@@ -4293,51 +4580,72 @@ async function loadInitialData() {
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         msg = "Firebase not connected. Cannot load data.";
+        console.error(msg);
     } else {
         const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
         try {
-            // Fetch live schedule data
-            const liveSnap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA));
-            if (liveSnap.exists()) {
-                const scheduleData = liveSnap.val();
-                // Handle if data is an object (sparse array) or array
-                const rawScheduleArray = Array.isArray(scheduleData) ? scheduleData : (scheduleData ? Object.values(scheduleData) : []);
-                currentWorkingSchedule = rawScheduleArray
-                    .filter(e => e != null) // Filter out any null entries
-                    .map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload`}));
+            // Fetch structured schedule data
+            const scheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA)); // Using new path
+            const flatScheduleFromDB = [];
+            if (scheduleSnap.exists()) {
+                const schedulesByRoute = scheduleSnap.val();
+                // console.log("Fetched raw schedulesByRoute:", JSON.parse(JSON.stringify(schedulesByRoute))); // Optional: for debugging
+                for (const routeKey in schedulesByRoute) {
+                    const routeData = schedulesByRoute[routeKey];
+                    for (const profileKey in routeData) {
+                        const profileData = routeData[profileKey];
+                        for (const destKey in profileData) {
+                            const destData = profileData[destKey];
+                            if (destData && Array.isArray(destData.entries)) {
+                                destData.entries.forEach(entry => {
+                                    // Assuming entry objects ALREADY contain lineName, OperatingProfile, destinationName
+                                    flatScheduleFromDB.push({ ...entry });
+                                });
+                            }
+                        }
+                    }
+                }
+                // Sort the flattened schedule for consistency
+                flatScheduleFromDB.sort((a, b) => {
+                    const lineCompare = compareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
+                    const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
+                    const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
+                    const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
+                });
+                currentWorkingSchedule = flatScheduleFromDB.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_flat`}));
+                console.log(`Flattened ${currentWorkingSchedule.length} entries from new structure.`);
             } else {
-                console.log("No live schedule data found in Firebase.");
+                console.log(`No schedule data found at ${FB_PATH_LIVE_SCHEDULE_DATA}. currentWorkingSchedule will be empty.`);
             }
 
-            // Fetch closed stop IDs
+            // Fetch closed stop IDs (remains the same)
             const closedSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
             if (closedSnap.exists()) {
-                const fbClosed = closedSnap.val(); // Expected to be an object { "STOPID1": true, "STOPID2": true }
+                const fbClosed = closedSnap.val();
                 for(const id in fbClosed) {
-                    if(fbClosed[id]===true) closedStopIDs.push(id.toUpperCase()); // Ensure uppercase for consistency
+                    if(fbClosed[id]===true) closedStopIDs.push(id.toUpperCase());
                 }
             }
 
-            // Fetch global custom route colours
+            // Fetch colours (remains the same)
             const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
             if (globalColoursSnap.exists()) globalCustomRouteColours = globalColoursSnap.val() || {};
 
-            // Fetch stop-specific route colours
             const stopSpecificColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS));
             if (stopSpecificColoursSnap.exists()) stopSpecificRouteColours = stopSpecificColoursSnap.val() || {};
 
             msg = `Data loaded. ${currentWorkingSchedule.length} schedule entries. ${closedStopIDs.length} closed stops.`;
         } catch (error) {
-            console.error("Firebase Load Initial Data Error:", error);
+            console.error("Firebase Load Initial Data Error (new structure):", error);
             msg = "Error loading data from Firebase: " + error.message;
         }
     }
     if (fileStatusElement) fileStatusElement.textContent = msg;
 
-    compileEffectiveRouteColoursForTools(); // Recalculate effective colours (if this function exists and is needed)
-    renderUIDependentElements();           // Refresh all UI based on loaded data
-    updateStagingStatusDisplay();          // Update Firebase staging status display
-    fetchBankHolidaysForSetup();           // Fetch bank holidays for profile display
+    compileEffectiveRouteColoursForTools();
+    renderUIDependentElements();
+    updateStagingStatusDisplay();
+    fetchBankHolidaysForSetup();
 }
 
 async function updateStagingStatusDisplay() {

@@ -634,10 +634,11 @@
         disclaimerModalOverlayElement, disclaimerModalCloseButton,
         closedStopIDsGlobal = [];
 
-    let allScheduledData = []; // This will be populated by flattening the new Firebase structure
-    let uniqueStops = []; // This is still loaded as a flat list from /liveSchedule/uniqueBusStops
+    let allScheduledData = []; 
+    let uniqueStops = []; 
     let currentSelectedStopID = null;
     let ukBankHolidaysData = { dates: [], titles: {} };
+    let globalOperationalOverrides = {}; // MODIFIED: Added to store overrides
 
     const MAX_DISPLAY_ROWS = 4;
     const CYCLING_ROWS_COUNT = 3;
@@ -666,13 +667,14 @@
     let globalCustomRouteColours = { ...initialRouteColourMap };
     let stopSpecificRouteColours = {};
 
-    // Firebase Path Constants
-    const FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED = '/liveSchedule/schedulesByRoute'; // New path for structured data
-    const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops'; // Path for the pre-generated flat list of unique stops
-    const FB_PATH_APPSTATE = '/appState'; // For status and closed stops
+    const FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED = '/liveSchedule/schedulesByRoute'; 
+    const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops'; 
+    const FB_PATH_APPSTATE = '/appState'; 
     const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
     const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
     const FB_PATH_CUSTOM_STATUS_MESSAGE = '/appState/customStatusMessage';
+    const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides'; // MODIFIED: Added path for overrides
+
 
     let customMessageSettings = {
         text: "",
@@ -683,7 +685,7 @@
     };
 
     // --- Helper Functions ---
-    function sanitizeFirebaseKey(text) { // Added this helper
+    function sanitizeFirebaseKey(text) { 
         if (typeof text !== 'string') return '';
         return text.replace(/[.#$[\]]/g, '_');
     }
@@ -706,14 +708,24 @@
         return false;
     }
 
+    // MODIFIED: getCodesForCalendarDay to check overrides
     function getCodesForCalendarDay(dateObj) {
+        const dateStringYYYYMMDD = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+
+        // Check for manual override first
+        if (globalOperationalOverrides && globalOperationalOverrides[dateStringYYYYMMDD]) {
+            const overriddenProfileString = globalOperationalOverrides[dateStringYYYYMMDD];
+            console.log(`[ARRIVALS DEBUG] Using override for ${dateStringYYYYMMDD}: ${overriddenProfileString}`);
+            return overriddenProfileString.split(',').map(p => p.trim()).filter(p => p); // Return overridden profiles
+        }
+
+        // --- Original logic continues if no override is found ---
         const dOW = dateObj.getDay();
-        const dateString = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
         let dCodes = new Set();
         let isBH = false;
 
-        if (ukBankHolidaysData && ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(dateString)) {
-            const holidayTitle = ukBankHolidaysData.titles[dateString] || "";
+        if (ukBankHolidaysData && ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(dateStringYYYYMMDD)) {
+            const holidayTitle = ukBankHolidaysData.titles[dateStringYYYYMMDD] || "";
             isBH = true;
             if (holidayTitle.toLowerCase().includes("good friday")) {
                 dCodes.add("Sa");
@@ -727,23 +739,34 @@
             const schoolSuffix = isSchHol ? "NSD" : "Sch";
             let dayCode = "";
             switch (dOW) {
-                case 0: dayCode = "Su"; break; case 1: dayCode = "Mo"; break;
-                case 2: dayCode = "Tu"; break; case 3: dayCode = "We"; break;
-                case 4: dayCode = "Th"; break; case 5: dayCode = "Fr"; break;
+                case 0: dayCode = "Su"; break;
+                case 1: dayCode = "Mo"; break;
+                case 2: dayCode = "Tu"; break;
+                case 3: dayCode = "We"; break;
+                case 4: dayCode = "Th"; break;
+                case 5: dayCode = "Fr"; break;
                 case 6: dayCode = "Sa"; break;
             }
             dCodes.add(dayCode);
-            if (dOW >= 1 && dOW <= 5) {
-                dCodes.add(dayCode + schoolSuffix); dCodes.add("MF" + schoolSuffix);
-                dCodes.add("Mo-Fr"); dCodes.add("MF");
+            if (dOW >= 1 && dOW <= 5) { // Monday to Friday
+                dCodes.add(dayCode + schoolSuffix);
+                dCodes.add("MF" + schoolSuffix);
+                dCodes.add("Mo-Fr"); // Ensure your schedule data uses consistent codes
+                dCodes.add("MF");
             }
-            if (isSchHol) dCodes.add("SchoolHoliday");
-        } else {
+            // Add SaNSD or SuNSD if it's a school holiday weekend
+           if ((dOW === 6 || dOW === 0) && isSchHol) {
+                dCodes.add(dayCode + "NSD");
+           }
+            if (isSchHol) {
+                dCodes.add("SchoolHoliday");
+            }
+        } else { // It IS a Bank Holiday
             const isSchHolOnBH = isSchoolHolidayPeriod(dateObj);
             if (isSchHolOnBH) {
                 dCodes.add("SchoolHoliday");
-                if (dCodes.has("Sa")) dCodes.add("SaNSD");
-                if (dCodes.has("Su") && !dCodes.has("Sa")) dCodes.add("SuNSD");
+                if(dCodes.has("Sa")) dCodes.add("SaNSD");
+                if(dCodes.has("Su") && !dCodes.has("Sa")) dCodes.add("SuNSD"); 
             }
         }
         return Array.from(dCodes);
@@ -756,17 +779,16 @@
 
     function getRouteTileColour(lineName) {
         const upperLineName = String(lineName || "").toUpperCase();
-        const currentStopId = currentSelectedStopID; // Already a global
+        const currentStopId = currentSelectedStopID; 
 
         if (currentStopId && stopSpecificRouteColours &&
-            stopSpecificRouteColours[currentStopId.toUpperCase()] && // Ensure stopID key is also checked uppercase
+            stopSpecificRouteColours[currentStopId.toUpperCase()] && 
             stopSpecificRouteColours[currentStopId.toUpperCase()][upperLineName]) {
             return stopSpecificRouteColours[currentStopId.toUpperCase()][upperLineName];
         }
         if (globalCustomRouteColours[upperLineName]) {
             return globalCustomRouteColours[upperLineName];
         }
-        // Fallback logic for N buses etc. (using globalCustomRouteColours for these defaults too)
         if (upperLineName.startsWith("N")) return globalCustomRouteColours["NIGHT_DEFAULT"] || globalCustomRouteColours["N5"] || DEFAULT_ROUTE_COLOUR;
         if (upperLineName.startsWith("SL")) return globalCustomRouteColours["SL_DEFAULT"] || globalCustomRouteColours["SL1"] || DEFAULT_ROUTE_COLOUR;
         return DEFAULT_ROUTE_COLOUR;
@@ -777,11 +799,6 @@
     function isCustomMessageActive() { if (!customMessageSettings || !customMessageSettings.isEnabled || !customMessageSettings.text) { return false; } const now = new Date(); const startTime = customMessageSettings.startTimeISO ? new Date(customMessageSettings.startTimeISO) : null; const endTime = customMessageSettings.endTimeISO ? new Date(customMessageSettings.endTimeISO) : null; if (customMessageSettings.isEnabled && customMessageSettings.text && !startTime && !endTime) { return true; } if (startTime && endTime) { return now >= startTime && now <= endTime; } else if (startTime) { return now >= startTime; } else if (endTime) { return now <= endTime; } return false; }
 
     function updateAndDisplayLiveArrivals() {
-        // (The internal logic of updateAndDisplayLiveArrivals remains the same as it consumes the flattened allScheduledData)
-        // ... (existing content of this function, no change needed here as it uses allScheduledData which will be populated correctly by the new loadInitialData)
-        // For brevity, I'm not repeating the whole function here, but it should work as is once `allScheduledData` is correctly populated.
-        // Ensure it's the full function from your last version.
-        // The key is that `allScheduledData` (flat list) is used here.
         if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
             if (!currentSelectedStopID || !allScheduledData || allScheduledData.length === 0) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">${(!allScheduledData || allScheduledData.length === 0) ? 'No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.' : 'Select a stop.'}</li>`;} previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
             if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`; } previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
@@ -794,6 +811,7 @@
     }
 
 
+    // MODIFIED: loadInitialData to fetch operational overrides
     async function loadInitialData() {
         console.log("[ARRIVALS DEBUG] loadInitialData from Firebase called (new structure).");
         if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
@@ -801,7 +819,7 @@
             if(busListElement) busListElement.innerHTML = `<li class="error-message">Firebase connection error.</li>`;
             return;
         }
-        const { database, dbGet, dbChild, dbRef } = window.firebaseOMSI;
+        const { database, dbGet, dbChild, dbRef } = window.firebaseOMSI; // Ensure dbRef is available
 
         try {
             // Fetch App State (Status and Closed Stops)
@@ -826,12 +844,21 @@
                 customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
             }
 
+            // Fetch Operational Overrides (NEW)
+            const overridesSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
+            if (overridesSnapshot.exists()) {
+                globalOperationalOverrides = overridesSnapshot.val();
+                console.log("[ARRIVALS DEBUG] Fetched operational overrides:", globalOperationalOverrides);
+            } else {
+                globalOperationalOverrides = {}; // Ensure it's an empty object if no overrides exist
+                console.log("[ARRIVALS DEBUG] No operational overrides found in Firebase.");
+            }
+
             // Fetch Live Schedule Data (from new structured path)
             const scheduleSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
             const flatScheduleFromDB = [];
             if (scheduleSnapshot.exists()) {
                 const schedulesByRoute = scheduleSnapshot.val();
-                // console.log("[ARRIVALS DEBUG] Fetched raw schedulesByRoute:", JSON.parse(JSON.stringify(schedulesByRoute)));
                 for (const routeKey in schedulesByRoute) {
                     const routeData = schedulesByRoute[routeKey];
                     for (const profileKey in routeData) {
@@ -840,15 +867,13 @@
                             const destData = profileData[destKey];
                             if (destData && Array.isArray(destData.entries)) {
                                 destData.entries.forEach(entry => {
-                                    // Entry should already contain lineName, OperatingProfile, destinationName
                                     flatScheduleFromDB.push({ ...entry });
                                 });
                             }
                         }
                     }
                 }
-                // Sort the flattened schedule (optional, but good for consistency if needed elsewhere)
-                flatScheduleFromDB.sort((a, b) => {
+                flatScheduleFromDB.sort((a, b) => { 
                     const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
                     const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
                     const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
@@ -858,15 +883,12 @@
                 console.log(`[ARRIVALS DEBUG] Flattened ${allScheduledData.length} entries from new Firebase structure.`);
             } else {
                  console.warn(`[ARRIVALS DEBUG] No schedule data found at ${FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED}. allScheduledData will be empty.`);
-                 allScheduledData = []; // Ensure it's empty if no data
+                 allScheduledData = []; 
             }
 
-
-            // Fetch Unique Stops (this path is assumed to still provide a flat list)
             const stopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS));
             uniqueStops = stopsSnapshot.exists() && Array.isArray(stopsSnapshot.val()) ? stopsSnapshot.val() : [];
 
-            // Fetch Global Custom Route Colours
             const customColoursSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_CUSTOM_COLOURS));
             globalCustomRouteColours = { ...initialRouteColourMap };
             if (customColoursSnapshot.exists()) {
@@ -894,15 +916,15 @@
                 if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup tools</a>.</li>`;
             }
         } catch (error) { console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error); if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading data. Error: ${error.message}</li>`; }
-        setupFirebaseListeners(); // Ensure listeners are set up after initial load attempt
+        setupFirebaseListeners(); 
     }
 
+    // MODIFIED: setupFirebaseListeners to include listener for overrides
     function setupFirebaseListeners() {
-        if (!window.firebaseOMSI || !window.firebaseOMSI.database) { console.error("Firebase not initialized. Cannot set up listeners."); return; }
-        const { database, dbOnValue, dbRef, dbChild } = window.firebaseOMSI;
+        if (!window.firebaseOMSI || !window.firebaseOMSI.database) { console.error("Firebase not initialized. Cannot set up listeners for arrivals page."); return; }
+        const { database, dbOnValue, dbRef, dbChild } = window.firebaseOMSI; // Ensure dbRef and dbChild are available
 
-        // Listener for structured schedule data
-        const liveScheduleRef = dbRef(database, FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED); // Listen to new structured path
+        const liveScheduleRef = dbRef(database, FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED); 
         dbOnValue(liveScheduleRef, (snapshot) => {
             console.log("[ARRIVALS DEBUG] Live structured schedule data updated from Firebase.");
             const flatScheduleFromDBListener = [];
@@ -922,7 +944,7 @@
                         }
                     }
                 }
-                flatScheduleFromDBListener.sort((a, b) => { /* Same sorting as in loadInitialData */
+                flatScheduleFromDBListener.sort((a, b) => { 
                     const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
                     const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
                     const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
@@ -934,19 +956,17 @@
             }
 
             if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
-                selectStop(currentSelectedStopID); // Re-process arrivals for current stop
+                selectStop(currentSelectedStopID); 
             } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
                 displaySystemUpdateMessage();
             }
         });
 
-        // Listener for unique stops (path remains the same)
         const liveStopsRef = dbRef(database, FB_PATH_LIVE_UNIQUE_STOPS);
         dbOnValue(liveStopsRef, (snapshot) => {
             console.log("[ARRIVALS DEBUG] Unique stops data updated from Firebase.");
             uniqueStops = snapshot.exists() && Array.isArray(snapshot.val()) ? snapshot.val() : [];
             populateStopSelectionModal();
-            // Logic to re-select or pick default stop (same as in loadInitialData)
             if (currentSelectedStopID && !uniqueStops.find(s => s && s.stopID === currentSelectedStopID)) {
                 currentSelectedStopID = null;
                 if (uniqueStops.length > 0 && uniqueStops[0]) selectStop(uniqueStops[0].stopID);
@@ -954,11 +974,10 @@
             } else if (!currentSelectedStopID && uniqueStops.length > 0 && uniqueStops[0]) {
                  selectStop(uniqueStops[0].stopID);
             } else if (currentSelectedStopID) {
-                selectStop(currentSelectedStopID); // Re-select to refresh display if current stop still valid
+                selectStop(currentSelectedStopID); 
             }
         });
 
-        // Listener for app state (path remains the same)
         const appStateRef = dbRef(database, FB_PATH_APPSTATE);
         dbOnValue(appStateRef, (snapshot) => {
             console.log("[ARRIVALS DEBUG] App state updated from Firebase.");
@@ -983,7 +1002,6 @@
             }
         });
 
-        // Listeners for colours (paths remain the same)
         const globalCustomColoursRef = dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS);
         dbOnValue(globalCustomColoursRef, (snapshot) => {
             console.log("[ARRIVALS DEBUG] Global custom colours updated.");
@@ -1007,19 +1025,34 @@
             if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') updateAndDisplayLiveArrivals();
             else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
         });
-         console.log("[ARRIVALS DEBUG] All Firebase listeners set up.");
+
+        // Listener for Operational Overrides (NEW)
+        const operationalOverridesRef = dbRef(database, FB_PATH_OPERATIONAL_OVERRIDES);
+        dbOnValue(operationalOverridesRef, (snapshot) => {
+            console.log("[ARRIVALS DEBUG] Operational overrides data updated from Firebase.");
+            if (snapshot.exists()) {
+                globalOperationalOverrides = snapshot.val();
+            } else {
+                globalOperationalOverrides = {}; // Clear local cache if node removed from Firebase
+            }
+            // If a stop is currently selected, re-process its arrivals as the overrides might affect it
+            if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
+                selectStop(currentSelectedStopID); // Re-evaluate everything for the current stop
+            } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
+                displaySystemUpdateMessage(); 
+            }
+        });
+         console.log("[ARRIVALS DEBUG] All Firebase listeners (including operational overrides) set up.");
     }
 
-    function populateStopSelectionModal(searchTerm = "") { /* ... (no changes needed to this function's internal logic) ... */ if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID.toUpperCase()); li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
+    function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID.toUpperCase()); li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
     function filterStopList() { if (stopSearchInput) populateStopSelectionModal(stopSearchInput.value); }
     function openDisclaimerModal() { if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.style.display = 'flex'; }
     function closeDisclaimerModal() { if (disclaimerModalOverlayElement) disclaimerModalOverlayElement.style.display = 'none'; }
     function openStopSelectionModal() { if (!uniqueStops || uniqueStops.length === 0) { alert("No schedule data. Use Setup Page."); return; } if (stopSearchInput) stopSearchInput.value = ""; populateStopSelectionModal(); if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'flex'; }
     function closeStopSelectionModal() { if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'none'; }
 
-    function selectStop(stopID) { /* ... (no changes needed to this function's internal logic, it consumes allScheduledData) ... */
-        // For brevity, I'm not repeating the whole function here, but it should work as is.
-        // Ensure it's the full function from your last version.
+    function selectStop(stopID) { 
         currentSelectedStopID = stopID; localStorage.setItem('lastSelectedStopID', stopID); currentDepartureCycleStartIndex = 0; allUpcomingBusesMasterList = []; previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); const stopInfoAreaClear = document.getElementById('stop-info-area'); if (stopInfoAreaClear) stopInfoAreaClear.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; } if(routeTilesContainerElement) { routeTilesContainerElement.innerHTML = ''; } if(busListElement) busListElement.innerHTML = ''; return; } const selectedStopDetails = uniqueStops.find(s => s && s.stopID === stopID); const stopInfoArea = document.getElementById('stop-info-area'); if (stopInfoArea) stopInfoArea.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none';  } if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; if (!selectedStopDetails) { console.warn(`[ARRIVALS DEBUG] No details for stopID (selectStop): ${stopID}`); if (stopInfoArea) { const errorHeader = document.createElement('div'); errorHeader.className = 'main-stop-name-line'; errorHeader.style.textAlign = 'center'; errorHeader.textContent = 'Stop Info Missing'; stopInfoArea.appendChild(errorHeader); } if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Details missing for ${sanitize(stopID)}.</li>`; if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } const newBusStopHeader = document.createElement('div'); newBusStopHeader.id = 'bus-stop-header'; newBusStopHeader.title = 'Click to change stop'; newBusStopHeader.style.display = 'flex'; newBusStopHeader.style.flexDirection = 'column'; newBusStopHeader.style.alignItems = 'center'; newBusStopHeader.style.justifyContent = 'center'; newBusStopHeader.style.paddingBottom = '0.25rem'; newBusStopHeader.style.cursor = 'pointer'; newBusStopHeader.style.textAlign = 'center'; newBusStopHeader.style.marginTop = '-0.5rem'; let stopNameFull = selectedStopDetails.stopName || "Unknown Stop"; let mainNamePart = stopNameFull; let qualifierPart = null; let stopLetters = null; const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/; const qualifierMatch = mainNamePart.match(qualifierRegex); if (qualifierMatch) { mainNamePart = qualifierMatch[1].trim(); qualifierPart = qualifierMatch[2].trim(); } const letterRegex = /\(([A-Z0-9]{1,3})\)$/; let tempLetterMatch = mainNamePart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim(); } else if (qualifierPart) { tempLetterMatch = qualifierPart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim(); } } const mainNameLineDiv = document.createElement('div'); mainNameLineDiv.className = 'main-stop-name-line'; mainNameLineDiv.textContent = mainNamePart; newBusStopHeader.appendChild(mainNameLineDiv); if (qualifierPart && qualifierPart !== "") { const qElem = document.createElement('div'); qElem.className = 'stop-name-qualifier'; qElem.textContent = qualifierPart; newBusStopHeader.appendChild(qElem); } const newBusStopDirection = document.createElement('p'); newBusStopDirection.id = 'bus-stop-direction'; newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; newBusStopDirection.style.fontWeight = 'normal'; newBusStopDirection.style.textAlign = 'center'; newBusStopDirection.style.opacity = '0.75'; newBusStopDirection.style.marginTop = '0.25rem'; newBusStopDirection.style.minHeight = '1.2em'; newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; if(stopInfoArea) { stopInfoArea.appendChild(newBusStopHeader); stopInfoArea.appendChild(newBusStopDirection); newBusStopHeader.addEventListener('click', openStopSelectionModal); } if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) { const allServingRoutesEver = new Set(); allScheduledData.forEach(bus => { if (bus && bus.stopID === currentSelectedStopID && bus.lineName) allServingRoutesEver.add(bus.lineName); }); const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames); sortedServingRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'route-tile'; tile.textContent = lineName; let tileBGColour = getRouteTileColour(lineName); let tileTextColour = getTextColourForBackground(tileBGColour); tile.style.backgroundColor = tileBGColour; tile.style.color = tileTextColour; routeTilesContainerElement.appendChild(tile); }); } if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { const circleElement = document.createElement('span'); circleElement.className = 'stop-letter-circle'; const letterSpan = document.createElement('span'); letterSpan.textContent = stopLetters; circleElement.appendChild(letterSpan); circleElement.style.alignItems = 'center'; circleElement.style.justifyContent = 'center'; stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.appendChild(circleElement); stopLetterDisplayElement.style.display = 'inline-flex'; requestAnimationFrame(() => { if (!document.body.contains(circleElement) || !document.body.contains(letterSpan)) return; const circStyle=window.getComputedStyle(circleElement); const circDiam=parseFloat(circStyle.width); if(isNaN(circDiam) || circDiam <= 0) return; letterSpan.style.fontFamily = window.getComputedStyle(document.body).fontFamily; letterSpan.style.fontWeight="bold"; const lCount=(stopLetters || "").length; if(lCount===0) { letterSpan.textContent = ''; return; } const MIN_FS=6; let curSize, tgtWidth; if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;} else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;} else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;} curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); let iter=0; let txtMeasW; do{ letterSpan.style.fontSize=curSize+"px"; txtMeasW=getTextWidth(stopLetters,`bold ${curSize}px "${getComputedStyle(letterSpan).fontFamily}"`); if(txtMeasW > tgtWidth && curSize > MIN_FS) curSize -= 0.5; else break; iter++; } while(iter<50 && curSize>MIN_FS); letterSpan.style.fontSize=curSize+"px"; letterSpan.style.lineHeight = circDiam + 'px'; }); } else { if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; } if (closedStopIDsGlobal.includes(stopID.toUpperCase())) { if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;} if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } updateAndDisplayLiveArrivals(); if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 10000);
     }
 
@@ -1044,7 +1077,7 @@
         if (window.firebaseOMSI && window.firebaseOMSI.database) {
             fetchBankHolidays().then(() => loadInitialData()).catch((err) => {
                 console.error("Error during initial data load sequence:", err);
-                loadInitialData(); // Attempt loadInitialData even if bank holiday fetch fails
+                loadInitialData(); 
             });
         } else {
             console.error("Firebase not initialized! Arrivals will not work correctly with Firebase.");

@@ -526,7 +526,16 @@
                             <input type="text" id="rsg-operatingProfile-input-extra" class="schedule-generator-input" placeholder="Enter Operating Profile (can be blank initially)">
                         </div>
                     </div>
-                     <div class="form-grid" style="grid-template-columns: 1fr;">
+
+<!--COMMENTED OUT - AWAITING FOR JAVA SCRIPT TO BE IMPLEMENTED-->
+<!--
+<label style="display: block; margin-bottom: 0.5rem;">Operating Profile(s) (Select all that apply):</label>
+<div id="rsg-selectable-profiles-container-extra" class="subsection" style="margin-top: 0.25rem; padding: 0.75rem; background-color: rgba(0,0,0,0.07); border-radius: 0.25rem; min-height: 80px; max-height: 200px; overflow-y: auto;">
+    <p style="font-size: 0.8em; opacity: 0.7;">Profiles will be listed here. Select Route and Destination first if applicable for loading saved configurations.</p>
+</div>
+--> 
+                     
+<div class="form-grid" style="grid-template-columns: 1fr;">
                          <div>
                             <label for="rsg-destinationName-select-extra">Destination Name (Select for Route or Type New):</label>
                             <select id="rsg-destinationName-select-extra" class="schedule-generator-input" style="margin-bottom:0.25rem;">
@@ -1699,32 +1708,204 @@ function populateMasterStopList_ExtraPage() {
         function rsg_renderPreviewTable_ExtraPage() { 
             if (!rsgPreviewTableBody_el_extra || !rsgSchedulePreviewContainer_el_extra) return; rsgPreviewTableBody_el_extra.innerHTML = ''; if (rsg_generatedPreviewEntries_extra.length === 0) { return; } rsg_generatedPreviewEntries_extra.forEach(entry => { const row = rsgPreviewTableBody_el_extra.insertRow(); row.insertCell().textContent = entry.stopID; row.insertCell().textContent = entry.stopName; row.insertCell().textContent = entry.scheduledTime; row.insertCell().textContent = entry.lineName; row.insertCell().textContent = entry.destinationName; row.insertCell().textContent = entry.OperatingProfile; row.insertCell().textContent = entry.DayOffset; });
         }
-        async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
-            if (!currentUser_extra) { alert("Please log in."); return; }
-            if (rsg_generatedPreviewEntries_extra.length === 0) { if(rsgStatusMessage_el_extra) { rsgStatusMessage_el_extra.textContent = "No schedule generated to add."; rsgStatusMessage_el_extra.style.color = "#e74c3c"; } return; }
-            const routeName = rsg_generatedPreviewEntries_extra[0].lineName; const opProfile = rsg_generatedPreviewEntries_extra[0].OperatingProfile; const destName = rsg_generatedPreviewEntries_extra[0].destinationName;
-            const saneRoute = sanitizeFirebaseKey(routeName); const saneProfile = sanitizeFirebaseKey(opProfile); const saneDest = sanitizeFirebaseKey(destName);
-            const specificSchedulePath = `${FB_PATH_SCHEDULES_BY_ROUTE}/${saneRoute}/${saneProfile}/${saneDest}/entries`;
-            if (!confirm(`This will OVERWRITE existing entries for:\nRoute: ${routeName}\nProfile: ${opProfile}\nDestination: ${destName}\n\nwith ${rsg_generatedPreviewEntries_extra.length} new entries. Proceed?`)) { if(rsgStatusMessage_el_extra) { rsgStatusMessage_el_extra.textContent = "Add to schedule cancelled."; rsgStatusMessage_el_extra.style.color = "#7f8c8d"; } return; }
-            if(rsgStatusMessage_el_extra) { rsgStatusMessage_el_extra.textContent = `Saving to ${specificSchedulePath}...`; rsgStatusMessage_el_extra.style.color = "#f1c40f"; }
-            const { database, dbSet, dbRef } = window.firebaseOMSI;
-            try {
-                await dbSet(dbRef(database, specificSchedulePath), rsg_generatedPreviewEntries_extra);
-                const initialLength = currentWorkingSchedule_extra.length;
-                currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry => 
-                    !( entry.lineName && entry.lineName.toUpperCase() === routeName.toUpperCase() && entry.destinationName === destName && entry.OperatingProfile === opProfile )
-                );
-                const removedCount = initialLength - currentWorkingSchedule_extra.length;
-                currentWorkingSchedule_extra.push(...rsg_generatedPreviewEntries_extra); 
-                await updateAncillaryScheduleData_ExtraPage();
-                if(rsgStatusMessage_el_extra) { rsgStatusMessage_el_extra.textContent = `${removedCount} old entries removed. ${rsg_generatedPreviewEntries_extra.length} new entries for ${routeName} (${opProfile}) to ${destName} saved. Ancillary data updated.`; rsgStatusMessage_el_extra.style.color = "#2ecc71"; }
-                renderUIDependentElements_ExtraPage();
-            } catch (error) {
-                console.error("Error in rsg_handleAddGeneratedToWorkingSchedule_ExtraPage:", error);
-                if(rsgStatusMessage_el_extra) { rsgStatusMessage_el_extra.textContent = "Error saving schedule: " + error.message; rsgStatusMessage_el_extra.style.color = "#e74c3c"; }
-                alert("Failed to save to Firebase. Local schedule might be inconsistent. Reload advised.");
+        // In omsi_tools_extra.html <script> block
+
+// ++ Route Schedule Generator Helper Functions ++
+
+function rsg_resetPreviewState(message = "Configuration changed. Please (re)generate preview or add short workings.", messageType = "info") {
+    rsg_generatedPreviewEntries_extra = []; // Clear the global array holding preview entries
+
+    if(rsgPreviewTableBody_el_extra) {
+        rsgPreviewTableBody_el_extra.innerHTML = ''; // Clear the preview table
+    }
+    if(rsgSchedulePreviewContainer_el_extra) {
+        rsgSchedulePreviewContainer_el_extra.style.display = 'none'; // Hide the preview container
+    }
+    if(rsgAddToWorkingScheduleButton_el_extra) {
+        rsgAddToWorkingScheduleButton_el_extra.style.display = 'none'; // Hide the "Add to Working Schedule" button
+    }
+
+    if(rsgStatusMessage_el_extra) {
+        // Only update if not already showing a more severe error (like a red error color),
+        // or if the new message is specifically an error/success type.
+        const isCurrentMessageError = rsgStatusMessage_el_extra.style.color === 'rgb(231, 76, 60)' || rsgStatusMessage_el_extra.style.color === '#e74c3c';
+        if (!isCurrentMessageError || messageType !== "info" ) {
+            rsgStatusMessage_el_extra.textContent = message;
+            if (messageType === "info") {
+                rsgStatusMessage_el_extra.style.color = "#f1c40f"; // Yellow for info/warning
+            } else if (messageType === "success") {
+                rsgStatusMessage_el_extra.style.color = "#2ecc71"; // Green for success
+            } else if (messageType === "error") {
+                rsgStatusMessage_el_extra.style.color = "#e74c3c"; // Red for error
+            } else {
+                rsgStatusMessage_el_extra.style.color = ""; // Default text color
             }
         }
+    }
+    /*if(rsgShortWorkingStatus_el_extra) {
+        rsgShortWorkingStatus_el_extra.textContent = ""; // Clear status for short workings too
+    }*/
+}
+
+// ... (rest of your existing RSG functions like rsg_createConfigKey_ExtraPage, rsg_loadOrPullConfiguration_ExtraPage, etc.) ...
+// ... ensure this new rsg_resetPreviewState function is defined before it's called by other RSG functions.
+
+async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
+    if (!currentUser_extra) {
+        alert("Please log in to modify the working schedule.");
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "Not logged in.";
+            rsgStatusMessage_el_extra.style.color = "#e74c3c";
+        }
+        return;
+    }
+
+    if (!rsg_generatedPreviewEntries_extra || rsg_generatedPreviewEntries_extra.length === 0) {
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "No schedule entries generated in the preview to add.";
+            rsgStatusMessage_el_extra.style.color = "#f1c40f";
+        }
+        return;
+    }
+
+    // Get the target Route, Profile, and Destination from the RSG's main input fields
+    // These define the scope of what we're potentially overwriting or adding to.
+    const targetRouteName = rsgRouteNameInput_el_extra.value.trim().toUpperCase();
+    let targetOpProfile = rsgOperatingProfileInput_el_extra.value.trim(); // May be initially blank if an assumed profile was used for generation
+    const targetDestName = rsgDestinationNameInput_el_extra.value.trim();
+
+    // Ensure the preview entries match what's currently in the RSG input fields,
+    // especially for Operating Profile if it was assumed during generation.
+    const previewSample = rsg_generatedPreviewEntries_extra[0];
+    if (previewSample.lineName.toUpperCase() !== targetRouteName ||
+        previewSample.destinationName !== targetDestName ||
+        (targetOpProfile !== "" && previewSample.OperatingProfile !== targetOpProfile) // If user typed a profile, it must match
+       ) {
+        // If user typed a profile but it doesn't match preview, or if R/D don't match
+        if (targetOpProfile !== "" && previewSample.OperatingProfile !== targetOpProfile && previewSample.lineName.toUpperCase() === targetRouteName && previewSample.destinationName === targetDestName) {
+             // This case means user might have changed op profile input AFTER generating with an assumed one.
+             // Re-confirm which profile to use.
+             if (rsgStatusMessage_el_extra) {
+                rsgStatusMessage_el_extra.textContent = `Profile mismatch: Preview used '${previewSample.OperatingProfile}', input is '${targetOpProfile}'. Please ensure Op Profile input matches intended generation.`;
+                rsgStatusMessage_el_extra.style.color = "#e74c3c";
+             }
+             return;
+        } else if (previewSample.lineName.toUpperCase() !== targetRouteName || previewSample.destinationName !== targetDestName) {
+             if (rsgStatusMessage_el_extra) {
+                rsgStatusMessage_el_extra.textContent = "Route/Destination in form does not match generated preview. Please re-generate if settings changed.";
+                rsgStatusMessage_el_extra.style.color = "#e74c3c";
+             }
+             return;
+        }
+    }
+    // If targetOpProfile was blank in the form, but the preview has one (assumed profile), use the preview's profile.
+    if (targetOpProfile === "" && previewSample.OperatingProfile) {
+        targetOpProfile = previewSample.OperatingProfile;
+    }
+    
+    if (!targetRouteName || !targetOpProfile || !targetDestName) {
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "Route Name, Operating Profile, and Destination Name must be effectively defined (from Section 1) to update the schedule.";
+            rsgStatusMessage_el_extra.style.color = "#e74c3c";
+        }
+        return;
+    }
+
+    const actionChoice = prompt(
+        `Choose action for the ${rsg_generatedPreviewEntries_extra.length} previewed entries for:\n` +
+        `Route: ${targetRouteName}\nProfile: ${targetOpProfile}\nDestination: ${targetDestName}\n\n` +
+        `1. OVERWRITE existing entries for this specific Route, Profile, and Destination.\n` +
+        `2. ADD these new entries (will append if R/P/D exists, or create if new).\n\n` +
+        `Enter 1 or 2 (or Cancel):`
+    );
+
+    let newEntriesCount = rsg_generatedPreviewEntries_extra.length;
+    let operationPerformed = false;
+    // Create a deep copy of the preview entries to add to the main schedule
+    const entriesToAdd = JSON.parse(JSON.stringify(rsg_generatedPreviewEntries_extra));
+
+    if (actionChoice === "1") { // OVERWRITE specific R/P/D
+        if (confirm(`ARE YOU SURE you want to REMOVE all existing entries for Route "${targetRouteName}", Profile "${targetOpProfile}", Destination "${targetDestName}" AND THEN ADD these ${newEntriesCount} new entries?`)) {
+            
+            let removedCount = 0;
+            const originalLength = currentWorkingSchedule_extra.length;
+
+            // Filter out existing entries for the target R/P/D
+            currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry => {
+                const matchesRPD = entry.lineName && entry.lineName.toUpperCase() === targetRouteName &&
+                                   entry.OperatingProfile === targetOpProfile &&
+                                   entry.destinationName === targetDestName;
+                if (matchesRPD) {
+                    removedCount++;
+                    return false; // Remove this entry
+                }
+                return true; // Keep other entries
+            });
+            
+            // Then add the new (previewed) entries
+            currentWorkingSchedule_extra.push(...entriesToAdd);
+            
+            if (rsgStatusMessage_el_extra) {
+                rsgStatusMessage_el_extra.textContent = `Removed ${removedCount} existing entries. Working schedule will be updated with ${newEntriesCount} new entries for ${targetRouteName}/${targetOpProfile}/${targetDestName}. Saving...`;
+                rsgStatusMessage_el_extra.style.color = "#f1c40f";
+            }
+            operationPerformed = true;
+        } else {
+            if (rsgStatusMessage_el_extra) {
+                rsgStatusMessage_el_extra.textContent = "Overwrite operation cancelled by user.";
+                rsgStatusMessage_el_extra.style.color = "";
+            }
+            return;
+        }
+    } else if (actionChoice === "2") { // ADD to R/P/D scope (effectively append if exists, or new if not)
+        // No filtering needed, just add the new entries.
+        // The rebuildAndSaveEntireScheduleToFirebase_ExtraPage will handle structuring.
+        currentWorkingSchedule_extra.push(...entriesToAdd);
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = `${newEntriesCount} entries will be ADDED to the working schedule (for ${targetRouteName}/${targetOpProfile}/${targetDestName} if applicable). Saving...`;
+            rsgStatusMessage_el_extra.style.color = "#f1c40f";
+        }
+        operationPerformed = true;
+    } else {
+        if (actionChoice !== null && rsgStatusMessage_el_extra) { 
+            rsgStatusMessage_el_extra.textContent = "Invalid choice. Operation cancelled.";
+        } else if (rsgStatusMessage_el_extra) { 
+             rsgStatusMessage_el_extra.textContent = "Add to working schedule cancelled.";
+        }
+        if (rsgStatusMessage_el_extra) rsgStatusMessage_el_extra.style.color = "";
+        return;
+    }
+
+    if (operationPerformed) {
+        try {
+            // Save the ENTIRE modified currentWorkingSchedule_extra to Firebase.
+            // This function will handle the correct structured saving.
+            await rebuildAndSaveEntireScheduleToFirebase_ExtraPage(currentWorkingSchedule_extra);
+            // updateAncillaryScheduleData_ExtraPage is called within rebuildAndSave...
+
+            if (rsgStatusMessage_el_extra) {
+                const messageAction = actionChoice === "1" ? `Overwrote entries for R/P/D and added ${newEntriesCount} new ones.` : `Added ${newEntriesCount} entries.`;
+                rsgStatusMessage_el_extra.textContent = `Successfully saved. ${messageAction} Working schedule now has ${currentWorkingSchedule_extra.length} total entries.`;
+                rsgStatusMessage_el_extra.style.color = "#2ecc71";
+            }
+            
+            // Reset RSG preview state after successful save
+            rsg_resetPreviewState("Successfully added to working schedule. Ready for new generation.", "success");
+            // rsg_generatedPreviewEntries_extra is cleared by rsg_resetPreviewState
+
+            renderUIDependentElements_ExtraPage(); // Refresh UI lists across the tools page
+
+        } catch (error) {
+            console.error("Error in rsg_handleAddGeneratedToWorkingSchedule_ExtraPage (saving to Firebase):", error);
+            if (rsgStatusMessage_el_extra) {
+                rsgStatusMessage_el_extra.textContent = "Error saving to Firebase: " + error.message + ". Local changes might not be live. Please review.";
+                rsgStatusMessage_el_extra.style.color = "#e74c3c";
+            }
+            // Note: currentWorkingSchedule_extra currently holds the unpersisted changes.
+            // A more robust solution might offer to revert local changes or retry, but that's more complex.
+        }
+    }
+}
         // ++ END Route Schedule Generator Functions ++
 
         // ++ RSG Copy From Another Route Modal Functions ++

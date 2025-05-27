@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OMSI Countdown - Tools</title>
+    <title>OMSI Tools</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
@@ -84,7 +84,7 @@
             border-radius: 0.25rem;
             display: none; /* Hidden by default, shown after login */
         }
-        #current-profile-display { font-size: 0.9rem; opacity: 0.9; font-style: italic;}
+        #current-profile-display { font-size: 0.9rem; opacity: 1; font-style: normal; color: #FFFFFF;}
 
 
         h1 { font-size: 2rem; margin-bottom: 1.5rem; font-weight: normal; text-align: center; color: #ffffff; }
@@ -721,7 +721,7 @@
 </head>
 <body>
     <div class="page-container">
-        <h1>OMSI Countdown - Tools</h1>
+        <h1>OMSI Tools</h1>
 
         <div id="auth-section" class="section">
             <h2>Admin Login</h2>
@@ -741,7 +741,7 @@
             </div>
         </div>
 
-        <div id="current-profile-display-container" class="section"> <p id="current-profile-display">Today's Auto Profile: (determining...)</p>
+        <div id="current-profile-display-container" class="section"> <p id="current-profile-display">Today's Operating Profile: (loading...)</p>
         </div>
 
         <div id="top-menu-bar">
@@ -1342,7 +1342,29 @@ const tg_statusMessage = document.getElementById('tg_statusMessage');
 let currentUser = null;
 let currentWorkingSchedule = [];
 let ukBankHolidaysData = { dates: [], titles: {} };
-const schoolHolidayDateRanges = [ ]; // Example: { start: '2024-07-22', end: '2024-09-02' }
+const schoolHolidayDateRanges = [
+    { start: '2025-05-24', end: '2025-06-01' }, // Summer half term 2025
+    { start: '2025-07-19', end: '2025-09-02' }, // Summer holidays 2025
+    { start: '2025-10-25', end: '2025-11-02' }, // Autumn half term 2025
+    { start: '2025-12-20', end: '2026-01-04' }, // Christmas 2025/26
+    { start: '2026-02-14', end: '2026-02-22' }, // Spring half term 2026
+    { start: '2026-04-03', end: '2026-04-20' }, // Easter 2026
+    { start: '2026-05-23', end: '2026-05-31' }, // Summer half term 2026
+    { start: '2026-07-18', end: '2026-09-02' }, // Summer holidays 2026
+    { start: '2026-10-24', end: '2026-11-01' }, // Autumn half term 2026
+    { start: '2026-12-19', end: '2027-01-04' }, // Christmas 2026/27
+    { start: '2027-02-13', end: '2027-02-21' }, // Spring half term 2027
+    { start: '2027-03-26', end: '2027-04-13' }, // Easter 2027
+    { start: '2027-05-29', end: '2027-06-06' }, // Summer half term 2027
+    { start: '2027-07-22', end: '2027-08-31' }  // Summer holidays 2027 (END DATE TBC)
+];
+const VALID_OPERATING_PROFILE_CODES_FOR_TOOLS = [
+    "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su",
+    "MF",
+    "MoSch", "TuSch", "WeSch", "ThSch", "FrSch", "MFSch",
+    "MoNSD", "TuNSD", "WeNSD", "ThNSD", "FrNSD", "MFNSD",
+    "Christmas Day", "Boxing Day", "New Years Day"
+    ];
 let closedStopIDs = [];
 let globalCustomRouteColours = {};
 let stopSpecificRouteColours = {};
@@ -1366,6 +1388,22 @@ const initialRouteColourMapForTools = {};
 const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
 const NIGHT_BUS_BLUE_COLOR = (initialRouteColourMapForTools["N35"] || "#4CDBE6").toUpperCase();
 const DAY_BUS_GREY_COLOR = DEFAULT_ROUTE_COLOUR_TOOLS.toUpperCase();
+
+function toTitleCase_display(str) {
+    if (!str || typeof str !== 'string') return "";
+    return str.toLowerCase().split(' ').map(function(word) {
+        if (word.length > 0) {
+            // Handle special cases like "Year's" correctly
+            if (word.includes("'")) {
+                const parts = word.split("'");
+                parts[0] = parts[0].charAt(0).toUpperCase() + parts[0].substring(1);
+                return parts.join("'");
+            }
+            return word.charAt(0).toUpperCase() + word.substring(1);
+        }
+        return "";
+    }).join(' ');
+}
 
 function sanitizeFirebaseKey(text) {
     if (typeof text !== 'string') return '';
@@ -4115,66 +4153,65 @@ function generateUniqueStopId(format) {
 }
 
 
-function getOperatingCodesForToday_Tools() {
-    const n = new Date(); const dOW = n.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    const todayDateString = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; // YYYY-MM-DD
+// In omsi_tools.html
 
-    let dateCodes = new Set();
+function getOperatingCodesForToday_Tools() {
+    const n = new Date(); 
+    const dOW = n.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const todayDateString = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+
+    let potentialDateCodes = new Set(); // Changed variable name for clarity
     let isBankHolidayToday = false;
 
     // Check for Bank Holiday first
-    if (ukBankHolidaysData && ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(todayDateString)) {
+    // Ensure ukBankHolidaysData is populated in omsi_tools.html (likely via fetchBankHolidaysForSetup)
+    if (typeof ukBankHolidaysData !== 'undefined' && ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(todayDateString)) {
         const holidayTitle = ukBankHolidaysData.titles[todayDateString] || "";
         isBankHolidayToday = true;
-        // Specific logic for Good Friday vs other Bank Holidays
         if (holidayTitle.toLowerCase().includes("good friday")) {
-            dateCodes.add("Sa"); // Good Friday often runs Saturday service
+            potentialDateCodes.add("Sa");
         } else {
-            dateCodes.add("Su"); // Other Bank Holidays typically Sunday service
+            potentialDateCodes.add("Su");
         }
     }
 
     // If not a Bank Holiday, determine normal day codes
     if (!isBankHolidayToday) {
-        const isSchHol = isSchoolHolidayPeriodForSetup(n); // Check if it's a school holiday
-        const schoolSuffix = isSchHol ? "NSD" : "Sch"; // "NSD" for Non-School Day, "Sch" for School Day
+        // Ensure isSchoolHolidayPeriodForSetup and schoolHolidayDateRanges are defined in omsi_tools.html
+        const isSchHol = (typeof isSchoolHolidayPeriodForSetup === 'function' && typeof schoolHolidayDateRanges !== 'undefined') ? isSchoolHolidayPeriodForSetup(n) : false;
+        const schoolSuffix = isSchHol ? "NSD" : "Sch";
         let dayCode = "";
         switch (dOW) {
-            case 0: dayCode="Su"; break;
-            case 1: dayCode="Mo"; break;
-            case 2: dayCode="Tu"; break;
-            case 3: dayCode="We"; break;
-            case 4: dayCode="Th"; break;
-            case 5: dayCode="Fr"; break;
-            case 6: dayCode="Sa"; break;
+            case 0: dayCode = "Su"; break;
+            case 1: dayCode = "Mo"; break;
+            case 2: dayCode = "Tu"; break;
+            case 3: dayCode = "We"; break;
+            case 4: dayCode = "Th"; break;
+            case 5: dayCode = "Fr"; break;
+            case 6: dayCode = "Sa"; break;
         }
-        dateCodes.add(dayCode); // Base day code (Mo, Tu, etc.)
+        potentialDateCodes.add(dayCode);
 
-        // Weekday specific codes (Monday to Friday)
-        if (dOW >= 1 && dOW <= 5) {
-            dateCodes.add(dayCode + schoolSuffix); // MoSch, TuSch, etc. or MoNSD, TuNSD
-            dateCodes.add("MF" + schoolSuffix);    // MFSch or MFNSD
-            dateCodes.add("MF");                   // Generic Mon-Fri shorthand
+        if (dOW >= 1 && dOW <= 5) { // Monday to Friday
+            potentialDateCodes.add(dayCode + schoolSuffix);
+            potentialDateCodes.add("MF" + schoolSuffix);
+            potentialDateCodes.add("MF");
         }
-        // Weekend specific codes if it's a school holiday
-        if ((dOW === 6 || dOW === 0) && isSchHol) { // Saturday or Sunday during school holiday
-            dateCodes.add(dayCode + "NSD"); // SaNSD, SuNSD
-        }
-        // General school holiday code
-        if (isSchHol) {
-            dateCodes.add("SchoolHoliday");
-        }
+        // Removed explicit additions of "SchoolHoliday", "SaNSD", "SuNSD" as per your preference
     } else { // It IS a Bank Holiday
-        // Check if this Bank Holiday falls within a school holiday period
-        const isSchHolOnBH = isSchoolHolidayPeriodForSetup(n);
-        if (isSchHolOnBH) {
-            dateCodes.add("SchoolHoliday");
-            // Add NSD suffix to the determined Bank Holiday service day (Sa or Su)
-            if(dateCodes.has("Sa")) dateCodes.add("SaNSD");
-            if(dateCodes.has("Su") && !dateCodes.has("Sa")) dateCodes.add("SuNSD"); // Avoid adding SuNSD if already SaNSD for Good Fri
-        }
+        // const isSchHolOnBH = isSchoolHolidayPeriodForSetup(n);
+        // if (isSchHolOnBH) {
+        //     // potentialDateCodes.add("SchoolHoliday"); // Removed
+        //     // if(potentialDateCodes.has("Sa")) potentialDateCodes.add("SaNSD"); // Removed
+        //     // if(potentialDateCodes.has("Su") && !potentialDateCodes.has("Sa")) potentialDateCodes.add("SuNSD"); // Removed
+        // }
     }
-    return Array.from(dateCodes);
+
+        const finalFilteredCodes = Array.from(potentialDateCodes).filter(code => 
+        typeof VALID_OPERATING_PROFILE_CODES_FOR_TOOLS !== 'undefined' && VALID_OPERATING_PROFILE_CODES_FOR_TOOLS.includes(code)
+    );
+    
+    return finalFilteredCodes;
 }
 
 async function fetchBankHolidaysForSetup() {
@@ -4196,7 +4233,7 @@ async function fetchBankHolidaysForSetup() {
     } catch (error) {
         console.error("Setup: Failed to fetch UK bank holidays:", error);
         ukBankHolidaysData = { dates: [], titles: {} }; // Default to empty on error
-        if(currentProfileDisplayElement) currentProfileDisplayElement.textContent = "Today's Auto Profile: (Bank Hol. check failed)";
+        if(currentProfileDisplayElement) currentProfileDisplayElement.textContent = "Today's Operating Profile: (Bank Hol. check failed)";
     }
     updateCurrentProfileDisplayOnSetup(); // Update display after fetching (or failing)
 }
@@ -4219,43 +4256,66 @@ function isSchoolHolidayPeriodForSetup(dateObject) {
     return false; // Not in any holiday range
 }
 
+// Inside omsi_tools.html
+
 function updateCurrentProfileDisplayOnSetup() {
     const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 for Sunday, 1 for Monday, etc.
-    const todayDateString = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; // YYYY-MM-DD
+    const dayOfWeek = now.getDay(); 
+    const todayDateString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     let profileDisplayText = "";
     let isBankHol = false;
-    let serviceTypeDisplay = ""; // e.g., "(Sat Service)"
+    let serviceTypeDisplay = ""; 
+    // globalOperationalOverrides needs to be defined and populated in omsi_tools.html if used
+    let isOverridden = false;
+    let finalDisplayLabel = "Today's Operating Profile:";
 
-    // Check if today is a bank holiday
-    if (ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(todayDateString)) {
-        const holidayTitle = ukBankHolidaysData.titles[todayDateString] || "Bank Holiday";
-        isBankHol = true;
-        if (holidayTitle.toLowerCase().includes("good friday")) {
-            profileDisplayText = "Good Friday";
-            serviceTypeDisplay = "(Sat Service)";
-        } else {
-            profileDisplayText = holidayTitle;
-            serviceTypeDisplay = "(Sun Service)";
+
+    if (typeof globalOperationalOverrides !== 'undefined' && globalOperationalOverrides && globalOperationalOverrides[todayDateString] && currentUser) {
+        const overrideProfileValue = globalOperationalOverrides[todayDateString];
+        profileDisplayText = `${overrideProfileValue} (Manual Override)`;
+        isOverridden = true;
+        finalDisplayLabel = "Today's Profile:";
+    }
+
+
+    if (!isOverridden) {
+        if (ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(todayDateString)) {
+            let holidayTitle = ukBankHolidaysData.titles[todayDateString] || "Bank Holiday";
+            // --- MODIFICATION HERE ---
+            holidayTitle = toTitleCase_display(holidayTitle); // Apply title case
+            // --- END MODIFICATION ---
+            isBankHol = true;
+            if (holidayTitle.toLowerCase().includes("good friday")) { // Keep toLowerCase for logic
+                profileDisplayText = holidayTitle;
+                serviceTypeDisplay = "(Saturday Service)";
+            } else {
+                profileDisplayText = holidayTitle;
+                serviceTypeDisplay = "(Sunday Service)";
+            }
+        }
+
+        let dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek];
+
+        if (!isBankHol) { 
+            profileDisplayText = dayName;
+            // Ensure isSchoolHolidayPeriodForSetup and schoolHolidayDateRanges are defined in omsi_tools.html
+            if (typeof isSchoolHolidayPeriodForSetup === 'function' && isSchoolHolidayPeriodForSetup(now)) { 
+                profileDisplayText += " (School Holiday)";
+            }
+        } else { 
+            profileDisplayText += ` ${serviceTypeDisplay} - Observed on a ${dayName}`;
+            if (typeof isSchoolHolidayPeriodForSetup === 'function' && isSchoolHolidayPeriodForSetup(now)) {
+                profileDisplayText += " (School Holiday Period)";
+            }
         }
     }
-
-    let dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek];
-
-    if (!isBankHol) { // Normal day
-        profileDisplayText = dayName;
-        const isSchHol = isSchoolHolidayPeriodForSetup(now);
-        if (isSchHol) profileDisplayText += " (School Hol)";
-    } else { // Bank Holiday
-        profileDisplayText += ` ${serviceTypeDisplay} - Observed on a ${dayName}`;
-        const isSchHolOnBH = isSchoolHolidayPeriodForSetup(now);
-        if (isSchHolOnBH) profileDisplayText += " (School Hol Period)";
-    }
-
-    const operatingCodes = getOperatingCodesForToday_Tools(); // Get the relevant codes
-    if (currentProfileDisplayElement) {
-        currentProfileDisplayElement.textContent = `Today's Auto Profile: ${profileDisplayText} [Codes: ${operatingCodes.join(', ')}]`;
+    
+    const operatingCodes = (typeof getOperatingCodesForToday_Tools === 'function' && !isOverridden) ? getOperatingCodesForToday_Tools() : (isOverridden ? [profileDisplayText.split(' (')[0]] : []);
+    
+    if (currentProfileDisplayElement) { // Assuming currentProfileDisplayElement is the ID for this file
+        const codesString = operatingCodes.length > 0 ? ` [Codes: ${operatingCodes.join(', ')}]` : "";
+        currentProfileDisplayElement.textContent = `${finalDisplayLabel} ${profileDisplayText}${codesString}`;
     }
 }
 

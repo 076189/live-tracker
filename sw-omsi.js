@@ -5,6 +5,8 @@ const urlsToCache = [
   // These should correctly map to your files within the 'live-tracker' directory.
 
   '/live-tracker/omsi_arrivals.html',
+  '/live-tracker/omsi_tools.html',
+  '/live-tracker/omsi_tools_extra.html',
   '/live-tracker/manifest-omsi.json', // Cache the manifest
   '/live-tracker/offline.html',       // Your fallback offline page
 

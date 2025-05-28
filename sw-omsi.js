@@ -3,6 +3,7 @@
 const CACHE_NAME = 'omsi-suite-cache-v1'; // Increment version to v2, v3 etc. when you update critical assets
 const urlsToCache = [
   // Add the main HTML pages
+  '/omsi_tools_extra.html',
   '/omsi_arrivals.html',
   '/omsi_tools.html',
   // If you have a root index page that links to these, add it too:

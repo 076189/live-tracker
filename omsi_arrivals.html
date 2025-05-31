@@ -697,7 +697,8 @@
     const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
     const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
     const FB_PATH_CUSTOM_STATUS_MESSAGE = '/appState/customStatusMessage';
-    const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides'; // MODIFIED: Added path for overrides
+    const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides';
+    const FB_PATH_ALL_DEFINED_STOPS = '/allDefinedStops';
 
 
     let customMessageSettings = {
@@ -801,22 +802,50 @@
     function getTextWidth(t,fS){const c=getTextWidth.canvas||(getTextWidth.canvas=document.createElement("canvas")),ctx=c.getContext("2d");ctx.font=fS;return ctx.measureText(t).width}
     function simpleCompareLineNames(a, b) { const numA = parseInt(a, 10); const numB = parseInt(b, 10); const isNumA = !isNaN(numA); const isNumB = !isNaN(numB); if (isNumA && isNumB) { if (numA < numB) return -1; if (numA > numB) return 1; return a.localeCompare(b); } if (isNumA && !isNumB) return -1; if (!isNumA && isNumB) return 1; return a.localeCompare(b); }
 
-    function getRouteTileColour(lineName) {
-        const upperLineName = String(lineName || "").toUpperCase();
-        const currentStopId = currentSelectedStopID; 
+    // In omsi_arrivals.html
+function getRouteTileColour(lineName) {
+    const upperLineName = String(lineName || "").toUpperCase();
+    const currentStopId = currentSelectedStopID; // Assuming currentSelectedStopID is globally available
 
-        if (currentStopId && stopSpecificRouteColours &&
-            stopSpecificRouteColours[currentStopId.toUpperCase()] && 
-            stopSpecificRouteColours[currentStopId.toUpperCase()][upperLineName]) {
-            return stopSpecificRouteColours[currentStopId.toUpperCase()][upperLineName];
-        }
-        if (globalCustomRouteColours[upperLineName]) {
-            return globalCustomRouteColours[upperLineName];
-        }
-        if (upperLineName.startsWith("N")) return globalCustomRouteColours["NIGHT_DEFAULT"] || globalCustomRouteColours["N5"] || DEFAULT_ROUTE_COLOUR;
-        if (upperLineName.startsWith("SL")) return globalCustomRouteColours["SL_DEFAULT"] || globalCustomRouteColours["SL1"] || DEFAULT_ROUTE_COLOUR;
-        return DEFAULT_ROUTE_COLOUR;
+    // Check stop-specific colours first (if this feature is ever extended for split tiles)
+    // For now, assuming stopSpecificRouteColours still stores single hex strings.
+    // If you want stop-specific split tiles, this part would need to be enhanced similarly to globalCustomRouteColours.
+    if (currentStopId && stopSpecificRouteColours &&
+        stopSpecificRouteColours[currentStopId.toUpperCase()] && 
+        stopSpecificRouteColours[currentStopId.toUpperCase()][upperLineName]) {
+        // Assuming stopSpecificRouteColours still returns a string for now.
+        // If it could also return an object for split, this needs:
+        // const stopSpecificColor = stopSpecificRouteColours[currentStopId.toUpperCase()][upperLineName];
+        // if (typeof stopSpecificColor === 'object') return stopSpecificColor; else return stopSpecificColor;
+        return stopSpecificRouteColours[currentStopId.toUpperCase()][upperLineName];
     }
+
+    // Check global custom colours (this is where the new object format resides)
+    if (globalCustomRouteColours.hasOwnProperty(upperLineName)) { // Use hasOwnProperty for objects
+        const globalColorSetting = globalCustomRouteColours[upperLineName];
+        // If it's an object with top/bottom, return it, otherwise it's a hex string
+        if (typeof globalColorSetting === 'object' && globalColorSetting !== null && globalColorSetting.top && globalColorSetting.bottom) {
+            return globalColorSetting; 
+        } else if (typeof globalColorSetting === 'string') {
+            return globalColorSetting;
+        }
+        // If it's an object but not in the expected {top, bottom} format, it might be an error or old data.
+        // Fallback to default or log an error. For now, we'll let it fall through to other checks.
+    }
+
+    // Fallback to initial map (assuming these are solid colours)
+    // Note: initialRouteColourMap in arrivals.html script is distinct from omsi_tools's version.
+    // It should be `initialRouteColourMap` as defined in `omsi_arrivals.html`
+    if (typeof initialRouteColourMap !== 'undefined' && initialRouteColourMap[upperLineName]) {
+        return initialRouteColourMap[upperLineName];
+    }
+
+    // Night bus / Superloop defaults (assuming these are solid)
+    if (upperLineName.startsWith("N")) return globalCustomRouteColours["NIGHT_DEFAULT"] || (typeof initialRouteColourMap !== 'undefined' ? initialRouteColourMap["N5"] : null) || DEFAULT_ROUTE_COLOUR;
+    if (upperLineName.startsWith("SL")) return globalCustomRouteColours["SL_DEFAULT"] || (typeof initialRouteColourMap !== 'undefined' ? initialRouteColourMap["SL1"] : null) || DEFAULT_ROUTE_COLOUR;
+    
+    return DEFAULT_ROUTE_COLOUR;
+}
 
     function getTextColourForBackground(hexColour) { if (!hexColour || hexColour.length < 7) return '#FFFFFF'; const r = parseInt(hexColour.slice(1, 3), 16); const g = parseInt(hexColour.slice(3, 5), 16); const b = parseInt(hexColour.slice(5, 7), 16); const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255; return luminance > 0.5 ? '#000000' : '#FFFFFF'; }
     function displaySystemUpdateMessage() { console.log("[ARRIVALS DEBUG] Displaying system update message."); if (busListElement) { busListElement.innerHTML = `<li class="system-update-message">Live bus arrivals are not available at this time.<br>System update in progress.</li>`; } if (liveUpdateIntervalId) { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; } }
@@ -834,9 +863,7 @@
             const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(','); const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(','); if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0; allUpcomingBusesMasterList = processedBuses; const finalItemsToDisplayInSlots = new Array(MAX_DISPLAY_ROWS).fill(null); if (allUpcomingBusesMasterList.length > 0) { finalItemsToDisplayInSlots[0] = { ...allUpcomingBusesMasterList[0], displayNumber: 1, type: 'bus' }; const cyclingCandidates = allUpcomingBusesMasterList.slice(1); if (cyclingCandidates.length > 0) { if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0; const busesForThisCycle = cyclingCandidates.slice(currentDepartureCycleStartIndex, currentDepartureCycleStartIndex + effectiveCyclingRowsCount); busesForThisCycle.forEach((bus, cycleIndex) => { const masterListIndex = allUpcomingBusesMasterList.findIndex(masterBus => masterBus.internalId === bus.internalId); const targetSlotIndex = 1 + cycleIndex; if (targetSlotIndex < busDisplaySlotsCount) finalItemsToDisplayInSlots[targetSlotIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex +1, type: 'bus'}; }); currentDepartureCycleStartIndex += effectiveCyclingRowsCount; if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0; } } if (messageActive) { let scrollDuration = "15s"; switch(customMessageSettings.scrollSpeed) { case "slow": scrollDuration = "25s"; break; case "fast": scrollDuration = "10s"; break; case "very_fast": scrollDuration = "7s"; break; } finalItemsToDisplayInSlots[MAX_DISPLAY_ROWS - 1] = { type: 'message', text: customMessageSettings.text, scrollDuration: scrollDuration, internalId: 'custom_message_slot_' + customMessageSettings.text }; } if (busListElement) busListElement.innerHTML = ''; const newSnapshotForThisUpdate = new Array(MAX_DISPLAY_ROWS).fill(null); for (let i = 0; i < MAX_DISPLAY_ROWS; i++) { const itemToDisplay = finalItemsToDisplayInSlots[i]; const prevSnapshotForThisSlot = previousArrivalsSnapshot[i]; if (itemToDisplay) { const li = document.createElement('li'); if (itemToDisplay.type === 'bus') { const numberSpan = document.createElement('span'); numberSpan.className = 'bus-item-number'; numberSpan.textContent = itemToDisplay.displayNumber + "."; li.appendChild(numberSpan); const lineCodeSpan = document.createElement('span'); lineCodeSpan.className = 'bus-item-linecode'; lineCodeSpan.textContent = itemToDisplay.lineName; li.appendChild(lineCodeSpan); const destinationSpan = document.createElement('span'); destinationSpan.className = 'bus-item-destination'; destinationSpan.title = sanitize(itemToDisplay.destinationName); destinationSpan.textContent = itemToDisplay.destinationName; li.appendChild(destinationSpan); const timeSpan = document.createElement('span'); timeSpan.className = 'bus-item-time'; timeSpan.textContent = itemToDisplay.calculatedArrivalText; li.appendChild(timeSpan); let shouldAnimate = false; if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'bus') shouldAnimate = true; else if (itemToDisplay.internalId !== prevSnapshotForThisSlot.slot_internalId || itemToDisplay.calculatedArrivalText !== prevSnapshotForThisSlot.slot_calculatedArrivalText || itemToDisplay.displayNumber !== prevSnapshotForThisSlot.slot_displayNumber) shouldAnimate = true; if (shouldAnimate) { li.classList.remove('bus-item-animate'); void li.offsetWidth; setTimeout(() => { li.classList.add('bus-item-animate'); }, 10); } newSnapshotForThisUpdate[i] = { slot_type: 'bus', slot_internalId: itemToDisplay.internalId, slot_calculatedArrivalText: itemToDisplay.calculatedArrivalText, slot_displayNumber: itemToDisplay.displayNumber }; } else if (itemToDisplay.type === 'message') { li.classList.add('custom-status-message-li'); const marqueeSpan = document.createElement('span'); marqueeSpan.className = 'custom-status-message-text'; marqueeSpan.textContent = itemToDisplay.text; li.style.setProperty('--scroll-duration', itemToDisplay.scrollDuration); li.appendChild(marqueeSpan); let shouldAnimateMessage = false; if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'message' || prevSnapshotForThisSlot.slot_internalId !== itemToDisplay.internalId) shouldAnimateMessage = true; if (shouldAnimateMessage) { li.classList.remove('bus-item-animate'); void li.offsetWidth; setTimeout(() => { li.classList.add('bus-item-animate'); }, 10); } newSnapshotForThisUpdate[i] = { slot_type: 'message', slot_internalId: itemToDisplay.internalId, }; } busListElement.appendChild(li); } else newSnapshotForThisUpdate[i] = null; } previousArrivalsSnapshot = newSnapshotForThisUpdate; const actualBusesShownCount = finalItemsToDisplayInSlots.filter(item => item && item.type === 'bus').length; if (actualBusesShownCount === 0 && !messageActive && currentSelectedStopID && !closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement) busListElement.innerHTML = `<li class="no-buses-message">Live bus arrivals are not available at this time.</li>`; }
     }
 
-
-    // MODIFIED: loadInitialData to fetch operational overrides
-    async function loadInitialData() {
+async function loadInitialData() {
         console.log("[ARRIVALS DEBUG] loadInitialData from Firebase called (new structure).");
         if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
             console.error("Firebase not initialized. Cannot load data.");
@@ -868,7 +895,7 @@
                 customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
             }
 
-            // Fetch Operational Overrides (NEW)
+            // Fetch Operational Overrides
             const overridesSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
             if (overridesSnapshot.exists()) {
                 globalOperationalOverrides = overridesSnapshot.val();
@@ -910,8 +937,31 @@
                  allScheduledData = []; 
             }
 
-            const stopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS));
-            uniqueStops = stopsSnapshot.exists() && Array.isArray(stopsSnapshot.val()) ? stopsSnapshot.val() : [];
+            // --- MODIFIED SECTION: Load all defined stops for uniqueStops ---
+            console.log("[ARRIVALS DEBUG] Fetching all defined stops from FB_PATH_ALL_DEFINED_STOPS.");
+            const allDefinedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS)); // FB_PATH_ALL_DEFINED_STOPS needs to be defined
+            if (allDefinedStopsSnapshot.exists() && typeof allDefinedStopsSnapshot.val() === 'object') {
+                const definedStopsObject = allDefinedStopsSnapshot.val();
+                // Convert the object of stops into an array, ensuring the expected structure
+                uniqueStops = Object.values(definedStopsObject).map(stop => ({
+                    stopID: stop.stopID, // Ensure your stop objects in Firebase have a 'stopID' property
+                    stopName: stop.stopName || "Unknown Name",
+                    direction: stop.direction || "" // Ensure direction is included
+                }));
+                // Sort them for display in the modal
+                uniqueStops.sort((a,b) => {
+                    const nameA = (a.stopName || "").toLowerCase();
+                    const nameB = (b.stopName || "").toLowerCase();
+                    if (nameA < nameB) return -1;
+                    if (nameA > nameB) return 1;
+                    return (a.stopID || "").toLowerCase().localeCompare((b.stopID || "").toLowerCase());
+                });
+                console.log(`[ARRIVALS DEBUG] Loaded ${uniqueStops.length} stops from FB_PATH_ALL_DEFINED_STOPS.`);
+            } else {
+                uniqueStops = []; // Fallback if path is empty or not an object
+                console.warn(`[ARRIVALS DEBUG] No stops found at FB_PATH_ALL_DEFINED_STOPS or data is not an object.`); // Ensure FB_PATH_ALL_DEFINED_STOPS is correctly defined
+            }
+            // --- End of MODIFIED SECTION ---
 
             const customColoursSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_CUSTOM_COLOURS));
             globalCustomRouteColours = { ...initialRouteColourMap };
@@ -942,6 +992,213 @@
         } catch (error) { console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error); if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading data. Error: ${error.message}</li>`; }
         setupFirebaseListeners(); 
     }
+
+
+    async function loadInitialData() {
+    console.log("[ARRIVALS DEBUG] loadInitialData from Firebase called.");
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        console.error("Firebase not initialized. Cannot load data.");
+        if(busListElement) busListElement.innerHTML = `<li class="error-message">Firebase connection error.</li>`;
+        return;
+    }
+    const { database, dbGet, dbChild, dbRef } = window.firebaseOMSI;
+
+    try {
+        // Fetch App State (Status and Closed Stops)
+        const appStateSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE));
+        if (appStateSnapshot.exists()) {
+            const appState = appStateSnapshot.val();
+            currentScheduleStatus = appState.scheduleStatus || 'idle';
+            if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); }
+
+            const fbClosedStops = appState.closedStopIDs || {};
+            closedStopIDsGlobal = [];
+            for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) { closedStopIDsGlobal.push(stopID.toUpperCase()); } }
+        } else {
+            currentScheduleStatus = 'idle';
+            closedStopIDsGlobal = []; // Ensure it's reset if appState doesn't exist
+        }
+
+        // Fetch Custom Status Message Settings
+        const customMessageSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_CUSTOM_STATUS_MESSAGE));
+        if (customMessageSnapshot.exists()) {
+            customMessageSettings = customMessageSnapshot.val();
+        } else {
+            customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
+        }
+
+        // Fetch Operational Overrides
+        const overridesSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
+        if (overridesSnapshot.exists()) {
+            globalOperationalOverrides = overridesSnapshot.val();
+            console.log("[ARRIVALS DEBUG] Fetched operational overrides:", globalOperationalOverrides);
+        } else {
+            globalOperationalOverrides = {};
+            console.log("[ARRIVALS DEBUG] No operational overrides found in Firebase.");
+        }
+
+        // Fetch Live Schedule Data (from structured path)
+        const scheduleSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
+        const flatScheduleFromDB = [];
+        if (scheduleSnapshot.exists()) {
+            const schedulesByRoute = scheduleSnapshot.val();
+            for (const routeKey in schedulesByRoute) {
+                const routeData = schedulesByRoute[routeKey];
+                for (const profileKey in routeData) {
+                    const profileData = routeData[profileKey];
+                    for (const destKey in profileData) {
+                        const destData = profileData[destKey];
+                        if (destData && Array.isArray(destData.entries)) {
+                            destData.entries.forEach(entry => {
+                                flatScheduleFromDB.push({ ...entry });
+                            });
+                        }
+                    }
+                }
+            }
+            flatScheduleFromDB.sort((a, b) => { 
+                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
+                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
+                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
+                const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
+            });
+            allScheduledData = flatScheduleFromDB.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_arr_flat`}));
+            console.log(`[ARRIVALS DEBUG] Flattened ${allScheduledData.length} entries from new Firebase structure.`);
+        } else {
+             console.warn(`[ARRIVALS DEBUG] No schedule data found at ${FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED}. allScheduledData will be empty.`);
+             allScheduledData = []; 
+        }
+
+        // --- REFINED SECTION: Load all defined stops for uniqueStops ---
+        console.log("[ARRIVALS DEBUG] Fetching all defined stops from FB_PATH_ALL_DEFINED_STOPS.");
+        const allDefinedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
+        
+        uniqueStops = []; // Initialize as empty array
+
+        if (allDefinedStopsSnapshot.exists() && typeof allDefinedStopsSnapshot.val() === 'object') {
+            const definedStopsObject = allDefinedStopsSnapshot.val();
+            
+            // +++ TEMP LOG 1: Check raw data for YOUR_PROBLEM_STOP_ID +++
+            // REMEMBER to replace 'YOUR_PROBLEM_STOP_ID_UPPERCASE' with an actual StopID you are investigating.
+            const problemStopRaw = definedStopsObject['YOUR_PROBLEM_STOP_ID_UPPERCASE']; 
+            console.log(`[ARRIVALS DEBUG] Raw Firebase data for ${'YOUR_PROBLEM_STOP_ID_UPPERCASE'}:`, JSON.parse(JSON.stringify(problemStopRaw || null)));
+            // +++ END TEMP LOG 1 +++
+
+            console.log(`[ARRIVALS DEBUG] Raw data from /allDefinedStops has ${Object.keys(definedStopsObject).length} keys.`);
+
+            for (const keyInFirebase in definedStopsObject) {
+                if (Object.hasOwnProperty.call(definedStopsObject, keyInFirebase)) {
+                    const stopData = definedStopsObject[keyInFirebase];
+                    
+                    let currentStopID = null;
+                    if (stopData && typeof stopData === 'object') {
+                        if (stopData.stopID && typeof stopData.stopID === 'string') {
+                            currentStopID = stopData.stopID.toUpperCase();
+                        } else {
+                            currentStopID = keyInFirebase.toUpperCase(); 
+                            console.warn(`[ARRIVALS LOAD] Stop data for key ${keyInFirebase} missing 'stopID' property or it's not a string. Using key as ID. Data:`, JSON.parse(JSON.stringify(stopData)));
+                        }
+                        
+                        uniqueStops.push({
+                            stopID: currentStopID,
+                            stopName: stopData.stopName || "Unknown Name",
+                            direction: stopData.direction || ""
+                        });
+                    } else {
+                        console.warn(`[ARRIVALS LOAD] Malformed or non-object stop data for key ${keyInFirebase} in /allDefinedStops:`, stopData);
+                    }
+                }
+            }
+
+            // Deduplicate based on stopID
+            const seenStopIDs = new Set();
+            uniqueStops = uniqueStops.filter(stop => {
+                if (!stop.stopID) { // Should not happen if currentStopID logic above is sound
+                     console.warn("[ARRIVALS LOAD] Filtering out stop with no stopID during deduplication:", JSON.parse(JSON.stringify(stop)));
+                    return false;
+                }
+                if (seenStopIDs.has(stop.stopID)) {
+                    console.warn(`[ARRIVALS LOAD] Duplicate stopID found and removed during deduplication: ${stop.stopID}`);
+                    return false;
+                }
+                seenStopIDs.add(stop.stopID);
+                return true;
+            });
+
+            uniqueStops.sort((a,b) => {
+                const nameA = (a.stopName || "").toLowerCase();
+                const nameB = (b.stopName || "").toLowerCase();
+                if (nameA < nameB) return -1;
+                if (nameA > nameB) return 1;
+                return (a.stopID || "").toLowerCase().localeCompare((b.stopID || "").toLowerCase());
+            });
+
+            // +++ TEMP LOG 2: Check if YOUR_PROBLEM_STOP_ID is in the processed uniqueStops array +++
+            // REMEMBER to replace 'YOUR_PROBLEM_STOP_ID_UPPERCASE'
+            const problemStopProcessed = uniqueStops.find(s => s.stopID === 'YOUR_PROBLEM_STOP_ID_UPPERCASE'); 
+            console.log(`[ARRIVALS DEBUG] Processed uniqueStops. Entry for ${'YOUR_PROBLEM_STOP_ID_UPPERCASE'}:`, JSON.parse(JSON.stringify(problemStopProcessed || null)));
+            console.log(`[ARRIVALS DEBUG] Total processed unique stops: ${uniqueStops.length}. First 5:`, JSON.parse(JSON.stringify(uniqueStops.slice(0,5))));
+            // +++ END TEMP LOG 2 +++
+
+        } else {
+            console.warn(`[ARRIVALS DEBUG] No stops found at ${FB_PATH_ALL_DEFINED_STOPS} or data is not an object.`);
+        }
+        // --- End of REFINED SECTION ---
+
+        // Fetch Custom Colours
+        const customColoursSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_CUSTOM_COLOURS));
+        globalCustomRouteColours = { ...initialRouteColourMap }; // Reset to defaults then apply custom
+        if (customColoursSnapshot.exists()) {
+            const fbCustomColours = customColoursSnapshot.val();
+            if (fbCustomColours && typeof fbCustomColours === 'object') {
+                for (const route in fbCustomColours) { 
+                    if (Object.hasOwnProperty.call(fbCustomColours, route)) {
+                        globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route]; 
+                    }
+                }
+            }
+        }
+
+        const stopSpecificSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS));
+        if (stopSpecificSnapshot.exists()) {
+            stopSpecificRouteColours = stopSpecificSnapshot.val() || {};
+        } else {
+            stopSpecificRouteColours = {};
+        }
+
+        // Populate modal and select initial/last stop
+        if (uniqueStops.length > 0) {
+            populateStopSelectionModal();
+            const lastStopFromLocalStorage = localStorage.getItem('lastSelectedStopID');
+            let stopToSelect = uniqueStops[0]?.stopID; 
+            if (lastStopFromLocalStorage && uniqueStops.find(s => s && s.stopID === lastStopFromLocalStorage)) { 
+                stopToSelect = lastStopFromLocalStorage; 
+            }
+            if (stopToSelect) { 
+                selectStop(stopToSelect); 
+            } else if (uniqueStops[0] && uniqueStops[0].stopID) { // Fallback if lastSelectedStopID was invalid but uniqueStops has items
+                selectStop(uniqueStops[0].stopID);
+            } else { 
+                if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No valid stops to select.</li>`; 
+            }
+        } else {
+            const stopInfoArea = document.getElementById('stop-info-area');
+            if (stopInfoArea) { 
+                const errorHeader = document.createElement('div'); 
+                errorHeader.className = 'main-stop-name-line'; 
+                errorHeader.style.textAlign = 'center'; 
+                errorHeader.textContent = 'No Stops Available'; 
+                stopInfoArea.innerHTML = ''; 
+                stopInfoArea.appendChild(errorHeader); 
+            }
+            if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule data or stops defined. Use <a href="setup.html" style="color:#90cdf4;">Setup tools</a>.</li>`;
+        }
+    } catch (error) { 
+        console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error); 
+        if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading data. Error: ${error.message}</li>`; 
+    }
+    setupFirebaseListeners(); 
+}
 
     // MODIFIED: setupFirebaseListeners to include listener for overrides
     function setupFirebaseListeners() {
@@ -986,10 +1243,13 @@
             }
         });
 
-        const liveStopsRef = dbRef(database, FB_PATH_LIVE_UNIQUE_STOPS);
+        // --- START OF MODIFIED SECTION ---
+        // REMOVE or COMMENT OUT the old listener for FB_PATH_LIVE_UNIQUE_STOPS:
+        /*
+        const liveStopsRef = dbRef(database, FB_PATH_LIVE_UNIQUE_STOPS); // This was FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops'
         dbOnValue(liveStopsRef, (snapshot) => {
-            console.log("[ARRIVALS DEBUG] Unique stops data updated from Firebase.");
-            uniqueStops = snapshot.exists() && Array.isArray(snapshot.val()) ? snapshot.val() : [];
+            console.log("[ARRIVALS DEBUG] Unique stops data updated from Firebase (FB_PATH_LIVE_UNIQUE_STOPS)."); // Old path
+            uniqueStops = snapshot.exists() && Array.isArray(snapshot.val()) ? snapshot.val() : []; // This overwrites the comprehensive list
             populateStopSelectionModal();
             if (currentSelectedStopID && !uniqueStops.find(s => s && s.stopID === currentSelectedStopID)) {
                 currentSelectedStopID = null;
@@ -1001,9 +1261,96 @@
                 selectStop(currentSelectedStopID); 
             }
         });
+        */
+
+        // ADD this new listener for ALL defined stops from FB_PATH_ALL_DEFINED_STOPS:
+        const allDefinedStopsListenerRef = dbRef(database, FB_PATH_ALL_DEFINED_STOPS);
+        dbOnValue(allDefinedStopsListenerRef, (snapshot) => {
+            console.log("[ARRIVALS DEBUG] All defined stops data updated from Firebase (FB_PATH_ALL_DEFINED_STOPS listener).");
+            const newUniqueStopsArray = [];
+            if (snapshot.exists() && typeof snapshot.val() === 'object') {
+                const definedStopsObject = snapshot.val();
+                for (const keyInFirebase in definedStopsObject) {
+                    if (Object.hasOwnProperty.call(definedStopsObject, keyInFirebase)) {
+                        const stopData = definedStopsObject[keyInFirebase];
+                        let stopIDFromData = null;
+                        if (stopData && typeof stopData === 'object') {
+                            stopIDFromData = (stopData.stopID && typeof stopData.stopID === 'string')
+                                ? stopData.stopID.toUpperCase()
+                                : keyInFirebase.toUpperCase();
+
+                            newUniqueStopsArray.push({
+                                stopID: stopIDFromData,
+                                stopName: stopData.stopName || "Unknown Name",
+                                direction: stopData.direction || ""
+                            });
+                        }
+                    }
+                }
+            }
+
+            const seenStopIDs = new Set();
+            const finalProcessedStops = newUniqueStopsArray.filter(stop => {
+                if (!stop.stopID) return false;
+                if (seenStopIDs.has(stop.stopID)) {
+                    console.warn(`[ARRIVALS LISTENER] Duplicate stopID ${stop.stopID} found during processing FB_PATH_ALL_DEFINED_STOPS. Keeping first instance.`);
+                    return false;
+                }
+                seenStopIDs.add(stop.stopID);
+                return true;
+            });
+
+            finalProcessedStops.sort((a, b) => {
+                const nameA = (a.stopName || "").toLowerCase();
+                const nameB = (b.stopName || "").toLowerCase();
+                if (nameA < nameB) return -1;
+                if (nameA > nameB) return 1;
+                return (a.stopID || "").toLowerCase().localeCompare((b.stopID || "").toLowerCase());
+            });
+            
+            // Check if the list of unique stops actually changed before overwriting and re-rendering
+            // This prevents unnecessary re-renders if the data from Firebase hasn't changed.
+            const oldUniqueStopsContentJSON = JSON.stringify(uniqueStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})).sort((a,b) => a.id.localeCompare(b.id)));
+            const newUniqueStopsContentJSON = JSON.stringify(finalProcessedStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})).sort((a,b) => a.id.localeCompare(b.id)));
+
+
+            if (oldUniqueStopsContentJSON !== newUniqueStopsContentJSON) {
+                console.log("[ARRIVALS DEBUG] uniqueStops array has changed due to FB_PATH_ALL_DEFINED_STOPS listener. Updating.");
+                uniqueStops = finalProcessedStops; 
+
+                populateStopSelectionModal(); 
+
+                const previouslySelectedStopID = currentSelectedStopID; 
+                let newStopToSelect = null;
+
+                if (previouslySelectedStopID && uniqueStops.find(s => s && s.stopID === previouslySelectedStopID)) {
+                    newStopToSelect = previouslySelectedStopID;
+                } else if (uniqueStops.length > 0 && uniqueStops[0]?.stopID) {
+                    newStopToSelect = uniqueStops[0].stopID;
+                } else {
+                    currentSelectedStopID = null;
+                    if(busListElement) busListElement.innerHTML = `<li class="loading-message">No stops available to display.</li>`;
+                    const stopInfoArea = document.getElementById('stop-info-area');
+                    if (stopInfoArea) stopInfoArea.innerHTML = '';
+                    if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; }
+                    if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = '';
+                    previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null);
+                }
+
+                if (newStopToSelect) {
+                     // Always call selectStop if a stop is to be active,
+                     // to ensure its details are current even if it was the same ID as before.
+                    selectStop(newStopToSelect);
+                }
+            } else {
+                console.log("[ARRIVALS DEBUG] FB_PATH_ALL_DEFINED_STOPS listener: no change in uniqueStops content.");
+            }
+        });
+        // --- END OF MODIFIED SECTION ---
 
         const appStateRef = dbRef(database, FB_PATH_APPSTATE);
         dbOnValue(appStateRef, (snapshot) => {
+            // ... (rest of appStateRef listener remains the same)
             console.log("[ARRIVALS DEBUG] App state updated from Firebase.");
             if (snapshot.exists()) {
                 const appState = snapshot.val();
@@ -1028,21 +1375,24 @@
 
         const globalCustomColoursRef = dbRef(database, FB_PATH_SETTINGS_CUSTOM_COLOURS);
         dbOnValue(globalCustomColoursRef, (snapshot) => {
+            // ... (rest of globalCustomColoursRef listener remains the same)
             console.log("[ARRIVALS DEBUG] Global custom colours updated.");
             globalCustomRouteColours = { ...initialRouteColourMap };
             if (snapshot.exists()) { const fbCols = snapshot.val(); for (const r in fbCols) globalCustomRouteColours[r.toUpperCase()] = fbCols[r];}
-            if (currentSelectedStopID) selectStop(currentSelectedStopID);
+            if (currentSelectedStopID) selectStop(currentSelectedStopID); // Re-render tiles
         });
 
         const stopSpecificColoursRef = dbRef(database, FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS);
         dbOnValue(stopSpecificColoursRef, (snapshot) => {
+            // ... (rest of stopSpecificColoursRef listener remains the same)
             console.log("[ARRIVALS DEBUG] Stop-specific route colours updated.");
             stopSpecificRouteColours = snapshot.exists() ? snapshot.val() : {};
-            if (currentSelectedStopID) selectStop(currentSelectedStopID);
+            if (currentSelectedStopID) selectStop(currentSelectedStopID); // Re-render tiles
         });
 
         const customMessageRef = dbRef(database, FB_PATH_CUSTOM_STATUS_MESSAGE);
         dbOnValue(customMessageRef, (snapshot) => {
+            // ... (rest of customMessageRef listener remains the same)
             console.log("[ARRIVALS DEBUG] Custom status message settings updated.");
             if (snapshot.exists()) customMessageSettings = snapshot.val();
             else customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
@@ -1050,23 +1400,22 @@
             else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
         });
 
-        // Listener for Operational Overrides (NEW)
         const operationalOverridesRef = dbRef(database, FB_PATH_OPERATIONAL_OVERRIDES);
         dbOnValue(operationalOverridesRef, (snapshot) => {
+            // ... (rest of operationalOverridesRef listener remains the same)
             console.log("[ARRIVALS DEBUG] Operational overrides data updated from Firebase.");
             if (snapshot.exists()) {
                 globalOperationalOverrides = snapshot.val();
             } else {
-                globalOperationalOverrides = {}; // Clear local cache if node removed from Firebase
+                globalOperationalOverrides = {}; 
             }
-            // If a stop is currently selected, re-process its arrivals as the overrides might affect it
             if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
-                selectStop(currentSelectedStopID); // Re-evaluate everything for the current stop
+                selectStop(currentSelectedStopID); 
             } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
                 displaySystemUpdateMessage(); 
             }
         });
-         console.log("[ARRIVALS DEBUG] All Firebase listeners (including operational overrides) set up.");
+         console.log("[ARRIVALS DEBUG] All Firebase listeners (including new FB_PATH_ALL_DEFINED_STOPS) set up.");
     }
 
     function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID.toUpperCase()); li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }

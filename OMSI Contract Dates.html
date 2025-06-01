@@ -142,8 +142,8 @@
         #dataTable { width: 100%; border-collapse: collapse; margin-top: 10px; background: #fff; box-shadow: 0 4px 8px rgba(0,0,0,0.1); font-size: 14px; table-layout: auto; }
         #dataTable td { border: 1px solid #ddd; padding: 8px 10px; text-align: center; vertical-align: middle; word-break: normal; overflow-wrap: break-word; white-space: normal; }
         
-        /* Garages Table specific styling (UPDATED for alignment) */
-        .garages-display-table { /* Class for EACH operator's garage table */
+        /* Garages Table specific styling */
+        .garages-display-table {
             width: 100%; margin-top: 0;
             border: 1px solid #333;
             border-top: none;
@@ -151,30 +151,27 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 25px;
         }
-        .garages-display-table td { /* Default for all cells in this specific table */
+        .garages-display-table td {
             border: 1px solid #ddd;
             padding: 6px 8px;
-            text-align: center;       /* Default: Horizontal center */
-            vertical-align: middle;   /* Default: Vertical middle */
+            text-align: center;      
+            vertical-align: middle;  
             word-break: normal;      
             overflow-wrap: break-word;
             white-space: normal;
             font-weight: bold;
         }
-        /* Alignment overrides for specific columns in Garages Table */
         .garages-display-table td.garage-data-address,
         .garages-display-table td.garage-data-routes {
-            text-align: left;         /* Left align Address and Routes */
+            text-align: left;
         }
         
-        /* Specific column widths for the new garages table */
         .garages-display-table td.garage-data-code { width: 8%; font-weight: bold; }
         .garages-display-table td.garage-data-name { width: 17%; font-weight: bold;}
         .garages-display-table td.garage-data-address { width: 30%; }
         .garages-display-table td.garage-data-routes { width: 30%; line-height: 1.4; }
         .garages-display-table td.garage-data-actions { width: 15%; }
         
-        /* Styling for route items within the garages table routes cell */
         .garages-display-table .routes-cell-content div { margin-bottom: 1px; }
         .garages-display-table .routes-cell-content div:last-child { margin-bottom: 0; }
         .garages-display-table .routes-cell-content strong { margin-right: 5px; font-weight: bold;}
@@ -192,7 +189,6 @@
             padding: 10px !important;
         }
 
-
         thead th { /* For main Tenders table headers */
             background-color: #007bff; color: white; font-weight: bold; position: sticky; top: 50px; z-index: 999;
             text-align: center; vertical-align: middle; padding: 10px 5px; white-space: normal;
@@ -202,19 +198,18 @@
         tbody tr:hover { background-color: #f0f8ff; }
         .main-table-night-route { color: #007bff !important; font-weight: bold; }
 
-
         /* Action Buttons Styling */
         .actions button, #operatorListForManagement button, .garages-display-table .actions button, .action-button-like {
             margin-left: 5px; padding: 5px 8px; font-size: 0.85em;
             border-radius: 3px; border: 1px solid transparent; cursor: pointer;
         }
-         .action-button-like { padding: 10px 18px; font-size: 14px; margin-top: 10px; margin-bottom: 10px;}
+        .action-button-container { text-align: center; margin-bottom: 15px; margin-top: 10px;}
+        .action-button-like { padding: 10px 18px; font-size: 14px; margin-top: 10px; margin-bottom: 10px;}
         .edit-btn { background-color: #ffc107; color: #333; }
         .edit-btn:hover { background-color: #e0a800; }
         .delete-btn { background-color: #dc3545; color: white; }
         .delete-btn:hover { background-color: #c82333; }
         
-        /* Operator List Styling in Management View */
         #operatorListForManagement { list-style-type: none; padding: 0; }
         #operatorListForManagement li {
             padding: 10px; border-bottom: 1px solid #eee; display: flex;
@@ -222,14 +217,12 @@
             cursor: pointer;
         }
         #operatorListForManagement li:hover, #operatorListForManagement li.selected { background-color: #e9ecef; }
-         #operatorListForManagement li.selected { border-left: 5px solid #007bff; padding-left: 5px;}
+        #operatorListForManagement li.selected { border-left: 5px solid #007bff; padding-left: 5px;}
         .operator-name-display { flex-grow: 1; font-weight:bold;}
         
+        /* #generatePdfButton uses .action-button-like */
+        /* #generateGaragesPdfButton uses .action-button-like and inline style */
 
-        #generatePdfButton { background-color: #17a2b8; color:white; }
-        #generatePdfButton:hover { background-color: #138496; }
-
-        /* Excel Import Section */
         .import-container { margin-top: 20px; margin-bottom: 20px; padding: 20px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .import-container h3 { margin-top: 0; margin-bottom: 15px; color: #333; }
         .import-container p { font-size: 0.9em; color: #555; margin-bottom: 10px; }
@@ -362,6 +355,10 @@
         <div id="operatorGaragesView" class="view-section">
             <h2>Operators & Garages Management</h2>
             
+            <div class="action-button-container">
+                <button id="generateGaragesPdfButton" class="action-button-like" style="background-color: #17a2b8;">Export Garages to PDF</button>
+            </div>
+
             <div id="operatorsManagementSection" class="form-card">
                 <h3>Manage Operators</h3>
                 <div class="form-field">
@@ -434,9 +431,47 @@
         </div>
     </div>
 
+<script type="module">
+      // Firebase App initialization (content unchanged)
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+      import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+      import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // Replace with your actual Firebase API Key
+        authDomain: "omsi-c5505.firebaseapp.com", // Replace with your actual Firebase Auth Domain
+        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", // Replace with your actual Firebase Database URL
+        projectId: "omsi-c5505", // Replace with your actual Firebase Project ID
+        storageBucket: "omsi-c5505.appspot.com", // Replace with your actual Firebase Storage Bucket
+        messagingSenderId: "503595375440", // Replace with your actual Firebase Messaging Sender ID
+        appId: "1:503595375440:web:356be6684b77ff5909ea55", // Replace with your actual Firebase App ID
+        measurementId: "G-VN7X65V3F9" // Replace with your actual Firebase Measurement ID
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const database = getDatabase(app);
+      const auth = getAuth(app);
+
+      window.firebaseOMSI = {
+          database: database, auth: auth,
+          dbRef: ref, dbSet: set, dbOnValue: onValue, dbGet: get,
+          dbChild: child, dbUpdate: update, dbRemove: remove,
+          authOnAuthStateChanged: onAuthStateChanged,
+          authSignInWithEmailAndPassword: signInWithEmailAndPassword,
+          authSignOut: signOut
+      };
+      document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebaseOMSI }));
+    </script>
+
     <script>
         // --- Full JavaScript ---
         document.addEventListener('DOMContentLoaded', () => {
+            // Firebase service variables - will be populated when Firebase is ready
+            let fbDatabase, fbRef, fbSet, fbOnValue, fbGet, fbChild, fbUpdate, fbRemove;
+            let fbAuth; // Add other Firebase services if needed from your module
+
+            const dataRootPath = 'omsiContractsData'; // Central path for this app's data in Firebase
+
             // DOM Element selections
             const entryForm = document.getElementById('entryForm');
             const dataTableBody = document.getElementById('dataTableBody');
@@ -467,7 +502,6 @@
             const menuButtons = document.querySelectorAll('#topMenu .menu-button');
             const views = document.querySelectorAll('.view-section');
 
-            const operatorGaragesView = document.getElementById('operatorGaragesView');
             const manageOperatorNameInput = document.getElementById('manageOperatorNameInput');
             const addOperatorSystemButton = document.getElementById('addOperatorSystemButton');
             const updateOperatorSystemButton = document.getElementById('updateOperatorSystemButton');
@@ -478,7 +512,6 @@
             const showAddGarageFormButtonGlobal = document.getElementById('showAddGarageFormButtonGlobal');
             const addGarageForOperatorNameGlobalSpan = document.getElementById('addGarageForOperatorNameGlobal');
             const addGarageForSelectedOperatorSection = document.getElementById('addGarageForSelectedOperatorSection');
-
 
             const garageFormContainer = document.getElementById('garageFormContainer');
             const garageFormTitle = document.getElementById('garageFormTitle');
@@ -499,6 +532,7 @@
             const excelFileInput = document.getElementById('excelFileInput');
             const importExcelButton = document.getElementById('importExcelButton');
             const generatePdfButton = document.getElementById('generatePdfButton');
+            const generateGaragesPdfButton = document.getElementById('generateGaragesPdfButton');
 
             let entries = [];
             let routeList = [];
@@ -511,46 +545,215 @@
             let currentEditingGarageId = null;
 
             const ADD_NEW_VALUE = '__addNew__';
-            const ENTRIES_KEY = 'busAppData_entries';
-            const ROUTES_KEY = 'busAppData_routes';
-            const OPERATORS_KEY = 'busAppData_operators';
-            const OPERATOR_DETAILS_KEY = 'busAppData_operator_details';
+            // const ENTRIES_KEY = 'busAppData_entries'; // No longer using localStorage keys
+            // const ROUTES_KEY = 'busAppData_routes'; 
+            // const OPERATORS_KEY = 'busAppData_operators'; 
+            // const OPERATOR_DETAILS_KEY = 'busAppData_operator_details'; 
 
             const defaultRoutes = ['4', '9', '10', '11', '22', '34', '35', '37', '38', '40', '635', 'N35', '925', '1', '2', '3', '5'];
             const defaultOperators = ['Stagecoach', 'Arriva', 'First', 'Kelly Group', 'Metroline', 'Go-Ahead London', 'RATP Dev'];
 
+            // --- Firebase Initialization Logic ---
+            function initializeFirebaseDependentLogic() {
+                if (window.firebaseOMSI) {
+                    console.log("Firebase services accessed from window.firebaseOMSI");
+                    fbDatabase = window.firebaseOMSI.database;
+                    fbAuth = window.firebaseOMSI.auth;
+                    fbRef = window.firebaseOMSI.dbRef;
+                    fbSet = window.firebaseOMSI.dbSet;
+                    fbOnValue = window.firebaseOMSI.dbOnValue;
+                    fbGet = window.firebaseOMSI.dbGet;
+                    fbChild = window.firebaseOMSI.dbChild;
+                    fbUpdate = window.firebaseOMSI.dbUpdate;
+                    fbRemove = window.firebaseOMSI.dbRemove;
+
+                    loadDataFromFirebase(); // Load initial data from Firebase
+                } else {
+                    console.error("Firebase module (window.firebaseOMSI) not found. Ensure the Firebase initialization script runs before this application script.");
+                    alert("Error initializing Firebase. Application might not work correctly, falling back to local data if any.");
+                    // Fallback to localStorage or default data if Firebase isn't ready (optional)
+                    loadFromLocalStorage_fallback(); 
+                    initializeAppUI(); // Initialize UI with whatever data is available
+                }
+            }
+
+            document.addEventListener('firebaseReady', (event) => {
+                console.log('firebaseReady event received by OMSI Contracts app.');
+                initializeFirebaseDependentLogic();
+            });
+
+            if (window.firebaseOMSI && !fbDatabase) { 
+                console.log('window.firebaseOMSI found directly on script load, initializing Firebase logic.');
+                initializeFirebaseDependentLogic();
+            }
+            
             // --- Utility Functions ---
             function naturalSortComparator(a, b) { return new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare(a, b); }
             function formatDateForDisplay(dateString) { if (dateString === '-') return '-'; if (!dateString) return ''; try { const date = new Date(dateString + 'T00:00:00'); if (isNaN(date.getTime())) return dateString; const day = String(date.getDate()).padStart(2, '0'); const month = String(date.getMonth() + 1).padStart(2, '0'); const year = date.getFullYear(); return `${day}/${month}/${year}`; } catch (e) { return dateString; } }
             function stripHtml(html) { if (!html) return ""; let tmp = document.createElement("DIV"); tmp.innerHTML = html; return tmp.textContent || tmp.innerText || ""; }
             
-            // MODIFIED function:
             function parseRoutesToArray(routesString) {
                 return routesString ? routesString.trim().split(/\s+/).filter(r => r !== "") : [];
             }
 
-            // MODIFIED function:
             function formatRoutesToString(routesArray) {
                 return routesArray ? routesArray.join(' ') : "";
             }
 
-            // --- View Switching ---
+            // --- Data Loading from Firebase ---
+            function loadDataFromFirebase() {
+                console.log("Attempting to load all data from Firebase...");
+                if (!fbDatabase || !fbRef || !fbOnValue) {
+                    console.error("Firebase database functions not available for loading data.");
+                    alert("Cannot connect to database. Please check your connection or Firebase setup.");
+                    // Initialize with empty/default and then setup UI
+                    entries = []; routeList = [...defaultRoutes]; operatorList = [...defaultOperators];
+                    operatorDetails = operatorList.map(name => ({ operatorName: name, garages: [] }));
+                    initializeAppUI(); // Proceed with UI setup even if Firebase load fails initially
+                    return;
+                }
+
+                let initialLoadsPending = 4; // entries, routeList, operatorList, operatorDetails
+                function checkAllDataLoaded() {
+                    initialLoadsPending--;
+                    if (initialLoadsPending === 0) {
+                        console.log("All initial data loaded from Firebase (or defaults used). Initializing UI.");
+                        // Ensure operatorList is consistent with operatorDetails
+                        const namesFromDetails = operatorDetails.map(op => op.operatorName);
+                        operatorList = Array.from(new Set([...operatorList, ...namesFromDetails])).sort(naturalSortComparator);
+                        // Ensure all operators in operatorList have an entry in operatorDetails
+                        operatorList.forEach(opName => {
+                            if (!operatorDetails.find(od => od.operatorName === opName)) {
+                                operatorDetails.push({ operatorName: opName, garages: [] });
+                            }
+                        });
+                        operatorDetails.sort((a,b) => naturalSortComparator(a.operatorName, b.operatorName));
+
+                        initializeAppUI();
+                    }
+                }
+
+                // Load Entries (Tenders)
+                fbOnValue(fbRef(fbDatabase, `${dataRootPath}/entries`), (snapshot) => {
+                    const data = snapshot.val();
+                    entries = Array.isArray(data) ? data : (data ? Object.values(data) : []);
+                    entries = entries.map(entry => ({ // Reconstitute date objects
+                        ...entry,
+                        tenderAnnouncementDateObject: (entry.tenderAnnouncement && entry.serviceType !== 'Commercial' && entry.tenderAnnouncement !== '-') ? new Date(entry.tenderAnnouncement + 'T00:00:00') : new Date(""),
+                    }));
+                    console.log("Entries updated from Firebase:", entries.length);
+                    sortEntries(); 
+                    renderTable(); 
+                    checkAllDataLoaded();
+                }, (error) => {
+                    console.error("Firebase entries read failed:", error);
+                    entries = []; // Default to empty on error
+                    checkAllDataLoaded();
+                });
+
+                // Load Route List
+                fbOnValue(fbRef(fbDatabase, `${dataRootPath}/routeList`), (snapshot) => {
+                    const data = snapshot.val();
+                    routeList = Array.isArray(data) ? data : [...defaultRoutes];
+                    routeList.sort(naturalSortComparator);
+                    console.log("Route list updated from Firebase:", routeList.length);
+                    populateAllDropdowns(); // Update dropdowns that use routeList
+                    checkAllDataLoaded();
+                }, (error) => {
+                    console.error("Firebase routeList read failed:", error);
+                    routeList = [...defaultRoutes]; // Default on error
+                    checkAllDataLoaded();
+                });
+
+                // Load Operator List (this will be primary source for operator names)
+                fbOnValue(fbRef(fbDatabase, `${dataRootPath}/operatorList`), (snapshot) => {
+                    const data = snapshot.val();
+                    operatorList = Array.isArray(data) ? data : [...defaultOperators];
+                    operatorList.sort(naturalSortComparator);
+                    console.log("Operator list updated from Firebase:", operatorList.length);
+                    // Defer UI updates until operatorDetails also loaded or checkAllDataLoaded handles it
+                    checkAllDataLoaded();
+                }, (error) => {
+                    console.error("Firebase operatorList read failed:", error);
+                    operatorList = [...defaultOperators]; // Default on error
+                    checkAllDataLoaded();
+                });
+                
+                // Load Operator Details (includes garages)
+                fbOnValue(fbRef(fbDatabase, `${dataRootPath}/operatorDetails`), (snapshot) => {
+                    const data = snapshot.val();
+                    operatorDetails = Array.isArray(data) ? data : (data ? Object.values(data) : []);
+                    console.log("OperatorDetails updated from Firebase:", operatorDetails.length);
+                    // UI updates related to operatorDetails will be handled in checkAllDataLoaded
+                    checkAllDataLoaded();
+                }, (error) => {
+                    console.error("Firebase operatorDetails read failed:", error);
+                    // Initialize from operatorList if operatorDetails fails to load
+                    operatorDetails = operatorList.map(name => ({ operatorName: name, garages: [] }));
+                    checkAllDataLoaded();
+                });
+            }
+
+            // Fallback for when Firebase is not available during initial load
+            function loadFromLocalStorage_fallback() {
+                console.warn("Firebase not available, attempting to load from localStorage (read-only mode).");
+                // This is a simplified version, actual localStorage keys were removed.
+                // For a true fallback, you'd re-implement localStorage loading here.
+                // For now, just initialize with defaults.
+                entries = [];
+                routeList = [...defaultRoutes].sort(naturalSortComparator);
+                operatorList = [...defaultOperators].sort(naturalSortComparator);
+                operatorDetails = operatorList.map(name => ({ operatorName: name, garages: [] }));
+                alert("Could not connect to the database. Loaded default data or from a previous session (if available). Data saving will be disabled.");
+            }
+
+
+            // --- UI Initialization (called after data is ready) ---
+            function initializeAppUI() {
+                populateAllDropdowns();
+                updateFieldsForServiceType(); // Initial setup for form fields
+                renderTable(); // Render tenders table
+                renderOperatorListForManagement(); // Render operators list for management
+                renderAllOperatorsAndGarages(); // Render all garages display
+                switchView('dataEntriesView'); // Set initial view
+                console.log("Application UI Initialized with current data.");
+            }
+            
+            // --- App Initialization (called once DOM is ready) ---
+            function initializeApp_entryPoint() {
+                if (contractEndLabel) originalContractEndLabelHTML = contractEndLabel.innerHTML;
+                if (tenderAnnouncementLabel) originalTenderAnnouncementLabelHTML = tenderAnnouncementLabel.innerHTML;
+                if (previousOperatorLabel) originalPreviousOperatorLabelHTML = previousOperatorLabel.innerHTML;
+                
+                // Initial UI setup that doesn't depend on async data
+                updateFieldsForServiceType(); 
+                switchView('dataEntriesView');
+
+                // Firebase dependent logic (including data loading and subsequent UI rendering)
+                // is now triggered by the 'firebaseReady' event or the direct check.
+                // If Firebase isn't ready yet, loadDataFromFirebase will be called by the event listener.
+                // If it was already ready (e.g. firebase module script ran first), it would have been called by the direct check.
+            }
+            initializeApp_entryPoint();
+
+
+            // --- View Switching (remains the same) ---
             function switchView(viewId) {
                 views.forEach(view => { view.classList.remove('active'); if (view.id === viewId) { view.classList.add('active'); } });
                 menuButtons.forEach(button => { button.classList.remove('active'); if (button.dataset.viewid === viewId) { button.classList.add('active'); } });
                 
                 if (viewId === 'operatorGaragesView') {
-                    renderOperatorListForManagement();
-                    renderAllOperatorsAndGarages();
-                    garageFormContainer.style.display = 'none';
+                    renderOperatorListForManagement(); // These depend on data
+                    renderAllOperatorsAndGarages();   // These depend on data
+                    if(garageFormContainer) garageFormContainer.style.display = 'none';
                     if (operatorList.length > 0) {
-                        addGarageForSelectedOperatorSection.style.display = 'block';
+                        if(addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = 'block';
                         if (!selectedOperatorForGarageMgmt && operatorList.length > 0) {
                              selectedOperatorForGarageMgmt = operatorList[0];
                         }
                         if (addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = selectedOperatorForGarageMgmt ? selectedOperatorForGarageMgmt : (operatorList[0] || '');
                     } else {
-                        addGarageForSelectedOperatorSection.style.display = 'none';
+                        if(addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = 'none';
                     }
                 } else {
                     editingOperatorNameGlobal = null;
@@ -564,7 +767,7 @@
             }
             menuButtons.forEach(button => { button.addEventListener('click', () => { switchView(button.dataset.viewid); }); });
             
-            // --- Conditional Requirement & Display Logic for Tender Form ---
+            // --- Conditional Requirement & Display Logic for Tender Form (remains the same) ---
             function updateFieldsForServiceType() {
                 const isCommercial = serviceTypeSelect.value === 'Commercial';
                 tenderAnnouncementInput.required = !isCommercial;
@@ -625,46 +828,43 @@
                     operatingGarageSelect.required = false;
                 }
             }
-            successfulOperatorSelect.addEventListener('change', (e) => { handleAddNewOption(successfulOperatorSelect, newSuccessfulOperatorInput, operatorList, saveOperatorsToLocalStorage, true); populateOperatingGarageDropdown(e.target.value); updateFieldsForServiceType(); });
-            serviceTypeSelect.addEventListener('change', () => { updateFieldsForServiceType(); populateOperatingGarageDropdown(successfulOperatorSelect.value, operatingGarageSelect.value); });
-
-            function loadFromLocalStorage() {
-                const storedEntries = localStorage.getItem(ENTRIES_KEY);
-                let parsedEntries = storedEntries ? JSON.parse(storedEntries) : [];
-                entries = parsedEntries.map(entry => ({
-                    ...entry, serviceType: entry.serviceType || 'Tendered',
-                    tenderAnnouncementDateObject: (entry.tenderAnnouncement && entry.serviceType !== 'Commercial') ? new Date(entry.tenderAnnouncement + 'T00:00:00') : new Date(""),
-                    operatingGarageCode: entry.operatingGarageCode || ""
-                }));
-                const storedRoutes = localStorage.getItem(ROUTES_KEY);
-                routeList = storedRoutes ? JSON.parse(storedRoutes) : [...defaultRoutes];
-                routeList.sort(naturalSortComparator);
-                const storedOperators = localStorage.getItem(OPERATORS_KEY);
-                operatorList = storedOperators ? JSON.parse(storedOperators) : [...defaultOperators];
-                operatorList.sort(naturalSortComparator);
-                const storedOperatorDetails = localStorage.getItem(OPERATOR_DETAILS_KEY);
-                operatorDetails = storedOperatorDetails ? JSON.parse(storedOperatorDetails) : [];
-                if (operatorDetails.length === 0 && operatorList.length > 0) {
-                    operatorDetails = operatorList.map(name => ({ operatorName: name, garages: [] }));
-                } else if (operatorDetails.length > 0) {
-                     const namesFromDetails = operatorDetails.map(op => op.operatorName);
-                     operatorList = Array.from(new Set([...operatorList,...namesFromDetails])).sort(naturalSortComparator);
-                     operatorList.forEach(opName => {
-                        if (!operatorDetails.find(od => od.operatorName === opName)) {
-                            operatorDetails.push({ operatorName: opName, garages: []});
-                        }
-                    });
-                }
-                saveOperatorsToLocalStorage();
-                saveOperatorDetailsToLocalStorage();
+            if(successfulOperatorSelect) successfulOperatorSelect.addEventListener('change', (e) => { handleAddNewOption(successfulOperatorSelect, newSuccessfulOperatorInput, operatorList, saveOperatorListToFirebase, true); populateOperatingGarageDropdown(e.target.value); updateFieldsForServiceType(); });
+            if(serviceTypeSelect) serviceTypeSelect.addEventListener('change', () => { updateFieldsForServiceType(); populateOperatingGarageDropdown(successfulOperatorSelect.value, operatingGarageSelect.value); });
+            
+            // --- Firebase Save Functions Placeholder ---
+            function saveEntriesToFirebase() {
+                if (fbSet && fbRef && fbDatabase) {
+                    fbSet(fbRef(fbDatabase, `${dataRootPath}/entries`), entries)
+                        .catch(error => console.error("Error saving entries to Firebase: ", error));
+                } else { console.warn("Firebase not ready, cannot save entries."); }
             }
-
-            function saveEntriesToLocalStorage() { localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries)); }
-            function saveRoutesToLocalStorage() { localStorage.setItem(ROUTES_KEY, JSON.stringify(routeList.sort(naturalSortComparator))); }
-            function saveOperatorsToLocalStorage() { localStorage.setItem(OPERATORS_KEY, JSON.stringify(operatorList.sort(naturalSortComparator))); }
-            function saveOperatorDetailsToLocalStorage() { localStorage.setItem(OPERATOR_DETAILS_KEY, JSON.stringify(operatorDetails.sort((a,b) => naturalSortComparator(a.operatorName, b.operatorName))));}
+            function saveRouteListToFirebase() {
+                if (fbSet && fbRef && fbDatabase) {
+                    fbSet(fbRef(fbDatabase, `${dataRootPath}/routeList`), routeList)
+                        .catch(error => console.error("Error saving routeList to Firebase: ", error));
+                } else { console.warn("Firebase not ready, cannot save routeList."); }
+            }
+            function saveOperatorListToFirebase() { // Also saves operatorDetails if a new shell op was added
+                 if (fbSet && fbRef && fbDatabase) {
+                    Promise.all([
+                        fbSet(fbRef(fbDatabase, `${dataRootPath}/operatorList`), operatorList),
+                        fbSet(fbRef(fbDatabase, `${dataRootPath}/operatorDetails`), operatorDetails) // operatorDetails might be updated when a new operator is added
+                    ]).catch(error => console.error("Error saving operator data to Firebase: ", error));
+                } else { console.warn("Firebase not ready, cannot save operator data."); }
+            }
+            function saveOperatorDetailsToFirebase() {
+                if (fbSet && fbRef && fbDatabase) {
+                    // This also implies operatorList might need update if an operator name changed within details (though current logic changes operatorList first)
+                    Promise.all([
+                        fbSet(fbRef(fbDatabase, `${dataRootPath}/operatorDetails`), operatorDetails),
+                        fbSet(fbRef(fbDatabase, `${dataRootPath}/operatorList`), operatorList) // Save operatorList too for consistency
+                    ]).catch(error => console.error("Error saving operatorDetails to Firebase: ", error));
+                } else { console.warn("Firebase not ready, cannot save operatorDetails."); }
+            }
+            // End Firebase Save Functions Placeholder
 
             function populateSelectWithOptions(selectElement, list, includeAddNew = true, currentlySelectedValue = null) {
+                if (!selectElement) return;
                 const originalValue = currentlySelectedValue || selectElement.value;
                 selectElement.innerHTML = '<option value="">-- Select --</option>';
                 list.forEach(item => { const option = document.createElement('option'); option.value = option.textContent = item; selectElement.appendChild(option); });
@@ -677,18 +877,22 @@
                 populateSelectWithOptions(routeSelect, routeList, true);
                 populateSelectWithOptions(successfulOperatorSelect, operatorList, true);
                 populateSelectWithOptions(previousOperatorSelect, operatorList, false);
-                populateOperatingGarageDropdown(successfulOperatorSelect.value, operatingGarageSelect.value);
+                if (successfulOperatorSelect) { // Ensure it exists before trying to read value
+                    populateOperatingGarageDropdown(successfulOperatorSelect.value, operatingGarageSelect ? operatingGarageSelect.value : "");
+                } else {
+                     populateOperatingGarageDropdown("", operatingGarageSelect ? operatingGarageSelect.value : "");
+                }
             }
-            function handleAddNewOption(selectElement, newNameInput, listRef, saveFunc, isMainOpList = false) {
+            function handleAddNewOption(selectElement, newNameInput, listRef, saveListToFirebaseFunction, isMainOpList = false) {
                  if (selectElement.value === ADD_NEW_VALUE) {
                      newNameInput.style.display = 'block'; newNameInput.focus();
                 } else {
                     newNameInput.style.display = 'none'; newNameInput.value = '';
                 }
             }
-            routeSelect.addEventListener('change', () => handleAddNewOption(routeSelect, newRouteInput, routeList, saveRoutesToLocalStorage));
+            if(routeSelect) routeSelect.addEventListener('change', () => handleAddNewOption(routeSelect, newRouteInput, routeList, saveRouteListToFirebase));
             
-            function getSelectedItemValue(selectElement, newNameInput, list, saveFunction, isMainOperatorList = false) {
+            function getSelectedItemValue(selectElement, newNameInput, list, saveListToFirebaseFunction, isMainOperatorList = false) {
                 let selectedValue = selectElement.value;
                 const newName = newNameInput ? newNameInput.value.trim() : "";
                 if (selectElement.value === ADD_NEW_VALUE && newNameInput && newName !== '') {
@@ -696,23 +900,29 @@
                     if (!list.includes(selectedValue)) {
                         list.push(selectedValue);
                         list.sort(naturalSortComparator);
-                        saveFunction();
-                        if (isMainOperatorList) {
+                        saveListToFirebaseFunction(); // Save the updated list to Firebase
+                        
+                        if (isMainOperatorList) { // If a new operator was added to the main list
                              if (!operatorDetails.find(op => op.operatorName === selectedValue)) {
                                 operatorDetails.push({ operatorName: selectedValue, garages: [] });
-                                saveOperatorDetailsToLocalStorage();
+                                // saveOperatorDetailsToFirebase(); // Covered by saveOperatorListToFirebase if it saves both
                             }
-                            renderOperatorListForManagement();
+                            renderOperatorListForManagement(); 
                         }
-                        if (list === routeList) populateSelectWithOptions(routeSelect, routeList, true, selectedValue);
-                        if (list === operatorList) {
-                            populateSelectWithOptions(successfulOperatorSelect, operatorList, true, selectedValue);
-                            populateSelectWithOptions(previousOperatorSelect, operatorList, false, successfulOperatorSelect.value === selectedValue ? "" : previousOperatorSelect.value);
+                        
+                        // Repopulate relevant dropdowns
+                        if (selectElement.id === 'route') populateSelectWithOptions(routeSelect, routeList, true, selectedValue);
+                        if (selectElement.id === 'successfulOperator') {
+                             populateSelectWithOptions(successfulOperatorSelect, operatorList, true, selectedValue);
+                             populateOperatingGarageDropdown(selectedValue); 
+                        }
+                        if (selectElement.id === 'previousOperator') populateSelectWithOptions(previousOperatorSelect, operatorList, false, selectedValue);
+
+                        if (isMainOperatorList) { 
+                            populateSelectWithOptions(successfulOperatorSelect, operatorList, true, successfulOperatorSelect.value);
+                            populateSelectWithOptions(previousOperatorSelect, operatorList, false, previousOperatorSelect.value);
                         }
                          selectElement.value = selectedValue;
-                         if (isMainOperatorList && selectElement.id === 'successfulOperator') {
-                           populateOperatingGarageDropdown(selectedValue);
-                        }
                     }
                     newNameInput.value = ''; newNameInput.style.display = 'none';
                 } else if (selectElement.value === ADD_NEW_VALUE && (!newNameInput || newName === '')) {
@@ -721,22 +931,22 @@
                 return selectedValue === ADD_NEW_VALUE || selectedValue === "" ? "" : selectedValue;
             }
             
-            entryForm.addEventListener('submit', function(event) {
+            if(entryForm) entryForm.addEventListener('submit', function(event) {
                 if (!entryForm.checkValidity()) { return; }
                 event.preventDefault();
-                const routeValue = getSelectedItemValue(routeSelect, newRouteInput, routeList, saveRoutesToLocalStorage);
-                const successfulOperatorValue = getSelectedItemValue(successfulOperatorSelect, newSuccessfulOperatorInput, operatorList, saveOperatorsToLocalStorage, true);
+                const routeValue = getSelectedItemValue(routeSelect, newRouteInput, routeList, saveRouteListToFirebase);
+                const successfulOperatorValue = getSelectedItemValue(successfulOperatorSelect, newSuccessfulOperatorInput, operatorList, saveOperatorListToFirebase, true);
                 const operatingGarageCodeValue = operatingGarageSelect.value;
                 const currentServiceType = serviceTypeSelect.value;
                 let effectivePreviousOperator, effectiveContractEnd, effectiveTenderAnnouncement, effectiveTenderAnnouncementDateObject;
                 if (currentServiceType === 'Commercial') {
                     effectivePreviousOperator = ""; effectiveContractEnd = ""; effectiveTenderAnnouncement = "";
-                    effectiveTenderAnnouncementDateObject = new Date("");
+                    effectiveTenderAnnouncementDateObject = new Date(""); 
                 } else {
                     effectivePreviousOperator = previousOperatorSelect.value;
                     effectiveContractEnd = contractEndInput.value;
                     effectiveTenderAnnouncement = tenderAnnouncementInput.value;
-                    effectiveTenderAnnouncementDateObject = (effectiveTenderAnnouncement) ? new Date(effectiveTenderAnnouncement + 'T00:00:00') : new Date("");
+                    effectiveTenderAnnouncementDateObject = (effectiveTenderAnnouncement && effectiveTenderAnnouncement !== '-') ? new Date(effectiveTenderAnnouncement + 'T00:00:00') : new Date("");
                 }
                 const entryData = {
                     id: currentlyEditingIndex !== null ? entries[currentlyEditingIndex].id : Date.now() + Math.random(),
@@ -746,36 +956,53 @@
                     previousOperator: effectivePreviousOperator,
                     contractStart: document.getElementById('contractStart').value,
                     contractEnd: effectiveContractEnd, tenderAnnouncement: effectiveTenderAnnouncement,
-                    tenderAnnouncementDateObject: effectiveTenderAnnouncementDateObject,
+                    // tenderAnnouncementDateObject is not directly saved, it's derived on load
                     pvr: document.getElementById('pvr').value.trim(), vehicles: document.getElementById('vehicles').value.trim(),
                     notes: document.getElementById('notes').value.trim(),
                     runningNumbersDay: document.getElementById('runningNumbersDay').value.trim(),
                     runningNumbersNight: document.getElementById('runningNumbersNight').value.trim(),
                 };
+                // Remove tenderAnnouncementDateObject before saving to Firebase if it was added to entryData by mistake
+                delete entryData.tenderAnnouncementDateObject;
+
+
                 if (currentlyEditingIndex !== null) { entries[currentlyEditingIndex] = entryData; }
                 else { entries.push(entryData); }
-                sortEntries(); saveEntriesToLocalStorage(); renderTable(); resetForm();
+                
+                saveEntriesToFirebase(); // Save all entries to Firebase
+                // sortEntries(); renderTable(); // These will be triggered by fbOnValue for entries if setup correctly
+                resetForm();
             });
+
             function resetForm() {
-                entryForm.reset(); currentlyEditingIndex = null; submitButton.textContent = 'Add Entry';
+                if(entryForm) entryForm.reset(); 
+                currentlyEditingIndex = null; 
+                if(submitButton) submitButton.textContent = 'Add Entry';
                 [newRouteInput, newSuccessfulOperatorInput].forEach(input => { if (input) { input.style.display = 'none'; input.value = ''; } });
-                populateAllDropdowns();
-                routeSelect.value = ""; successfulOperatorSelect.value = ""; previousOperatorSelect.value = "";
-                serviceTypeSelect.value = "Tendered";
-                populateOperatingGarageDropdown("");
+                populateAllDropdowns(); 
+                if(routeSelect) routeSelect.value = ""; 
+                if(successfulOperatorSelect) successfulOperatorSelect.value = ""; 
+                if(previousOperatorSelect) previousOperatorSelect.value = ""; 
+                if(serviceTypeSelect) serviceTypeSelect.value = "Tendered"; 
+                populateOperatingGarageDropdown(""); 
                 updateFieldsForServiceType();
             }
             
             function sortEntries() {
-                entries.sort((a, b) => {
-                    const timeA = a.tenderAnnouncementDateObject.getTime();
-                    const timeB = b.tenderAnnouncementDateObject.getTime();
-                    const isACommercial = isNaN(timeA);
-                    const isBCommercial = isNaN(timeB);
-                    if (isACommercial && isBCommercial) { return naturalSortComparator(a.route, b.route); }
-                    else if (isACommercial) { return 1; }
-                    else if (isBCommercial) { return -1; }
-                    else { if (timeA < timeB) return -1; if (timeA > timeB) return 1; return naturalSortComparator(a.route, b.route); }
+                 entries.sort((a, b) => {
+                    const dateA = (a.tenderAnnouncement && a.serviceType !== 'Commercial' && a.tenderAnnouncement !== '-') ? new Date(a.tenderAnnouncement + 'T00:00:00') : null;
+                    const dateB = (b.tenderAnnouncement && b.serviceType !== 'Commercial' && b.tenderAnnouncement !== '-') ? new Date(b.tenderAnnouncement + 'T00:00:00') : null;
+                    const timeA = dateA && !isNaN(dateA) ? dateA.getTime() : Infinity;
+                    const timeB = dateB && !isNaN(dateB) ? dateB.getTime() : Infinity;
+                    
+                    if (timeA === Infinity && timeB !== Infinity) return 1; 
+                    if (timeA !== Infinity && timeB === Infinity) return -1; 
+                    if (timeA === Infinity && timeB === Infinity) { 
+                         return naturalSortComparator(a.route, b.route);
+                    }
+                    if (timeA < timeB) return -1;
+                    if (timeA > timeB) return 1;
+                    return naturalSortComparator(a.route, b.route);
                 });
             }
             
@@ -788,8 +1015,10 @@
                 return [];
             }
 
-            function renderTable() { // Renders the main Tenders table
-                dataTableBody.innerHTML = ''; sortEntries();
+            function renderTable() {
+                if(!dataTableBody) return;
+                dataTableBody.innerHTML = ''; 
+                // sortEntries() should have been called by the data loader or before this render
                 entries.forEach((entry, index) => {
                     const row = dataTableBody.insertRow();
                     const routeCell = row.insertCell();
@@ -823,31 +1052,46 @@
                 });
             }
             
-            function setSelectValue(selectElement, newItemInputElement, value, list, saveFunction, isMainOpList = false) { if (list.includes(value)) { selectElement.value = value; } else if (value && ADD_NEW_VALUE !== value) { if (isMainOpList || selectElement.id === 'route') { list.push(value); list.sort(naturalSortComparator); saveFunction(); populateAllDropdowns(); } selectElement.value = value; } else { selectElement.value = ""; } if (newItemInputElement) { newItemInputElement.style.display = 'none'; newItemInputElement.value = ''; } }
-            function loadEntryForEdit(index) {
-                const entry = entries[index]; currentlyEditingIndex = index;
-                serviceTypeSelect.value = entry.serviceType || 'Tendered';
-                successfulOperatorSelect.value = entry.successfulOperator || "";
-                populateOperatingGarageDropdown(entry.successfulOperator, entry.operatingGarageCode || "");
-                updateFieldsForServiceType();
-                setSelectValue(routeSelect, newRouteInput, entry.route, routeList, saveRoutesToLocalStorage);
-                if (entry.serviceType !== 'Commercial') {
-                    setSelectValue(previousOperatorSelect, null, entry.previousOperator, operatorList, saveOperatorsToLocalStorage, true);
-                    contractEndInput.value = entry.contractEnd;
-                    tenderAnnouncementInput.value = entry.tenderAnnouncement;
-                }
-                document.getElementById('contractStart').value = entry.contractStart;
-                document.getElementById('pvr').value = entry.pvr;
-                document.getElementById('vehicles').value = entry.vehicles;
-                document.getElementById('notes').value = entry.notes;
-                document.getElementById('runningNumbersDay').value = entry.runningNumbersDay;
-                document.getElementById('runningNumbersNight').value = entry.runningNumbersNight;
-                submitButton.textContent = 'Update Entry'; window.scrollTo(0, 0);
-            }
-            function deleteEntry(index) { if (confirm('Are you sure you want to delete this tender entry?')) { entries.splice(index, 1); saveEntriesToLocalStorage(); renderTable(); } }
+            function setSelectValue(selectElement, newItemInputElement, value, list, saveListToFirebaseFunction, isMainOpList = false) { if(!selectElement) return; if (list.includes(value)) { selectElement.value = value; } else if (value && ADD_NEW_VALUE !== value) { if (isMainOpList || selectElement.id === 'route') { list.push(value); list.sort(naturalSortComparator); saveListToFirebaseFunction(); populateAllDropdowns(); } selectElement.value = value; } else { selectElement.value = ""; } if (newItemInputElement) { newItemInputElement.style.display = 'none'; newItemInputElement.value = ''; } }
             
-            // --- Operator & Garage Management Logic ---
+            function loadEntryForEdit(index) {
+                const entry = entries[index]; 
+                if (!entry) { console.error("Entry not found for editing at index:", index); return; }
+                currentlyEditingIndex = index;
+                if(serviceTypeSelect) serviceTypeSelect.value = entry.serviceType || 'Tendered';
+                updateFieldsForServiceType(); 
+                
+                setSelectValue(routeSelect, newRouteInput, entry.route, routeList, saveRouteListToFirebase);
+                setSelectValue(successfulOperatorSelect, newSuccessfulOperatorInput, entry.successfulOperator, operatorList, saveOperatorListToFirebase, true);
+                populateOperatingGarageDropdown(entry.successfulOperator, entry.operatingGarageCode || "");
+                
+                if (entry.serviceType !== 'Commercial') {
+                    setSelectValue(previousOperatorSelect, null, entry.previousOperator, operatorList, saveOperatorListToFirebase, true);
+                    if(contractEndInput) contractEndInput.value = entry.contractEnd;
+                    if(tenderAnnouncementInput) tenderAnnouncementInput.value = entry.tenderAnnouncement;
+                } else { 
+                    if(previousOperatorSelect) previousOperatorSelect.value = "";
+                }
+                if(document.getElementById('contractStart')) document.getElementById('contractStart').value = entry.contractStart;
+                if(document.getElementById('pvr')) document.getElementById('pvr').value = entry.pvr;
+                if(document.getElementById('vehicles')) document.getElementById('vehicles').value = entry.vehicles;
+                if(document.getElementById('notes')) document.getElementById('notes').value = entry.notes;
+                if(document.getElementById('runningNumbersDay')) document.getElementById('runningNumbersDay').value = entry.runningNumbersDay;
+                if(document.getElementById('runningNumbersNight')) document.getElementById('runningNumbersNight').value = entry.runningNumbersNight;
+                if(submitButton) submitButton.textContent = 'Update Entry'; 
+                window.scrollTo(0, 0);
+            }
+
+            function deleteEntry(index) { 
+                if (confirm('Are you sure you want to delete this tender entry?')) { 
+                    entries.splice(index, 1); 
+                    saveEntriesToFirebase(); // Save updated entries array to Firebase
+                    // renderTable(); // UI will update via fbOnValue listener for entries
+                } 
+            }
+            
             function renderOperatorListForManagement() {
+                if (!operatorListForManagementUL) return;
                 operatorListForManagementUL.innerHTML = '';
                 operatorList.forEach(opName => {
                     const li = document.createElement('li');
@@ -857,8 +1101,8 @@
                         selectedOperatorForGarageMgmt = opName;
                         if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = opName;
                         if(addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = 'block';
-                        renderOperatorListForManagement();
-                        garageFormContainer.style.display = 'none';
+                        renderOperatorListForManagement(); // Re-render to show selection
+                        if(garageFormContainer) garageFormContainer.style.display = 'none';
                     });
                     li.appendChild(nameSpan);
                     const actionsDiv = document.createElement('div'); actionsDiv.classList.add('actions');
@@ -871,12 +1115,109 @@
                     operatorListForManagementUL.appendChild(li);
                 });
             }
-            addOperatorSystemButton.addEventListener('click', () => { const newOpName = manageOperatorNameInput.value.trim(); if (newOpName && !operatorList.includes(newOpName)) { operatorList.push(newOpName); saveOperatorsToLocalStorage(); operatorDetails.push({ operatorName: newOpName, garages: [] }); saveOperatorDetailsToLocalStorage(); manageOperatorNameInput.value = ''; renderOperatorListForManagement(); populateAllDropdowns(); renderAllOperatorsAndGarages(); alert(`Operator "${newOpName}" added.`); } else if (operatorList.includes(newOpName)) { alert('Operator name already exists.'); } else { alert('Please enter an operator name.'); } });
-            function loadOperatorForEdit(opName) { editingOperatorNameGlobal = opName; manageOperatorNameInput.value = opName; addOperatorSystemButton.style.display = 'none'; updateOperatorSystemButton.style.display = 'inline-block'; cancelOperatorSystemEditButton.style.display = 'inline-block'; }
-            updateOperatorSystemButton.addEventListener('click', () => { const updatedOpName = manageOperatorNameInput.value.trim(); if (!updatedOpName) { alert("Operator name cannot be empty."); return; } if (updatedOpName !== editingOperatorNameGlobal && operatorList.includes(updatedOpName)) { alert("Another operator with this name already exists."); return; } const oldOpName = editingOperatorNameGlobal; const opListIndex = operatorList.indexOf(oldOpName); if (opListIndex > -1) { operatorList[opListIndex] = updatedOpName; saveOperatorsToLocalStorage(); } const opDetail = operatorDetails.find(op => op.operatorName === oldOpName); if (opDetail) { opDetail.operatorName = updatedOpName; saveOperatorDetailsToLocalStorage(); } entries.forEach(entry => { if (entry.successfulOperator === oldOpName) entry.successfulOperator = updatedOpName; if (entry.previousOperator === oldOpName) entry.previousOperator = updatedOpName; }); saveEntriesToLocalStorage(); renderTable(); alert(`Operator "${oldOpName}" updated to "${updatedOpName}".`); cancelOperatorSystemEdit(); renderOperatorListForManagement(); populateAllDropdowns(); renderAllOperatorsAndGarages(); if(selectedOperatorForGarageMgmt === oldOpName){ selectedOperatorForGarageMgmt = updatedOpName; if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = updatedOpName; } });
-            cancelOperatorSystemEditButton.addEventListener('click', cancelOperatorSystemEdit);
-            function cancelOperatorSystemEdit() { editingOperatorNameGlobal = null; manageOperatorNameInput.value = ''; addOperatorSystemButton.style.display = 'inline-block'; updateOperatorSystemButton.style.display = 'none'; cancelOperatorSystemEditButton.style.display = 'none'; }
-            function deleteOperatorSystem(opName) { if (!confirm(`Are you sure you want to delete operator "${opName}" and ALL their associated garages and routes? This cannot be undone.`)) return; operatorList = operatorList.filter(op => op !== opName); saveOperatorsToLocalStorage(); operatorDetails = operatorDetails.filter(op => op.operatorName !== opName); saveOperatorDetailsToLocalStorage(); let tendersUpdated = false; entries.forEach(entry => { if (entry.successfulOperator === opName) { entry.successfulOperator = ""; entry.operatingGarageCode = ""; tendersUpdated = true; } if (entry.previousOperator === opName) { entry.previousOperator = ""; tendersUpdated = true;} }); if(tendersUpdated) { saveEntriesToLocalStorage(); renderTable(); } renderOperatorListForManagement(); populateAllDropdowns(); if (selectedOperatorForGarageMgmt === opName) { selectedOperatorForGarageMgmt = null; if (addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = (operatorList.length > 0 ? 'block' : 'none'); if (operatorList.length > 0) { selectedOperatorForGarageMgmt = operatorList[0]; if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = selectedOperatorForGarageMgmt; } } renderAllOperatorsAndGarages(); alert(`Operator "${opName}" and all associated data deleted.`); }
+
+            if(addOperatorSystemButton) addOperatorSystemButton.addEventListener('click', () => { 
+                const newOpName = manageOperatorNameInput.value.trim(); 
+                if (newOpName && !operatorList.includes(newOpName)) { 
+                    operatorList.push(newOpName); 
+                    operatorList.sort(naturalSortComparator); 
+                    if (!operatorDetails.find(op => op.operatorName === newOpName)) {
+                        operatorDetails.push({ operatorName: newOpName, garages: [] });
+                        operatorDetails.sort((a,b) => naturalSortComparator(a.operatorName, b.operatorName));
+                    }
+                    saveOperatorListToFirebase(); // This will save both operatorList and operatorDetails
+                    manageOperatorNameInput.value = ''; 
+                    // renderOperatorListForManagement(); populateAllDropdowns(); renderAllOperatorsAndGarages(); // UI updates via fbOnValue
+                    alert(`Operator "${newOpName}" added.`); 
+                } else if (operatorList.includes(newOpName)) { 
+                    alert('Operator name already exists.'); 
+                } else { 
+                    alert('Please enter an operator name.'); 
+                } 
+            });
+
+            function loadOperatorForEdit(opName) { 
+                editingOperatorNameGlobal = opName; 
+                if(manageOperatorNameInput) manageOperatorNameInput.value = opName; 
+                if(addOperatorSystemButton) addOperatorSystemButton.style.display = 'none'; 
+                if(updateOperatorSystemButton) updateOperatorSystemButton.style.display = 'inline-block'; 
+                if(cancelOperatorSystemEditButton) cancelOperatorSystemEditButton.style.display = 'inline-block'; 
+            }
+
+            if(updateOperatorSystemButton) updateOperatorSystemButton.addEventListener('click', () => { 
+                const updatedOpName = manageOperatorNameInput.value.trim(); 
+                if (!updatedOpName) { alert("Operator name cannot be empty."); return; } 
+                if (updatedOpName !== editingOperatorNameGlobal && operatorList.includes(updatedOpName)) { alert("Another operator with this name already exists."); return; } 
+                
+                const oldOpName = editingOperatorNameGlobal;
+                const opListIndex = operatorList.indexOf(oldOpName); 
+                if (opListIndex > -1) { 
+                    operatorList[opListIndex] = updatedOpName; 
+                    operatorList.sort(naturalSortComparator); 
+                } 
+                const opDetail = operatorDetails.find(op => op.operatorName === oldOpName); 
+                if (opDetail) { 
+                    opDetail.operatorName = updatedOpName; 
+                    // operatorDetails array is already modified in place, sort it before saving
+                    operatorDetails.sort((a,b) => naturalSortComparator(a.operatorName, b.operatorName));
+                } 
+                // Update operator name in tender entries
+                entries.forEach(entry => { 
+                    if (entry.successfulOperator === oldOpName) entry.successfulOperator = updatedOpName; 
+                    if (entry.previousOperator === oldOpName) entry.previousOperator = updatedOpName; 
+                }); 
+                
+                saveOperatorListToFirebase(); // Saves both operatorList and operatorDetails
+                saveEntriesToFirebase(); // Save updated entries
+
+                alert(`Operator "${oldOpName}" updated to "${updatedOpName}".`); 
+                cancelOperatorSystemEdit(); 
+                if(selectedOperatorForGarageMgmt === oldOpName){ 
+                    selectedOperatorForGarageMgmt = updatedOpName; 
+                    if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = updatedOpName; 
+                }
+                // UI will update via fbOnValue listeners
+            });
+
+            if(cancelOperatorSystemEditButton) cancelOperatorSystemEditButton.addEventListener('click', cancelOperatorSystemEdit);
+            function cancelOperatorSystemEdit() { 
+                editingOperatorNameGlobal = null; 
+                if(manageOperatorNameInput) manageOperatorNameInput.value = ''; 
+                if(addOperatorSystemButton) addOperatorSystemButton.style.display = 'inline-block'; 
+                if(updateOperatorSystemButton) updateOperatorSystemButton.style.display = 'none'; 
+                if(cancelOperatorSystemEditButton) cancelOperatorSystemEditButton.style.display = 'none'; 
+            }
+
+            function deleteOperatorSystem(opName) { 
+                if (!confirm(`Are you sure you want to delete operator "${opName}" and ALL their associated garages and routes? This cannot be undone.`)) return; 
+                
+                operatorList = operatorList.filter(op => op !== opName); 
+                operatorDetails = operatorDetails.filter(op => op.operatorName !== opName); 
+                
+                let tendersUpdated = false; 
+                entries.forEach(entry => { 
+                    if (entry.successfulOperator === opName) { entry.successfulOperator = ""; entry.operatingGarageCode = ""; tendersUpdated = true; } 
+                    if (entry.previousOperator === opName) { entry.previousOperator = ""; tendersUpdated = true;} 
+                }); 
+                
+                saveOperatorListToFirebase(); // Saves updated operatorList and operatorDetails
+                if(tendersUpdated) { 
+                    saveEntriesToFirebase(); 
+                } 
+                
+                if (selectedOperatorForGarageMgmt === opName) { 
+                    selectedOperatorForGarageMgmt = null; 
+                    if (addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = (operatorList.length > 0 ? 'block' : 'none'); 
+                    if (operatorList.length > 0) { 
+                        selectedOperatorForGarageMgmt = operatorList[0]; 
+                        if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = selectedOperatorForGarageMgmt; 
+                    } else { 
+                        if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = '[Select Op Above]';
+                    } 
+                } 
+                alert(`Operator "${opName}" and all associated data deleted.`);
+                // UI updates via fbOnValue
+            }
             
             if(showAddGarageFormButtonGlobal) {
                 showAddGarageFormButtonGlobal.addEventListener('click', () => {
@@ -885,22 +1226,31 @@
                         if (operatorList.length > 0 && manageOperatorNameInput) { manageOperatorNameInput.focus(); }
                         return;
                     }
-                    garageFormTitle.textContent = `Add New Garage for ${selectedOperatorForGarageMgmt}`;
-                    currentEditingGarageId = null; editingGarageIdInput.value = "";
-                    currentOperatorForGarageFormInput.value = selectedOperatorForGarageMgmt;
-                    garageCodeInput.value = ""; garageNameInput.value = ""; garageAddressInput.value = "";
-                    garageStandardRoutesInput.value = ""; garageNightRoutesInput.value = ""; garageSchoolRoutesInput.value = "";
-                    garageOtherRoutesInput.value = ""; garageMobilityRoutesInput.value = ""; garageRailReplacementRoutesInput.value = "";
-                    garageFormContainer.style.display = 'block';
+                    if(garageFormTitle) garageFormTitle.textContent = `Add New Garage for ${selectedOperatorForGarageMgmt}`;
+                    currentEditingGarageId = null; 
+                    if(editingGarageIdInput) editingGarageIdInput.value = "";
+                    if(currentOperatorForGarageFormInput) currentOperatorForGarageFormInput.value = selectedOperatorForGarageMgmt;
+                    if(garageCodeInput) garageCodeInput.value = ""; 
+                    if(garageNameInput) garageNameInput.value = ""; 
+                    if(garageAddressInput) garageAddressInput.value = "";
+                    if(garageStandardRoutesInput) garageStandardRoutesInput.value = ""; 
+                    if(garageNightRoutesInput) garageNightRoutesInput.value = ""; 
+                    if(garageSchoolRoutesInput) garageSchoolRoutesInput.value = "";
+                    if(garageOtherRoutesInput) garageOtherRoutesInput.value = ""; 
+                    if(garageMobilityRoutesInput) garageMobilityRoutesInput.value = ""; 
+                    if(garageRailReplacementRoutesInput) garageRailReplacementRoutesInput.value = "";
+                    if(garageFormContainer) garageFormContainer.style.display = 'block';
                 });
             }
 
-            cancelGarageFormButton.addEventListener('click', () => { garageFormContainer.style.display = 'none'; currentEditingGarageId = null; });
+            if(cancelGarageFormButton) cancelGarageFormButton.addEventListener('click', () => { 
+                if(garageFormContainer) garageFormContainer.style.display = 'none'; 
+                currentEditingGarageId = null; 
+                if(editingGarageIdInput) editingGarageIdInput.value = ""; 
+            });
             
-            // MODIFIED saveGarageButton listener
-            saveGarageButton.addEventListener('click', () => {
+            if(saveGarageButton) saveGarageButton.addEventListener('click', () => {
                 const operatorName = currentOperatorForGarageFormInput.value;
-                // Use parseFloat for ID consistency if currentEditingGarageId is set
                 const garageId = currentEditingGarageId ? parseFloat(editingGarageIdInput.value) : Date.now() + Math.random();
                 const code = garageCodeInput.value.trim().toUpperCase();
                 const name = garageNameInput.value.trim();
@@ -916,42 +1266,41 @@
                     railReplacementRoutes: parseRoutesToArray(garageRailReplacementRoutesInput.value)
                 };
                 const operatorDetail = operatorDetails.find(op => op.operatorName === operatorName);
-                if (!operatorDetail) { alert("Operator not found."); return; }
+                if (!operatorDetail) { alert("Operator not found for garage saving."); return; }
                 if (!operatorDetail.garages) operatorDetail.garages = [];
 
-                if (currentEditingGarageId) { // Editing existing garage
-                    const garageIndex = operatorDetail.garages.findIndex(g => g.id === garageId); // Compare float with float
+                if (currentEditingGarageId) {
+                    const garageIndex = operatorDetail.garages.findIndex(g => g.id === garageId);
                     if (garageIndex > -1) {
                         if (operatorDetail.garages.some(g => g.code === code && g.id !== garageId)) {
                             alert(`Garage Code "${code}" already exists for this operator.`); return;
                         }
                         operatorDetail.garages[garageIndex] = garageData;
                     } else {
-                        // This case should ideally not happen if currentEditingGarageId is valid and IDs match
-                        console.warn("Error finding garage to update. Appending as new. Garage ID:", garageId);
-                         if (operatorDetail.garages.some(g => g.code === code)) { // Check code conflict before adding as new
-                            alert(`Garage Code "${code}" already exists for this operator.`); return;
-                        }
-                        operatorDetail.garages.push(garageData); // Fallback or error
+                        console.error("Error: Could not find garage to update. ID:", garageId, "Current Operator Garages:", operatorDetail.garages);
+                        alert("Error: Could not find the garage to update. Please try again or re-select.");
+                        return; 
                     }
-                } else { // Adding new garage
+                } else {
                     if (operatorDetail.garages.some(g => g.code === code)) {
                         alert(`Garage Code "${code}" already exists for this operator.`); return;
                     }
                     operatorDetail.garages.push(garageData);
                 }
-                saveOperatorDetailsToLocalStorage();
-                renderAllOperatorsAndGarages();
-                garageFormContainer.style.display = 'none';
+                saveOperatorDetailsToFirebase(); // Saves the entire operatorDetails array (which includes this change)
+                
+                // UI updates for garage display and potentially tender table will be handled by fbOnValue listeners for operatorDetails
+                if(garageFormContainer) garageFormContainer.style.display = 'none';
                 currentEditingGarageId = null;
-                editingGarageIdInput.value = ""; // Clear hidden input
-                renderTable(); // To update main tenders table if night routes changed affecting highlighting
+                if(editingGarageIdInput) editingGarageIdInput.value = "";
             });
             
-            // MODIFIED renderAllOperatorsAndGarages function
             function renderAllOperatorsAndGarages() {
+                if (!allOperatorsGaragesDisplayDiv) return;
                 allOperatorsGaragesDisplayDiv.innerHTML = '';
-                operatorDetails.forEach(operatorDetail => {
+                const sortedOperators = [...operatorDetails].sort((a,b) => naturalSortComparator(a.operatorName, b.operatorName));
+
+                sortedOperators.forEach(operatorDetail => {
                     const operatorHeaderDiv = document.createElement('div');
                     operatorHeaderDiv.classList.add('operator-header-strip');
                     operatorHeaderDiv.textContent = operatorDetail.operatorName.toUpperCase();
@@ -982,7 +1331,7 @@
                                     }
                                     stdDiv.appendChild(routeSpan);
                                     if (index < garage.standardRoutes.length - 1) {
-                                        stdDiv.appendChild(document.createTextNode(' ')); // Use space as separator
+                                        stdDiv.appendChild(document.createTextNode(' ')); 
                                     }
                                 });
                                 routesCellContent.appendChild(stdDiv);
@@ -1005,7 +1354,7 @@
                                         else routeSpan.classList.add('route-item');
                                         catDiv.appendChild(routeSpan);
                                         if (index < routesArray.length - 1) {
-                                            catDiv.appendChild(document.createTextNode(' ')); // Use space as separator
+                                            catDiv.appendChild(document.createTextNode(' ')); 
                                         }
                                     });
                                     routesCellContent.appendChild(catDiv);
@@ -1033,32 +1382,314 @@
                 });
             }
             
-            window.loadGarageForEdit = (opName, garageId) => { const operatorDetail = operatorDetails.find(op => op.operatorName === opName); const garage = operatorDetail ? operatorDetail.garages.find(g => g.id === garageId) : null; if (garage) { garageFormTitle.textContent = `Edit Garage: ${garage.name} (${garage.code}) for ${opName}`; currentEditingGarageId = garage.id; editingGarageIdInput.value = garage.id; currentOperatorForGarageFormInput.value = opName; garageCodeInput.value = garage.code; garageNameInput.value = garage.name; garageAddressInput.value = garage.address || ""; garageStandardRoutesInput.value = formatRoutesToString(garage.standardRoutes); garageNightRoutesInput.value = formatRoutesToString(garage.nightRoutes); garageSchoolRoutesInput.value = formatRoutesToString(garage.schoolRoutes); garageOtherRoutesInput.value = formatRoutesToString(garage.otherRoutes); garageMobilityRoutesInput.value = formatRoutesToString(garage.mobilityRoutes); garageRailReplacementRoutesInput.value = formatRoutesToString(garage.railReplacementRoutes); garageFormContainer.style.display = 'block'; garageFormContainer.scrollIntoView({behavior: "smooth"}); } };
-            window.deleteGarage = (opName, garageId) => { if (!confirm("Are you sure you want to delete this garage and all its associated routes?")) return; const operatorDetail = operatorDetails.find(op => op.operatorName === opName); if (operatorDetail) { operatorDetail.garages = operatorDetail.garages.filter(g => g.id !== garageId); saveOperatorDetailsToLocalStorage(); renderAllOperatorsAndGarages(); renderTable(); } };
+            window.loadGarageForEdit = (opName, garageId) => { const operatorDetail = operatorDetails.find(op => op.operatorName === opName); if (!operatorDetail) { console.error("Operator not found for loading garage for edit:", opName); return; } const garage = operatorDetail.garages.find(g => g.id === garageId); if (garage) { if(garageFormTitle) garageFormTitle.textContent = `Edit Garage: ${garage.name} (${garage.code}) for ${opName}`; currentEditingGarageId = garage.id; if(editingGarageIdInput) editingGarageIdInput.value = String(garage.id); if(currentOperatorForGarageFormInput) currentOperatorForGarageFormInput.value = opName; if(garageCodeInput) garageCodeInput.value = garage.code; if(garageNameInput) garageNameInput.value = garage.name; if(garageAddressInput) garageAddressInput.value = garage.address || ""; if(garageStandardRoutesInput) garageStandardRoutesInput.value = formatRoutesToString(garage.standardRoutes); if(garageNightRoutesInput) garageNightRoutesInput.value = formatRoutesToString(garage.nightRoutes); if(garageSchoolRoutesInput) garageSchoolRoutesInput.value = formatRoutesToString(garage.schoolRoutes); if(garageOtherRoutesInput) garageOtherRoutesInput.value = formatRoutesToString(garage.otherRoutes); if(garageMobilityRoutesInput) garageMobilityRoutesInput.value = formatRoutesToString(garage.mobilityRoutes); if(garageRailReplacementRoutesInput) garageRailReplacementRoutesInput.value = formatRoutesToString(garage.railReplacementRoutes); if(garageFormContainer) { garageFormContainer.style.display = 'block'; garageFormContainer.scrollIntoView({behavior: "smooth"});} } else { console.error("Garage not found for edit. Operator:", opName, "Garage ID:", garageId); } };
+            
+            window.deleteGarage = (opName, garageId) => { 
+                if (!confirm("Are you sure you want to delete this garage and all its associated routes?")) return; 
+                const operatorDetail = operatorDetails.find(op => op.operatorName === opName); 
+                if (operatorDetail) { 
+                    operatorDetail.garages = operatorDetail.garages.filter(g => g.id !== garageId); 
+                    saveOperatorDetailsToFirebase(); // Save the updated operatorDetails to Firebase
+                    // renderAllOperatorsAndGarages(); renderTable(); // UI updates via fbOnValue
+                } 
+            };
 
-            // Excel Import Logic
-            if (importExcelButton) { importExcelButton.addEventListener('click', () => { if (excelFileInput.files.length === 0) { alert('Please select an Excel file first.'); return; } const file = excelFileInput.files[0]; const reader = new FileReader(); reader.onload = function(event) { try { const data = event.target.result; const workbook = XLSX.read(data, { type: 'binary', cellDates: true }); const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName]; const jsonData = XLSX.utils.sheet_to_json(worksheet); if (jsonData.length === 0) { alert('The Excel sheet is empty or could not be read.'); excelFileInput.value = ""; return; } if (!confirm("Importing this file will overwrite ALL existing tender entries, routes, and operators. This cannot be undone. Are you sure you want to proceed?")) { excelFileInput.value = ""; return; } entries = []; routeList = []; operatorList = []; operatorDetails = []; processImportedData(jsonData); } catch (error) { console.error("Error processing Excel file:", error); alert('Error processing Excel file. Ensure it is a valid .xlsx, .xls, or .csv file and the format/headers are correct.\n' + error.message); } finally { excelFileInput.value = ""; } }; reader.onerror = function(error) { console.error("FileReader error:", error); alert('Error reading file.'); excelFileInput.value = ""; }; reader.readAsBinaryString(file); }); }
-            function processImportedData(importedRows) { let newEntriesCount = 0; let uniqueRoutesFromExcel = new Set(); let uniqueOperatorsFromExcel = new Set(); const getVal = (r, keys) => { for (const key of keys) { const rowKey = Object.keys(r).find(k => k.toLowerCase().replace(/\s+/g, '') === key.toLowerCase().replace(/\s+/g, '')); if (rowKey && r[rowKey] !== undefined) return r[rowKey]; } return undefined; }; function excelDateToYYYYMMDD(excelDateCell) { if (!excelDateCell) return ""; if (excelDateCell instanceof Date) { const year = excelDateCell.getFullYear(); const month = String(excelDateCell.getMonth() + 1).padStart(2, '0'); const day = String(excelDateCell.getDate()).padStart(2, '0'); if (isNaN(year) || isNaN(month) || isNaN(day)) return ""; return `${year}-${month}-${day}`; } if (typeof excelDateCell === 'number') { console.warn("Numeric date from Excel:", excelDateCell); return String(excelDateCell); } if (typeof excelDateCell === 'string') { if (excelDateCell.match(/^\d{4}-\d{2}-\d{2}$/)) return excelDateCell; const parts = excelDateCell.split(/[\/\-.]/); if (parts.length === 3) { let day = parts[0], month = parts[1], year = parts[2]; if (parseInt(parts[0]) > 12 && parseInt(parts[1]) <= 12) {} else if (parseInt(parts[1]) > 12 && parseInt(parts[0]) <= 12) { month = parts[0]; day = parts[1]; } if (year && year.length === 2) year = (parseInt(year) > 50 ? '19' : '20') + year; if (day && month && year && year.length === 4 && !isNaN(parseInt(day)) && !isNaN(parseInt(month)) && !isNaN(parseInt(year))) { return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`; } } return excelDateCell.trim(); } return ""; } importedRows.forEach(row => { const routeVal = getVal(row, ['Route']); if (!routeVal) { console.warn('Skipping row due to missing Route:', row); return; } const serviceTypeVal = getVal(row, ['Service Type', 'ServiceType']) || 'Tendered'; let contractEndStr = excelDateToYYYYMMDD(getVal(row, ['Contract End', 'Contract End Date'])); let tenderAnnounceStr = excelDateToYYYYMMDD(getVal(row, ['Tender Announcement Date', 'Tender Announcement', 'Tender Announce.'])); let prevOpStr = String(getVal(row, ['Previous Operator', 'Previous Op']) || "").trim(); let opGarageCode = String(getVal(row, ['Operating Garage Code', 'Garage Code', 'OperatingGarageCode']) || "").trim(); if (serviceTypeVal === 'Commercial') { contractEndStr = ""; tenderAnnounceStr = ""; prevOpStr = ""; opGarageCode = "";} const entryData = { id: Date.now() + Math.random() * 10000, route: String(routeVal).trim(), serviceType: serviceTypeVal, successfulOperator: String(getVal(row, ['Successful Operator', 'Successful Op']) || "").trim(), operatingGarageCode: opGarageCode, previousOperator: prevOpStr, contractStart: excelDateToYYYYMMDD(getVal(row, ['Contract Start', 'Contract Start Date']) || ""), contractEnd: contractEndStr, tenderAnnouncement: tenderAnnounceStr, tenderAnnouncementDateObject: tenderAnnounceStr ? new Date(tenderAnnounceStr + "T00:00:00") : new Date(""), pvr: String(getVal(row, ['PVR']) || "").trim(), vehicles: String(getVal(row, ['Vehicles']) || "").trim(), notes: String(getVal(row, ['Notes']) || "").trim(), runningNumbersDay: String(getVal(row, ['Running Numbers (Day)', 'Running Numbers Day']) || "").trim(), runningNumbersNight: String(getVal(row, ['Running Numbers (Night)', 'Running Numbers Night']) || "").trim(), }; if (entryData.route) uniqueRoutesFromExcel.add(entryData.route); if (entryData.successfulOperator) uniqueOperatorsFromExcel.add(entryData.successfulOperator); if (entryData.previousOperator && entryData.serviceType !== 'Commercial') uniqueOperatorsFromExcel.add(entryData.previousOperator); entries.push(entryData); newEntriesCount++; }); routeList = Array.from(uniqueRoutesFromExcel); operatorList = Array.from(uniqueOperatorsFromExcel); operatorDetails = operatorList.map(opName => ({ operatorName: opName, garages: [] })); saveRoutesToLocalStorage(); saveOperatorsToLocalStorage(); saveOperatorDetailsToLocalStorage(); if (newEntriesCount > 0) { populateAllDropdowns(); sortEntries(); saveEntriesToLocalStorage(); renderTable(); alert(`${newEntriesCount} entries imported successfully. All previous data has been overwritten.`); } else { alert('No new entries were imported. Please check file content/headers. Previous data remains unchanged if import was empty.'); } }
+            // Excel Import Logic - Updated for Firebase
+            if (importExcelButton) { importExcelButton.addEventListener('click', () => { if (excelFileInput.files.length === 0) { alert('Please select an Excel file first.'); return; } const file = excelFileInput.files[0]; const reader = new FileReader(); reader.onload = function(event) { try { const data = event.target.result; const workbook = XLSX.read(data, { type: 'binary', cellDates: true }); const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName]; const jsonData = XLSX.utils.sheet_to_json(worksheet); if (jsonData.length === 0) { alert('The Excel sheet is empty or could not be read.'); excelFileInput.value = ""; return; } if (!confirm("Importing this file will overwrite ALL existing tender entries, routes, and operators (including garages) in Firebase. This cannot be undone. Are you sure you want to proceed?")) { excelFileInput.value = ""; return; } processImportedDataAndSaveToFirebase(jsonData); } catch (error) { console.error("Error processing Excel file:", error); alert('Error processing Excel file. Ensure it is a valid .xlsx, .xls, or .csv file and the format/headers are correct.\n' + error.message); } finally { excelFileInput.value = ""; } }; reader.onerror = function(error) { console.error("FileReader error:", error); alert('Error reading file.'); excelFileInput.value = ""; }; reader.readAsBinaryString(file); }); }
             
-            // PDF Generation Logic
-            if (generatePdfButton) { generatePdfButton.addEventListener('click', () => { if (typeof jspdf === 'undefined' || typeof jspdf.jsPDF === 'undefined') { alert('PDF library (jsPDF) is not loaded.'); return; } const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' }); const head = [['Route', 'Successful Operator', 'Previous Operator', 'Contract Start', 'Contract End', 'Tender Announcement Date', 'PVR', 'Vehicles', 'Notes', 'Running Numbers (Day)', 'Running Numbers (Night)']]; const body = entries.map(entry => [ entry.route, entry.successfulOperator, entry.serviceType === 'Commercial' ? '-' : entry.previousOperator, formatDateForDisplay(entry.contractStart), entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.contractEnd), entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.tenderAnnouncement), entry.pvr, entry.vehicles, stripHtml(entry.notes), entry.runningNumbersDay, entry.runningNumbersNight ]); doc.autoTable({ startY: 15, head: head, body: body, theme: 'striped', styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', halign: 'center', valign: 'middle' }, headStyles: { fillColor: [22, 160, 133], textColor: 255, fontSize: 7.5, fontStyle: 'bold', halign: 'center', valign: 'middle' }, didDrawPage: function (data) { const pageCount = doc.internal.getNumberOfPages(); const genDateStr = `Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`; const pageStr = "Page " + doc.internal.getCurrentPageInfo().pageNumber + " of " + pageCount; doc.setFontSize(8); doc.setTextColor(100); const genDateWidth = doc.getStringUnitWidth(genDateStr) * doc.internal.getFontSize() / doc.internal.scaleFactor; doc.text(genDateStr, (doc.internal.pageSize.width / 2) - (genDateWidth / 2) , doc.internal.pageSize.height - 10); const pageStrWidth = doc.getStringUnitWidth(pageStr) * doc.internal.getFontSize() / doc.internal.scaleFactor; doc.text(pageStr, doc.internal.pageSize.width - data.settings.margin.right - pageStrWidth, doc.internal.pageSize.height - 10); } }); doc.save('route_tender_entries.pdf'); }); }
-            
-            function initializeApp() {
-                if (contractEndLabel) originalContractEndLabelHTML = contractEndLabel.innerHTML;
-                if (tenderAnnouncementLabel) originalTenderAnnouncementLabelHTML = tenderAnnouncementLabel.innerHTML;
-                if (previousOperatorLabel) originalPreviousOperatorLabelHTML = previousOperatorLabel.innerHTML;
-                loadFromLocalStorage();
-                populateAllDropdowns();
-                updateFieldsForServiceType();
-                renderTable();
-                switchView('dataEntriesView');
+            function processImportedDataAndSaveToFirebase(importedRows) {
+                let newEntriesFromExcel = [];
+                let newRouteListFromExcel = new Set();
+                let newOperatorListFromExcel = new Set();
+                let newOperatorDetailsFromExcelMap = new Map(); // Use Map to build operator details
+
+                const getVal = (r, keys) => { for (const key of keys) { const rowKey = Object.keys(r).find(k => k.toLowerCase().replace(/\s+/g, '') === key.toLowerCase().replace(/\s+/g, '')); if (rowKey && r[rowKey] !== undefined) return r[rowKey]; } return undefined; };
+                function excelDateToYYYYMMDD(excelDateCell) { if (!excelDateCell) return ""; if (excelDateCell instanceof Date) { const year = excelDateCell.getFullYear(); const month = String(excelDateCell.getMonth() + 1).padStart(2, '0'); const day = String(excelDateCell.getDate()).padStart(2, '0'); if (isNaN(year) || isNaN(month) || isNaN(day)) return ""; return `${year}-${month}-${day}`; } if (typeof excelDateCell === 'number') { return String(excelDateCell); } if (typeof excelDateCell === 'string') { if (excelDateCell.match(/^\d{4}-\d{2}-\d{2}$/)) return excelDateCell; const parts = excelDateCell.split(/[\/\-.]/); if (parts.length === 3) { let day = parts[0], month = parts[1], year = parts[2]; if (parseInt(parts[0]) > 12 && parseInt(parts[1]) <= 12) {} else if (parseInt(parts[1]) > 12 && parseInt(parts[0]) <= 12) { month = parts[0]; day = parts[1]; } if (year && year.length === 2) year = (parseInt(year) > 50 ? '19' : '20') + year; if (day && month && year && year.length === 4 && !isNaN(parseInt(day)) && !isNaN(parseInt(month)) && !isNaN(parseInt(year))) { return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`; } } return excelDateCell.trim(); } return ""; }
+                
+                importedRows.forEach(row => {
+                    const routeVal = getVal(row, ['Route']);
+                    if (!routeVal) { console.warn('Skipping row due to missing Route:', row); return; }
+                    const serviceTypeVal = getVal(row, ['Service Type', 'ServiceType']) || 'Tendered';
+                    let contractEndStr = excelDateToYYYYMMDD(getVal(row, ['Contract End', 'Contract End Date']));
+                    let tenderAnnounceStr = excelDateToYYYYMMDD(getVal(row, ['Tender Announcement Date', 'Tender Announcement', 'Tender Announce.']));
+                    let prevOpStr = String(getVal(row, ['Previous Operator', 'Previous Op']) || "").trim();
+                    let opGarageCode = String(getVal(row, ['Operating Garage Code', 'Garage Code', 'OperatingGarageCode']) || "").trim();
+                    let successfulOpStr = String(getVal(row, ['Successful Operator', 'Successful Op']) || "").trim();
+
+                    if (serviceTypeVal === 'Commercial') {
+                        contractEndStr = ""; tenderAnnounceStr = ""; prevOpStr = ""; opGarageCode = "";
+                    }
+                    const entryData = {
+                        id: Date.now() + Math.random() * 10000, // Keep local ID for now
+                        route: String(routeVal).trim(), serviceType: serviceTypeVal,
+                        successfulOperator: successfulOpStr, operatingGarageCode: opGarageCode,
+                        previousOperator: prevOpStr,
+                        contractStart: excelDateToYYYYMMDD(getVal(row, ['Contract Start', 'Contract Start Date']) || ""),
+                        contractEnd: contractEndStr, tenderAnnouncement: tenderAnnounceStr,
+                        pvr: String(getVal(row, ['PVR']) || "").trim(),
+                        vehicles: String(getVal(row, ['Vehicles']) || "").trim(),
+                        notes: String(getVal(row, ['Notes']) || "").trim(),
+                        runningNumbersDay: String(getVal(row, ['Running Numbers (Day)', 'Running Numbers Day']) || "").trim(),
+                        runningNumbersNight: String(getVal(row, ['Running Numbers (Night)', 'Running Numbers Night']) || "").trim(),
+                    };
+                    newEntriesFromExcel.push(entryData);
+                    if (entryData.route) newRouteListFromExcel.add(entryData.route);
+                    if (entryData.successfulOperator) newOperatorListFromExcel.add(entryData.successfulOperator);
+                    if (entryData.previousOperator && entryData.serviceType !== 'Commercial') newOperatorListFromExcel.add(entryData.previousOperator);
+                
+                    // For operator details, just ensure operator exists. Garages are not imported from this sheet.
+                    if (successfulOpStr && !newOperatorDetailsFromExcelMap.has(successfulOpStr)) {
+                        newOperatorDetailsFromExcelMap.set(successfulOpStr, { operatorName: successfulOpStr, garages: [] });
+                    }
+                     if (prevOpStr && !newOperatorDetailsFromExcelMap.has(prevOpStr)) {
+                        newOperatorDetailsFromExcelMap.set(prevOpStr, { operatorName: prevOpStr, garages: [] });
+                    }
+                });
+
+                const finalRouteList = Array.from(newRouteListFromExcel).sort(naturalSortComparator);
+                const finalOperatorList = Array.from(newOperatorListFromExcel).sort(naturalSortComparator);
+                // Ensure all operators from the list are in operatorDetails map
+                finalOperatorList.forEach(opName => {
+                    if (!newOperatorDetailsFromExcelMap.has(opName)) {
+                        newOperatorDetailsFromExcelMap.set(opName, { operatorName: opName, garages: [] });
+                    }
+                });
+                const finalOperatorDetails = Array.from(newOperatorDetailsFromExcelMap.values()).sort((a,b) => naturalSortComparator(a.operatorName, b.operatorName));
+
+
+                if (!fbSet || !fbRef || !fbDatabase) {
+                    alert("Firebase not ready. Cannot import data."); return;
+                }
+
+                Promise.all([
+                    fbSet(fbRef(fbDatabase, `${dataRootPath}/entries`), newEntriesFromExcel),
+                    fbSet(fbRef(fbDatabase, `${dataRootPath}/routeList`), finalRouteList),
+                    fbSet(fbRef(fbDatabase, `${dataRootPath}/operatorList`), finalOperatorList),
+                    fbSet(fbRef(fbDatabase, `${dataRootPath}/operatorDetails`), finalOperatorDetails) // Save basic operator shells
+                ]).then(() => {
+                    alert(`${newEntriesFromExcel.length} entries and related data imported to Firebase successfully. All previous Firebase data for this app has been overwritten.`);
+                    // Data will be reloaded by the onValue listeners.
+                    // Manually triggering a reload or UI update might be redundant if onValue is comprehensive.
+                    // However, for immediate feedback if onValue is slow or for safety:
+                    entries = newEntriesFromExcel.map(entry => ({
+                        ...entry,
+                        tenderAnnouncementDateObject: (entry.tenderAnnouncement && entry.serviceType !== 'Commercial' && entry.tenderAnnouncement !== '-') ? new Date(entry.tenderAnnouncement + 'T00:00:00') : new Date(""),
+                    }));
+                    routeList = finalRouteList;
+                    operatorList = finalOperatorList;
+                    operatorDetails = finalOperatorDetails;
+
+                    sortEntries(); // Sort new entries
+                    populateAllDropdowns();
+                    renderTable();
+                    renderOperatorListForManagement();
+                    renderAllOperatorsAndGarages();
+
+                }).catch(error => {
+                    console.error("Error importing data to Firebase:", error);
+                    alert("Error importing data to Firebase: " + error.message);
+                });
             }
-            initializeApp();
+            
+            // PDF Generation Logic for Tenders (remains the same)
+            if (generatePdfButton) { generatePdfButton.addEventListener('click', () => { if (typeof jspdf === 'undefined' || typeof jspdf.jsPDF === 'undefined') { alert('PDF library (jsPDF) is not loaded.'); return; } const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' }); const head = [['Route', 'Successful Operator', 'Previous Operator', 'Contract Start', 'Contract End', 'Tender Announcement Date', 'PVR', 'Vehicles', 'Notes', 'Running Numbers (Day)', 'Running Numbers (Night)']]; const body = entries.map(entry => [ entry.route, entry.successfulOperator, entry.serviceType === 'Commercial' ? '-' : entry.previousOperator, formatDateForDisplay(entry.contractStart), entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.contractEnd), entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.tenderAnnouncement), entry.pvr, entry.vehicles, stripHtml(entry.notes), entry.runningNumbersDay, entry.runningNumbersNight ]); const PAGE_MARGINS_PDF = { top: 15, right: 15, bottom: 20, left: 15 }; doc.autoTable({ startY: 15, head: head, body: body, theme: 'striped', styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', halign: 'center', valign: 'middle' }, headStyles: { fillColor: [22, 160, 133], textColor: 255, fontSize: 7.5, fontStyle: 'bold', halign: 'center', valign: 'middle' }, didDrawPage: function (data) { const pageCount = doc.internal.getNumberOfPages(); const genDateStr = `Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`; const pageStr = "Page " + doc.internal.getCurrentPageInfo().pageNumber + " of " + pageCount; doc.setFontSize(8); doc.setTextColor(100); const genDateWidth = doc.getStringUnitWidth(genDateStr) * doc.internal.getFontSize() / doc.internal.scaleFactor; doc.text(genDateStr, (doc.internal.pageSize.getWidth() / 2) - (genDateWidth / 2) , doc.internal.pageSize.getHeight() - (PAGE_MARGINS_PDF.bottom / 2) + 2); const pageStrWidth = doc.getStringUnitWidth(pageStr) * doc.internal.getFontSize() / doc.internal.scaleFactor; doc.text(pageStr, doc.internal.pageSize.getWidth() - PAGE_MARGINS_PDF.right - pageStrWidth, doc.internal.pageSize.getHeight() - (PAGE_MARGINS_PDF.bottom / 2) + 2); } }); doc.save('route_tender_entries.pdf'); }); }
+            
+            // PDF Generation Logic for Garages (REVISED)
+            function generateGaragesPdf() {
+                if (typeof jspdf === 'undefined' || typeof jspdf.jsPDF === 'undefined') {
+                    alert('PDF library (jsPDF) is not loaded.'); return;
+                }
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'landscape' });
+                let Y_OFFSET = 15;
+                const PAGE_MARGINS = { top: 15, right: 15, bottom: 20, left: 15 };
+                const defaultTextColor = [51, 51, 51];
+                const blueColor = [0, 123, 255];
+                const lightGrayColor = [120, 120, 120];
 
+                doc.setFontSize(18);
+                doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                doc.text("Operators & Garages Report", doc.internal.pageSize.getWidth() / 2, Y_OFFSET, { align: 'center' });
+                Y_OFFSET += 12;
+
+                const sortedOperatorDetails = [...operatorDetails].sort((a, b) => naturalSortComparator(a.operatorName, b.operatorName));
+
+                const categoriesOrderForDisplay = [ 
+                    {label: "Night routes:", key: "nightRoutes", color: blueColor, boldLabel: true},
+                    {label: "School routes:", key: "schoolRoutes", color: defaultTextColor, boldLabel: true},
+                    {label: "Other routes:", key: "otherRoutes", color: defaultTextColor, boldLabel: true},
+                    {label: "Mobility routes:", key: "mobilityRoutes", color: defaultTextColor, boldLabel: true},
+                    {label: "Rail replacement:", key: "railReplacementRoutes", color: defaultTextColor, boldLabel: true}
+                ];
+
+                sortedOperatorDetails.forEach(operatorDetail => {
+                    const estimatedMinHeightForOperatorBlock = 30; 
+                    if (Y_OFFSET + estimatedMinHeightForOperatorBlock > doc.internal.pageSize.getHeight() - PAGE_MARGINS.bottom && Y_OFFSET > PAGE_MARGINS.top + 5) {
+                        doc.addPage();
+                        Y_OFFSET = PAGE_MARGINS.top;
+                    }
+
+                    doc.setFontSize(13);
+                    doc.setFillColor(51, 51, 51);
+                    doc.setTextColor(255, 255, 255);
+                    const headerStripHeight = 9;
+                    const availableWidth = doc.internal.pageSize.getWidth() - PAGE_MARGINS.left - PAGE_MARGINS.right;
+                    doc.rect(PAGE_MARGINS.left, Y_OFFSET, availableWidth, headerStripHeight, 'F');
+                    const opNameText = operatorDetail.operatorName.toUpperCase();
+                    const textMetrics = doc.getTextDimensions(opNameText); 
+                    const textYInStrip = Y_OFFSET + (headerStripHeight / 2) + (textMetrics.h / 2) -1.5; 
+                    doc.text(opNameText, doc.internal.pageSize.getWidth() / 2, textYInStrip, { align: 'center' });
+                    Y_OFFSET += headerStripHeight + 4;
+                    doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]); 
+
+                    if (operatorDetail.garages && operatorDetail.garages.length > 0) {
+                        const tableHead = [['Code', 'Name', 'Address', 'Routes']];
+                        const tableBody = operatorDetail.garages
+                            .sort((a, b) => naturalSortComparator(a.name, b.name))
+                            .map(garage => [garage.code, garage.name, garage.address || 'N/A', garage]);
+
+                        doc.autoTable({
+                            startY: Y_OFFSET,
+                            head: tableHead,
+                            body: tableBody,
+                            theme: 'striped',
+                            styles: { fontSize: 7.5, cellPadding: 1.5, overflow: 'visible' }, 
+                            headStyles: { fillColor: [0, 123, 255], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+                            columnStyles: {
+                                0: { cellWidth: '8%' }, 1: { cellWidth: '15%' },
+                                2: { cellWidth: '27%' }, 3: { cellWidth: '50%' }
+                            },
+                            didDrawCell: function (data) {
+                                if (data.section === 'body' && data.column.index === 3) { 
+                                    try {
+                                        const garage = data.cell.raw;
+                                        let penY = data.cell.y + data.cell.padding('top');
+                                        const startX = data.cell.x + data.cell.padding('left');
+                                        const cellWidth = data.cell.width - data.cell.padding('left') - data.cell.padding('right');
+                                        const fontSize = data.cell.styles.fontSize;
+                                        doc.setFontSize(fontSize);
+                                        const lineHeight = doc.getTextDimensions("M").h * 1.25; 
+                                        const cellBottom = data.cell.y + data.cell.height - data.cell.padding('bottom');
+                                        let contentDrawn = false;
+
+                                        // 1. Standard Routes
+                                        if (garage.standardRoutes && garage.standardRoutes.length > 0) {
+                                            contentDrawn = true;
+                                            let currentX = startX;
+                                            doc.setFont(undefined, 'normal');
+
+                                            for (let i = 0; i < garage.standardRoutes.length; i++) {
+                                                if (penY + lineHeight > cellBottom + 0.1 && currentX === startX && i > 0) { break; } 
+
+                                                const routeStr = String(garage.standardRoutes[i]);
+                                                const isAlsoNight = garage.nightRoutes && garage.nightRoutes.includes(routeStr);
+                                                const routeColor = isAlsoNight ? blueColor : defaultTextColor;
+                                                
+                                                doc.setTextColor(routeColor[0], routeColor[1], routeColor[2]);
+                                                
+                                                const textWidth = doc.getTextWidth(routeStr);
+
+                                                if (currentX + textWidth > startX + cellWidth && currentX > startX) { 
+                                                    penY += lineHeight;
+                                                    currentX = startX;
+                                                    if (penY + lineHeight > cellBottom + 0.1) { break; } 
+                                                }
+                                                doc.text(routeStr, currentX, penY);
+                                                currentX += textWidth; 
+                                                if (i < garage.standardRoutes.length - 1) { 
+                                                    if (currentX + doc.getTextWidth(" ") <= startX + cellWidth) {
+                                                        currentX += doc.getTextWidth(" ");
+                                                    } else { 
+                                                        penY += lineHeight;
+                                                        currentX = startX;
+                                                         if (penY + lineHeight > cellBottom + 0.1) { break; } 
+                                                    }
+                                                }
+                                            }
+                                            if (garage.standardRoutes.length > 0) penY += lineHeight; 
+                                        }
+
+                                        // 2. Categorized Routes
+                                        for (const catInfo of categoriesOrderForDisplay) {
+                                            if (penY + lineHeight > cellBottom + 0.1) { break; } 
+
+                                            const routesArray = garage[catInfo.key];
+                                            if (routesArray && routesArray.length > 0) {
+                                                contentDrawn = true;
+                                                doc.setFont(undefined, catInfo.boldLabel ? 'bold' : 'normal');
+                                                doc.setTextColor(catInfo.color[0], catInfo.color[1], catInfo.color[2]);
+
+                                                const labelText = String(catInfo.label) + " ";
+                                                const routesText = routesArray.map(r => String(r)).join(" ");
+                                                const fullText = labelText + routesText;
+                                                
+                                                const splitText = doc.splitTextToSize(fullText, cellWidth);
+
+                                                for (let k=0; k < splitText.length; k++) {
+                                                    if (penY + lineHeight > cellBottom + 0.1 && k > 0) { break; } 
+                                                    doc.text(splitText[k], startX, penY);
+                                                    penY += lineHeight;
+                                                }
+                                                doc.setFont(undefined, 'normal'); 
+                                            }
+                                        }
+
+                                        if (!contentDrawn) {
+                                            if (penY + lineHeight <= cellBottom + 0.1) {
+                                                doc.setTextColor(lightGrayColor[0], lightGrayColor[1], lightGrayColor[2]);
+                                                doc.setFont(undefined, 'italic');
+                                                doc.text("No routes at present.", startX, penY);
+                                                doc.setFont(undefined, 'normal'); 
+                                            }
+                                        }
+                                        doc.setTextColor(defaultTextColor[0], defaultTextColor[1], defaultTextColor[2]);
+                                    } catch (e) {
+                                        console.error("Error in didDrawCell for routes:", e, data.cell.raw);
+                                        doc.setTextColor(255, 0, 0); 
+                                        doc.text("Error", data.cell.x + 2, data.cell.y + data.cell.styles.fontSize + 2);
+                                    } finally {
+                                        data.cell.text = ''; 
+                                    }
+                                }
+                            }
+                        });
+                        Y_OFFSET = doc.lastAutoTable.finalY + 10;
+                    } else {
+                        doc.setFontSize(8);
+                        doc.setTextColor(120, 120, 120);
+                        if (Y_OFFSET + 10 > doc.internal.pageSize.getHeight() - PAGE_MARGINS.bottom && Y_OFFSET > PAGE_MARGINS.top + 5) {
+                           doc.addPage();
+                           Y_OFFSET = PAGE_MARGINS.top;
+                        }
+                        doc.text("No garages at present for this operator.", PAGE_MARGINS.left + 5, Y_OFFSET);
+                        Y_OFFSET += 10;
+                    }
+                    Y_OFFSET += 5; 
+                });
+
+                const pageCount = doc.internal.getNumberOfPages();
+                for (let i = 1; i <= pageCount; i++) {
+                    doc.setPage(i);
+                    doc.setFontSize(8);
+                    doc.setTextColor(100, 100, 100);
+
+                    const genDateStr = `Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`;
+                    doc.text(genDateStr, PAGE_MARGINS.left, doc.internal.pageSize.getHeight() - (PAGE_MARGINS.bottom / 2) + 2);
+
+                    const pageStr = `Page ${i} of ${pageCount}`;
+                    const pageStrWidth = doc.getStringUnitWidth(pageStr) * doc.internal.getFontSize() / doc.internal.scaleFactor;
+                    doc.text(pageStr, doc.internal.pageSize.getWidth() - PAGE_MARGINS.right - pageStrWidth, doc.internal.pageSize.getHeight() - (PAGE_MARGINS.bottom / 2) + 2);
+                }
+                doc.save('operator_garages_report.pdf');
+            }
+            if (generateGaragesPdfButton) {
+                generateGaragesPdfButton.addEventListener('click', generateGaragesPdf);
+            }
+            
             // PWA Service Worker Registration
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('/live-tracker/sw-omsi-contracts.js') // Using absolute path as an example
+                    navigator.serviceWorker.register('/live-tracker/sw-omsi-contracts.js') 
                         .then(registration => {
                             console.log('Service Worker (sw-omsi-contracts.js) registered! Scope: ' + registration.scope);
                         })

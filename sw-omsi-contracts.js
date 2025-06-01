@@ -2,7 +2,7 @@
 
 const CACHE_NAME = 'omsi-contract-dates-cache-v1';
 const APP_SHELL_FILES = [
-    './OMSI Contract Dates.html', // Your main HTML file
+    'live-tracker/OMSI Contract Dates.html', // Your main HTML file
     './',                         // Caches the root if your HTML is served as index.html
     // Add paths to your icons here once created, e.g.:
     // './icons/icon-192x192.png',

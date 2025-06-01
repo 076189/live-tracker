@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route Tender Details</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0; 
+            padding-top: 50px; /* Space for fixed menu */
+            background-color: #f4f4f4;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container { 
+            padding: 20px;
+        }
+
+        /* Top Menu Navigation */
+        #topMenu {
+            background-color: #333;
+            overflow: hidden;
+            position: fixed; 
+            top: 0;
+            left: 0; 
+            width: 100%;
+            z-index: 1001; 
+            display: flex;
+            justify-content: flex-start; 
+            padding-left: 10px; 
+        }
+        #topMenu button {
+            background-color: #333;
+            color: white;
+            border: none;
+            padding: 14px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        #topMenu button:hover {
+            background-color: #555;
+        }
+        #topMenu button.active {
+            background-color: #007bff;
+        }
+
+        /* View Sections */
+        .view-section {
+            display: none; 
+        }
+        .view-section.active {
+            display: block; 
+        }
+
+        h1, h2, h3, h4, h5 { 
+            color: #333;
+        }
+        h1 { text-align: center; margin-bottom: 20px; }
+        .page-notes { background-color: #fffde7; border: 1px solid #fff59d; border-left: 5px solid #ffc107; padding: 15px 20px; margin: 0 0 30px 0; border-radius: 5px; font-size: 0.9em; line-height: 1.5;}
+        .page-notes p.notes-title { margin-top: 0; margin-bottom: 10px; font-size: 1.1em; font-weight: bold; color: #555;}
+        .page-notes ul { padding-left: 20px; margin-top: 0; margin-bottom: 0; }
+        .page-notes li { margin-bottom: 8px; }
+        .page-notes li:last-child { margin-bottom: 0; }
+        .page-notes .note-highlight-blue { color: #007bff; font-weight: bold; }
+        .page-notes .note-highlight-green { color: #28a745; font-weight: bold; }
+        .page-notes .note-highlight-red { color: #dc3545; text-decoration: line-through; font-weight: bold; }
+
+        h2 { margin-top: 20px; margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 5px;} 
+        
+        #entryForm h2, #operatorGaragesView h2 { 
+             text-align: left; margin-top: 0; margin-bottom: 20px; border-bottom: none; font-size: 1.5em;
+        }
+         #operatorGaragesView h3 { 
+            font-size: 1.3em; margin-top: 25px; margin-bottom: 10px;
+            border-bottom: 1px dashed #ccc; padding-bottom: 5px; color: #0056b3;
+        }
+        
+        /* Operator Header Strip styling for garages display */
+        .operator-header-strip {
+            background-color: #333; 
+            color: white;
+            font-weight: bold;
+            padding: 8px 15px; 
+            margin-top: 25px; 
+            margin-bottom: 0px; 
+            font-size: 1.2em;
+            text-align: center; 
+            border-radius: 4px 4px 0 0; 
+        }
+
+        /* Form Styling */
+        .form-card { 
+            background: #fff; padding: 25px; margin-bottom: 30px; 
+            border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px 25px; }
+        .form-field { display: grid; gap: 5px; align-items: center; grid-template-columns: 150px 1fr; } 
+        .form-field label { font-weight: bold; color: #555; display: block; margin-bottom: 0px; text-align: right; padding-right: 10px;}
+        .form-field.full-width-label-top label { 
+            grid-column: 1 / -1; text-align: left; padding-right: 0; margin-bottom: 5px;
+        }
+        .form-field.full-width-label-top textarea,
+        .form-field.full-width-label-top input,
+        .form-field.full-width-label-top .dynamic-input-container, 
+        .form-field.full-width-label-top .dynamic-select-container { 
+            grid-column: 1 / -1;
+        }
+
+        .form-field label .optional-text { font-weight: normal; font-style: italic; color: #d35400; font-size: 0.9em; }
+        .dynamic-select-container, .dynamic-input-container { display: flex; flex-direction: column; width: 100%; position: relative; }
+        .form-field input[type="text"], .form-field input[type="date"], .form-field select, .form-field textarea, .new-item-input, .form-field-text-display { 
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+            box-sizing: border-box; font-size: 14px; 
+        }
+        .form-field textarea { min-height: 40px; }
+        .form-field-text-display[readonly] { background-color: #e9ecef; cursor: default; }
+        .new-item-input { margin-top: 8px; }
+        .form-field input[type="date"] { min-width: 150px; }
+        
+        .button-bar { margin-top: 20px; text-align: center; }
+        .button-bar button, #entryForm button[type="submit"], #saveGarageButton, .action-button-like {
+            background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px;
+            cursor: pointer; font-size: 16px; margin: 5px;
+            transition: background-color 0.2s ease;
+        }
+        .button-bar button:hover, #entryForm button[type="submit"]:hover, #saveGarageButton:hover, .action-button-like:hover { background-color: #0056b3; }
+        #saveGarageButton {background-color: #28a745;}
+        #saveGarageButton:hover {background-color: #218838;}
+
+
+        /* Table Styling (Main Tenders Table) */
+        #dataTable { width: 100%; border-collapse: collapse; margin-top: 10px; background: #fff; box-shadow: 0 4px 8px rgba(0,0,0,0.1); font-size: 14px; table-layout: auto; }
+        #dataTable td { border: 1px solid #ddd; padding: 8px 10px; text-align: center; vertical-align: middle; word-break: normal; overflow-wrap: break-word; white-space: normal; }
+        
+        /* Garages Table specific styling (UPDATED for alignment) */
+        .garages-display-table { /* Class for EACH operator's garage table */
+            width: 100%; margin-top: 0; 
+            border: 1px solid #333; 
+            border-top: none; 
+            border-collapse: collapse;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 25px; 
+        }
+        .garages-display-table td { /* Default for all cells in this specific table */
+            border: 1px solid #ddd;
+            padding: 6px 8px; 
+            text-align: center;       /* Default: Horizontal center */
+            vertical-align: middle;   /* Default: Vertical middle */
+            word-break: normal;       
+            overflow-wrap: break-word;
+            white-space: normal;
+            font-weight: bold;
+        }
+        /* Alignment overrides for specific columns in Garages Table */
+        .garages-display-table td.garage-data-address,
+        .garages-display-table td.garage-data-routes {
+            text-align: left;         /* Left align Address and Routes */
+            /* vertical-align: middle; /* Inherits from general td rule */
+        }
+        
+        /* Specific column widths for the new garages table */
+        .garages-display-table td.garage-data-code { width: 8%; font-weight: bold; }
+        .garages-display-table td.garage-data-name { width: 17%; font-weight: bold;} /* Will be center aligned by default */
+        .garages-display-table td.garage-data-address { width: 30%; }
+        .garages-display-table td.garage-data-routes { width: 30%; line-height: 1.4; } 
+        .garages-display-table td.garage-data-actions { width: 15%; } 
+        
+        /* Styling for route items within the garages table routes cell */
+        .garages-display-table .routes-cell-content div { margin-bottom: 1px; /* Minimal space for "one enter" */ }
+        .garages-display-table .routes-cell-content div:last-child { margin-bottom: 0; }
+        .garages-display-table .routes-cell-content strong { margin-right: 5px; font-weight: bold;}
+        .garages-display-table .night-route-label, 
+        .garages-display-table .night-route-item { 
+            color: #007bff !important; 
+        }
+        .garages-display-table .standard-route.is-also-night { 
+            color: #007bff !important;
+        }
+        .no-data-message {
+            text-align: center !important; 
+            font-style: italic;
+            color: #777;
+            padding: 10px !important;
+        }
+
+
+        thead th { /* For main Tenders table headers */
+            background-color: #007bff; color: white; font-weight: bold; position: sticky; top: 50px; z-index: 999;
+            text-align: center; vertical-align: middle; padding: 10px 5px; white-space: normal;
+            word-break: normal; overflow-wrap: break-word; hyphens: auto; line-height: 1.3;
+        }
+        tbody tr:nth-child(even) { background-color: #f9f9f9; }
+        tbody tr:hover { background-color: #f0f8ff; }
+        .main-table-night-route { color: #007bff !important; font-weight: bold; }
+
+
+        /* Action Buttons Styling */
+        .actions button, #operatorListForManagement button, .garages-display-table .actions button, .action-button-like { 
+            margin-left: 5px; padding: 5px 8px; font-size: 0.85em; 
+            border-radius: 3px; border: 1px solid transparent; cursor: pointer;
+        }
+         .action-button-like { padding: 10px 18px; font-size: 14px; margin-top: 10px; margin-bottom: 10px;}
+        .edit-btn { background-color: #ffc107; color: #333; }
+        .edit-btn:hover { background-color: #e0a800; }
+        .delete-btn { background-color: #dc3545; color: white; }
+        .delete-btn:hover { background-color: #c82333; }
+        
+        /* Operator List Styling in Management View */
+        #operatorListForManagement { list-style-type: none; padding: 0; }
+        #operatorListForManagement li { 
+            padding: 10px; border-bottom: 1px solid #eee; display: flex; 
+            justify-content: space-between; align-items: center; background-color: #fff;
+            cursor: pointer;
+        }
+        #operatorListForManagement li:hover, #operatorListForManagement li.selected { background-color: #e9ecef; } 
+         #operatorListForManagement li.selected { border-left: 5px solid #007bff; padding-left: 5px;}
+        .operator-name-display { flex-grow: 1; font-weight:bold;}
+        
+
+        #generatePdfButton { background-color: #17a2b8; color:white; } 
+        #generatePdfButton:hover { background-color: #138496; }
+
+        /* Excel Import Section */
+        .import-container { margin-top: 20px; margin-bottom: 20px; padding: 20px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .import-container h3 { margin-top: 0; margin-bottom: 15px; color: #333; }
+        .import-container p { font-size: 0.9em; color: #555; margin-bottom: 10px; }
+        .import-container input[type="file"] { display: block; margin-bottom: 15px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        #importExcelButton { background-color: #28a745; color: white; }
+        #importExcelButton:hover { background-color: #218838; }
+
+    </style>
+</head>
+<body lang="en"> 
+    <nav id="topMenu">
+        <button class="menu-button active" data-viewid="dataEntriesView">Tenders</button>
+        <button class="menu-button" data-viewid="operatorGaragesView">Operators & Garages</button>
+    </nav>
+
+    <div class="container">
+        <div id="dataEntriesView" class="view-section active">
+            <h1>Route Tender Information</h1>
+            <div class="page-notes">
+                <p class="notes-title">Important Notes:</p>
+                <ul>
+                    <li>Each contract lasts for 4 months, unless extended which lasts for 2 months.</li>
+                    <li>New routes start with a 1 month contract.</li>
+                    <li>Tenders are announced 28 days before the new contract start date, except the contracts which last for 1 month, which will be announced 14 days before the new contract.</li>
+                    <li>Tender start dates always start on Saturdays. If a contract starts on 23 November 2017 and is for 1 month, the contract end date already falls on a Saturday. Whereas if a contract starts on 24 November 2017 and is for 1 month, this would lead to the contract end date falling on Sunday, therefore the following Saturday 30 December 2017 will be the end date.</li>
+                    <li>All changes start at the same time as the contract start date, unless stated.</li>
+                    <li>Routes highlighted in <span class="note-highlight-blue">blue</span> operate 24 hours, 7 days a week.</li>
+                    <li>Routes highlighted in <span class="note-highlight-green">green</span> operate 24 hours, Friday and Saturday nights only.</li>
+                    <li>The routes <span class="note-highlight-red">crossed out and highlighted in red</span> indicate that the route is temporarily withdrawn and is exempt from tenders until further notice.</li>
+                    <li>Any notes that are crossed out indicate the change did not go ahead.</li>
+                </ul>
+            </div>
+
+            <form id="entryForm" class="form-card">
+                 <h2>Add New Tender Entry</h2>
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="route">Route:</label>
+                        <div class="dynamic-select-container">
+                            <select id="route" name="route" required></select> 
+                            <input type="text" id="newRouteInput" class="new-item-input" style="display:none;" placeholder="Enter new route name">
+                        </div>
+                    </div>
+                    <div class="form-field">
+                        <label for="serviceType">Service Type:</label>
+                        <select id="serviceType" name="serviceType">
+                            <option value="Tendered" selected>Tendered</option>
+                            <option value="Commercial">Commercial Service</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="successfulOperator">Successful Operator:</label>
+                        <div class="dynamic-select-container">
+                            <select id="successfulOperator" name="successfulOperator"></select>
+                            <input type="text" id="newSuccessfulOperatorInput" class="new-item-input" style="display:none;" placeholder="Enter new operator name">
+                        </div>
+                    </div>
+                    <div class="form-field"> 
+                        <label for="operatingGarage" id="operatingGarageLabel" style="display:none;">Operating Garage:</label>
+                        <select id="operatingGarage" name="operatingGarage" style="display:none;"></select>
+                    </div>
+                    <div class="form-field">
+                        <label for="previousOperator" id="previousOperatorLabel">Previous Operator:</label>
+                        <div class="dynamic-input-container"> 
+                            <select id="previousOperator" name="previousOperator"></select>
+                            <input type="text" id="previousOperatorTextDisplay" class="form-field-text-display" style="display:none;" readonly>
+                        </div>
+                    </div>
+                    <div class="form-field">
+                        <label for="contractStart">Contract Start:</label>
+                        <input type="date" id="contractStart">
+                    </div>
+                    <div class="form-field">
+                        <label for="contractEnd" id="contractEndLabel">Contract End Date:</label> 
+                        <input type="date" id="contractEnd"> 
+                    </div>
+                    <div class="form-field">
+                        <label for="tenderAnnouncement" id="tenderAnnouncementLabel">Tender Announce.:</label> 
+                        <input type="date" id="tenderAnnouncement"> 
+                    </div>
+                    <div class="form-field">
+                        <label for="pvr">PVR:</label>
+                        <input type="text" id="pvr" placeholder="e.g., 1 existing, 2 new">
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="vehicles">Vehicles:</label>
+                        <input type="text" id="vehicles" placeholder="e.g., E200 MMC 11.5m">
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="notes">Notes:</label>
+                        <textarea id="notes" rows="3" placeholder="Use <b>text</b> or <strong>text</strong> for bold."></textarea>
+                    </div>
+                    <div class="form-field">
+                        <label for="runningNumbersDay">Running No. (Day):</label>
+                        <input type="text" id="runningNumbersDay">
+                    </div>
+                    <div class="form-field">
+                        <label for="runningNumbersNight">Running No. (Night):</label>
+                        <input type="text" id="runningNumbersNight">
+                    </div>
+                </div>
+                <div class="button-bar">
+                    <button type="submit" id="submitButton">Add Entry</button>
+                </div>
+            </form>
+
+            <div class="import-container">
+                <h3>Import Tenders from Excel</h3>
+                <p><strong>Instructions:</strong> Ensure Excel headers match fields like Route, Service Type, Successful Operator, Operating Garage Code, etc.
+                Dates: <code>YYYY-MM-DD</code>. Missing "Service Type" defaults to "Tendered". Missing "Operating Garage Code" means no garage-specific styling for night routes.</p>
+                <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv">
+                <button id="importExcelButton" class="action-button-like">Import Tenders</button>
+            </div>
+
+            <div class="action-button-container">
+                <button id="generatePdfButton" class="action-button-like">Generate PDF of Tenders</button>
+            </div>
+
+            <h2>Tender Entries</h2>
+            <table id="dataTable">
+                <thead>
+                    <tr>
+                        <th>Route</th><th>Successful Operator</th><th>Previous Operator</th><th>Contract Start</th><th>Contract End</th><th>Tender Announcement Date</th><th>PVR</th><th>Vehicles</th><th>Notes</th><th>Running Numbers (Day)</th><th>Running Numbers (Night)</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="dataTableBody"></tbody>
+            </table>
+        </div> <div id="operatorGaragesView" class="view-section">
+            <h2>Operators & Garages Management</h2>
+            
+            <div id="operatorsManagementSection" class="form-card">
+                <h3>Manage Operators</h3>
+                <div class="form-field">
+                    <label for="manageOperatorNameInput">Operator Name:</label>
+                    <input type="text" id="manageOperatorNameInput" placeholder="Enter name to add or select below to edit">
+                </div>
+                <div class="button-bar">
+                    <button id="addOperatorSystemButton" class="action-button-like">Add Operator</button>
+                    <button id="updateOperatorSystemButton" class="action-button-like" style="display:none; background-color: #ffc107; color: #333;">Update Name</button>
+                    <button id="cancelOperatorSystemEditButton" class="action-button-like" style="display:none; background-color: #6c757d;">Cancel Edit</button>
+                </div>
+                <h4>Existing Operators:</h4>
+                <ul id="operatorListForManagement"></ul>
+            </div>
+
+            <div id="allOperatorsGaragesDisplay"> 
+                </div>
+            
+            <div id="addGarageForSelectedOperatorSection" class="button-bar" style="display:none; margin-top: 20px;">
+                 <button id="showAddGarageFormButtonGlobal" class="action-button-like">Add New Garage for <span id="addGarageForOperatorNameGlobal">[Select Op Above]</span></button>
+            </div>
+            
+            <div id="garageFormContainer" class="form-card" style="display:none;">
+                <h3 id="garageFormTitle">Add New Garage</h3>
+                <input type="hidden" id="editingGarageId">
+                <input type="hidden" id="currentOperatorForGarageForm">
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="garageCode">Garage Code:</label>
+                        <input type="text" id="garageCode" placeholder="e.g., BY, SC" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="garageName">Garage Name:</label>
+                        <input type="text" id="garageName" placeholder="e.g., Brumby, Scunthorpe" required>
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="garageAddress">Address:</label>
+                        <textarea id="garageAddress" rows="2" placeholder="Full address of the garage"></textarea>
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="garageStandardRoutes">Standard Routes:</label>
+                        <textarea id="garageStandardRoutes" rows="2" placeholder="Comma-separated, e.g., 1, 2, 34"></textarea>
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="garageNightRoutes" class="night-route-label">Night Routes:</label>
+                        <textarea id="garageNightRoutes" rows="2" placeholder="Comma-separated, e.g., N35, N11"></textarea>
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="garageSchoolRoutes">School Routes:</label>
+                        <textarea id="garageSchoolRoutes" rows="2" placeholder="Comma-separated, e.g., 612, S1"></textarea>
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="garageOtherRoutes">Other Routes:</label>
+                        <textarea id="garageOtherRoutes" rows="2" placeholder="Comma-separated, e.g., 60A, X1"></textarea>
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="garageMobilityRoutes">Mobility Routes:</label>
+                        <textarea id="garageMobilityRoutes" rows="2" placeholder="Comma-separated, e.g., 925"></textarea>
+                    </div>
+                    <div class="form-field full-width-label-top">
+                        <label for="garageRailReplacementRoutes">Rail Replacement:</label>
+                        <textarea id="garageRailReplacementRoutes" rows="2" placeholder="Comma-separated, e.g., RR1"></textarea>
+                    </div>
+                </div>
+                <div class="button-bar">
+                    <button id="saveGarageButton">Save Garage</button>
+                    <button type="button" id="cancelGarageFormButton">Cancel</button>
+                </div>
+            </div>
+        </div> </div> <script>
+        // --- Full JavaScript ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // DOM Element selections
+            const entryForm = document.getElementById('entryForm');
+            const dataTableBody = document.getElementById('dataTableBody');
+            const submitButton = document.getElementById('submitButton');
+            const routeSelect = document.getElementById('route');
+            const newRouteInput = document.getElementById('newRouteInput');
+            const serviceTypeSelect = document.getElementById('serviceType');
+            const successfulOperatorSelect = document.getElementById('successfulOperator');
+            const newSuccessfulOperatorInput = document.getElementById('newSuccessfulOperatorInput');
+            const operatingGarageSelect = document.getElementById('operatingGarage'); 
+            const operatingGarageLabel = document.getElementById('operatingGarageLabel'); 
+
+            const previousOperatorSelect = document.getElementById('previousOperator');
+            const previousOperatorTextDisplay = document.getElementById('previousOperatorTextDisplay');
+            const previousOperatorLabel = document.getElementById('previousOperatorLabel');
+            const contractEndInput = document.getElementById('contractEnd');
+            const tenderAnnouncementInput = document.getElementById('tenderAnnouncement');
+            const contractEndLabel = document.getElementById('contractEndLabel');
+            const tenderAnnouncementLabel = document.getElementById('tenderAnnouncementLabel');
+            
+            let originalContractEndLabelHTML = contractEndLabel ? contractEndLabel.innerHTML : '';
+            let originalTenderAnnouncementLabelHTML = tenderAnnouncementLabel ? tenderAnnouncementLabel.innerHTML : '';
+            let originalPreviousOperatorLabelHTML = previousOperatorLabel ? previousOperatorLabel.innerHTML : '';
+            if(operatingGarageLabel) operatingGarageLabel.style.display = 'none'; 
+            if(operatingGarageSelect) operatingGarageSelect.style.display = 'none'; 
+
+            const topMenu = document.getElementById('topMenu');
+            const menuButtons = document.querySelectorAll('#topMenu .menu-button');
+            const views = document.querySelectorAll('.view-section');
+
+            const operatorGaragesView = document.getElementById('operatorGaragesView');
+            const manageOperatorNameInput = document.getElementById('manageOperatorNameInput');
+            const addOperatorSystemButton = document.getElementById('addOperatorSystemButton');
+            const updateOperatorSystemButton = document.getElementById('updateOperatorSystemButton');
+            const cancelOperatorSystemEditButton = document.getElementById('cancelOperatorSystemEditButton');
+            const operatorListForManagementUL = document.getElementById('operatorListForManagement');
+            
+            const allOperatorsGaragesDisplayDiv = document.getElementById('allOperatorsGaragesDisplay');
+            const showAddGarageFormButtonGlobal = document.getElementById('showAddGarageFormButtonGlobal');
+            const addGarageForOperatorNameGlobalSpan = document.getElementById('addGarageForOperatorNameGlobal');
+            const addGarageForSelectedOperatorSection = document.getElementById('addGarageForSelectedOperatorSection');
+
+
+            const garageFormContainer = document.getElementById('garageFormContainer');
+            const garageFormTitle = document.getElementById('garageFormTitle');
+            const editingGarageIdInput = document.getElementById('editingGarageId');
+            const currentOperatorForGarageFormInput = document.getElementById('currentOperatorForGarageForm'); 
+            const garageCodeInput = document.getElementById('garageCode');
+            const garageNameInput = document.getElementById('garageName');
+            const garageAddressInput = document.getElementById('garageAddress');
+            const garageStandardRoutesInput = document.getElementById('garageStandardRoutes');
+            const garageNightRoutesInput = document.getElementById('garageNightRoutes');
+            const garageSchoolRoutesInput = document.getElementById('garageSchoolRoutes');
+            const garageOtherRoutesInput = document.getElementById('garageOtherRoutes');
+            const garageMobilityRoutesInput = document.getElementById('garageMobilityRoutes');
+            const garageRailReplacementRoutesInput = document.getElementById('garageRailReplacementRoutes');
+            const saveGarageButton = document.getElementById('saveGarageButton');
+            const cancelGarageFormButton = document.getElementById('cancelGarageFormButton');
+
+            const excelFileInput = document.getElementById('excelFileInput');
+            const importExcelButton = document.getElementById('importExcelButton');
+            const generatePdfButton = document.getElementById('generatePdfButton');
+
+            let entries = [];
+            let routeList = []; 
+            let operatorList = []; 
+            let operatorDetails = []; 
+            
+            let currentlyEditingIndex = null; 
+            let editingOperatorNameGlobal = null; 
+            let selectedOperatorForGarageMgmt = null; 
+            let currentEditingGarageId = null;
+
+            const ADD_NEW_VALUE = '__addNew__';
+            const ENTRIES_KEY = 'busAppData_entries';
+            const ROUTES_KEY = 'busAppData_routes'; 
+            const OPERATORS_KEY = 'busAppData_operators'; 
+            const OPERATOR_DETAILS_KEY = 'busAppData_operator_details'; 
+
+            const defaultRoutes = ['4', '9', '10', '11', '22', '34', '35', '37', '38', '40', '635', 'N35', '925', '1', '2', '3', '5'];
+            const defaultOperators = ['Stagecoach', 'Arriva', 'First', 'Kelly Group', 'Metroline', 'Go-Ahead London', 'RATP Dev'];
+
+            // --- Utility Functions ---
+            function naturalSortComparator(a, b) { return new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare(a, b); }
+            function formatDateForDisplay(dateString) { if (dateString === '-') return '-'; if (!dateString) return ''; try { const date = new Date(dateString + 'T00:00:00'); if (isNaN(date.getTime())) return dateString; const day = String(date.getDate()).padStart(2, '0'); const month = String(date.getMonth() + 1).padStart(2, '0'); const year = date.getFullYear(); return `${day}/${month}/${year}`; } catch (e) { return dateString; } }
+            function stripHtml(html) { if (!html) return ""; let tmp = document.createElement("DIV"); tmp.innerHTML = html; return tmp.textContent || tmp.innerText || ""; }
+            
+	function parseRoutesToArray(routesString) {
+    return routesString ? routesString.trim().split(/\s+/).filter(r => r !== "") : [];
+}
+
+	function formatRoutesToString(routesArray) {
+    return routesArray ? routesArray.join(' ') : "";
+}
+
+            // --- View Switching ---
+	function switchView(viewId) {
+                views.forEach(view => { view.classList.remove('active'); if (view.id === viewId) { view.classList.add('active'); } });
+                menuButtons.forEach(button => { button.classList.remove('active'); if (button.dataset.viewid === viewId) { button.classList.add('active'); } });
+                
+                if (viewId === 'operatorGaragesView') {
+                    renderOperatorListForManagement(); 
+                    renderAllOperatorsAndGarages(); 
+                    garageFormContainer.style.display = 'none'; 
+                    if (operatorList.length > 0) { 
+                        addGarageForSelectedOperatorSection.style.display = 'block';
+                        if (!selectedOperatorForGarageMgmt && operatorList.length > 0) {
+                             selectedOperatorForGarageMgmt = operatorList[0]; 
+                        }
+                        if (addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = selectedOperatorForGarageMgmt ? selectedOperatorForGarageMgmt : (operatorList[0] || '');
+                    } else {
+                        addGarageForSelectedOperatorSection.style.display = 'none';
+                    }
+                } else { 
+                    editingOperatorNameGlobal = null;
+                    if(manageOperatorNameInput) manageOperatorNameInput.value = '';
+                    if(updateOperatorSystemButton) updateOperatorSystemButton.style.display = 'none';
+                    if(cancelOperatorSystemEditButton) cancelOperatorSystemEditButton.style.display = 'none';
+                    if(addOperatorSystemButton) addOperatorSystemButton.style.display = 'inline-block';
+                    if(garageFormContainer) garageFormContainer.style.display = 'none';
+                    if(addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = 'none';
+                }
+            }
+            menuButtons.forEach(button => { button.addEventListener('click', () => { switchView(button.dataset.viewid); }); });
+            
+            // --- Conditional Requirement & Display Logic for Tender Form ---
+            function updateFieldsForServiceType() {
+                const isCommercial = serviceTypeSelect.value === 'Commercial';
+                tenderAnnouncementInput.required = !isCommercial;
+                if (isCommercial) {
+                    tenderAnnouncementInput.type = 'text'; tenderAnnouncementInput.value = '-'; tenderAnnouncementInput.readOnly = true;
+                    if (tenderAnnouncementLabel) tenderAnnouncementLabel.innerHTML = originalTenderAnnouncementLabelHTML + ' <span class="optional-text">(N/A)</span>';
+                } else {
+                    tenderAnnouncementInput.type = 'date'; tenderAnnouncementInput.readOnly = false;
+                    if (tenderAnnouncementInput.value === '-') tenderAnnouncementInput.value = ''; 
+                    if (tenderAnnouncementLabel) tenderAnnouncementLabel.innerHTML = originalTenderAnnouncementLabelHTML;
+                }
+                contractEndInput.required = !isCommercial;
+                if (isCommercial) {
+                    contractEndInput.type = 'text'; contractEndInput.value = '-'; contractEndInput.readOnly = true;
+                    if (contractEndLabel) contractEndLabel.innerHTML = originalContractEndLabelHTML + ' <span class="optional-text">(N/A)</span>';
+                } else {
+                    contractEndInput.type = 'date'; contractEndInput.readOnly = false;
+                    if (contractEndInput.value === '-') contractEndInput.value = ''; 
+                    if (contractEndLabel) contractEndLabel.innerHTML = originalContractEndLabelHTML;
+                }
+                if (isCommercial) {
+                    previousOperatorSelect.style.display = 'none'; previousOperatorSelect.value = ''; 
+                    previousOperatorTextDisplay.style.display = 'block'; previousOperatorTextDisplay.value = '-';
+                    if (previousOperatorLabel) previousOperatorLabel.innerHTML = originalPreviousOperatorLabelHTML + ' <span class="optional-text">(N/A)</span>';
+                } else {
+                    previousOperatorSelect.style.display = 'block'; previousOperatorTextDisplay.style.display = 'none';
+                    if (previousOperatorLabel) previousOperatorLabel.innerHTML = originalPreviousOperatorLabelHTML;
+                }
+                const showGarage = successfulOperatorSelect.value && serviceTypeSelect.value !== 'Commercial';
+                if(operatingGarageLabel) operatingGarageLabel.style.display = showGarage ? 'block' : 'none'; 
+                if(operatingGarageSelect) {
+                    operatingGarageSelect.style.display = showGarage ? 'block' : 'none';
+                    operatingGarageSelect.required = showGarage;
+                    if (!showGarage) operatingGarageSelect.value = "";
+                }
+            }
+
+            function populateOperatingGarageDropdown(operatorName, selectedGarageCode = "") {
+                if (!operatingGarageSelect || !operatingGarageLabel) return;
+                const currentServiceType = serviceTypeSelect.value;
+                operatingGarageSelect.innerHTML = '<option value="">-- Select Garage --</option>';
+                if (!operatorName || currentServiceType === 'Commercial') {
+                    operatingGarageLabel.style.display = 'none'; operatingGarageSelect.style.display = 'none';
+                    operatingGarageSelect.required = false; return;
+                }
+                const operatorDetail = operatorDetails.find(op => op.operatorName === operatorName);
+                if (operatorDetail && operatorDetail.garages && operatorDetail.garages.length > 0) {
+                    operatorDetail.garages.sort((a,b) => naturalSortComparator(a.name, b.name)).forEach(garage => {
+                        const option = document.createElement('option'); option.value = garage.code; 
+                        option.textContent = `${garage.name} (${garage.code})`;
+                        operatingGarageSelect.appendChild(option);
+                    });
+                    operatingGarageLabel.style.display = 'block'; operatingGarageSelect.style.display = 'block';
+                    operatingGarageSelect.required = true; 
+                    if (selectedGarageCode) operatingGarageSelect.value = selectedGarageCode;
+                } else {
+                    operatingGarageLabel.style.display = 'none'; operatingGarageSelect.style.display = 'none';
+                    operatingGarageSelect.required = false;
+                }
+            }
+            successfulOperatorSelect.addEventListener('change', (e) => { handleAddNewOption(successfulOperatorSelect, newSuccessfulOperatorInput, operatorList, saveOperatorsToLocalStorage, true); populateOperatingGarageDropdown(e.target.value); updateFieldsForServiceType(); });
+            serviceTypeSelect.addEventListener('change', () => { updateFieldsForServiceType(); populateOperatingGarageDropdown(successfulOperatorSelect.value, operatingGarageSelect.value); });
+
+            function loadFromLocalStorage() {
+                const storedEntries = localStorage.getItem(ENTRIES_KEY);
+                let parsedEntries = storedEntries ? JSON.parse(storedEntries) : [];
+                entries = parsedEntries.map(entry => ({
+                    ...entry, serviceType: entry.serviceType || 'Tendered',
+                    tenderAnnouncementDateObject: (entry.tenderAnnouncement && entry.serviceType !== 'Commercial') ? new Date(entry.tenderAnnouncement + 'T00:00:00') : new Date(""),
+                    operatingGarageCode: entry.operatingGarageCode || "" 
+                }));
+                const storedRoutes = localStorage.getItem(ROUTES_KEY);
+                routeList = storedRoutes ? JSON.parse(storedRoutes) : [...defaultRoutes];
+                routeList.sort(naturalSortComparator);
+                const storedOperators = localStorage.getItem(OPERATORS_KEY);
+                operatorList = storedOperators ? JSON.parse(storedOperators) : [...defaultOperators];
+                operatorList.sort(naturalSortComparator);
+                const storedOperatorDetails = localStorage.getItem(OPERATOR_DETAILS_KEY);
+                operatorDetails = storedOperatorDetails ? JSON.parse(storedOperatorDetails) : [];
+                if (operatorDetails.length === 0 && operatorList.length > 0) { 
+                    operatorDetails = operatorList.map(name => ({ operatorName: name, garages: [] }));
+                } else if (operatorDetails.length > 0) { 
+                     const namesFromDetails = operatorDetails.map(op => op.operatorName);
+                     operatorList = Array.from(new Set([...operatorList,...namesFromDetails])).sort(naturalSortComparator); 
+                     operatorList.forEach(opName => {
+                        if (!operatorDetails.find(od => od.operatorName === opName)) {
+                            operatorDetails.push({ operatorName: opName, garages: []});
+                        }
+                    });
+                }
+                saveOperatorsToLocalStorage(); 
+                saveOperatorDetailsToLocalStorage(); 
+            }
+
+            function saveEntriesToLocalStorage() { localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries)); }
+            function saveRoutesToLocalStorage() { localStorage.setItem(ROUTES_KEY, JSON.stringify(routeList.sort(naturalSortComparator))); }
+            function saveOperatorsToLocalStorage() { localStorage.setItem(OPERATORS_KEY, JSON.stringify(operatorList.sort(naturalSortComparator))); }
+            function saveOperatorDetailsToLocalStorage() { localStorage.setItem(OPERATOR_DETAILS_KEY, JSON.stringify(operatorDetails.sort((a,b) => naturalSortComparator(a.operatorName, b.operatorName))));}
+
+            function populateSelectWithOptions(selectElement, list, includeAddNew = true, currentlySelectedValue = null) {
+                const originalValue = currentlySelectedValue || selectElement.value; 
+                selectElement.innerHTML = '<option value="">-- Select --</option>';
+                list.forEach(item => { const option = document.createElement('option'); option.value = option.textContent = item; selectElement.appendChild(option); });
+                if (includeAddNew) { const addNewOption = document.createElement('option'); addNewOption.value = ADD_NEW_VALUE; addNewOption.textContent = 'Add new...'; selectElement.appendChild(addNewOption); }
+                if (list.includes(originalValue)) selectElement.value = originalValue;
+                else if (originalValue === ADD_NEW_VALUE && includeAddNew) selectElement.value = ADD_NEW_VALUE;
+                else selectElement.value = ""; 
+            }
+            function populateAllDropdowns() { 
+                populateSelectWithOptions(routeSelect, routeList, true); 
+                populateSelectWithOptions(successfulOperatorSelect, operatorList, true); 
+                populateSelectWithOptions(previousOperatorSelect, operatorList, false); 
+                populateOperatingGarageDropdown(successfulOperatorSelect.value, operatingGarageSelect.value);
+            }
+            function handleAddNewOption(selectElement, newNameInput, listRef, saveFunc, isMainOpList = false) { 
+                 if (selectElement.value === ADD_NEW_VALUE) { 
+                     newNameInput.style.display = 'block'; newNameInput.focus(); 
+                } else { 
+                    newNameInput.style.display = 'none'; newNameInput.value = ''; 
+                } 
+            }
+            routeSelect.addEventListener('change', () => handleAddNewOption(routeSelect, newRouteInput, routeList, saveRoutesToLocalStorage));
+            
+            function getSelectedItemValue(selectElement, newNameInput, list, saveFunction, isMainOperatorList = false) { 
+                let selectedValue = selectElement.value; 
+                const newName = newNameInput ? newNameInput.value.trim() : ""; 
+                if (selectElement.value === ADD_NEW_VALUE && newNameInput && newName !== '') { 
+                    selectedValue = newName; 
+                    if (!list.includes(selectedValue)) { 
+                        list.push(selectedValue); 
+                        list.sort(naturalSortComparator);
+                        saveFunction(); 
+                        if (isMainOperatorList) { 
+                             if (!operatorDetails.find(op => op.operatorName === selectedValue)) {
+                                operatorDetails.push({ operatorName: selectedValue, garages: [] });
+                                saveOperatorDetailsToLocalStorage();
+                            }
+                            renderOperatorListForManagement(); 
+                        }
+                        if (list === routeList) populateSelectWithOptions(routeSelect, routeList, true, selectedValue);
+                        if (list === operatorList) {
+                            populateSelectWithOptions(successfulOperatorSelect, operatorList, true, selectedValue);
+                            populateSelectWithOptions(previousOperatorSelect, operatorList, false, successfulOperatorSelect.value === selectedValue ? "" : previousOperatorSelect.value);
+                        }
+                         selectElement.value = selectedValue; 
+                         if (isMainOperatorList && selectElement.id === 'successfulOperator') {
+                           populateOperatingGarageDropdown(selectedValue); 
+                        }
+                    } 
+                    newNameInput.value = ''; newNameInput.style.display = 'none'; 
+                } else if (selectElement.value === ADD_NEW_VALUE && (!newNameInput || newName === '')) { 
+                    selectedValue = ""; selectElement.value = ""; 
+                } 
+                return selectedValue === ADD_NEW_VALUE || selectedValue === "" ? "" : selectedValue; 
+            }
+            
+            entryForm.addEventListener('submit', function(event) { 
+                if (!entryForm.checkValidity()) { return; } 
+                event.preventDefault(); 
+                const routeValue = getSelectedItemValue(routeSelect, newRouteInput, routeList, saveRoutesToLocalStorage); 
+                const successfulOperatorValue = getSelectedItemValue(successfulOperatorSelect, newSuccessfulOperatorInput, operatorList, saveOperatorsToLocalStorage, true); 
+                const operatingGarageCodeValue = operatingGarageSelect.value; 
+                const currentServiceType = serviceTypeSelect.value; 
+                let effectivePreviousOperator, effectiveContractEnd, effectiveTenderAnnouncement, effectiveTenderAnnouncementDateObject; 
+                if (currentServiceType === 'Commercial') { 
+                    effectivePreviousOperator = ""; effectiveContractEnd = ""; effectiveTenderAnnouncement = ""; 
+                    effectiveTenderAnnouncementDateObject = new Date(""); 
+                } else { 
+                    effectivePreviousOperator = previousOperatorSelect.value; 
+                    effectiveContractEnd = contractEndInput.value; 
+                    effectiveTenderAnnouncement = tenderAnnouncementInput.value; 
+                    effectiveTenderAnnouncementDateObject = (effectiveTenderAnnouncement) ? new Date(effectiveTenderAnnouncement + 'T00:00:00') : new Date("");
+                } 
+                const entryData = { 
+                    id: currentlyEditingIndex !== null ? entries[currentlyEditingIndex].id : Date.now() + Math.random(), 
+                    route: routeValue, serviceType: currentServiceType, 
+                    successfulOperator: successfulOperatorValue, 
+                    operatingGarageCode: operatingGarageCodeValue, 
+                    previousOperator: effectivePreviousOperator, 
+                    contractStart: document.getElementById('contractStart').value, 
+                    contractEnd: effectiveContractEnd, tenderAnnouncement: effectiveTenderAnnouncement, 
+                    tenderAnnouncementDateObject: effectiveTenderAnnouncementDateObject, 
+                    pvr: document.getElementById('pvr').value.trim(), vehicles: document.getElementById('vehicles').value.trim(), 
+                    notes: document.getElementById('notes').value.trim(), 
+                    runningNumbersDay: document.getElementById('runningNumbersDay').value.trim(), 
+                    runningNumbersNight: document.getElementById('runningNumbersNight').value.trim(), 
+                }; 
+                if (currentlyEditingIndex !== null) { entries[currentlyEditingIndex] = entryData; } 
+                else { entries.push(entryData); } 
+                sortEntries(); saveEntriesToLocalStorage(); renderTable(); resetForm(); 
+            });
+            function resetForm() { 
+                entryForm.reset(); currentlyEditingIndex = null; submitButton.textContent = 'Add Entry'; 
+                [newRouteInput, newSuccessfulOperatorInput].forEach(input => { if (input) { input.style.display = 'none'; input.value = ''; } }); 
+                populateAllDropdowns(); 
+                routeSelect.value = ""; successfulOperatorSelect.value = ""; previousOperatorSelect.value = ""; 
+                serviceTypeSelect.value = "Tendered"; 
+                populateOperatingGarageDropdown(""); 
+                updateFieldsForServiceType(); 
+            }
+            
+            function sortEntries() {
+                entries.sort((a, b) => {
+                    const timeA = a.tenderAnnouncementDateObject.getTime(); 
+                    const timeB = b.tenderAnnouncementDateObject.getTime();
+                    const isACommercial = isNaN(timeA);
+                    const isBCommercial = isNaN(timeB);
+                    if (isACommercial && isBCommercial) { return naturalSortComparator(a.route, b.route); } 
+                    else if (isACommercial) { return 1; } 
+                    else if (isBCommercial) { return -1; } 
+                    else { if (timeA < timeB) return -1; if (timeA > timeB) return 1; return naturalSortComparator(a.route, b.route); }
+                });
+            }
+            
+            function getNightRoutesForSpecificGarage(operatorName, garageCode) {
+                const opDetail = operatorDetails.find(op => op.operatorName === operatorName);
+                if (opDetail && opDetail.garages) { 
+                    const garage = opDetail.garages.find(g => g.code && g.code.toUpperCase() === (garageCode ? garageCode.toUpperCase() : ''));
+                    return garage && garage.nightRoutes ? garage.nightRoutes : [];
+                }
+                return [];
+            }
+
+            function renderTable() { // Renders the main Tenders table
+                dataTableBody.innerHTML = ''; sortEntries(); 
+                entries.forEach((entry, index) => {
+                    const row = dataTableBody.insertRow();
+                    const routeCell = row.insertCell(); 
+                    routeCell.textContent = entry.route;
+                    routeCell.classList.remove('main-table-night-route'); 
+
+                    // Styling for night routes in Tenders table is based on *specific* garage data
+                    if (entry.serviceType !== 'Commercial' && entry.successfulOperator && entry.operatingGarageCode) {
+                        const specificGarageNightRoutes = getNightRoutesForSpecificGarage(entry.successfulOperator, entry.operatingGarageCode);
+                        if (specificGarageNightRoutes.includes(entry.route)) {
+                            routeCell.classList.add('main-table-night-route');
+                        }
+                    }
+                    
+                    row.insertCell().textContent = entry.successfulOperator;
+                    row.insertCell().textContent = entry.serviceType === 'Commercial' ? '-' : entry.previousOperator;
+                    row.insertCell().textContent = formatDateForDisplay(entry.contractStart);
+                    row.insertCell().textContent = entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.contractEnd);
+                    row.insertCell().textContent = entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.tenderAnnouncement);
+                    row.insertCell().textContent = entry.pvr;
+                    row.insertCell().textContent = entry.vehicles;
+                    const notesCell = row.insertCell(); notesCell.innerHTML = entry.notes; 
+                    row.insertCell().textContent = entry.runningNumbersDay;
+                    row.insertCell().textContent = entry.runningNumbersNight;
+                    const actionsCell = row.insertCell(); actionsCell.classList.add('action-buttons');
+                    const editButton = document.createElement('button'); editButton.textContent = 'Edit';
+                    editButton.classList.add('edit-btn'); editButton.addEventListener('click', () => loadEntryForEdit(index));
+                    actionsCell.appendChild(editButton);
+                    const deleteButton = document.createElement('button'); deleteButton.textContent = 'Delete';
+                    deleteButton.classList.add('delete-btn'); deleteButton.addEventListener('click', () => deleteEntry(index));
+                    actionsCell.appendChild(deleteButton);
+                });
+            }
+            
+            function setSelectValue(selectElement, newItemInputElement, value, list, saveFunction, isMainOpList = false) { if (list.includes(value)) { selectElement.value = value; } else if (value && ADD_NEW_VALUE !== value) { if (isMainOpList || selectElement.id === 'route') { list.push(value); list.sort(naturalSortComparator); saveFunction(); populateAllDropdowns(); } selectElement.value = value; } else { selectElement.value = ""; } if (newItemInputElement) { newItemInputElement.style.display = 'none'; newItemInputElement.value = ''; } }
+            function loadEntryForEdit(index) { 
+                const entry = entries[index]; currentlyEditingIndex = index; 
+                serviceTypeSelect.value = entry.serviceType || 'Tendered'; 
+                successfulOperatorSelect.value = entry.successfulOperator || ""; 
+                populateOperatingGarageDropdown(entry.successfulOperator, entry.operatingGarageCode || ""); 
+                updateFieldsForServiceType(); 
+                setSelectValue(routeSelect, newRouteInput, entry.route, routeList, saveRoutesToLocalStorage); 
+                if (entry.serviceType !== 'Commercial') { 
+                    setSelectValue(previousOperatorSelect, null, entry.previousOperator, operatorList, saveOperatorsToLocalStorage, true); 
+                    contractEndInput.value = entry.contractEnd; 
+                    tenderAnnouncementInput.value = entry.tenderAnnouncement; 
+                } 
+                document.getElementById('contractStart').value = entry.contractStart; 
+                document.getElementById('pvr').value = entry.pvr; 
+                document.getElementById('vehicles').value = entry.vehicles; 
+                document.getElementById('notes').value = entry.notes; 
+                document.getElementById('runningNumbersDay').value = entry.runningNumbersDay; 
+                document.getElementById('runningNumbersNight').value = entry.runningNumbersNight; 
+                submitButton.textContent = 'Update Entry'; window.scrollTo(0, 0); 
+            }
+            function deleteEntry(index) { if (confirm('Are you sure you want to delete this tender entry?')) { entries.splice(index, 1); saveEntriesToLocalStorage(); renderTable(); } }
+            
+            // --- Operator & Garage Management Logic ---
+            function renderOperatorListForManagement() {
+                operatorListForManagementUL.innerHTML = '';
+                operatorList.forEach(opName => { 
+                    const li = document.createElement('li');
+                    if (opName === selectedOperatorForGarageMgmt) li.classList.add('selected');
+                    const nameSpan = document.createElement('span'); nameSpan.textContent = opName; nameSpan.classList.add('operator-name-display');
+                    nameSpan.addEventListener('click', () => {
+                        selectedOperatorForGarageMgmt = opName; 
+                        if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = opName;
+                        if(addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = 'block';
+                        renderOperatorListForManagement(); 
+                        garageFormContainer.style.display = 'none'; 
+                    });
+                    li.appendChild(nameSpan);
+                    const actionsDiv = document.createElement('div'); actionsDiv.classList.add('actions');
+                    const editOpButton = document.createElement('button'); editOpButton.textContent = 'Edit Name'; editOpButton.classList.add('edit-btn');
+                    editOpButton.addEventListener('click', (e) => { e.stopPropagation(); loadOperatorForEdit(opName); });
+                    actionsDiv.appendChild(editOpButton);
+                    const deleteOpButton = document.createElement('button'); deleteOpButton.textContent = 'Delete Op'; deleteOpButton.classList.add('delete-btn');
+                    deleteOpButton.addEventListener('click', (e) => { e.stopPropagation(); deleteOperatorSystem(opName); });
+                    actionsDiv.appendChild(deleteOpButton); li.appendChild(actionsDiv);
+                    operatorListForManagementUL.appendChild(li);
+                });
+            }
+            addOperatorSystemButton.addEventListener('click', () => { const newOpName = manageOperatorNameInput.value.trim(); if (newOpName && !operatorList.includes(newOpName)) { operatorList.push(newOpName); saveOperatorsToLocalStorage(); operatorDetails.push({ operatorName: newOpName, garages: [] }); saveOperatorDetailsToLocalStorage(); manageOperatorNameInput.value = ''; renderOperatorListForManagement(); populateAllDropdowns(); renderAllOperatorsAndGarages(); alert(`Operator "${newOpName}" added.`); } else if (operatorList.includes(newOpName)) { alert('Operator name already exists.'); } else { alert('Please enter an operator name.'); } });
+            function loadOperatorForEdit(opName) { editingOperatorNameGlobal = opName; manageOperatorNameInput.value = opName; addOperatorSystemButton.style.display = 'none'; updateOperatorSystemButton.style.display = 'inline-block'; cancelOperatorSystemEditButton.style.display = 'inline-block'; }
+            updateOperatorSystemButton.addEventListener('click', () => { const updatedOpName = manageOperatorNameInput.value.trim(); if (!updatedOpName) { alert("Operator name cannot be empty."); return; } if (updatedOpName !== editingOperatorNameGlobal && operatorList.includes(updatedOpName)) { alert("Another operator with this name already exists."); return; } const oldOpName = editingOperatorNameGlobal; const opListIndex = operatorList.indexOf(oldOpName); if (opListIndex > -1) { operatorList[opListIndex] = updatedOpName; saveOperatorsToLocalStorage(); } const opDetail = operatorDetails.find(op => op.operatorName === oldOpName); if (opDetail) { opDetail.operatorName = updatedOpName; saveOperatorDetailsToLocalStorage(); } entries.forEach(entry => { if (entry.successfulOperator === oldOpName) entry.successfulOperator = updatedOpName; if (entry.previousOperator === oldOpName) entry.previousOperator = updatedOpName; }); saveEntriesToLocalStorage(); renderTable(); alert(`Operator "${oldOpName}" updated to "${updatedOpName}".`); cancelOperatorSystemEdit(); renderOperatorListForManagement(); populateAllDropdowns(); renderAllOperatorsAndGarages(); if(selectedOperatorForGarageMgmt === oldOpName){ selectedOperatorForGarageMgmt = updatedOpName; if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = updatedOpName; } });
+            cancelOperatorSystemEditButton.addEventListener('click', cancelOperatorSystemEdit);
+            function cancelOperatorSystemEdit() { editingOperatorNameGlobal = null; manageOperatorNameInput.value = ''; addOperatorSystemButton.style.display = 'inline-block'; updateOperatorSystemButton.style.display = 'none'; cancelOperatorSystemEditButton.style.display = 'none'; }
+            function deleteOperatorSystem(opName) { if (!confirm(`Are you sure you want to delete operator "${opName}" and ALL their associated garages and routes? This cannot be undone.`)) return; operatorList = operatorList.filter(op => op !== opName); saveOperatorsToLocalStorage(); operatorDetails = operatorDetails.filter(op => op.operatorName !== opName); saveOperatorDetailsToLocalStorage(); let tendersUpdated = false; entries.forEach(entry => { if (entry.successfulOperator === opName) { entry.successfulOperator = ""; entry.operatingGarageCode = ""; tendersUpdated = true; } if (entry.previousOperator === opName) { entry.previousOperator = ""; tendersUpdated = true;} }); if(tendersUpdated) { saveEntriesToLocalStorage(); renderTable(); } renderOperatorListForManagement(); populateAllDropdowns(); if (selectedOperatorForGarageMgmt === opName) { selectedOperatorForGarageMgmt = null; if (addGarageForSelectedOperatorSection) addGarageForSelectedOperatorSection.style.display = (operatorList.length > 0 ? 'block' : 'none'); if (operatorList.length > 0) { selectedOperatorForGarageMgmt = operatorList[0]; if(addGarageForOperatorNameGlobalSpan) addGarageForOperatorNameGlobalSpan.textContent = selectedOperatorForGarageMgmt; } } renderAllOperatorsAndGarages(); alert(`Operator "${opName}" and all associated data deleted.`); }
+            
+            if(showAddGarageFormButtonGlobal) {
+                showAddGarageFormButtonGlobal.addEventListener('click', () => { 
+                    if (!selectedOperatorForGarageMgmt) { 
+                        alert("Please select an operator from the list above by clicking their name, or add one if the list is empty."); 
+                        if (operatorList.length > 0 && manageOperatorNameInput) { manageOperatorNameInput.focus(); }
+                        return; 
+                    }
+                    garageFormTitle.textContent = `Add New Garage for ${selectedOperatorForGarageMgmt}`;
+                    currentEditingGarageId = null; editingGarageIdInput.value = "";
+                    currentOperatorForGarageFormInput.value = selectedOperatorForGarageMgmt;
+                    garageCodeInput.value = ""; garageNameInput.value = ""; garageAddressInput.value = "";
+                    garageStandardRoutesInput.value = ""; garageNightRoutesInput.value = ""; garageSchoolRoutesInput.value = "";
+                    garageOtherRoutesInput.value = ""; garageMobilityRoutesInput.value = ""; garageRailReplacementRoutesInput.value = "";
+                    garageFormContainer.style.display = 'block';
+                });
+            }
+
+            cancelGarageFormButton.addEventListener('click', () => { garageFormContainer.style.display = 'none'; currentEditingGarageId = null; });
+            saveGarageButton.addEventListener('click', () => { const operatorName = currentOperatorForGarageFormInput.value; const garageId = currentEditingGarageId ? parseFloat(editingGarageIdInput.value) : Date.now() + Math.random(); const code = garageCodeInput.value.trim().toUpperCase(); const name = garageNameInput.value.trim(); const address = garageAddressInput.value.trim(); if (!code || !name) { alert("Garage Code and Garage Name are required."); return; } const garageData = { id: garageId, code, name, address, standardRoutes: parseRoutesToArray(garageStandardRoutesInput.value), nightRoutes: parseRoutesToArray(garageNightRoutesInput.value), schoolRoutes: parseRoutesToArray(garageSchoolRoutesInput.value), otherRoutes: parseRoutesToArray(garageOtherRoutesInput.value), mobilityRoutes: parseRoutesToArray(garageMobilityRoutesInput.value), railReplacementRoutes: parseRoutesToArray(garageRailReplacementRoutesInput.value) }; const operatorDetail = operatorDetails.find(op => op.operatorName === operatorName); if (!operatorDetail) { alert("Operator not found."); return; } if (!operatorDetail.garages) operatorDetail.garages = []; if (currentEditingGarageId) { const garageIndex = operatorDetail.garages.findIndex(g => g.id === garageId); if (garageIndex > -1) { if (operatorDetail.garages.some(g => g.code === code && g.id !== garageId)) { alert(`Garage Code "${code}" already exists for this operator.`); return; } operatorDetail.garages[garageIndex] = garageData; } } else { if (operatorDetail.garages.some(g => g.code === code)) { alert(`Garage Code "${code}" already exists for this operator.`); return; } operatorDetail.garages.push(garageData); } saveOperatorDetailsToLocalStorage(); renderAllOperatorsAndGarages(); garageFormContainer.style.display = 'none'; currentEditingGarageId = null; renderTable(); });
+            
+            // REVISED renderAllOperatorsAndGarages function for Excel-like layout without table headers
+            function renderAllOperatorsAndGarages() {
+                allOperatorsGaragesDisplayDiv.innerHTML = ''; 
+                operatorDetails.forEach(operatorDetail => {
+                    const operatorHeaderDiv = document.createElement('div');
+                    operatorHeaderDiv.classList.add('operator-header-strip');
+                    operatorHeaderDiv.textContent = operatorDetail.operatorName.toUpperCase();
+                    allOperatorsGaragesDisplayDiv.appendChild(operatorHeaderDiv);
+
+                    const table = document.createElement('table');
+                    table.classList.add('garages-display-table'); 
+                    const tbody = table.createTBody();
+
+                    if (operatorDetail.garages && operatorDetail.garages.length > 0) {
+                        operatorDetail.garages.sort((a,b) => naturalSortComparator(a.name, b.name)).forEach(garage => {
+                            const row = tbody.insertRow();
+                            
+                            row.insertCell().textContent = garage.code; row.cells[0].classList.add('garage-data-code');
+                            row.insertCell().textContent = garage.name; row.cells[1].classList.add('garage-data-name');
+                            row.insertCell().textContent = garage.address || 'N/A'; row.cells[2].classList.add('garage-data-address');
+                            
+                            const routesCell = row.insertCell(); routesCell.classList.add('garage-data-routes');
+                            const routesCellContent = document.createElement('div'); routesCellContent.classList.add('routes-cell-content');
+                            let firstRouteLineRendered = true;
+
+                            if (garage.standardRoutes && garage.standardRoutes.length > 0) {
+                                const stdDiv = document.createElement('div');
+                                garage.standardRoutes.forEach((route, index) => {
+                                    const routeSpan = document.createElement('span'); routeSpan.textContent = route;
+                                    routeSpan.classList.add('standard-route', 'route-item');
+                                    if (garage.nightRoutes && garage.nightRoutes.includes(route)) routeSpan.classList.add('is-also-night'); 
+                                    stdDiv.appendChild(routeSpan);
+                                    if (index < garage.standardRoutes.length - 1) stdDiv.appendChild(document.createTextNode(' '));
+                                });
+                                routesCellContent.appendChild(stdDiv); firstRouteLineRendered = false;
+                            }
+                            const categoriesOrderForDisplay = [ {label: "Night routes:", key: "nightRoutes", labelClass: "night-route-label", itemClass: "night-route-item"}, {label: "School routes:", key: "schoolRoutes"}, {label: "Other routes:", key: "otherRoutes"}, {label: "Mobility routes:", key: "mobilityRoutes"}, {label: "Rail replacement:", key: "railReplacementRoutes"} ];
+                            categoriesOrderForDisplay.forEach(catInfo => {
+                                const routesArray = garage[catInfo.key];
+                                if (routesArray && routesArray.length > 0) {
+                                    if (!firstRouteLineRendered) {} else firstRouteLineRendered = false;
+                                    const catDiv = document.createElement('div'); catDiv.classList.add('garage-route-category-item');
+                                    const labelStrong = document.createElement('strong'); labelStrong.textContent = catInfo.label + " ";
+                                    if (catInfo.labelClass) labelStrong.classList.add(catInfo.labelClass);
+                                    catDiv.appendChild(labelStrong);
+                                    routesArray.forEach((route, index) => {
+                                        const routeSpan = document.createElement('span'); routeSpan.textContent = route;
+                                        if (catInfo.itemClass) routeSpan.classList.add(catInfo.itemClass); else routeSpan.classList.add('route-item');
+                                        catDiv.appendChild(routeSpan);
+                                        if (index < routesArray.length - 1) catDiv.appendChild(document.createTextNode(' '));
+                                    });
+                                    routesCellContent.appendChild(catDiv);
+                                }
+                            });
+                            if (routesCellContent.innerHTML.trim() === '') {
+                                const noRoutesP = document.createElement('p'); noRoutesP.classList.add('no-data-message');
+                                noRoutesP.textContent = "No routes at present.";
+                                routesCellContent.appendChild(noRoutesP);
+                            }
+                            routesCell.appendChild(routesCellContent);
+                            const actionsCell = row.insertCell(); actionsCell.classList.add('actions', 'garage-data-actions');
+                            const editBtn = document.createElement('button'); editBtn.textContent = 'Edit'; editBtn.classList.add('edit-btn');
+                            editBtn.onclick = () => loadGarageForEdit(operatorDetail.operatorName, garage.id);
+                            actionsCell.appendChild(editBtn);
+                            const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'Delete'; deleteBtn.classList.add('delete-btn');
+                            deleteBtn.onclick = () => deleteGarage(operatorDetail.operatorName, garage.id);
+                            actionsCell.appendChild(deleteBtn);
+                        });
+                    } else {
+                        const row = tbody.insertRow(); const cell = row.insertCell(); cell.colSpan = 5; 
+                        cell.textContent = 'No garages at present.'; cell.classList.add('no-data-message');
+                    }
+                    allOperatorsGaragesDisplayDiv.appendChild(table);
+                });
+            }
+            
+            window.loadGarageForEdit = (opName, garageId) => { const operatorDetail = operatorDetails.find(op => op.operatorName === opName); const garage = operatorDetail ? operatorDetail.garages.find(g => g.id === garageId) : null; if (garage) { garageFormTitle.textContent = `Edit Garage: ${garage.name} (${garage.code}) for ${opName}`; currentEditingGarageId = garage.id; editingGarageIdInput.value = garage.id; currentOperatorForGarageFormInput.value = opName; garageCodeInput.value = garage.code; garageNameInput.value = garage.name; garageAddressInput.value = garage.address || ""; garageStandardRoutesInput.value = formatRoutesToString(garage.standardRoutes); garageNightRoutesInput.value = formatRoutesToString(garage.nightRoutes); garageSchoolRoutesInput.value = formatRoutesToString(garage.schoolRoutes); garageOtherRoutesInput.value = formatRoutesToString(garage.otherRoutes); garageMobilityRoutesInput.value = formatRoutesToString(garage.mobilityRoutes); garageRailReplacementRoutesInput.value = formatRoutesToString(garage.railReplacementRoutes); garageFormContainer.style.display = 'block'; garageFormContainer.scrollIntoView({behavior: "smooth"}); } };
+            window.deleteGarage = (opName, garageId) => { if (!confirm("Are you sure you want to delete this garage and all its associated routes?")) return; const operatorDetail = operatorDetails.find(op => op.operatorName === opName); if (operatorDetail) { operatorDetail.garages = operatorDetail.garages.filter(g => g.id !== garageId); saveOperatorDetailsToLocalStorage(); renderAllOperatorsAndGarages(); renderTable(); } };
+
+            // Excel Import Logic
+            if (importExcelButton) { importExcelButton.addEventListener('click', () => { if (excelFileInput.files.length === 0) { alert('Please select an Excel file first.'); return; } const file = excelFileInput.files[0]; const reader = new FileReader(); reader.onload = function(event) { try { const data = event.target.result; const workbook = XLSX.read(data, { type: 'binary', cellDates: true }); const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName]; const jsonData = XLSX.utils.sheet_to_json(worksheet); if (jsonData.length === 0) { alert('The Excel sheet is empty or could not be read.'); excelFileInput.value = ""; return; } if (!confirm("Importing this file will overwrite ALL existing tender entries, routes, and operators. This cannot be undone. Are you sure you want to proceed?")) { excelFileInput.value = ""; return; } entries = []; routeList = []; operatorList = []; operatorDetails = []; processImportedData(jsonData); } catch (error) { console.error("Error processing Excel file:", error); alert('Error processing Excel file. Ensure it is a valid .xlsx, .xls, or .csv file and the format/headers are correct.\n' + error.message); } finally { excelFileInput.value = ""; } }; reader.onerror = function(error) { console.error("FileReader error:", error); alert('Error reading file.'); excelFileInput.value = ""; }; reader.readAsBinaryString(file); }); }
+            function processImportedData(importedRows) { let newEntriesCount = 0; let uniqueRoutesFromExcel = new Set(); let uniqueOperatorsFromExcel = new Set(); const getVal = (r, keys) => { for (const key of keys) { const rowKey = Object.keys(r).find(k => k.toLowerCase().replace(/\s+/g, '') === key.toLowerCase().replace(/\s+/g, '')); if (rowKey && r[rowKey] !== undefined) return r[rowKey]; } return undefined; }; function excelDateToYYYYMMDD(excelDateCell) { if (!excelDateCell) return ""; if (excelDateCell instanceof Date) { const year = excelDateCell.getFullYear(); const month = String(excelDateCell.getMonth() + 1).padStart(2, '0'); const day = String(excelDateCell.getDate()).padStart(2, '0'); if (isNaN(year) || isNaN(month) || isNaN(day)) return ""; return `${year}-${month}-${day}`; } if (typeof excelDateCell === 'number') { console.warn("Numeric date from Excel:", excelDateCell); return String(excelDateCell); } if (typeof excelDateCell === 'string') { if (excelDateCell.match(/^\d{4}-\d{2}-\d{2}$/)) return excelDateCell; const parts = excelDateCell.split(/[\/\-.]/); if (parts.length === 3) { let day = parts[0], month = parts[1], year = parts[2]; if (parseInt(parts[0]) > 12 && parseInt(parts[1]) <= 12) {} else if (parseInt(parts[1]) > 12 && parseInt(parts[0]) <= 12) { month = parts[0]; day = parts[1]; } if (year && year.length === 2) year = (parseInt(year) > 50 ? '19' : '20') + year; if (day && month && year && year.length === 4 && !isNaN(parseInt(day)) && !isNaN(parseInt(month)) && !isNaN(parseInt(year))) { return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`; } } return excelDateCell.trim(); } return ""; } importedRows.forEach(row => { const routeVal = getVal(row, ['Route']); if (!routeVal) { console.warn('Skipping row due to missing Route:', row); return; } const serviceTypeVal = getVal(row, ['Service Type', 'ServiceType']) || 'Tendered'; let contractEndStr = excelDateToYYYYMMDD(getVal(row, ['Contract End', 'Contract End Date'])); let tenderAnnounceStr = excelDateToYYYYMMDD(getVal(row, ['Tender Announcement Date', 'Tender Announcement', 'Tender Announce.'])); let prevOpStr = String(getVal(row, ['Previous Operator', 'Previous Op']) || "").trim(); let opGarageCode = String(getVal(row, ['Operating Garage Code', 'Garage Code', 'OperatingGarageCode']) || "").trim(); if (serviceTypeVal === 'Commercial') { contractEndStr = ""; tenderAnnounceStr = ""; prevOpStr = ""; opGarageCode = "";} const entryData = { id: Date.now() + Math.random() * 10000, route: String(routeVal).trim(), serviceType: serviceTypeVal, successfulOperator: String(getVal(row, ['Successful Operator', 'Successful Op']) || "").trim(), operatingGarageCode: opGarageCode, previousOperator: prevOpStr, contractStart: excelDateToYYYYMMDD(getVal(row, ['Contract Start', 'Contract Start Date']) || ""), contractEnd: contractEndStr, tenderAnnouncement: tenderAnnounceStr, tenderAnnouncementDateObject: tenderAnnounceStr ? new Date(tenderAnnounceStr + "T00:00:00") : new Date(""), pvr: String(getVal(row, ['PVR']) || "").trim(), vehicles: String(getVal(row, ['Vehicles']) || "").trim(), notes: String(getVal(row, ['Notes']) || "").trim(), runningNumbersDay: String(getVal(row, ['Running Numbers (Day)', 'Running Numbers Day']) || "").trim(), runningNumbersNight: String(getVal(row, ['Running Numbers (Night)', 'Running Numbers Night']) || "").trim(), }; if (entryData.route) uniqueRoutesFromExcel.add(entryData.route); if (entryData.successfulOperator) uniqueOperatorsFromExcel.add(entryData.successfulOperator); if (entryData.previousOperator && entryData.serviceType !== 'Commercial') uniqueOperatorsFromExcel.add(entryData.previousOperator); entries.push(entryData); newEntriesCount++; }); routeList = Array.from(uniqueRoutesFromExcel); operatorList = Array.from(uniqueOperatorsFromExcel); operatorDetails = operatorList.map(opName => ({ operatorName: opName, garages: [] })); saveRoutesToLocalStorage(); saveOperatorsToLocalStorage(); saveOperatorDetailsToLocalStorage(); if (newEntriesCount > 0) { populateAllDropdowns(); sortEntries(); saveEntriesToLocalStorage(); renderTable(); alert(`${newEntriesCount} entries imported successfully. All previous data has been overwritten.`); } else { alert('No new entries were imported. Please check file content/headers. Previous data remains unchanged if import was empty.'); } }
+            
+            // PDF Generation Logic
+            if (generatePdfButton) { generatePdfButton.addEventListener('click', () => { if (typeof jspdf === 'undefined' || typeof jspdf.jsPDF === 'undefined') { alert('PDF library (jsPDF) is not loaded.'); return; } const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' }); const head = [['Route', 'Successful Operator', 'Previous Operator', 'Contract Start', 'Contract End', 'Tender Announcement Date', 'PVR', 'Vehicles', 'Notes', 'Running Numbers (Day)', 'Running Numbers (Night)']]; const body = entries.map(entry => [ entry.route, entry.successfulOperator, entry.serviceType === 'Commercial' ? '-' : entry.previousOperator, formatDateForDisplay(entry.contractStart), entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.contractEnd), entry.serviceType === 'Commercial' ? '-' : formatDateForDisplay(entry.tenderAnnouncement), entry.pvr, entry.vehicles, stripHtml(entry.notes), entry.runningNumbersDay, entry.runningNumbersNight ]); doc.autoTable({ startY: 15, head: head, body: body, theme: 'striped', styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', halign: 'center', valign: 'middle' }, headStyles: { fillColor: [22, 160, 133], textColor: 255, fontSize: 7.5, fontStyle: 'bold', halign: 'center', valign: 'middle' }, didDrawPage: function (data) { const pageCount = doc.internal.getNumberOfPages(); const genDateStr = `Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`; const pageStr = "Page " + doc.internal.getCurrentPageInfo().pageNumber + " of " + pageCount; doc.setFontSize(8); doc.setTextColor(100); const genDateWidth = doc.getStringUnitWidth(genDateStr) * doc.internal.getFontSize() / doc.internal.scaleFactor; doc.text(genDateStr, (doc.internal.pageSize.width / 2) - (genDateWidth / 2) , doc.internal.pageSize.height - 10); const pageStrWidth = doc.getStringUnitWidth(pageStr) * doc.internal.getFontSize() / doc.internal.scaleFactor; doc.text(pageStr, doc.internal.pageSize.width - data.settings.margin.right - pageStrWidth, doc.internal.pageSize.height - 10); } }); doc.save('route_tender_entries.pdf'); }); }
+            
+            function initializeApp() {
+                if (contractEndLabel) originalContractEndLabelHTML = contractEndLabel.innerHTML;
+                if (tenderAnnouncementLabel) originalTenderAnnouncementLabelHTML = tenderAnnouncementLabel.innerHTML;
+                if (previousOperatorLabel) originalPreviousOperatorLabelHTML = previousOperatorLabel.innerHTML;
+                loadFromLocalStorage(); 
+                populateAllDropdowns(); 
+                updateFieldsForServiceType(); 
+                renderTable();
+                switchView('dataEntriesView'); 
+            }
+            initializeApp();
+        });
+    </script>
+</body>
+</html>

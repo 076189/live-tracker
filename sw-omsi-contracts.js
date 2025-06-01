@@ -4,11 +4,6 @@ const CACHE_NAME = 'omsi-contract-dates-cache-v1'; // Change version if you make
 const APP_SHELL_FILES = [
     './OMSI Contract Dates.html', // Relative to the SW's location
     './',                         // Caches the root of the SW's scope (e.g., /live-tracker/)
-    // Add paths to your essential icons here, relative to the SW's location
-    // These ensure the icons themselves can be served offline if needed for the app shell.
-    './icons/icon-192x192.png',
-    './icons/icon-512x512.png'
-    // Add any other critical local assets (e.g., a local CSS file if you add one)
 ];
 // Note: CDN-hosted libraries (xlsx, jspdf) will be cached by the fetch handler
 // on first successful use while online, enabling offline use thereafter if cached.

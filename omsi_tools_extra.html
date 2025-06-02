@@ -223,6 +223,17 @@
             grid-template-columns: repeat(7, 1fr);
             grid-auto-rows: minmax(100px, auto);
         }
+
+        #events-calendar-grid_extra .cv-current-day {
+            background-color: rgba(255, 255, 0, 0.25) !important; /* A semi-transparent yellow */
+            border: 2px solid #F1C40F !important; /* A gold border */
+            box-shadow: 0 0 8px rgba(241, 196, 15, 0.7);
+        }
+        #events-calendar-grid_extra .cv-current-day .cv-day-number-span {
+            font-weight: bold;
+            color: #F1C40F !important; /* Make day number stand out more */
+        }
+
         #events-calendar-grid_extra > div { /* Calendar day cells */
             height: auto;
             padding: 4px;
@@ -2528,77 +2539,69 @@ async function renderCalendarView_ExtraPage() {
         return;
     }
 
-    calendarGrid.innerHTML = ''; // Clear previous grid
-    dayDetailsDisplay.innerHTML = '<p>Click on a day to see details.</p>'; // Reset details
+    calendarGrid.innerHTML = '';
+    dayDetailsDisplay.innerHTML = '<p>Click on a day to see details.</p>';
+
+    const actualToday = new Date();
+    const actualCurrentYear = actualToday.getFullYear();
+    const actualCurrentMonth = actualToday.getMonth();
+    const actualCurrentDate = actualToday.getDate();
 
     const year = cv_currentDisplayDate_extra.getFullYear();
-    const month = cv_currentDisplayDate_extra.getMonth(); // 0-11
+    const month = cv_currentDisplayDate_extra.getMonth();
 
     if (monthYearDisplay) {
         monthYearDisplay.textContent = `${cv_currentDisplayDate_extra.toLocaleString('default', { month: 'long' })} ${year}`;
     }
 
-    // MODIFIED: Day names to start with Saturday
     const dayNames = ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
     dayNames.forEach(dayName => {
         const headerCell = document.createElement('div');
-        // Style header cells as they were (or use a CSS class)
         headerCell.style.textAlign = 'center';
         headerCell.style.fontWeight = 'bold';
-        headerCell.style.padding = '0.5em 0.2em'; // Your existing padding for headers might differ
-        headerCell.style.backgroundColor = 'rgba(0,0,0,0.2)'; // Your existing bg for headers
-        headerCell.style.borderBottom = '1px solid #4A5568'; // Your existing border
-        headerCell.style.fontSize = '0.8em'; // Your existing font size for headers
+        headerCell.style.padding = '0.5em 0.2em';
+        headerCell.style.backgroundColor = 'rgba(0,0,0,0.2)';
+        headerCell.style.borderBottom = '1px solid #4A5568';
+        headerCell.style.fontSize = '0.8em';
         headerCell.textContent = dayName;
         calendarGrid.appendChild(headerCell);
     });
 
     const firstDayOfMonth = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    // MODIFIED: Starting day calculation for Saturday start
-    const startingDayOfWeek = (firstDayOfMonth.getDay() + 1) % 7; // 0=Sat, 1=Sun, ... 6=Fri
+    const startingDayOfWeek = (firstDayOfMonth.getDay() + 1) % 7;
 
-    // Pre-fetch DPO data for the current month view if possible or use existing global
     const dpoMap = new Map();
     if (typeof operationalOverrides_data === 'object' && operationalOverrides_data !== null) {
         Object.entries(operationalOverrides_data).forEach(([dateStr, profile]) => {
-            // Ensure we are only mapping for the currently viewed month for efficiency,
-            // or handle this globally if operationalOverrides_data is already scoped/small.
-            // For simplicity, this example assumes operationalOverrides_data is ready.
             dpoMap.set(dateStr, profile);
         });
     }
 
-    // Add empty cells at the start of the month
     for (let i = 0; i < startingDayOfWeek; i++) {
         const emptyCell = document.createElement('div');
-        emptyCell.style.borderRight = '1px solid #4A5568'; // Using existing border style
+        emptyCell.style.borderRight = '1px solid #4A5568';
         emptyCell.style.borderBottom = '1px solid #4A5568';
-        if (i === 0) emptyCell.style.borderLeft = '1px solid #4A5568'; // First cell in grid gets left border
-        emptyCell.style.minHeight = '100px'; // Or match your grid-auto-rows min value
+        if (i === 0) emptyCell.style.borderLeft = '1px solid #4A5568';
+        emptyCell.style.minHeight = '100px';
         calendarGrid.appendChild(emptyCell);
     }
 
-    // Add day cells
     for (let day = 1; day <= daysInMonth; day++) {
         const dayCell = document.createElement('div');
-        // Basic cell styling (borders are handled by CSS rules :nth-child etc. for efficiency)
-        // but explicit ones for grid internal structure if needed.
-        dayCell.style.minHeight = '100px'; // Or match your grid-auto-rows min value
-        dayCell.style.padding = '0.3em'; // Your current cell padding is 2px-4px, this is an example
+        dayCell.style.minHeight = '100px';
+        dayCell.style.padding = '0.3em';
         dayCell.style.cursor = 'pointer';
-        dayCell.classList.add('calendar-day-cell'); // If you have specific styling for cells
+        dayCell.classList.add('calendar-day-cell');
         dayCell.setAttribute('role', 'button');
         dayCell.setAttribute('tabindex', '0');
 
+        if (year === actualCurrentYear && month === actualCurrentMonth && day === actualCurrentDate) {
+            dayCell.classList.add('cv-current-day');
+        }
+
         const dayNumberSpan = document.createElement('strong');
-        // Styles for day number from your CSS:
-        dayNumberSpan.className = 'cv-day-number-span'; // Assuming this class exists from your CSS
-                                                        // If not, apply styles directly:
-        // dayNumberSpan.style.display = 'block';
-        // dayNumberSpan.style.textAlign = 'right';
-        // dayNumberSpan.style.fontSize = '0.8em'; // Or from your media queries for cv-day-number-span
-        // dayNumberSpan.style.marginBottom = '0.2em';
+        dayNumberSpan.className = 'cv-day-number-span';
         dayNumberSpan.textContent = day;
         dayCell.appendChild(dayNumberSpan);
 
@@ -2612,34 +2615,26 @@ async function renderCalendarView_ExtraPage() {
             effectiveProfiles = getOperatingCodesForDate_ExtraPage(dateForThisCell);
         }
 
-        // Display Operating Profiles - MODIFIED
         if (effectiveProfiles.length > 0) {
             const profilesDiv = document.createElement('div');
-            profilesDiv.classList.add('cv-profile-text'); // APPLY NEW CSS CLASS
+            profilesDiv.classList.add('cv-profile-text');
             profilesDiv.textContent = effectiveProfiles.join(', ');
             profilesDiv.title = `Active Profile(s): ${effectiveProfiles.join(', ')}`;
-            // Inline styles for font-size, white-space, overflow, text-overflow are REMOVED
-            // and are now handled by the .cv-profile-text CSS class.
             dayCell.appendChild(profilesDiv);
         }
 
-        // Collect and display events for this day
         let eventsOnThisDay = [];
-        // Bank Holidays
         if (ukBankHolidaysData_extra && ukBankHolidaysData_extra.dates && ukBankHolidaysData_extra.dates.includes(dateStringYYYYMMDD)) {
             const title = ukBankHolidaysData_extra.titles[dateStringYYYYMMDD] || "Bank Holiday";
             eventsOnThisDay.push({ type: 'Bank Holiday', text: title, color: '#E67E22' });
         }
-        // School Holidays
         if (isSchoolHolidayPeriod_ExtraPage(dateForThisCell)) {
             eventsOnThisDay.push({ type: 'School Holiday', text: 'School Holiday', color: '#3498DB' });
         }
-        // DPO Info (if an override exists and is different from auto-profile)
         if (dpoMap.has(dateStringYYYYMMDD) && !effectiveProfiles.includes(dpoMap.get(dateStringYYYYMMDD))) {
              eventsOnThisDay.push({ type: 'DPO Info', text: `Override Active: ${dpoMap.get(dateStringYYYYMMDD)}`, color: '#F1C40F'});
         }
 
-        // Scheduled Tasks (Updates and Deletions)
         Object.values(scheduledRouteUpdates_extra || {}).forEach(task => {
             if (task.goLiveDateTime && getYYYYMMDD_ExtraPage(new Date(task.goLiveDateTime)) === dateStringYYYYMMDD && task.status === 'pending') {
                 let updateDetails = `Route ${task.routeName || 'N/A'}`;
@@ -2648,21 +2643,20 @@ async function renderCalendarView_ExtraPage() {
                     if (task.destinationName) { updateDetails += `, D: ${task.destinationName}`; }
                     updateDetails += `)`;
                 } else if (task.destinationName) { updateDetails += ` (D: ${task.destinationName})`; }
-                eventsOnThisDay.push({ type: 'Task', text: `Update: ${updateDetails}`, color: '#2ECC71' }); // Status removed for brevity in cell
+                eventsOnThisDay.push({ type: 'Task', text: `Update: ${updateDetails}`, color: '#2ECC71' });
             }
         });
         Object.values(scheduledRouteDeletions_extra || {}).forEach(task => {
             if (task.goLiveDateTime && getYYYYMMDD_ExtraPage(new Date(task.goLiveDateTime)) === dateStringYYYYMMDD && task.status === 'pending') {
-                eventsOnThisDay.push({ type: 'Task', text: `Delete Rte: ${task.routeName || 'N/A'}`, color: '#E74C3C' }); // Status removed for brevity
+                eventsOnThisDay.push({ type: 'Task', text: `Delete Rte: ${task.routeName || 'N/A'}`, color: '#E74C3C' });
             }
         });
 
-        // Render Event Items - MODIFIED
         if (eventsOnThisDay.length > 0) {
-            if (dayCell.style.backgroundColor === '') { // Only add if no other event set it
+            if (dayCell.style.backgroundColor === '') {
                  dayCell.style.backgroundColor = 'rgba(255,255,255,0.05)';
             }
-            eventsOnThisDay.sort((a, b) => { // Sort events for consistent display
+            eventsOnThisDay.sort((a, b) => {
                 const typeOrder = { 'DPO Info': 0.5, 'Bank Holiday': 1, 'School Holiday': 2, 'Task': 3 };
                 const orderA = typeOrder[a.type] || 99;
                 const orderB = typeOrder[b.type] || 99;
@@ -2672,36 +2666,23 @@ async function renderCalendarView_ExtraPage() {
 
             for (const event of eventsOnThisDay) {
                 const eventDiv = document.createElement('div');
-                eventDiv.classList.add('cv-event-item'); // APPLY CSS CLASS
+                eventDiv.classList.add('cv-event-item');
 
                 let displayText = event.text;
-                if (event.type === 'Task') { // Keep task summaries brief for the cell view
+                if (event.type === 'Task') {
                     displayText = event.text.length > 30 ? event.text.substring(0, 27) + "..." : event.text;
                 }
-                // If you had specific truncation for DPO Info, Bank Holiday, School Holiday, it would go here.
-                // Otherwise, the .cv-event-item CSS will handle wrapping.
-
                 eventDiv.textContent = displayText;
-                eventDiv.title = `${event.type}: ${event.text}`; // Full text in tooltip
-
-                // Dynamic styles (background/text color for the event item)
+                eventDiv.title = `${event.type}: ${event.text}`;
                 eventDiv.style.backgroundColor = event.color;
                 eventDiv.style.color = getTextColourForBackground_ExtraPage(event.color);
-                
-                // Basic layout styles (can be moved to .cv-event-item if preferred)
-                // These were previously inline and are fine here too.
                 eventDiv.style.margin = '1px 0';
-                eventDiv.style.padding = '2px 3px'; // Ensure this matches or is preferred over .cv-event-item's
-                eventDiv.style.borderRadius = '3px';// Ensure this matches or is preferred over .cv-event-item's
-
-                // REMOVED inline: fontSize, whiteSpace, overflow, textOverflow.
-                // These are now handled by the .cv-event-item CSS class.
-
+                eventDiv.style.padding = '2px 3px';
+                eventDiv.style.borderRadius = '3px';
                 dayCell.appendChild(eventDiv);
             }
         }
 
-        // Add event listener for showing details on click
         dayCell.addEventListener('click', () => displayCalendarDayDetails_ExtraPage(dateStringYYYYMMDD, eventsOnThisDay));
         dayCell.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -2712,25 +2693,18 @@ async function renderCalendarView_ExtraPage() {
         calendarGrid.appendChild(dayCell);
     }
 
-    // Add empty cells at the end of the month
     const totalCells = startingDayOfWeek + daysInMonth;
     const remainingCells = (7 - (totalCells % 7)) % 7;
     for (let i = 0; i < remainingCells; i++) {
         const emptyCell = document.createElement('div');
-        emptyCell.style.borderBottom = '1px solid #4A5568'; // Match existing border style
-        // No right border on the very last cell if it's an empty one from this loop.
-        // The CSS :nth-child(7n) handles removing right border for actual last column cells.
-        // If this empty cell is not the 7th in its row, it gets a right border from default cell style.
-        // If it IS the 7th, :nth-child(7n) removes it.
-        if ((totalCells + i) % 7 !== 6) { // Add right border unless it's the last cell of a row
+        emptyCell.style.borderBottom = '1px solid #4A5568';
+        if ((totalCells + i) % 7 !== 6) {
              emptyCell.style.borderRight = '1px solid #4A5568';
         }
-        // Left border for the first cell of a new row of empty cells
         if ((totalCells + i) % 7 === 0) {
              emptyCell.style.borderLeft = '1px solid #4A5568';
         }
-
-        emptyCell.style.minHeight = '100px'; // Or match your grid-auto-rows min value
+        emptyCell.style.minHeight = '100px';
         calendarGrid.appendChild(emptyCell);
     }
 }

@@ -10,9 +10,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
     <link rel="manifest" href="/live-tracker/manifest-omsitoolsextra.json">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="OMSI Extra Tools">
+    <meta name="mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-title" content="OMSI Extra Tools">
     <meta name="theme-color" content="#2c3e50">
     
     <style>
@@ -1433,38 +1432,55 @@ function showTripAlertPopup_ExtraPage(message) {
     if (!popup) {
         popup = document.createElement('div');
         popup.id = 'omsi-trip-alert-popup';
-        // Existing styles...
-        // TEMPORARY DEBUG STYLES:
-        popup.style.backgroundColor = 'rgba(255, 0, 0, 0.7)'; // Bright RED, semi-transparent
-        popup.style.border = '5px solid yellow';
-        popup.style.width = '90%'; // Make it cover a large area
-        popup.style.height = '50vh';
-        popup.style.top = '50px';   // Position it somewhere noticeable
-        popup.style.left = '5%';
-        popup.style.zIndex = '20000'; // Ensure it's on top of everything
-        popup.style.overflow = 'auto'; // In case content is long
+        popup.style.position = 'fixed';
+        popup.style.bottom = '20px';
+        popup.style.right = '20px';
+        popup.style.backgroundColor = '#34495e'; // Darker theme color
+        popup.style.color = '#ecf0f1';
+        popup.style.padding = '15px';
+        popup.style.borderRadius = '8px';
+        popup.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+        popup.style.zIndex = '10001'; // Ensure it's on top
+        popup.style.width = 'auto';
+        popup.style.maxWidth = '350px';
+
+        const messageP = document.createElement('p');
+        messageP.id = 'omsi-trip-alert-message';
+        messageP.style.margin = '0 0 10px 0';
+        messageP.style.fontSize = '0.95em';
+        messageP.style.lineHeight = '1.4';
+
+        const dismissButton = document.createElement('button');
+        dismissButton.id = 'omsi-trip-alert-dismiss';
+        dismissButton.textContent = 'Dismiss';
+        dismissButton.style.backgroundColor = '#7f8c8d'; // Neutral button
+        dismissButton.style.color = 'white';
+        dismissButton.style.border = 'none';
+        dismissButton.style.padding = '6px 12px';
+        dismissButton.style.cursor = 'pointer';
+        dismissButton.style.borderRadius = '4px';
+        dismissButton.style.fontSize = '0.85em';
+        dismissButton.style.cssFloat = 'right'; // Use cssFloat for wider compatibility
+
+        dismissButton.onclick = () => {
+            popup.style.display = 'none';
+        };
+
+        popup.appendChild(messageP);
+        popup.appendChild(dismissButton); // Add dismiss button after message for better flow
         document.body.appendChild(popup);
-        // alert("DEBUG: omsi-trip-alert-popup was just CREATED for visibility test."); // Alert when created
-    }
-    // Update message content
-    const messageP = popup.querySelector('#omsi-trip-alert-message') || document.createElement('p');
-    messageP.id = 'omsi-trip-alert-message'; // Ensure ID for future query
-    messageP.style.margin = '0 0 10px 0';
-    messageP.style.fontSize = '14px'; // Make text readable
-    messageP.style.lineHeight = '1.4';
-    messageP.style.color = 'white'; // Ensure text is visible on red background
-    messageP.textContent = "DEBUG POPUP VISIBLE: " + message;
-    if (!popup.contains(messageP)) { // Add messageP if not already there (e.g. first time)
-        const dismissButton = popup.querySelector('#omsi-trip-alert-dismiss') || document.createElement('button');
-        if (popup.firstChild) {
-            popup.insertBefore(messageP, popup.firstChild);
-        } else {
-            popup.appendChild(messageP);
-        }
     }
 
+    const messageP = document.getElementById('omsi-trip-alert-message');
+    if(messageP) messageP.textContent = message;
     popup.style.display = 'block';
-    // alert("DEBUG: showTripAlertPopup_ExtraPage made popup visible. Is it covering your login inputs?");
+
+    // Optional: Auto-dismiss after some time
+    // setTimeout(() => {
+    //     if (popup.style.display === 'block' && messageP.textContent === message) { // Check if it's still the same alert
+    //         popup.style.display = 'none';
+    //     }
+    // }, 20000); // Dismiss after 20 seconds
 }
 
 function segmentScheduleEntriesIntoTrips(
@@ -1794,14 +1810,15 @@ function checkAndShowTripAlerts_ExtraPage() {
 
     todayKeyTripEvents_extra.forEach(event => {
         let alertShownId;
-        if (event.type.startsWith('n-bus-')) {
+        // Construct alertShownId based on event type for stability
+        if (event.type === 'n-bus-overall-first' || event.type === 'n-bus-overall-last') {
             alertShownId = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        } else { 
+        } else { // For 'rsg-first-trip' and 'rsg-last-trip' (non-N routes)
             alertShownId = `${event.type}|${event.configKey}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
         }
 
         if (shownTripAlerts_extra[alertShownId]) {
-            return;
+            return; // Already shown this alert today
         }
         if (!event.departureTimeObj || !(event.departureTimeObj instanceof Date)) {
             return;
@@ -1813,17 +1830,19 @@ function checkAndShowTripAlerts_ExtraPage() {
         if (timeDiffMinutes > 0 && timeDiffMinutes <= ALERT_LEAD_TIME_MINUTES) {
             let message = "";
             const serviceHeadsignDisplay = `${event.lineName} to ${event.headsignDestinationName}`;
-            let tripTypeDescription = "";
+            // rsgConfigUserDisplayName is available on all event types from prepareKeyTripTimesForAlerts_ExtraPage
+            const patternIdentifier = event.rsgConfigUserDisplayName.startsWith('rsgConfig_') || event.rsgConfigUserDisplayName.startsWith('N-Service') 
+                                    ? "" // Don't show if it's a generic key or overall N-service summary
+                                    : ` (Pattern: ${event.rsgConfigUserDisplayName})`;
 
-            // Determine if it's a "first" or "last" trip for the message
-            if (event.type === 'rsg-first-trip' || event.type === 'n-bus-overall-first') {
-                tripTypeDescription = "first";
-            } else if (event.type === 'rsg-last-trip' || event.type === 'n-bus-overall-last') {
-                tripTypeDescription = "last";
-            }
-
-            if (tripTypeDescription) { // If it's one of the types we want to alert for
-                message = `${serviceHeadsignDisplay} is about to depart its ${tripTypeDescription} trip for today from ${event.originStopName} at ${event.departureTime}.`;
+            if (event.type === 'rsg-first-trip') {
+                message = `${serviceHeadsignDisplay}${patternIdentifier} is about to depart its first trip from ${event.originStopName} at ${event.departureTime}.`;
+            } else if (event.type === 'rsg-last-trip') {
+                message = `${serviceHeadsignDisplay}${patternIdentifier} is about to depart its last trip for today from ${event.originStopName} at ${event.departureTime}.`;
+            } else if (event.type === 'n-bus-overall-first') {
+                message = `${serviceHeadsignDisplay} (N-Service) is about to operate its first journey for the night from ${event.originStopName} at ${event.departureTime}.`;
+            } else if (event.type === 'n-bus-overall-last') {
+                message = `${serviceHeadsignDisplay} (N-Service) is about to operate its final journey for the night from ${event.originStopName} at ${event.departureTime}.`;
             }
 
             if (message) {
@@ -1839,8 +1858,7 @@ function checkAndShowTripAlerts_ExtraPage() {
                         notificationTitle = `${event.lineName} to ${event.headsignDestinationName}`;
                     }
                     if (typeof showNativeNotification === 'function') {
-                        // Ensure your icon path is correct or use '' for no icon
-                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png'); 
+                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png'); // Replace with your icon
                     } else {
                         if (typeof showTripAlertPopup_ExtraPage === 'function') {
                             showTripAlertPopup_ExtraPage(message);
@@ -1851,7 +1869,7 @@ function checkAndShowTripAlerts_ExtraPage() {
                         showTripAlertPopup_ExtraPage(message);
                     }
                 }
-                shownTripAlerts_extra[alertShownId] = true;
+                shownTripAlerts_extra[alertShownId] = true; // Mark this specific alert ID as shown
             }
         }
     });
@@ -1930,6 +1948,45 @@ async function requestNotificationPermission() {
         localStorage.removeItem('desktopNotificationPreference_omsiExtra');
         alert("Notification permission request dismissed or not acted upon.");
         return "default";
+    }
+}
+
+function showNativeNotification(title, bodyMessage, iconPath = '') {
+    if (typeof checkNotificationPermission !== 'function' || checkNotificationPermission() !== "granted") {
+        if (typeof showTripAlertPopup_ExtraPage === 'function') {
+            showTripAlertPopup_ExtraPage(`${title}\n${bodyMessage}`);
+        }
+        return;
+    }
+
+    const notificationOptions = {
+        body: bodyMessage,
+        tag: `omsi-trip-alert-${Date.now()}`
+    };
+
+    if (iconPath && iconPath.trim() !== '') {
+        notificationOptions.icon = iconPath;
+    }
+
+    try {
+        const notification = new Notification(title, notificationOptions);
+
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+
+        notification.onerror = (err) => {
+            console.error("Native Notification API error event:", err);
+            if (typeof showTripAlertPopup_ExtraPage === 'function') {
+                showTripAlertPopup_ExtraPage(`Desktop Alert Failed: ${title}\n${bodyMessage}`);
+            }
+        };
+    } catch (e) {
+        console.error("Error caught creating new Notification():", e);
+        if (typeof showTripAlertPopup_ExtraPage === 'function') {
+            showTripAlertPopup_ExtraPage(`Desktop Alert Error: ${title}\n${bodyMessage}`);
+        }
     }
 }
 
@@ -11055,69 +11112,9 @@ function rsg_openCopyFromModal_ExtraPage() {
     }
 }
 
-        // Inside omsi_tools_extra.html, within the <script> tag
-
-function updateAuthUI_ExtraPage(user) {
-    currentUser_extra = user;
-    if (user) { // User is logged in
-        // ... (your existing code for logged-in state)
-        if (authSection_el_extra) authSection_el_extra.style.display = 'none'; // Hide login section
-        if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block';
-        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'flex'; // Changed to flex based on your CSS example
-        if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none';
-        if (authStatus_el_extra) authStatus_el_extra.textContent = '';
-        if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email;
-        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block';
-        
-        loadInitialData_ExtraPage();
-        const lastSection = localStorage.getItem('omsiExtraToolsActiveSection');
-        const firstButton = topMenuBar_el_extra ? topMenuBar_el_extra.querySelector('.menu-button') : null;
-        if (lastSection && document.getElementById(lastSection) && Array.from(menuButtons).some(b => b.dataset.section === lastSection)) {
-            showExtraPageSection(lastSection);
-        } else if (firstButton && firstButton.dataset.section) {
-            showExtraPageSection(firstButton.dataset.section);
+        function updateAuthUI_ExtraPage(user) { 
+            currentUser_extra = user; if (user) { if(authSection_el_extra) authSection_el_extra.style.display = 'none'; if(topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block'; if(logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'block'; if(loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none'; if(authStatus_el_extra) authStatus_el_extra.textContent = ''; if(loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email; if(currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block'; loadInitialData_ExtraPage(); const lastSection = localStorage.getItem('omsiExtraToolsActiveSection'); const firstButton = topMenuBar_el_extra.querySelector('.menu-button'); if (lastSection && document.getElementById(lastSection) && Array.from(topMenuBar_el_extra.querySelectorAll('.menu-button')).some(b => b.dataset.section === lastSection) ) showExtraPageSection(lastSection); else if (firstButton && firstButton.dataset.section) showExtraPageSection(firstButton.dataset.section); } else { if(authSection_el_extra) authSection_el_extra.style.display = 'block'; if(topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none'; if(logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none'; if(loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block'; if(authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.'; if(loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = ''; if(currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none'; if(toolSectionsWrapper_el_extra) toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none'); currentWorkingSchedule_extra = []; closedStopIDs_extra = []; globalCustomRouteColours_extra = {}; stopSpecificRouteColours_extra = {}; pageSpecificSettings = {}; rsg_loadedConfigs_extra = {}; rsg_lastLoadedRouteName_extra = null; rsg_lastLoadedDestName_extra = null; rsg_lastLoadedOpProfile_extra = null; renderUIDependentElements_ExtraPage(); }
         }
-        // Ensure login inputs (if somehow still accessible or focused) revert visual cues if any
-        if (inputEmail_el_extra) inputEmail_el_extra.style.border = "1px solid #7f8c8d";
-        if (inputPassword_el_extra) inputPassword_el_extra.style.border = "1px solid #7f8c8d";
-
-
-    } else { // User is logged out or not yet determined
-        if (authSection_el_extra) authSection_el_extra.style.display = 'block'; // Show login section
-        if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none';
-        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none';
-        if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block';
-        if (authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.';
-        if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = '';
-        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none';
-        if (toolSectionsWrapper_el_extra) toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none');
-
-
-        // --- MODIFICATION POINT ---
-        // Explicitly make login inputs editable
-        if (inputEmail_el_extra) {
-            inputEmail_el_extra.readOnly = false;
-            inputEmail_el_extra.disabled = false;
-            inputEmail_el_extra.placeholder = "Email readonly? " + inputEmail_el_extra.readOnly; // Should now be "false"
-            inputEmail_el_extra.style.border = "1px solid #7f8c8d"; // Should be normal border
-             // console.log("Login form: Email input readOnly set to false. Current value:", inputEmail_el_extra.readOnly);
-        }
-        if (inputPassword_el_extra) {
-            inputPassword_el_extra.readOnly = false;
-            inputPassword_el_extra.disabled = false;
-            inputPassword_el_extra.placeholder = "Password readonly? " + inputPassword_el_extra.readOnly; // Should now be "false"
-            inputPassword_el_extra.style.border = "1px solid #7f8c8d"; // Should be normal border
-            // console.log("Login form: Password input readOnly set to false. Current value:", inputPassword_el_extra.readOnly);
-        }
-        // --- END MODIFICATION ---
-
-        // Reset data structures
-        currentWorkingSchedule_extra = [];
-        closedStopIDs_extra = [];
-        // ... (other data resets as you have them) ...
-        renderUIDependentElements_ExtraPage(); // Update UI based on reset data
-    }
-}
         
 async function loadInitialData_ExtraPage() {
     let msg = "Loading data for Extra Modules...";
@@ -11429,65 +11426,36 @@ if (cvNextMonthBtn) {
 }
 
     function initializeExtraAppLogic() {
-    console.log("Firebase ready, Extra app logic init.");
-    if (!window.firebaseOMSI || !window.firebaseOMSI.auth) {
-        console.error("Extra Tools: Firebase OMSI object not found during initializeExtraAppLogic.");
-        if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(null);
-        if (authStatus_el_extra) authStatus_el_extra.textContent = 'Critical Firebase init error for app logic.';
-        return;
-    }
-    const {
-        auth,
-        authOnAuthStateChanged,
-        authSignInWithEmailAndPassword,
-        authSignOut
-    } = window.firebaseOMSI;
-
-    // Listen for authentication state changes
-    authOnAuthStateChanged(auth, user => {
-        if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(user);
-        // If user logs in and certain elements are present, auto-generate a stop ID suggestion
-        if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
-            !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
-            typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
-            autoGenerateAndSetNewStopId_ExtraPage();
+        console.log("Firebase ready, Extra app logic init.");
+        if (!window.firebaseOMSI || !window.firebaseOMSI.auth) {
+            console.error("Extra Tools: Firebase OMSI object not found during initializeExtraAppLogic.");
+            if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(null);
+            if (authStatus_el_extra) authStatus_el_extra.textContent = 'Critical Firebase init error for app logic.';
+            return;
         }
-    });
-
-    // Handle the admin login form submission
-    if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) {
-        adminLoginForm_el_extra.addEventListener('submit', (e) => {
-            e.preventDefault();
-            authStatus_el_extra.textContent = 'Logging in...';
-            authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value)
-                .catch(err => {
-                    authStatus_el_extra.textContent = `Login Error: ${err.message}`;
-                });
-        });
-    }
-
-    // Handle logout button click
-    const logoutButtonElement = document.getElementById('logoutButton_extra');
-    if (logoutButtonElement) {
-        logoutButtonElement.addEventListener('click', () => {
-            localStorage.removeItem('omsiExtraToolsActiveSection'); // Clear last viewed section
-            // Cleanup for Trip Alert System
-            if (tripAlertIntervalId_extra) {
-                clearInterval(tripAlertIntervalId_extra);
-                tripAlertIntervalId_extra = null;
+        const { auth, authOnAuthStateChanged, authSignInWithEmailAndPassword, authSignOut } = window.firebaseOMSI;
+        authOnAuthStateChanged(auth, user => {
+            if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(user);
+            if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra && !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value && typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
+                autoGenerateAndSetNewStopId_ExtraPage();
             }
-            todayKeyTripEvents_extra = [];
-            shownTripAlerts_extra = {};
-            lastAlertDataPreparedDate_extra = null;
-            const popup = document.getElementById('omsi-trip-alert-popup');
-            if (popup) {
-                popup.style.display = 'none';
-            }
-            // Sign out from Firebase
-            authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e));
         });
+        if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) {
+            adminLoginForm_el_extra.addEventListener('submit', (e) => {
+                e.preventDefault();
+                authStatus_el_extra.textContent = 'Logging in...';
+                authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value)
+                    .catch(err => { authStatus_el_extra.textContent = `Login Error: ${err.message}`; });
+            });
+        }
+        const logoutButtonElement = document.getElementById('logoutButton_extra');
+        if (logoutButtonElement) {
+            logoutButtonElement.addEventListener('click', () => {
+                localStorage.removeItem('omsiExtraToolsActiveSection');
+                authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e));
+            });
+        }
     }
-}
 
     if (window.firebaseOMSI && window.firebaseOMSI.auth) {
         initializeExtraAppLogic();

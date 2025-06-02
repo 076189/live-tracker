@@ -1796,20 +1796,21 @@ function checkAndShowTripAlerts_ExtraPage() {
 
             if (message) {
                 const desktopPref = localStorage.getItem('desktopNotificationPreference_omsiExtra');
-                let currentNativePermission = "denied";
+                let nativePermission = "denied"; // Default to denied if function not available or error
                 if (typeof checkNotificationPermission === 'function') {
-                    currentNativePermission = checkNotificationPermission();
+                    nativePermission = checkNotificationPermission();
                 }
-                
-                if (desktopPref === 'granted' && currentNativePermission === 'granted') {
+
+
+                if (desktopPref === 'granted' && nativePermission === 'granted') {
                     let notificationTitle = "OMSI Trip Alert";
                     if (event.lineName && event.headsignDestinationName) {
                         notificationTitle = `${event.lineName} to ${event.headsignDestinationName}`;
                     }
                     if (typeof showNativeNotification === 'function') {
-                        // Ensure you have a valid icon path or use ''
-                        showNativeNotification(notificationTitle, message, ''); 
+                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png'); // Replace with your actual icon path
                     } else {
+                        // Fallback if showNativeNotification somehow isn't defined
                         if (typeof showTripAlertPopup_ExtraPage === 'function') {
                             showTripAlertPopup_ExtraPage(message);
                         }
@@ -1838,77 +1839,69 @@ function createEventTimeObjForAlert(timeStr, baseDate, hasLateNightTimesInList, 
 
 function checkNotificationPermission() {
     if (!("Notification" in window)) {
+        console.log("This browser does not support desktop notification.");
         return "unsupported";
     }
-    return Notification.permission;
+    return Notification.permission; // "granted", "denied", or "default" (needs to ask)
 }
 
 async function requestNotificationPermission() {
     if (!("Notification" in window)) {
         alert("This browser does not support desktop notifications.");
-        return "unsupported";
+        return "denied"; // Or unsupported
     }
 
-    const currentPermission = Notification.permission;
-    if (currentPermission === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
+    if (Notification.permission === "granted") {
+        console.log("Notification permission already granted.");
         return "granted";
     }
 
-    if (currentPermission === "denied") {
-        alert("Notification permission was previously denied. Please enable it in your browser's site settings for this site if you want desktop alerts.");
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
+    if (Notification.permission !== "denied") { // 'default' or not yet asked
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+            console.log("Notification permission granted by user.");
+            // You might want to save this preference in localStorage
+            localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
+            return "granted";
+        } else {
+            console.log("Notification permission denied by user.");
+            localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
+            return "denied";
+        }
+    } else {
+        // Permission was previously denied. Browser won't re-prompt without manual reset by user.
+        alert("Notification permission was previously denied. Please enable it in your browser settings for this site if you want desktop alerts.");
         return "denied";
     }
-
-    // If permission is "default"
-    const permissionResult = await Notification.requestPermission();
-    if (permissionResult === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
-    } else if (permissionResult === "denied") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
-    } else {
-        localStorage.removeItem('desktopNotificationPreference_omsiExtra'); // Or set to 'default'
-    }
-    return permissionResult;
 }
 
-function showNativeNotification(title, bodyMessage, iconPath = '') {
-    if (typeof checkNotificationPermission !== 'function' || checkNotificationPermission() !== "granted") {
-        if (typeof showTripAlertPopup_ExtraPage === 'function') {
-            showTripAlertPopup_ExtraPage(`${title}\n${bodyMessage}`);
-        }
-        return;
-    }
-
-    const notificationOptions = {
-        body: bodyMessage,
-        tag: `omsi-trip-alert-${Date.now()}`
-    };
-
-    if (iconPath && iconPath.trim() !== '') {
-        notificationOptions.icon = iconPath;
-    }
-
-    try {
-        const notification = new Notification(title, notificationOptions);
-
-        notification.onclick = () => {
-            window.focus();
-            notification.close();
+function showNativeNotification(title, bodyMessage, iconPath = '/path/to/your/icon.png') { // Provide a default icon path
+    if (Notification.permission === "granted") {
+        const notificationOptions = {
+            body: bodyMessage,
+            icon: iconPath, // Optional: URL to an icon image
+            tag: `omsi-trip-alert-${Date.now()}` // Optional: tag to group or replace notifications
         };
 
-        notification.onerror = (err) => {
-            console.error("Native Notification API error event:", err);
-            if (typeof showTripAlertPopup_ExtraPage === 'function') {
-                showTripAlertPopup_ExtraPage(`Desktop Alert Failed: ${title}\n${bodyMessage}`);
-            }
-        };
-    } catch (e) {
-        console.error("Error caught creating new Notification():", e);
-        if (typeof showTripAlertPopup_ExtraPage === 'function') {
-            showTripAlertPopup_ExtraPage(`Desktop Alert Error: ${title}\n${bodyMessage}`);
+        try {
+            const notification = new Notification(title, notificationOptions);
+
+            notification.onclick = () => {
+                window.focus(); // Bring the window to focus
+                notification.close(); // Close the notification
+            };
+
+            // You can also set a timeout to automatically close it
+            // setTimeout(() => notification.close(), 10000); // Close after 10 seconds
+        } catch (e) {
+            console.error("Error creating native notification:", e);
+            // Fallback to in-page pop-up if native fails unexpectedly
+            showTripAlertPopup_ExtraPage(title + "\n" + bodyMessage);
         }
+    } else {
+        console.log("Desktop notification permission not granted. Falling back to in-page alert.");
+        // Fallback to your existing HTML pop-up
+        showTripAlertPopup_ExtraPage(title + "\n" + bodyMessage);
     }
 }
 

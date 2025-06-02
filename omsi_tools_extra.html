@@ -1933,31 +1933,69 @@ async function requestNotificationPermission() {
     }
 }
 
+// SAFER VERSION of showNativeNotification
 function showNativeNotification(title, bodyMessage, iconPath = '') {
-    // alert("PWA DEBUG: showNativeNotification called. Permission: " + Notification.permission); // Optional: trace if called
+    // Only proceed if a user is logged in OR if notifications are explicitly supported and permission is already granted.
+    // This helps prevent accidental calls before login from causing issues.
+    if (!currentUser_extra && Notification.permission !== "granted") {
+        console.warn("showNativeNotification: Suppressed pre-login or without explicit permission. User:", currentUser_extra, "Permission:", Notification.permission);
+        // Optionally, if you absolutely need a fallback for logged-out users with permission,
+        // ensure showTripAlertPopup_ExtraPage is also safe for pre-login.
+        // For now, we'll just suppress if no user and no explicit grant.
+        return;
+    }
+
     if (typeof checkNotificationPermission !== 'function' || checkNotificationPermission() !== "granted") {
-        // alert("PWA DEBUG: Native permission not granted, falling back to showTripAlertPopup_ExtraPage.");
-        if (typeof showTripAlertPopup_ExtraPage === 'function') {
-            showTripAlertPopup_ExtraPage(`<span class="math-inline">\{title\}\\n</span>{bodyMessage}`);
+        // If permission is not granted, fallback to the in-page popup,
+        // but only if a user is logged in (to prevent pre-login overlays).
+        if (currentUser_extra && typeof showTripAlertPopup_ExtraPage === 'function') {
+            showTripAlertPopup_ExtraPage(`${title}\n${bodyMessage}`);
+        } else {
+            console.warn("showNativeNotification: Native permission not granted, fallback popup suppressed as no user is logged in.");
         }
         return;
     }
 
-    const notificationOptions = { /* ... your options ... */ };
-    if (iconPath && iconPath.trim() !== '') {
-        notificationOptions.icon = iconPath;
+    const notificationOptions = {
+        body: bodyMessage,
+        tag: `omsi-trip-alert-${Date.now()}` // Unique tag to prevent multiple similar notifications from stacking if desired
+    };
+
+    // Handle iconPath carefully: PWA/iOS can be picky.
+    // If iconPath is empty or just whitespace, it's safer to not include the icon option.
+    if (iconPath && iconPath.trim() !== '' && iconPath.trim() !== '/') {
+        try {
+            // Test if iconPath is a valid URL or a path that the PWA can resolve.
+            // For PWAs, relative paths should be from the manifest's scope or absolute from the origin.
+            const testUrl = new URL(iconPath, window.location.origin); // Basic check
+            notificationOptions.icon = testUrl.pathname; // Use pathname for local resources
+        } catch (e) {
+            console.warn("showNativeNotification: Provided iconPath was invalid, omitting icon. Path:", iconPath, "Error:", e.message);
+            // Don't set notificationOptions.icon if path is problematic
+        }
     }
 
+
     try {
-        // alert("PWA DEBUG: Attempting new Notification(...)");
         const notification = new Notification(title, notificationOptions);
-        // alert("PWA DEBUG: new Notification(...) was potentially successful.");
+
+        notification.onclick = () => {
+            window.focus(); // Try to bring the PWA to the foreground
+            notification.close();
+        };
+
+        notification.onerror = (err) => {
+            console.error("Native Notification API error event:", err);
+            // Fallback to in-page popup only if a user is logged in
+            if (currentUser_extra && typeof showTripAlertPopup_ExtraPage === 'function') {
+                showTripAlertPopup_ExtraPage(`Desktop Alert Failed: ${title}\n${bodyMessage}`);
+            }
+        };
     } catch (e) {
-        // THIS IS THE CRITICAL ALERT FOR PWA DEBUGGING:
-        alert("PWA ERROR: 'new Notification()' FAILED! Error: " + e.message + ". Fallback popup WILL be shown.");
-        console.error("Error caught creating new Notification():", e); // For completeness
-        if (typeof showTripAlertPopup_ExtraPage === 'function') {
-            showTripAlertPopup_ExtraPage(`Desktop Alert Error (PWA): <span class="math-inline">\{title\}\\n</span>{bodyMessage}`);
+        console.error("Error caught creating new Notification():", e);
+        // Fallback to in-page popup only if a user is logged in
+        if (currentUser_extra && typeof showTripAlertPopup_ExtraPage === 'function') {
+            showTripAlertPopup_ExtraPage(`Desktop Alert Error: ${title}\n${bodyMessage}`);
         }
     }
 }

@@ -3859,8 +3859,10 @@ function dpo_getSelectedOpProfilesString_ExtraPage() {
     document.querySelectorAll('#dpo-selectable-profiles-container-extra .dpo-profile-checkbox:checked').forEach(checkbox => {
         selectedProfiles.push(checkbox.value);
     });
-    selectedProfiles.sort((a,b) => a.localeCompare(b)); // Consistent sort
-    return selectedProfiles.join(','); // Join with just comma for storage
+    // Sorts alphabetically for consistent storage, e.g., ["Fr", "MF", "Sa"] -> "Fr,MF,Sa"
+    selectedProfiles.sort((a,b) => a.localeCompare(b)); 
+    
+    return selectedProfiles.join(', '); // MODIFIED: Joins with comma AND space
 }
 
 function dpo_setCheckedProfiles_ExtraPage(profileString) {
@@ -4519,8 +4521,69 @@ async function updateCurrentProfileDisplay_ExtraPage() {
     }
 }
 
-        // --- Day Profile Override Functions ---
-        async function loadAndDisplayOverrides_ExtraPage() { if (!activeOverridesList_el_extra || !window.firebaseOMSI) return; activeOverridesList_el_extra.innerHTML = '<p>Loading active overrides...</p>'; const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI; try { const snapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES)); let html = ""; if (snapshot.exists()) { const overrides = snapshot.val(); const today = new Date(); today.setHours(0,0,0,0); const thirtyDaysLater = new Date(today); thirtyDaysLater.setDate(today.getDate() + 120); const relevantOverrides = []; for (const dateKey in overrides) { if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) { const overrideDate = new Date(dateKey + "T00:00:00"); if (overrideDate >= today && overrideDate <= thirtyDaysLater) { relevantOverrides.push({ date: dateKey, profile: overrides[dateKey] }); } } } relevantOverrides.sort((a,b) => a.date.localeCompare(b.date)); if (relevantOverrides.length > 0) { html = "<ul>"; relevantOverrides.forEach(ov => { html += `<li><strong>${formatDateToDDMonthYYYY_ExtraPage(ov.date)}:</strong> ${ov.profile}</li>`; }); html += "</ul>"; } else { html = "<p>No overrides set for the next 30 days.</p>"; } } else { html = "<p>No overrides currently set in the system.</p>"; } activeOverridesList_el_extra.innerHTML = html; } catch (error) { console.error("Error loading overrides:", error); activeOverridesList_el_extra.innerHTML = "<p>Error loading overrides.</p>"; } }
+        async function loadAndDisplayOverrides_ExtraPage() {
+    const activeOverridesListElement = document.getElementById('activeOverridesList_extra');
+    const overridesHeadingElement = document.getElementById('dpo-active-overrides-title'); 
+
+    if (!activeOverridesListElement || !window.firebaseOMSI) {
+        if(activeOverridesListElement) activeOverridesListElement.innerHTML = '<p>Error: System dependencies missing.</p>';
+        console.error("loadAndDisplayOverrides_ExtraPage: activeOverridesList_el_extra or Firebase not found.");
+        return;
+    }
+    activeOverridesListElement.innerHTML = '<p>Loading active overrides...</p>';
+    const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
+
+    try {
+        const snapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
+        let html = "";
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); 
+
+        const currentYear = today.getFullYear();
+        const futureCutoffDate = new Date(currentYear, 11, 31, 23, 59, 59, 999); 
+        
+        const daysAhead = Math.ceil((futureCutoffDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+
+        if (overridesHeadingElement) {
+            overridesHeadingElement.textContent = `Upcoming Active Overrides (Until End of ${currentYear} - Next ${daysAhead} Days)`;
+        }
+
+        if (snapshot.exists()) {
+            const overrides = snapshot.val();
+            const relevantOverrides = [];
+            for (const dateKey in overrides) {
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+                    const overrideDate = new Date(dateKey + "T00:00:00Z"); 
+                    if (overrideDate >= today && overrideDate <= futureCutoffDate) { 
+                        relevantOverrides.push({ date: dateKey, profile: overrides[dateKey] });
+                    }
+                }
+            }
+            relevantOverrides.sort((a,b) => a.date.localeCompare(b.date));
+
+            if (relevantOverrides.length > 0) {
+                html = "<ul style='list-style-type: disc; padding-left: 20px;'>";
+                relevantOverrides.forEach(ov => {
+                    // THIS IS THE MODIFIED PART FOR COMMA SPACING:
+                    const displayProfile = String(ov.profile || "").replace(/,/g, ', '); 
+                    html += `<li style='margin-bottom: 0.25em;'><strong>${formatDateToDDMonthYYYY_ExtraPage(ov.date)}:</strong> ${displayProfile}</li>`;
+                });
+                html += "</ul>";
+            } else {
+                html = `<p>No overrides set for the next ${daysAhead} days (until end of current year).</p>`; 
+            }
+        } else {
+            html = `<p>No overrides currently set in the system (checked until end of current year).</p>`;
+        }
+        activeOverridesListElement.innerHTML = html;
+    } catch (error) {
+        console.error("Error loading overrides:", error);
+        activeOverridesListElement.innerHTML = "<p>Error loading overrides.</p>";
+        if (overridesHeadingElement) {
+            overridesHeadingElement.textContent = "Currently Active Overrides (Error)";
+        }
+    }
+}
         
 async function updateSelectedDateInfo_ExtraPage() {
     if (!overrideDateInput_el_extra || !selectedDateDisplay_el_extra || !autoProfileForSelectedDate_el_extra || !currentOverrideForSelectedDate_el_extra || !clearOverrideButton_el_extra) return;
@@ -5846,6 +5909,41 @@ function dpo_getCanonicalProfileString_ExtraPage(profileArray) {
 const DPO_VALID_PROFILE_COMBINATIONS_SET = new Set(
     DPO_MASTER_VALID_PROFILE_COMBINATIONS_LIST.map(s => dpo_getCanonicalProfileString_ExtraPage(s.split(',')))
 );
+
+function showNativeNotification(title, body, iconUrl = '/live-tracker/assets/icons/icon-192x192.png') {
+    if (!("Notification" in window)) {
+        console.warn("Desktop notifications not supported by this browser.");
+        // Optionally, call your popup here as a fallback if browser doesn't support Notification API
+        // if (typeof showTripAlertPopup_ExtraPage === 'function') { showTripAlertPopup_ExtraPage(title + ": " + body); }
+        return;
+    }
+    if (Notification.permission === "granted") {
+        try {
+            const options = {
+                body: body,
+                // Ensure the icon path is correct and accessible from your domain.
+                // If unsure, test with icon: undefined or icon: '' first.
+                icon: iconUrl || undefined 
+            };
+            const notification = new Notification(title, options);
+
+            // You can add event listeners to the notification if needed
+            // notification.onclick = () => { console.log('Notification clicked'); window.focus(); this.close(); };
+        } catch (e) {
+            console.error("Error creating native notification:", e);
+            // Fallback to the popup if native notification fails (e.g., bad icon, browser issue)
+            if (typeof showTripAlertPopup_ExtraPage === 'function') {
+                showTripAlertPopup_ExtraPage(`Native Notification Error: ${title} - ${body}. Details: ${e.message}`);
+            }
+        }
+    } else {
+        // If permission isn't granted, it means the conditions in checkAndShowTripAlerts_ExtraPage
+        // should have already routed to the popup. This is an extra check.
+        console.warn("Native notification requested, but permission is not 'granted'. Current permission: " + Notification.permission);
+        // Optionally, show the popup here too if it's an unexpected state
+        // if (typeof showTripAlertPopup_ExtraPage === 'function') { showTripAlertPopup_ExtraPage(title + ": " + body + " (Permission: " + Notification.permission + ")");}
+    }
+}
 
 function dpo_simulateAutoGroup_ExtraPage(selectedProfilesArray) {
     let simulatedSelections = [...selectedProfilesArray]; 
@@ -7691,7 +7789,7 @@ function rsg_getSelectedOpProfilesString_ExtraPage() {
     selectedProfiles.sort((a,b) => a.localeCompare(b)); 
     
     // Joins with a comma AND a space
-    return selectedProfiles.join(', '); // Changed from .join(',')
+    return selectedProfiles.join(', ');
 }
 
 function rsg_updateDisabledProfileCheckboxes_ExtraPage() {

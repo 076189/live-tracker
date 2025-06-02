@@ -9,9 +9,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
     <link rel="manifest" href="/live-tracker/manifest-omsitoolsextra.json">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="mobile-web-app-title" content="OMSI Extra Tools">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="OMSI Extra Tools">
     <meta name="theme-color" content="#2c3e50">
     <link rel="apple-touch-icon" href="/live-tracker/assets/icons/apple-touch-icon-180x180.png">
     <style>
@@ -1808,16 +1808,10 @@ function checkAndShowTripAlerts_ExtraPage() {
     }
 
     todayKeyTripEvents_extra.forEach(event => {
-        let alertShownId;
-        // Construct alertShownId based on event type for stability
-        if (event.type === 'n-bus-overall-first' || event.type === 'n-bus-overall-last') {
-            alertShownId = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        } else { // For 'rsg-first-trip' and 'rsg-last-trip' (non-N routes)
-            alertShownId = `${event.type}|${event.configKey}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        }
+        const alertShownId = `${event.type}|${event.rsgConfigName}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}`;
 
         if (shownTripAlerts_extra[alertShownId]) {
-            return; // Already shown this alert today
+            return;
         }
         if (!event.departureTimeObj || !(event.departureTimeObj instanceof Date)) {
             return;
@@ -1829,20 +1823,17 @@ function checkAndShowTripAlerts_ExtraPage() {
         if (timeDiffMinutes > 0 && timeDiffMinutes <= ALERT_LEAD_TIME_MINUTES) {
             let message = "";
             const serviceHeadsignDisplay = `${event.lineName} to ${event.headsignDestinationName}`;
-            // rsgConfigUserDisplayName is available on all event types from prepareKeyTripTimesForAlerts_ExtraPage
-            const patternIdentifier = event.rsgConfigUserDisplayName.startsWith('rsgConfig_') || event.rsgConfigUserDisplayName.startsWith('N-Service') 
-                                    ? "" // Don't show if it's a generic key or overall N-service summary
-                                    : ` (Pattern: ${event.rsgConfigUserDisplayName})`;
 
             if (event.type === 'rsg-first-trip') {
-                message = `${serviceHeadsignDisplay}${patternIdentifier} is about to depart its first trip from ${event.originStopName} at ${event.departureTime}.`;
+                message = `${serviceHeadsignDisplay} (Pattern: ${event.rsgConfigName}) is about to depart its first trip from ${event.originStopName} at ${event.departureTime}.`;
             } else if (event.type === 'rsg-last-trip') {
-                message = `${serviceHeadsignDisplay}${patternIdentifier} is about to depart its last trip for today from ${event.originStopName} at ${event.departureTime}.`;
+                message = `${serviceHeadsignDisplay} (Pattern: ${event.rsgConfigName}) is about to depart its last trip for today from ${event.originStopName} at ${event.departureTime}.`;
             } else if (event.type === 'n-bus-overall-first') {
                 message = `${serviceHeadsignDisplay} (N-Service) is about to operate its first journey for the night from ${event.originStopName} at ${event.departureTime}.`;
             } else if (event.type === 'n-bus-overall-last') {
                 message = `${serviceHeadsignDisplay} (N-Service) is about to operate its final journey for the night from ${event.originStopName} at ${event.departureTime}.`;
             }
+
 
             if (message) {
                 const desktopPref = localStorage.getItem('desktopNotificationPreference_omsiExtra');
@@ -1857,7 +1848,7 @@ function checkAndShowTripAlerts_ExtraPage() {
                         notificationTitle = `${event.lineName} to ${event.headsignDestinationName}`;
                     }
                     if (typeof showNativeNotification === 'function') {
-                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png'); // Replace with your icon
+                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png');
                     } else {
                         if (typeof showTripAlertPopup_ExtraPage === 'function') {
                             showTripAlertPopup_ExtraPage(message);
@@ -1868,7 +1859,7 @@ function checkAndShowTripAlerts_ExtraPage() {
                         showTripAlertPopup_ExtraPage(message);
                     }
                 }
-                shownTripAlerts_extra[alertShownId] = true; // Mark this specific alert ID as shown
+                shownTripAlerts_extra[alertShownId] = true;
             }
         }
     });

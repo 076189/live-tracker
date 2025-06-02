@@ -1581,7 +1581,7 @@
         const tteDownloadTimetableButton_el_extra = document.getElementById('tte-downloadTimetable-button-extra');
         const tteStatusMessage_el_extra = document.getElementById('tte-status-message-extra');
         const rsgSelectAllConfigsCheckbox_el_extra = document.getElementById('rsg-select-all-configs-checkbox-extra');
-	const KEY_DEPARTURES_REFRESH_INTERVAL_MS = 30 * 1000;
+	const KEY_DEPARTURES_REFRESH_INTERVAL_MS = 60 * 1000;
         const rsgCopySourceOpProfileSelect_el_extra = document.getElementById('rsg-copy-source-operatingProfile-select-extra');
         const rsgReplaceStopModal_el_extra = document.getElementById('rsg-replace-stop-modal-extra');
 const rsgReplaceStopModalTitle_el_extra = document.getElementById('rsg-replace-stop-modal-title-extra');
@@ -1915,10 +1915,13 @@ async function fetchBankHolidays_ExtraPage() {
 }
 
 async function prepareKeyTripTimesForAlerts_ExtraPage() {
-    console.log("Preparing key trip times for alerts (V9.1 - Filtered Future RSGs)...");
-    const allPotentialEvents = []; 
-    const todayForAlerts = new Date(); 
-    lastAlertDataPreparedDate_extra = todayForAlerts.toDateString(); 
+    const functionStartTime = new Date();
+    console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] === Function Entry: prepareKeyTripTimesForAlerts_ExtraPage ===`);
+
+    const allPotentialEvents = [];
+    const todayForAlerts = new Date();
+    lastAlertDataPreparedDate_extra = todayForAlerts.toDateString();
+    console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] lastAlertDataPreparedDate_extra set to: ${lastAlertDataPreparedDate_extra}`);
 
     const operationalDatesToConsider = [
         { date: todayForAlerts, label: "current" },
@@ -1926,23 +1929,32 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
     const yesterdayForAlerts = new Date(todayForAlerts);
     yesterdayForAlerts.setDate(todayForAlerts.getDate() - 1);
     operationalDatesToConsider.push({ date: yesterdayForAlerts, label: "previous" });
+    console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Operational dates to consider:`, operationalDatesToConsider.map(d => ({label: d.label, date: d.date.toDateString()})));
 
     if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
-        console.log("Alerts V9.1: No RSG configurations loaded.");
-        todayKeyTripEvents_extra = []; 
+        console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] No RSG configurations loaded. todayKeyTripEvents_extra will be empty.`);
+        todayKeyTripEvents_extra = [];
         return;
     }
 
+    console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Processing ${Object.keys(rsg_loadedConfigs_extra).length} RSG configurations.`);
+
     for (const opDay of operationalDatesToConsider) {
         const currentOperationalDate = opDay.date;
+        const opDayLabel = opDay.label;
+        console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Iterating for operational day: ${opDayLabel} (${currentOperationalDate.toDateString()})`);
+
         let operatingProfilesForThisDate = getOperatingCodesForDate_ExtraPage(currentOperationalDate);
         const dateStringYYYYMMDD = getYYYYMMDD_ExtraPage(currentOperationalDate);
         if (operationalOverrides_data && operationalOverrides_data[dateStringYYYYMMDD]) {
             operatingProfilesForThisDate = operationalOverrides_data[dateStringYYYYMMDD].split(',').map(p => p.trim());
+            console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Date ${dateStringYYYYMMDD} has an override. Effective profiles: [${operatingProfilesForThisDate.join(', ')}]`);
+        } else {
+            console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Date ${dateStringYYYYMMDD} has no override. Auto profiles: [${operatingProfilesForThisDate.join(', ')}]`);
         }
 
         if (!operatingProfilesForThisDate || operatingProfilesForThisDate.length === 0) {
-            console.log(`Alerts V9.1: No operating profiles for operational day ${currentOperationalDate.toDateString()}.`);
+            console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] No operating profiles for ${dateStringYYYYMMDD}. Skipping configs for this date.`);
             continue;
         }
 
@@ -1950,53 +1962,99 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
             if (!Object.hasOwnProperty.call(rsg_loadedConfigs_extra, configKey)) continue;
 
             const rsgConfig = rsg_loadedConfigs_extra[configKey];
-            const configUserDisplayName = rsgConfig.userDisplayName || ""; // Get display name, or empty string if undefined
-
-            // ---- START: New Filter ----
-            // Skip if userDisplayName contains a future date marker like "(from DDMMYY)"
-            const futureDatePattern = /\(from\s*\d{6}\)/; // Matches "(from XXXXXX)" with optional space
-            if (futureDatePattern.test(configUserDisplayName)) {
-                console.log(`Alerts/KeyDeps: Skipping RSG config "${configUserDisplayName}" (key: ${configKey}) as it appears to be a future-dated config.`);
-                continue; // Skip this configuration entirely
+            const configUserDisplayName = rsgConfig.userDisplayName || configKey;
+            const routeName = rsgConfig.routeName;
+            if (!routeName) {
+                 console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Config '${configUserDisplayName}' (Key: ${configKey}) has no routeName. Skipping.`);
+                continue;
             }
-            // ---- END: New Filter ----
+            const isNRoute = routeName.toUpperCase().startsWith('N');
+
+            if (isNRoute) {
+                console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Processing Config: '${configUserDisplayName}' (Key: ${configKey}), Route: ${routeName}`);
+            }
+
+            const futureDatePattern = /\(from\s*\d{6}\)/;
+            if (futureDatePattern.test(configUserDisplayName)) {
+                 if (isNRoute) console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}' is a future config. Skipping.`);
+                continue;
+            }
 
             const configOperatingProfiles = (rsgConfig.operatingProfile || "").split(',').map(p => p.trim());
             const isActiveForThisOpDate = configOperatingProfiles.some(cop => operatingProfilesForThisDate.includes(cop));
 
-            if (!isActiveForThisOpDate) continue;
-
-            const routeName = rsgConfig.routeName;
-            if (!routeName) continue;
-            const isNRoute = routeName.toUpperCase().startsWith('N');
-
-            if (!isNRoute) { 
-                const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
-                if (routeColorFor24HCheck === NIGHT_BUS_BLUE_COLOR_extra.toUpperCase()) {
-                    continue;
-                }
+            if (!isActiveForThisOpDate) {
+                if (isNRoute) console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}' (Profiles: ${configOperatingProfiles.join(',')}) is NOT active for opDate ${dateStringYYYYMMDD} (Profiles: ${operatingProfilesForThisDate.join(',')}). Skipping.`);
+                continue;
+            } else {
+                 if (isNRoute) console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}' IS ACTIVE for opDate ${dateStringYYYYMMDD}.`);
             }
 
-            if (!rsgConfig.firstStopTimes || rsgConfig.firstStopTimes.trim() === "" || 
+            // *** MODIFIED SECTION FOR 24-HOUR SERVICE SKIPPING WITH HOLIDAY EXCEPTIONS ***
+            if (!isNRoute) {
+                const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
+                if (routeColorFor24HCheck === NIGHT_BUS_BLUE_COLOR_extra.toUpperCase()) {
+                    // This is a non-N route, coloured as a 24-hour service (like a night bus).
+                    // Default is to skip it for key departures, unless it's a holiday exception.
+                    let allowThis24HourService = false;
+
+                    // Exception 1: Christmas Eve services
+                    // - configIsForChristmasEve: Is the RSG config specifically designated for "Christmas Eve" profile?
+                    // - opDayIsEffectivelyChristmasEve: Is the current operational day we are generating for *actually* Christmas Eve?
+                    const configIsForChristmasEve = (rsgConfig.operatingProfile || "").includes("Christmas Eve");
+                    const opDayIsEffectivelyChristmasEve = operatingProfilesForThisDate.includes("Christmas Eve");
+
+                    if (configIsForChristmasEve && opDayIsEffectivelyChristmasEve) {
+                        allowThis24HourService = true;
+                        console.log(`[DEBUG PREPARE CHRISTMAS EXCEPTION (${opDayLabel} day)] Allowing (blue non-N) Route ${routeName} (Config: '${configUserDisplayName}') because it's a Christmas Eve service being processed on a Christmas Eve operational day.`);
+                    }
+
+                    // Exception 2: Boxing Day services
+                    const configIsForBoxingDay = (rsgConfig.operatingProfile || "").includes("Boxing Day");
+                    const opDayIsEffectivelyBoxingDay = operatingProfilesForThisDate.includes("Boxing Day");
+
+                    if (!allowThis24HourService && configIsForBoxingDay && opDayIsEffectivelyBoxingDay) { // Check !allowThis24HourService to avoid re-logging if already allowed by C.Eve
+                        allowThis24HourService = true;
+                        console.log(`[DEBUG PREPARE CHRISTMAS EXCEPTION (${opDayLabel} day)] Allowing (blue non-N) Route ${routeName} (Config: '${configUserDisplayName}') because it's a Boxing Day service being processed on a Boxing Day operational day.`);
+                    }
+
+                    if (!allowThis24HourService) {
+                        console.log(`[DEBUG PREPARE (${opDayLabel} day)] Route ${routeName} (Config: '${configUserDisplayName}') is non-N but colored blue (24h). SKIPPING for key departures list due to no holiday exception.`);
+                        continue; // Skip this config if no holiday exception applies
+                    }
+                }
+            }
+            // *** END OF MODIFIED SECTION ***
+
+            if (!rsgConfig.firstStopTimes || rsgConfig.firstStopTimes.trim() === "" ||
                 !rsgConfig.stopSequence || rsgConfig.stopSequence.length === 0) {
+                if (isNRoute) console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}' missing firstStopTimes or stopSequence. Skipping.`);
                 continue;
             }
 
             const rawDepartureTimes = (rsgConfig.firstStopTimes || "").split(/\s*[\t;,]\s*/)
                                          .map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
-            if (rawDepartureTimes.length === 0) continue;
-            
+            if (rawDepartureTimes.length === 0) {
+                 if (isNRoute) console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}' no valid raw departure times found. Skipping.`);
+                continue;
+            }
+            if (isNRoute) console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}' Raw Times: [${rawDepartureTimes.join(', ')}]`);
+
             let hasLateNightTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) >= 20);
-            let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 4);  
+            let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 6);
 
             const departureTimeObjectsSorted = rawDepartureTimes.map(timeStr => {
                 let [h, m] = timeStr.split(':').map(Number);
                 let sortableMinutes = h * 60 + m;
-                if (hasLateNightTimesInList && hasEarlyMorningTimesInList && h < 4) {
-                    sortableMinutes += 1440; 
+                if ( (isNRoute && h < 6) ||
+                     (h < 4 && hasLateNightTimesInList && hasEarlyMorningTimesInList) ) {
+                    sortableMinutes += 1440;
                 }
                 return { timeStr, sortableMinutes };
             }).sort((a, b) => a.sortableMinutes - b.sortableMinutes);
+
+            if (isNRoute) console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}' Sorted Times (effective for op day):`, departureTimeObjectsSorted.map(t => t.timeStr));
+
 
             if (departureTimeObjectsSorted.length === 0) continue;
 
@@ -2006,147 +2064,165 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
             const firstStopOfSequence = rsgConfig.stopSequence[0];
             const lastStopOfSequence = rsgConfig.stopSequence[rsgConfig.stopSequence.length - 1];
             const headsignDestinationName = rsgConfig.destinationName;
-            let isPatternConsideredFull = false;
-            
-            let validTerminiForHeadsign = [];
-             if (serviceTerminusMappings_extra && serviceTerminusMappings_extra[routeName] && serviceTerminusMappings_extra[routeName][headsignDestinationName]) {
-                validTerminiForHeadsign = serviceTerminusMappings_extra[routeName][headsignDestinationName];
-            } else { 
-                const mainDestStopObj = Object.values(allDefinedStops_data || {}).find(s => s.stopName === headsignDestinationName || s.stopID === headsignDestinationName);
-                if (mainDestStopObj) validTerminiForHeadsign = [mainDestStopObj.stopID];
-            }
-            if (lastStopOfSequence && lastStopOfSequence.stopID) {
-                isPatternConsideredFull = validTerminiForHeadsign.includes(lastStopOfSequence.stopID);
-            }
 
             const eventBaseData = {
                 lineName: routeName, headsignDestinationName: headsignDestinationName,
                 originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
                 actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
-                isPatternFullLength: isPatternConsideredFull,
-                rsgConfigUserDisplayName: configUserDisplayName || configKey // Use the filtered display name
+                operatingProfile: rsgConfig.operatingProfile,
+                rsgConfigUserDisplayName: configUserDisplayName || configKey
             };
 
+            const firstDepartureTimeObj = createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList, isNRoute);
+            const lastDepartureTimeObj = createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList, isNRoute);
+
             if (isNRoute) {
-                 allPotentialEvents.push({
-                    ...eventBaseData, type: 'n-bus-first-trip', 
-                    departureTime: firstDepartureTimeStr,
-                    departureTimeObj: createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                });
-                if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
-                    allPotentialEvents.push({
-                        ...eventBaseData, type: 'n-bus-last-trip', 
-                        departureTime: lastDepartureTimeStr,
-                        departureTimeObj: createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                    });
-                }
-            } else { 
+                 console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}': First Dep Time: ${firstDepartureTimeStr}, Created Obj: ${firstDepartureTimeObj.toISOString()}`);
+                 console.log(`[DEBUG PREPARE N-ROUTE (${opDayLabel} day)] Config '${configUserDisplayName}': Last Dep Time: ${lastDepartureTimeStr}, Created Obj: ${lastDepartureTimeObj.toISOString()}`);
+            }
+
+            const firstTripType = isNRoute ? 'n-bus-first-trip' : 'rsg-first-trip';
+            const lastTripType = isNRoute ? 'n-bus-last-trip' : 'rsg-last-trip';
+
+            allPotentialEvents.push({
+                ...eventBaseData, type: firstTripType, configKey: configKey,
+                departureTime: firstDepartureTimeStr,
+                departureTimeObj: firstDepartureTimeObj,
+            });
+            if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
                 allPotentialEvents.push({
-                    ...eventBaseData, type: 'rsg-first-trip', configKey: configKey,
-                    departureTime: firstDepartureTimeStr,
-                    departureTimeObj: createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
+                    ...eventBaseData, type: lastTripType, configKey: configKey,
+                    departureTime: lastDepartureTimeStr,
+                    departureTimeObj: lastDepartureTimeObj,
                 });
-                if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
-                    allPotentialEvents.push({
-                        ...eventBaseData, type: 'rsg-last-trip', configKey: configKey,
-                        departureTime: lastDepartureTimeStr,
-                        departureTimeObj: createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                    });
-                }
             }
         }
     }
 
+    const tomorrowForAlerts = new Date(todayForAlerts);
+    tomorrowForAlerts.setDate(todayForAlerts.getDate() + 1);
+    const todayDateStrForFilter = todayForAlerts.toDateString();
+    const tomorrowDateStrForFilter = tomorrowForAlerts.toDateString();
+
+    console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Filtering allPotentialEvents (${allPotentialEvents.length}) for dates: ${todayDateStrForFilter} OR ${tomorrowDateStrForFilter}`);
+
     todayKeyTripEvents_extra = allPotentialEvents.filter(event => {
-        if (!event.departureTimeObj) return false;
+        if (!event.departureTimeObj) {
+            console.log(`[DEBUG PREPARE FILTER] Event for ${event.lineName} at ${event.departureTime} missing departureTimeObj. Excluding.`);
+            return false;
+        }
         const eventCalendarDateStr = event.departureTimeObj.toDateString();
-        // Only include events whose actual calendar date matches the *current* calendar day
-        // createEventTimeObjForAlert should handle setting the correct calendar day for overnight services.
-        return eventCalendarDateStr === todayForAlerts.toDateString();
+        const includeEvent = eventCalendarDateStr === todayDateStrForFilter || eventCalendarDateStr === tomorrowDateStrForFilter;
+        if (event.lineName.toUpperCase().startsWith('N')) {
+             console.log(`[DEBUG PREPARE N-ROUTE FILTER] Event: ${event.lineName} ${event.type} at ${event.departureTime} (Obj: ${event.departureTimeObj.toISOString()}, CalDate: ${eventCalendarDateStr}). Included in final list for KeyDeps: ${includeEvent}`);
+        }
+        return includeEvent;
     });
-    
-    todayKeyTripEvents_extra.sort((a,b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime() || a.type.localeCompare(b.type));
-    
+
+    todayKeyTripEvents_extra.sort((a,b) => {
+        if (!a.departureTimeObj && !b.departureTimeObj) return 0;
+        if (!a.departureTimeObj) return 1;
+        if (!b.departureTimeObj) return -1;
+        const timeDiff = a.departureTimeObj.getTime() - b.departureTimeObj.getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return a.type.localeCompare(b.type);
+    });
+
     const uniqueEvents = [];
     const seenEventSignaturesForAlert = new Set();
     for (const event of todayKeyTripEvents_extra) {
-        let signatureBase = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        if (event.configKey) { 
-            signatureBase = `${event.type}|${event.configKey}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        }
+        let signatureBase = `${event.type}|${event.configKey || 'no-key'}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}|${event.departureTimeObj.toDateString()}`;
         if (!seenEventSignaturesForAlert.has(signatureBase)) {
             uniqueEvents.push(event);
             seenEventSignaturesForAlert.add(signatureBase);
+        } else {
+            if (event.lineName.toUpperCase().startsWith('N')) {
+                console.log(`[DEBUG PREPARE N-ROUTE DUPLICATE (Corrected Signature Logic)] Duplicate event signature found and skipped: ${signatureBase}. This should be less frequent now unless truly identical events from different processing paths end up here.`);
+            }
         }
     }
     todayKeyTripEvents_extra = uniqueEvents;
 
-    console.log(`Alerts V9.1: Prepared ${todayKeyTripEvents_extra.length} distinct key trip events relevant for ${todayForAlerts.toDateString()} (considering prev op day and filtering future RSGs).`);
+    console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Prepared ${todayKeyTripEvents_extra.length} distinct key trip events for ${todayDateStrForFilter} & ${tomorrowDateStrForFilter}.`);
+    if (todayKeyTripEvents_extra.length > 0 && todayKeyTripEvents_extra.length < 20) {
+        console.log(`[DEBUG PREPARE ${functionStartTime.toLocaleTimeString()}] Details of prepared events (post-correction):`, JSON.parse(JSON.stringify(todayKeyTripEvents_extra.map(e => ({line:e.lineName, type:e.type, time:e.departureTime, timeObj:e.departureTimeObj?.toISOString(), opDaySrc: e.departureTimeObj?.toDateString(), cfgKey: e.configKey})))));
+    }
+    console.log(`[DEBUG PREPARE ${new Date().toLocaleTimeString()}] === Function Exit: prepareKeyTripTimesForAlerts_ExtraPage (Duration: ${(new Date() - functionStartTime)/1000}s) ===`);
 }
 
 function checkAndShowTripAlerts_ExtraPage() {
+    const checkStartTime = new Date();
+    // console.log(`[DEBUG CHECK&SHOW ${checkStartTime.toLocaleTimeString()}] Function Entry: checkAndShowTripAlerts_ExtraPage`);
     const now = new Date();
 
     if (now.toDateString() !== lastAlertDataPreparedDate_extra) {
+        console.log(`[DEBUG CHECK&SHOW ${checkStartTime.toLocaleTimeString()}] Date changed from ${lastAlertDataPreparedDate_extra} to ${now.toDateString()}. Refreshing alert data.`);
         if (typeof prepareKeyTripTimesForAlerts_ExtraPage === 'function') {
+            // This is async, but for alerts, it's okay if it runs in background.
+            // The *next* call to checkAndShowTripAlerts_ExtraPage will use the refreshed data.
             prepareKeyTripTimesForAlerts_ExtraPage();
         }
-        shownTripAlerts_extra = {};
+        shownTripAlerts_extra = {}; // Reset shown alerts for the new day
     }
 
     if (!todayKeyTripEvents_extra || todayKeyTripEvents_extra.length === 0) {
+        // console.log(`[DEBUG CHECK&SHOW ${checkStartTime.toLocaleTimeString()}] No key trip events to check for alerts.`);
         return;
     }
 
+    // console.log(`[DEBUG CHECK&SHOW ${checkStartTime.toLocaleTimeString()}] Checking ${todayKeyTripEvents_extra.length} events against current time ${now.toISOString()}`);
     todayKeyTripEvents_extra.forEach(event => {
         let alertShownId;
-        if (event.type.startsWith('n-bus-')) {
-            alertShownId = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        } else { 
-            alertShownId = `${event.type}|${event.configKey}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        }
+        // Ensure configKey is part of the ID
+        alertShownId = `${event.type}|${event.configKey || 'no-key'}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
 
         if (shownTripAlerts_extra[alertShownId]) {
+            // if (event.lineName.toUpperCase().startsWith('N')) console.log(`[DEBUG CHECK&SHOW N-ROUTE] Alert for ${alertShownId} already shown. Skipping.`);
             return;
         }
         if (!event.departureTimeObj || !(event.departureTimeObj instanceof Date)) {
+            // if (event.lineName.toUpperCase().startsWith('N')) console.log(`[DEBUG CHECK&SHOW N-ROUTE] Event ${event.lineName} ${event.type} at ${event.departureTime} missing or invalid departureTimeObj. Skipping.`);
             return;
         }
 
         const timeDiffMs = event.departureTimeObj.getTime() - now.getTime();
         const timeDiffMinutes = timeDiffMs / (1000 * 60);
 
+        // if (event.lineName.toUpperCase().startsWith('N')) { // Uncomment for very verbose N-route alert checking
+        //      console.log(`[DEBUG CHECK&SHOW N-ROUTE] Event: ${event.lineName} ${event.type} ${event.departureTime}. Target Time: ${event.departureTimeObj.toISOString()}. Diff Mins: ${timeDiffMinutes.toFixed(2)}.`);
+        // }
+
         if (timeDiffMinutes > 0 && timeDiffMinutes <= ALERT_LEAD_TIME_MINUTES) {
             let message = "";
             const serviceHeadsignDisplay = `${event.lineName} to ${event.headsignDestinationName}`;
             let tripTypeDescription = "";
 
-            // Determine if it's a "first" or "last" trip for the message
-            if (event.type === 'rsg-first-trip' || event.type === 'n-bus-overall-first') {
+            if (event.type === 'rsg-first-trip' || event.type === 'n-bus-first-trip') {
                 tripTypeDescription = "first";
-            } else if (event.type === 'rsg-last-trip' || event.type === 'n-bus-overall-last') {
+            } else if (event.type === 'rsg-last-trip' || event.type === 'n-bus-last-trip') {
                 tripTypeDescription = "last";
             }
 
-            if (tripTypeDescription) { // If it's one of the types we want to alert for
-                message = `${serviceHeadsignDisplay} is about to depart its ${tripTypeDescription} trip for today from ${event.originStopName} at ${event.departureTime}.`;
-            }
 
-            if (message) {
+            if (tripTypeDescription) {
+                message = `${serviceHeadsignDisplay} is about to depart its ${tripTypeDescription} trip for today from ${event.originStopName} at ${event.departureTime}.`;
+                // if (event.lineName.toUpperCase().startsWith('N')) { // Uncomment for N-route specific alert triggering log
+                //     console.log(`[DEBUG CHECK&SHOW N-ROUTE ALERT] SHOWING ALERT for ${event.lineName} ${event.type} at ${event.departureTime}. Message: "${message}"`);
+                // }
+
                 const desktopPref = localStorage.getItem('desktopNotificationPreference_omsiExtra');
                 let currentNativePermission = "denied";
                 if (typeof checkNotificationPermission === 'function') {
                     currentNativePermission = checkNotificationPermission();
                 }
-                
+
                 if (desktopPref === 'granted' && currentNativePermission === 'granted') {
                     let notificationTitle = "OMSI Trip Alert";
                     if (event.lineName && event.headsignDestinationName) {
                         notificationTitle = `${event.lineName} to ${event.headsignDestinationName}`;
                     }
                     if (typeof showNativeNotification === 'function') {
-                        // Ensure your icon path is correct or use '' for no icon
-                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png'); 
+                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png');
                     } else {
                         if (typeof showTripAlertPopup_ExtraPage === 'function') {
                             showTripAlertPopup_ExtraPage(message);
@@ -2158,18 +2234,48 @@ function checkAndShowTripAlerts_ExtraPage() {
                     }
                 }
                 shownTripAlerts_extra[alertShownId] = true;
+            } else {
+                // if (event.lineName.toUpperCase().startsWith('N')) { // Uncomment for N-route specific no-alert log
+                //      console.log(`[DEBUG CHECK&SHOW N-ROUTE] Event type ${event.type} for ${event.lineName} did not result in a tripTypeDescription. No alert generated.`);
+                // }
             }
         }
     });
+    // console.log(`[DEBUG CHECK&SHOW ${new Date().toLocaleTimeString()}] Function Exit: checkAndShowTripAlerts_ExtraPage (Duration: ${(new Date() - checkStartTime)/1000}s)`);
 }
 
-function createEventTimeObjForAlert(timeStr, baseDate, hasLateNightTimesInList, hasEarlyMorningTimesInList) {
+function createEventTimeObjForAlert(timeStr, baseDate, hasLateNightTimesInList, hasEarlyMorningTimesInList, isNRoute = false) {
+    // ADDED DEBUG LOGGING
+    console.log(`[DEBUG createEventTimeObjForAlert ENTRY] timeStr: "${timeStr}", baseDate: "${baseDate.toISOString()}", hasLateNight: ${hasLateNightTimesInList}, hasEarlyMorning: ${hasEarlyMorningTimesInList}, isNRoute: ${isNRoute}`);
+
     const [hours, minutes] = timeStr.split(':').map(Number);
     let eventDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), hours, minutes);
-    if (hours < 4 && hasLateNightTimesInList && hasEarlyMorningTimesInList) {
+
+    let advanceDate = false;
+    // Condition 1: If it's an N-Route and the time is before a typical morning cutoff (e.g., 6 AM),
+    // it's very likely part of the previous operational day's night service.
+    if (isNRoute && hours < 6) {
+        advanceDate = true;
+        // ADDED DEBUG LOGGING
+        console.log(`[DEBUG createEventTimeObjForAlert N-ROUTE ADVANCE] N-Route ("${isNRoute}") and hours (${hours}) < 6. Setting advanceDate = true.`);
+    }
+    // Condition 2: For any route (including N-routes not caught by the above),
+    // if its schedule pattern clearly shows it spans midnight (has both late evening AND very early morning times).
+    else if (hours < 4 && hasLateNightTimesInList && hasEarlyMorningTimesInList) {
+        advanceDate = true;
+        // ADDED DEBUG LOGGING
+        console.log(`[DEBUG createEventTimeObjForAlert MIDNIGHT SPAN ADVANCE] hours (${hours}) < 4 and hasLateNight ("${hasLateNightTimesInList}") and hasEarlyMorning ("${hasEarlyMorningTimesInList}"). Setting advanceDate = true.`);
+    }
+
+    if (advanceDate) {
         const baseDatePlusOne = new Date(baseDate);
         baseDatePlusOne.setDate(baseDate.getDate() + 1);
         eventDate = new Date(baseDatePlusOne.getFullYear(), baseDatePlusOne.getMonth(), baseDatePlusOne.getDate(), hours, minutes);
+        // MODIFIED DEBUG LOGGING
+        console.log(`[DEBUG createEventTimeObjForAlert DATE ADVANCED] Original baseDate: "${baseDate.toDateString()}", Time: "${timeStr}". New eventDate: "${eventDate.toISOString()}" (for an N-Route or midnight-spanning service).`);
+    } else {
+        // MODIFIED DEBUG LOGGING
+        console.log(`[DEBUG createEventTimeObjForAlert DATE NOT ADVANCED] Original baseDate: "${baseDate.toDateString()}", Time: "${timeStr}". Final eventDate: "${eventDate.toISOString()}".`);
     }
     return eventDate;
 }
@@ -2240,123 +2346,176 @@ async function requestNotificationPermission() {
 }
 
 async function displayKeyDepartures_ExtraPage() {
+    const now = new Date();
+    const functionDisplayStartTime = new Date();
+    console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] === Function Entry: displayKeyDepartures_ExtraPage. Current 'now': ${now.toISOString()} ===`);
+
+    // Define the threshold hour for showing last N-Bus trips from the previous calendar day
+    const SHOW_LAST_N_BUS_FROM_HOUR_PREVIOUS_CALENDAR_DAY = 23;
+    const SHOW_LAST_N_BUS_FROM_MINUTE = 59;
+
     const firstDepListDiv = document.getElementById('kd-first-departures-list_extra');
     const lastDepListDiv = document.getElementById('kd-last-departures-list_extra');
     const statusMsgEl = document.getElementById('kd-status-message_extra');
 
     if (!firstDepListDiv || !lastDepListDiv || !statusMsgEl) {
-        console.error("Key Departures UI elements not found for display.");
+        console.error("[DEBUG DISPLAY] Key Departures UI elements not found. Aborting display.");
         return;
     }
 
-    // More subtle update indication if content already exists
-    if (firstDepListDiv.innerHTML.includes("Loading") || firstDepListDiv.innerHTML.includes("No upcoming")) {
-        firstDepListDiv.innerHTML = '<p>Updating first departures...</p>';
-    }
-    if (lastDepListDiv.innerHTML.includes("Loading") || lastDepListDiv.innerHTML.includes("No upcoming")) {
-        lastDepListDiv.innerHTML = '<p>Updating last departures...</p>';
-    }
+    firstDepListDiv.innerHTML = '<p>Updating first departures...</p>';
+    lastDepListDiv.innerHTML = '<p>Updating last departures...</p>';
 
-    const now = new Date();
     const todayStr = now.toDateString();
 
-    // Ensure key trip events are prepared for today if they haven't been or date changed
     if (lastAlertDataPreparedDate_extra !== todayStr || !todayKeyTripEvents_extra || todayKeyTripEvents_extra.length === 0) {
-        if (statusMsgEl) statusMsgEl.textContent = 'Preparing today\'s key departure data...';
+        if (statusMsgEl) statusMsgEl.textContent = 'Data stale or empty. Preparing/Refreshing key departure data...';
+        console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] Data is stale (last prepared: ${lastAlertDataPreparedDate_extra}, today: ${todayStr}) or empty. Calling prepareKeyTripTimesForAlerts_ExtraPage.`);
         if (typeof prepareKeyTripTimesForAlerts_ExtraPage === 'function') {
-            await prepareKeyTripTimesForAlerts_ExtraPage(); // This populates todayKeyTripEvents_extra
+            await prepareKeyTripTimesForAlerts_ExtraPage();
+            console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] prepareKeyTripTimesForAlerts_ExtraPage completed. todayKeyTripEvents_extra count: ${todayKeyTripEvents_extra ? todayKeyTripEvents_extra.length : 'undefined/null'}`);
         } else {
-            if (statusMsgEl) statusMsgEl.textContent = 'Error: Key trip preparation function missing.';
-            console.error("prepareKeyTripTimesForAlerts_ExtraPage is not defined.");
-            firstDepListDiv.innerHTML = '<p>Error preparing data.</p>';
-            lastDepListDiv.innerHTML = '<p>Error preparing data.</p>';
+            console.error("[DEBUG DISPLAY] prepareKeyTripTimesForAlerts_ExtraPage function is not defined!");
+            if (statusMsgEl) statusMsgEl.textContent = 'Error: Key departure preparation function missing.';
             return;
         }
     }
 
     if (!todayKeyTripEvents_extra || todayKeyTripEvents_extra.length === 0) {
-        const msg = "No key trip events (first/last departures) identified for today based on configurations.";
+        const msg = "No key trip events identified for display based on current configurations and time.";
         if (statusMsgEl) statusMsgEl.textContent = msg;
         firstDepListDiv.innerHTML = `<p style="opacity:0.7;">${msg}</p>`;
         lastDepListDiv.innerHTML = `<p style="opacity:0.7;">${msg}</p>`;
+        console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] No key trip events to display after preparation attempt.`);
         return;
     }
 
-    const firstTripTypes = ['rsg-first-trip', 'n-bus-overall-first'];
-    const lastTripTypes = ['rsg-last-trip', 'n-bus-overall-last'];
+    const firstTripTypes = ['rsg-first-trip', 'n-bus-first-trip'];
+    const lastTripTypes = ['rsg-last-trip', 'n-bus-last-trip'];
 
-    // Filter for upcoming events only
-    const upcomingEvents = todayKeyTripEvents_extra.filter(event =>
-        event.departureTimeObj && (event.departureTimeObj instanceof Date) && event.departureTimeObj >= now
-    );
+    console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] Filtering ${todayKeyTripEvents_extra.length} prepared events against 'now': ${now.toISOString()}`);
 
-    const routeFirstDepartures = new Map(); // Key: lineName, Value: earliest "first" type event for that lineName
-    const routeLastDepartures = new Map();  // Key: lineName, Value: latest "last" type event for that lineName
+    const upcomingEvents = todayKeyTripEvents_extra.filter(event => {
+        if (!event.departureTimeObj || !(event.departureTimeObj instanceof Date)) {
+            if (event.lineName.toUpperCase().startsWith("N")) {
+                 console.log(`[DEBUG DISPLAY N-ROUTE FILTER-OUT] Event: ${event.lineName} ${event.type} at ${event.departureTime} has MISSING or INVALID departureTimeObj. Excluding.`);
+            }
+            return false;
+        }
+        const isUpcomingGeneral = event.departureTimeObj >= now;
 
-    upcomingEvents.forEach(event => {
-        if (!event.lineName) return; // Skip events without a lineName
+        let includeThisEvent = isUpcomingGeneral;
 
-        // Check for overall first departure for the route
-        if (firstTripTypes.includes(event.type)) {
-            if (!routeFirstDepartures.has(event.lineName) || 
-                event.departureTimeObj < routeFirstDepartures.get(event.lineName).departureTimeObj) {
-                routeFirstDepartures.set(event.lineName, event);
+        if (event.type === 'n-bus-last-trip' && isUpcomingGeneral) {
+            const eventCalDateStr = event.departureTimeObj.toDateString();
+            const nowCalDateStr = now.toDateString();
+            const currentHour = now.getHours();
+
+            const isEventOnCurrentCalendarDay = (eventCalDateStr === nowCalDateStr);
+
+            const tomorrowFromNow = new Date(now);
+            tomorrowFromNow.setDate(now.getDate() + 1);
+            const isEventOnNextCalendarDay = (eventCalDateStr === tomorrowFromNow.toDateString());
+
+            if (isEventOnCurrentCalendarDay) {
+                includeThisEvent = true;
+                console.log(`[DEBUG DISPLAY N-ROUTE LAST TRIP SHOW (Today)] Event: ${event.lineName} ${event.type} at ${event.departureTime} (Obj: ${event.departureTimeObj.toISOString()}). Is upcoming AND on current calendar day (${eventCalDateStr}). SHOWING.`);
+            } else if (isEventOnNextCalendarDay && currentHour >= SHOW_LAST_N_BUS_FROM_HOUR_PREVIOUS_CALENDAR_DAY) {
+                // *** ADDED Temporary Detailed Log for this specific block ***
+                const cond1_isEventOnNext = isEventOnNextCalendarDay;
+                const cond2_isHourPastThreshold = (currentHour >= SHOW_LAST_N_BUS_FROM_HOUR_PREVIOUS_CALENDAR_DAY);
+                console.log(`[DEBUG N-LAST-TRIP-CONDITION-CHECK (Event: ${event.lineName} ${event.departureTime})] isEventOnNextCalendarDay: ${cond1_isEventOnNext}, currentHour (${currentHour}) >= threshold (${SHOW_LAST_N_BUS_FROM_HOUR_PREVIOUS_CALENDAR_DAY}) is ${cond2_isHourPastThreshold}. Combined: ${cond1_isEventOnNext && cond2_isHourPastThreshold}`);
+                // *** END Temporary Detailed Log ***
+                includeThisEvent = true;
+                console.log(`[DEBUG DISPLAY N-ROUTE LAST TRIP SHOW (Early)] Event: ${event.lineName} ${event.type} at ${event.departureTime} (Obj: ${event.departureTimeObj.toISOString()}). For next calendar day (${eventCalDateStr}), and current hour (${currentHour}) >= threshold (${SHOW_LAST_N_BUS_FROM_HOUR_PREVIOUS_CALENDAR_DAY}). SHOWING.`);
+            } else {
+                includeThisEvent = false;
+                console.log(`[DEBUG DISPLAY N-ROUTE LAST TRIP DELAY] Event: ${event.lineName} ${event.type} at ${event.departureTime} (Obj: ${event.departureTimeObj.toISOString()}). Is upcoming generally, but conditions to show last N-bus early are not met. (EventCal: ${eventCalDateStr}, NowCal: ${nowCalDateStr}, Hour: ${currentHour}, Threshold: ${SHOW_LAST_N_BUS_FROM_HOUR_PREVIOUS_CALENDAR_DAY}). HIDING.`);
             }
         }
-        // Check for overall last departure for the route
-        else if (lastTripTypes.includes(event.type)) {
-            if (!routeLastDepartures.has(event.lineName) || 
-                event.departureTimeObj > routeLastDepartures.get(event.lineName).departureTimeObj) {
-                routeLastDepartures.set(event.lineName, event);
+
+        if (isUpcomingGeneral && includeThisEvent) {
+            if (event.lineName.toUpperCase().startsWith("N") && event.type !== 'n-bus-last-trip') {
+                console.log(`[DEBUG DISPLAY N-ROUTE FILTER (NON-LAST)] Event: ${event.lineName} ${event.type} at ${event.departureTime} (Obj: ${event.departureTimeObj.toISOString()}). Comparison: (Obj >= Now) -> ${isUpcomingGeneral}. Final include: ${includeThisEvent}`);
+            } else if (!event.lineName.toUpperCase().startsWith("N")){
             }
+        } else if (isUpcomingGeneral && !includeThisEvent && event.type !== 'n-bus-last-trip') {
+            console.warn(`[DEBUG DISPLAY UNEXPECTED EXCLUSION] Event: ${event.lineName} ${event.type} at ${event.departureTime} was generally upcoming but excluded by final logic.`);
         }
+
+        return includeThisEvent;
     });
 
-    // Convert Maps to sorted arrays for display
-    const sortedFirstDepartures = Array.from(routeFirstDepartures.values())
-        .sort((a, b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime());
-    const sortedLastDepartures = Array.from(routeLastDepartures.values())
-        .sort((a, b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime());
-
-    // Render First Departures
-    if (sortedFirstDepartures.length > 0) {
-        let firstDepHtml = '<ul style="list-style-type:none; padding-left:0;">';
-        sortedFirstDepartures.forEach(event => {
-            const routeColor = getRouteTileColour_ExtraPage(event.lineName, null);
-            firstDepHtml += `<li style="margin-bottom:0.5em; padding: 0.4em 0.5em; background-color: rgba(255,255,255,0.03); border-radius: 4px; border-left: 3px solid ${routeColor};">
-                <strong style="font-size:1.05em;">${event.departureTime}</strong> - 
-                <span style="color: ${routeColor}; font-weight: bold;">${event.lineName}</span> 
-                (First) to <strong>${toTitleCase_rsg(event.headsignDestinationName || 'N/A')}</strong> 
-                from ${toTitleCase_rsg(event.originStopName || 'N/A')}
-                ${event.rsgConfigUserDisplayName ? `<span style="font-size:0.8em; color:#bdc3c7; display:block; margin-top:2px;">(Source Config: ${event.rsgConfigUserDisplayName})</span>` : ''}
-            </li>`;
-        });
-        firstDepHtml += '</ul>';
-        firstDepListDiv.innerHTML = firstDepHtml;
-    } else {
-        firstDepListDiv.innerHTML = '<p style="opacity:0.7;">No upcoming first departures for any route today.</p>';
+    console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] Filtered to ${upcomingEvents.length} upcomingEvents.`);
+    if (upcomingEvents.length > 0 && upcomingEvents.length < 20) {
+        console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] Upcoming events details:`, JSON.parse(JSON.stringify(upcomingEvents.map(e => ({line:e.lineName, type:e.type, time:e.departureTime, timeObj: e.departureTimeObj?.toISOString()})))));
     }
 
-    // Render Last Departures
-    if (sortedLastDepartures.length > 0) {
-        let lastDepHtml = '<ul style="list-style-type:none; padding-left:0;">';
-        sortedLastDepartures.forEach(event => {
-            const routeColor = getRouteTileColour_ExtraPage(event.lineName, null);
-            lastDepHtml += `<li style="margin-bottom:0.5em; padding: 0.4em 0.5em; background-color: rgba(255,255,255,0.03); border-radius: 4px; border-left: 3px solid ${routeColor};">
-                <strong style="font-size:1.05em;">${event.departureTime}</strong> - 
-                <span style="color: ${routeColor}; font-weight: bold;">${event.lineName}</span> 
-                (Last) to <strong>${toTitleCase_rsg(event.headsignDestinationName || 'N/A')}</strong> 
-                from ${toTitleCase_rsg(event.originStopName || 'N/A')}
-                ${event.rsgConfigUserDisplayName ? `<span style="font-size:0.8em; color:#bdc3c7; display:block; margin-top:2px;">(Source Config: ${event.rsgConfigUserDisplayName})</span>` : ''}
-            </li>`;
-        });
-        lastDepHtml += '</ul>';
-        lastDepListDiv.innerHTML = lastDepHtml;
-    } else {
-        lastDepListDiv.innerHTML = '<p style="opacity:0.7;">No upcoming last departures for any route today.</p>';
+    const firstDeparturesToDisplay = [];
+    const lastDeparturesToDisplay = [];
+
+    upcomingEvents.forEach(event => {
+        let addedToAList = false;
+        if (firstTripTypes.includes(event.type)) {
+            firstDeparturesToDisplay.push(event);
+            addedToAList = true;
+        } else if (lastTripTypes.includes(event.type)) {
+            lastDeparturesToDisplay.push(event);
+            addedToAList = true;
+        }
+        if (event.lineName.toUpperCase().startsWith("N")) {
+           console.log(`[DEBUG DISPLAY N-ROUTE CATEGORIZE] Event: ${event.lineName} ${event.type} at ${event.departureTime}. Added to a display list: ${addedToAList}`);
+        }
+    });
+    console.log(`[DEBUG DISPLAY ${functionDisplayStartTime.toLocaleTimeString()}] Populated firstDeparturesToDisplay (${firstDeparturesToDisplay.length}) and lastDeparturesToDisplay (${lastDeparturesToDisplay.length})`);
+    if (firstDeparturesToDisplay.some(e => e.lineName.toUpperCase().startsWith("N"))) {
+        console.log("[DEBUG DISPLAY N-ROUTE IN FIRST LIST]", JSON.parse(JSON.stringify(firstDeparturesToDisplay.filter(e=>e.lineName.toUpperCase().startsWith("N")).map(e=>({line:e.lineName, time:e.departureTime, objTime: e.departureTimeObj.toISOString()})))));
+    }
+    if (lastDeparturesToDisplay.some(e => e.lineName.toUpperCase().startsWith("N"))) {
+        console.log("[DEBUG DISPLAY N-ROUTE IN LAST LIST]", JSON.parse(JSON.stringify(lastDeparturesToDisplay.filter(e=>e.lineName.toUpperCase().startsWith("N")).map(e=>({line:e.lineName, time:e.departureTime, objTime: e.departureTimeObj.toISOString()})))));
     }
 
-    if (statusMsgEl) statusMsgEl.textContent = `Displaying upcoming key departures for ${todayStr}. Last updated: ${now.toLocaleTimeString()}.`;
+    const sortEvents = (a, b) => {
+        if (!a.departureTimeObj && !b.departureTimeObj) return 0;
+        if (!a.departureTimeObj) return 1;
+        if (!b.departureTimeObj) return -1;
+        const timeDiff = a.departureTimeObj.getTime() - b.departureTimeObj.getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return a.type.localeCompare(b.type);
+    };
+    firstDeparturesToDisplay.sort(sortEvents);
+    lastDeparturesToDisplay.sort(sortEvents);
+
+    const renderEventList = (eventArray, listDivElement, listTypeForEmptyMessage) => {
+        if (eventArray.length > 0) {
+            let html = '<ul style="list-style-type:none; padding-left:0;">';
+            eventArray.forEach(event => {
+                const routeColor = getRouteTileColour_ExtraPage(event.lineName, null);
+                const destinationDisplay = `<strong>${toTitleCase_rsg(event.headsignDestinationName || 'N/A')}</strong>`;
+                const opProfileDisplay = event.operatingProfile ? event.operatingProfile.split(',').map(p => p.trim()).join(', ') : 'N/A';
+
+                html += `<li style="margin-bottom:0.5em; padding: 0.4em 0.5em; background-color: rgba(255,255,255,0.03); border-radius: 4px; border-left: 3px solid ${routeColor};">
+                    <strong style="font-size:1.05em;">${event.departureTime}</strong> -
+                    <span style="color: ${routeColor}; font-weight: bold;">${event.lineName}</span>
+                    to ${destinationDisplay}
+                    from ${toTitleCase_rsg(event.originStopName || 'N/A')}
+                    <span style="font-size:0.8em; color:#bdc3c7; display:block; margin-top:2px;">(Op Profile: ${opProfileDisplay})</span>
+                </li>`;
+            });
+            html += '</ul>';
+            listDivElement.innerHTML = html;
+        } else {
+            listDivElement.innerHTML = `<p style="opacity:0.7;">No upcoming ${listTypeForEmptyMessage.toLowerCase()} departures found matching current criteria.</p>`;
+        }
+    };
+
+    renderEventList(firstDeparturesToDisplay, firstDepListDiv, "First");
+    renderEventList(lastDeparturesToDisplay, lastDepListDiv, "Last");
+
+    const tomorrowForDisplayMsg = new Date(now);
+    tomorrowForDisplayMsg.setDate(now.getDate() + 1);
+    if (statusMsgEl) statusMsgEl.textContent = `Displaying upcoming departures for ${todayStr} & ${tomorrowForDisplayMsg.toLocaleDateString()}. Updated: ${now.toLocaleTimeString()}.`;
+    console.log(`[DEBUG DISPLAY ${new Date().toLocaleTimeString()}] === Function Exit: displayKeyDepartures_ExtraPage (Duration: ${(new Date() - functionDisplayStartTime)/1000}s) ===`);
 }
 
 async function renderCalendarView_ExtraPage() {
@@ -11562,50 +11721,46 @@ function rsg_openCopyFromModal_ExtraPage() {
     }
 }
 
-        function updateAuthUI_ExtraPage(user) {
+        async function updateAuthUI_ExtraPage(user) { // Added async
     currentUser_extra = user;
     if (user) { // User is logged in
         if (authSection_el_extra) authSection_el_extra.style.display = 'none';
         if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block';
-        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'flex'; // Changed to flex as per original for logout
+        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'flex'; 
         if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none';
         if (authStatus_el_extra) authStatus_el_extra.textContent = '';
         if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email;
-        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block'; // Or 'flex' if it uses flex
-        
-        loadInitialData_ExtraPage(); // This will load all data and then call renderUIDependentElements_ExtraPage
+        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block'; 
 
+        await loadInitialData_ExtraPage(); // *** CRITICAL: Added await here ***
+
+        // Logic to determine which section to show after data is loaded
         const lastSection = localStorage.getItem('omsiExtraToolsActiveSection');
-        const firstButton = topMenuBar_el_extra.querySelector('.menu-button');
-        
-        // Determine the section to show
+        const firstButton = topMenuBar_el_extra ? topMenuBar_el_extra.querySelector('.menu-button') : null;
+
         let sectionToActuallyShow = null;
-        if (lastSection && document.getElementById(lastSection) && Array.from(topMenuBar_el_extra.querySelectorAll('.menu-button')).some(b => b.dataset.section === lastSection)) {
+        if (lastSection && document.getElementById(lastSection) && topMenuBar_el_extra && Array.from(topMenuBar_el_extra.querySelectorAll('.menu-button')).some(b => b.dataset.section === lastSection)) {
             sectionToActuallyShow = lastSection;
         } else if (firstButton && firstButton.dataset.section) {
             sectionToActuallyShow = firstButton.dataset.section;
+        } else if (currentUser_extra && typeof showExtraPageSection === 'function' && !sectionToActuallyShow) {
+            // Fallback if no valid section found yet, and user is logged in, show a default (e.g., first button if it exists)
+            // This part might be redundant if renderUIDependentElements_ExtraPage always handles it.
+            // For safety, this ensures *something* is attempted if firstButton logic didn't catch it.
+             if (firstButton && firstButton.dataset.section) {
+                sectionToActuallyShow = firstButton.dataset.section;
+             }
         }
 
-        if (sectionToActuallyShow) {
-            // Defer showing section until after initial data load might have completed or started
-            // This can be tricky if loadInitialData_ExtraPage is very long.
-            // For now, showExtraPageSection is called inside loadInitialData via renderUIDependentElements_ExtraPage
-            // or directly here if needed.
-            // The current setup in loadInitialData_ExtraPage calls renderUIDependentElements_ExtraPage,
-            // which in turn calls showExtraPageSection. So explicit call here might be redundant
-            // if loadInitialData always correctly shows a section.
-            // However, to ensure a section is shown if renderUIDependentElements_ExtraPage doesn't,
-            // we can keep a direct call, but it might run showExtraPageSection twice.
-            // A safer bet is to ensure loadInitialData handles showing the correct section.
-            // For now, the call inside renderUIDependentElements_ExtraPage (called by loadInitialData) should cover this.
-        }
+        // The actual showing of the section is typically handled by renderUIDependentElements_ExtraPage,
+        // which is called at the end of the now-awaited loadInitialData_ExtraPage.
+        // If a specific section needs to be forced here, ensure it doesn't conflict.
+        // The current structure should be sufficient as renderUIDependentElements_ExtraPage calls showExtraPageSection.
 
-
-        // Reset borders if previously changed by debug for readonly state
         if (inputEmail_el_extra) inputEmail_el_extra.style.border = "1px solid #7f8c8d";
         if (inputPassword_el_extra) inputPassword_el_extra.style.border = "1px solid #7f8c8d";
 
-    } else { // User is logged out or not yet determined
+    } else { // User is logged out
         if (authSection_el_extra) authSection_el_extra.style.display = 'block';
         if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none';
         if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none';
@@ -11613,19 +11768,21 @@ function rsg_openCopyFromModal_ExtraPage() {
         if (authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.';
 
         if (inputEmail_el_extra) {
-            inputEmail_el_extra.placeholder = "Email"; // Reset placeholder
+            inputEmail_el_extra.placeholder = "Email";
             inputEmail_el_extra.style.border = "1px solid #7f8c8d"; 
         }
         if (inputPassword_el_extra) {
-            inputPassword_el_extra.placeholder = "Password"; // Reset placeholder
+            inputPassword_el_extra.placeholder = "Password";
             inputPassword_el_extra.style.border = "1px solid #7f8c8d"; 
         }
 
         if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = '';
         if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none';
-        if (toolSectionsWrapper_el_extra) toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none');
-        
-        // Clear data
+        if (toolSectionsWrapper_el_extra) {
+            toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none');
+        }
+
+        // Clear all global data on logout
         currentWorkingSchedule_extra = [];
         closedStopIDs_extra = [];
         globalCustomRouteColours_extra = {};
@@ -11644,18 +11801,24 @@ function rsg_openCopyFromModal_ExtraPage() {
         todayKeyTripEvents_extra = [];
         shownTripAlerts_extra = {};
         lastAlertDataPreparedDate_extra = null;
+        isScheduledTasksCacheValid_extra = false;
+        cachedBatchRadiosHTML_extra = null;
+        cachedScheduledTasksHTML_extra = null;
 
-        // Clear intervals
+
         if (tripAlertIntervalId_extra) {
             clearInterval(tripAlertIntervalId_extra);
             tripAlertIntervalId_extra = null;
         }
-        if (keyDeparturesIntervalId_extra) { // ADDED THIS
+        if (keyDeparturesIntervalId_extra) {
             clearInterval(keyDeparturesIntervalId_extra);
             keyDeparturesIntervalId_extra = null;
         }
-        
-        renderUIDependentElements_ExtraPage(); // This will clear UI lists
+
+        // Render UI elements to their default logged-out state (e.g., clear lists)
+        if (typeof renderUIDependentElements_ExtraPage === 'function') {
+            renderUIDependentElements_ExtraPage(); 
+        }
     }
 }
         
@@ -11875,21 +12038,57 @@ console.log("Content of ukBankHolidaysData_extra AFTER fetch:", JSON.stringify(u
     console.log("loadInitialData_ExtraPage: Finished.");
 }
 
-        function renderUIDependentElements_ExtraPage() { 
-            const activeSectionId = localStorage.getItem('omsiExtraToolsActiveSection'); 
-            const activeSectionElement = activeSectionId ? document.getElementById(activeSectionId) : null; 
-            if (activeSectionElement && activeSectionElement.style.display === 'block') { 
-                 showExtraPageSection(activeSectionId); // Re-run the show function to refresh content
-            } else if (!activeSectionId && topMenuBar_el_extra && topMenuBar_el_extra.querySelector('.menu-button')) { 
-                // If no active section is stored or visible, attempt to show the first one if user is logged in
-                 if(currentUser_extra) {
-                    const firstButton = topMenuBar_el_extra.querySelector('.menu-button');
-                    if (firstButton && firstButton.dataset.section) {
-                         showExtraPageSection(firstButton.dataset.section);
-                    }
-                }
-            } 
+function renderUIDependentElements_ExtraPage() {
+    const lastSectionFromStorage = localStorage.getItem('omsiExtraToolsActiveSection');
+    let sectionIdToShow = null;
+    let calledShowSection = false; // Flag to ensure showExtraPageSection is called at most once initially by this function
+
+    console.log(`[RenderUI] Attempting to determine initial section. Last from storage: ${lastSectionFromStorage}`);
+
+    // Priority 1: Try to show the section from localStorage if it's valid
+    if (lastSectionFromStorage && document.getElementById(lastSectionFromStorage)) {
+        // Further check: Is it a real tool section linked to a menu button?
+        const isKnownToolSection = topMenuBar_el_extra && Array.from(topMenuBar_el_extra.querySelectorAll('.menu-button')).some(b => b.dataset.section === lastSectionFromStorage);
+        if (isKnownToolSection) {
+            sectionIdToShow = lastSectionFromStorage;
+            console.log(`[RenderUI] Valid section found in localStorage: ${sectionIdToShow}`);
+        } else {
+            // The stored section ID might be old or invalid (e.g., tool removed)
+            console.log(`[RenderUI] Section from localStorage ('${lastSectionFromStorage}') is not a known tool section. Clearing from storage.`);
+            localStorage.removeItem('omsiExtraToolsActiveSection');
+            sectionIdToShow = null; // Ensure it's null so we try the default next
         }
+    }
+
+    // Priority 2: If no valid section from localStorage, and user is logged in, try the first menu button
+    if (!sectionIdToShow && currentUser_extra && topMenuBar_el_extra) {
+        const firstButton = topMenuBar_el_extra.querySelector('.menu-button');
+        if (firstButton && firstButton.dataset.section) {
+            sectionIdToShow = firstButton.dataset.section;
+            console.log(`[RenderUI] No valid localStorage section. Defaulting to first menu button section: ${sectionIdToShow}`);
+        }
+    }
+
+    // Now, actually show the determined section (if any)
+    if (sectionIdToShow && typeof showExtraPageSection === 'function') {
+        showExtraPageSection(sectionIdToShow);
+        calledShowSection = true;
+    } else if (currentUser_extra && !calledShowSection) {
+        // User is logged in, but no section could be determined (e.g., localStorage empty/invalid, and no menu buttons)
+        // This state would result in the "blue screen" if not handled.
+        console.warn("[RenderUI] User is logged in, but no default section could be determined to display. All tool sections will remain hidden.");
+        // Ensure all tool sections are indeed hidden if no specific one is chosen.
+        // `showExtraPageSection` normally handles hiding others, but if it's not called,
+        // we might want an explicit hide here, though `updateAuthUI_ExtraPage(null)` initial call usually does this.
+        if (toolSectionsWrapper_el_extra) {
+            toolSectionsWrapper_el_extra.querySelectorAll(".tool-content-section.section").forEach((s) => {
+                s.style.display = "none";
+            });
+        }
+    }
+    // If not logged in (currentUser_extra is null), updateAuthUI_ExtraPage(null) would have hidden all sections
+    // and the top menu bar, so no specific section showing logic is needed here for that case.
+}
 
         // --- DOMContentLoaded ---
         document.addEventListener('DOMContentLoaded', () => {
@@ -11984,8 +12183,10 @@ if (cvNextMonthBtn) {
     } = window.firebaseOMSI;
 
     // Listen for authentication state changes
-    authOnAuthStateChanged(auth, user => {
-        if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(user);
+    authOnAuthStateChanged(auth, async user => { // Added async here
+        if (typeof updateAuthUI_ExtraPage === 'function') {
+            await updateAuthUI_ExtraPage(user); // Added await here
+        }
         // If user logs in and certain elements are present, auto-generate a stop ID suggestion
         if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
             !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
@@ -12010,11 +12211,14 @@ if (cvNextMonthBtn) {
     const logoutButtonElement = document.getElementById('logoutButton_extra');
     if (logoutButtonElement) {
         logoutButtonElement.addEventListener('click', () => {
-            localStorage.removeItem('omsiExtraToolsActiveSection'); // Clear last viewed section
-            // Cleanup for Trip Alert System
+            localStorage.removeItem('omsiExtraToolsActiveSection');
             if (tripAlertIntervalId_extra) {
                 clearInterval(tripAlertIntervalId_extra);
                 tripAlertIntervalId_extra = null;
+            }
+            if (keyDeparturesIntervalId_extra) { // Clear key departures interval on logout
+                clearInterval(keyDeparturesIntervalId_extra);
+                keyDeparturesIntervalId_extra = null;
             }
             todayKeyTripEvents_extra = [];
             shownTripAlerts_extra = {};
@@ -12023,7 +12227,6 @@ if (cvNextMonthBtn) {
             if (popup) {
                 popup.style.display = 'none';
             }
-            // Sign out from Firebase
             authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e));
         });
     }

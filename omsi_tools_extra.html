@@ -3752,37 +3752,36 @@ function dpo_updateDisabledProfileCheckboxes_ExtraPage() {
             return;
         }
 
-        // Simulate adding this checkbox's value to the current selection
         const potentialNextRawSelection = [...currentSelectedValues, cb.value];
-        const finalEffectiveSelectionAfterAutoGroup = dpo_simulateAutoGroup_ExtraPage(potentialNextRawSelection);
+        // Use DPO specific simulate and canonical functions
+        const finalEffectiveSelectionAfterAutoGroup = dpo_simulateAutoGroup_ExtraPage(potentialNextRawSelection); 
         const finalEffectiveSortedString = dpo_getCanonicalProfileString_ExtraPage(finalEffectiveSelectionAfterAutoGroup);
-        
+
         let canBeEnabled = false;
-        // Check if this exact combination is valid
-        if (VALID_PROFILE_COMBINATIONS_SET.has(finalEffectiveSortedString)) {
+        // Uses DPO specific set
+        if (DPO_VALID_PROFILE_COMBINATIONS_SET.has(finalEffectiveSortedString)) { 
             canBeEnabled = true;
         }
-        
-        // If not exact, check if it's a valid start to a longer combination
-        if (!canBeEnabled) {
-            const prefixToTest = finalEffectiveSortedString + ",";
-            for (const validCombo of VALID_PROFILE_COMBINATIONS_SET) {
+
+        if (!canBeEnabled) { // Check if it's a valid prefix for DPO combinations
+            const prefixToTest = finalEffectiveSortedString + ","; // Important: check if adding another profile would make it valid
+            for (const validCombo of DPO_VALID_PROFILE_COMBINATIONS_SET) { 
                 if (validCombo.startsWith(prefixToTest)) {
                     canBeEnabled = true;
                     break;
                 }
             }
         }
-        
-        // Special case for initial selection (currentSelectedValues is empty)
+
+        // Special case: if nothing is currently selected, is this single profile (after its own potential auto-grouping) valid or a prefix?
         if (currentSelectedValues.length === 0) {
              const singleProfileItselfAfterPotentialGroup = dpo_simulateAutoGroup_ExtraPage([cb.value]);
              const singleCanonical = dpo_getCanonicalProfileString_ExtraPage(singleProfileItselfAfterPotentialGroup);
-             if (VALID_PROFILE_COMBINATIONS_SET.has(singleCanonical)) {
+             if (DPO_VALID_PROFILE_COMBINATIONS_SET.has(singleCanonical)) {
                  canBeEnabled = true;
              } else {
                  const prefixToTestForSingle = singleCanonical + ",";
-                 for (const validCombo of VALID_PROFILE_COMBINATIONS_SET) {
+                 for (const validCombo of DPO_VALID_PROFILE_COMBINATIONS_SET) {
                      if (validCombo.startsWith(prefixToTestForSingle)) {
                          canBeEnabled = true;
                          break;
@@ -5772,12 +5771,102 @@ const MASTER_VALID_PROFILE_COMBINATIONS_LIST_EXTRA = [
     "MFSch", "MFNSD",
     "Sa", "Sa,Su",
     "Su",
+    "Christmas Eve",
+    "Christmas Day",
+    "Boxing Day",
+    "New Years Eve",
+    "New Years Day"
+];
+
+// --- DPO Specific Rules ---
+const DPO_PROFILE_GROUPS_TO_MANAGE = [
+    { individuals: ["Mo", "Tu", "We", "Th", "Fr"], groupProfile: "MF" },
+    { individuals: ["MoSch", "TuSch", "WeSch", "ThSch", "FrSch"], groupProfile: "MFSch" },
+    { individuals: ["MoNSD", "TuNSD", "WeNSD", "ThNSD", "FrNSD"], groupProfile: "MFNSD" }
+];
+
+const DPO_MASTER_VALID_PROFILE_COMBINATIONS_LIST = [
+    "Mo", "Mo,Tu", "Mo,Tu,We", "Mo,Tu,We,Th", "Mo,Tu,We,Th,Sa", "Mo,Tu,We,Th,Sa,Su",
+    "Mo,Tu,We,Th,Su", "Mo,Tu,We,Fr", "Mo,Tu,We,Fr,Sa", "Mo,Tu,We,Fr,Sa,Su",
+    "Mo,Tu,We,Fr,Su", "Mo,Tu,We,Sa", "Mo,Tu,We,Sa,Su", "Mo,Tu,We,Su", "Mo,Tu,Th", "Mo,Tu,Th,Fr", "Mo,Tu,Th,Fr,Sa", 
+    "Mo,Tu,Th,Fr,Su", "Mo,Tu,Th,Fr,Sa,Su", "Mo,Tu,Th,Sa", "Mo,Tu,Th,Sa,Su", "Mo,Tu,Th,Su", "Mo,Tu,Fr",
+    "Mo,Tu,Fr,Sa", "Mo,Tu,Fr,Sa,Su", "Mo,Tu,Fr,Su", "Mo,Tu,Sa", "Mo,Tu,Sa,Su", "Mo,Tu,Su", "Mo,We",
+    "Mo,We,Th", "Mo,We,Th,Fr", "Mo,We,Th,Fr,Sa", "Mo,We,Th,Fr,Sa,Su", "Mo,We,Th,Fr,Su",
+    "Mo,We,Th,Sa", "Mo,We,Th,Sa,Su", "Mo,We,Th,Su", "Mo,We,Fr", "Mo,We,Fr,Sa",
+    "Mo,We,Fr,Sa,Su", "Mo,We,Fr,Su", "Mo,We,Sa", "Mo,We,Sa,Su", "Mo,We,Su", "Mo,Th",
+    "Mo,Th,Fr", "Mo,Th,Fr,Sa", "Mo,Th,Fr,Sa,Su", "Mo,Th,Fr,Su", "Mo,Th,Sa",
+    "Mo,Th,Sa,Su", "Mo,Th,Su", "Mo,Fr", "Mo,Fr,Sa", "Mo,Fr,Sa,Su", "Mo,Fr,Su", "Mo,Sa",
+    "Mo,Sa,Su", "Mo,Su",
+    "MoSch", "MoSch,TuSch", "MoSch,TuSch,WeSch", "MoSch,TuSch,WeSch,ThSch", "MoSch,TuSch,WeSch,FrSch",
+    "MoSch,TuSch,ThSch", "MoSch,TuSch,ThSch,FrSch", "MoSch,TuSch,FrSch", "MoSch,WeSch",
+    "MoSch,WeSch,ThSch", "MoSch,WeSch,ThSch,FrSch", "MoSch,WeSch,FrSch", "MoSch,ThSch",
+    "MoSch,ThSch,FrSch", "MoSch,FrSch",
+    "MoNSD", "MoNSD,TuNSD", "MoNSD,TuNSD,WeNSD", "MoNSD,TuNSD,WeNSD,ThNSD", "MoNSD,TuNSD,WeNSD,FrNSD",
+    "MoNSD,TuNSD,ThNSD", "MoNSD,TuNSD,ThNSD,FrNSD", "MoNSD,TuNSD,FrNSD", "MoNSD,WeNSD",
+    "MoNSD,WeNSD,ThNSD", "MoNSD,WeNSD,ThNSD,FrNSD", "MoNSD,WeNSD,FrNSD", "MoNSD,ThNSD",
+    "MoNSD,ThNSD,FrNSD", "MoNSD,FrNSD",
+    "Tu", "Tu,We", "Tu,We,Th", "Tu,We,Th,Fr", "Tu,We,Th,Fr,Sa", "Tu,We,Th,Fr,Sa,Su",
+    "Tu,We,Th,Fr,Su", "Tu,We,Th,Sa", "Tu,We,Th,Sa,Su", "Tu,We,Th,Su", "Tu,We,Fr",
+    "Tu,We,Fr,Sa", "Tu,We,Fr,Sa,Su", "Tu,We,Fr,Su", "Tu,We,Sa", "Tu,We,Sa,Su", "Tu,We,Su",
+    "Tu,Th", "Tu,Th,Fr", "Tu,Th,Fr,Sa", "Tu,Th,Fr,Sa,Su", "Tu,Th,Fr,Su", "Tu,Th,Sa",
+    "Tu,Th,Sa,Su", "Tu,Th,Su", "Tu,Fr", "Tu,Fr,Sa", "Tu,Fr,Sa,Su", "Tu,Fr,Su", "Tu,Sa",
+    "Tu,Sa,Su", "Tu,Su",
+    "TuSch", "TuSch,WeSch", "TuSch,WeSch,ThSch", "TuSch,WeSch,FrSch", "TuSch,ThSch", "TuSch,ThSch,FrSch",
+    "TuSch,FrSch",
+    "TuNSD", "TuNSD,WeNSD", "TuNSD,WeNSD,ThNSD", "TuNSD,WeNSD,ThNSD,FrNSD", "TuNSD,WeNSD,FrNSD",
+    "TuNSD,ThNSD", "TuNSD,ThNSD,FrNSD", "TuNSD,FrNSD",
+    "We", "We,Th", "We,Th,Fr", "We,Th,Fr,Sa", "We,Th,Fr,Sa,Su", "We,Th,Fr,Su", "We,Th,Sa",
+    "We,Th,Sa,Su", "We,Th,Su", "We,Fr", "We,Fr,Sa", "We,Fr,Sa,Su", "We,Fr,Su", "We,Sa",
+    "We,Sa,Su", "We,Su",
+    "WeSch", "WeSch,ThSch", "WeSch,ThSch,FrSch", "WeSch,FrSch",
+    "WeNSD", "WeNSD,ThNSD", "WeNSD,ThNSD,FrNSD", "WeNSD,FrNSD",
+    "Th", "Th,Fr", "Th,Fr,Sa", "Th,Fr,Sa,Su", "Th,Fr,Su", "Th,Sa", "Th,Sa,Su", "Th,Su",
+    "ThSch", "ThSch,FrSch",
+    "ThNSD", "ThNSD,FrNSD",
+    "Fr", "Fr,Sa", "Fr,Sa,Su", "Fr,Su",
+    "FrSch", "FrNSD",
+    "MF", "MF,Sa", "MF,Sa,Su", "MF,Su",
+    "MFSch", "MFNSD",
+    "Sa", "Sa,Su",
+    "Su",
     "Christmas Eve", "Christmas Eve,Sa",
     "Christmas Day",
     "Boxing Day", "Boxing Day,Sa,Su",
     "New Years Eve", "New Years Eve,Sa",
     "New Years Day", "New Years Day,Su"
 ];
+
+// Helper function for DPO (can be identical to rsg_getCanonicalProfileString)
+function dpo_getCanonicalProfileString_ExtraPage(profileArray) {
+    if (!Array.isArray(profileArray)) return "";
+    return profileArray.map(p => String(p).trim()).sort((a,b) => a.localeCompare(b)).join(',');
+}
+
+// Create the Set for DPO valid combinations
+const DPO_VALID_PROFILE_COMBINATIONS_SET = new Set(
+    DPO_MASTER_VALID_PROFILE_COMBINATIONS_LIST.map(s => dpo_getCanonicalProfileString_ExtraPage(s.split(',')))
+);
+
+function dpo_simulateAutoGroup_ExtraPage(selectedProfilesArray) {
+    let simulatedSelections = [...selectedProfilesArray]; 
+    // Use DPO_PROFILE_GROUPS_TO_MANAGE defined above
+    DPO_PROFILE_GROUPS_TO_MANAGE.forEach(group => { 
+        const allIndividualsPresent = group.individuals.every(ind => simulatedSelections.includes(ind));
+        if (allIndividualsPresent) {
+            // If all individuals in a group are selected, replace them with the group profile
+            simulatedSelections = simulatedSelections.filter(p => !group.individuals.includes(p)); 
+            if (!simulatedSelections.includes(group.groupProfile)) {
+                simulatedSelections.push(group.groupProfile); 
+            }
+        }
+        // If a group profile is selected, ensure individuals are not also in the simulated selection
+        // (This part of logic might need refinement based on desired DPO behavior vs RSG)
+        // For DPO, typically you select what you want, and grouping might be less about auto-checking
+        // and more about what the final "effective" profile string is.
+        // If DPO_PROFILE_GROUPS_TO_MANAGE is empty, this loop does nothing.
+    });
+    return simulatedSelections; // Return the (potentially modified) array of selected profiles
+}
 
 // Helper function to create a canonical string (sorted, comma-separated)
 function rsg_getCanonicalProfileString(profileArray) {

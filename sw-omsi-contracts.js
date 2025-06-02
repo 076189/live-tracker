@@ -1,7 +1,6 @@
 const CACHE_NAME = 'omsi-contract-dates-cache-v1';
 const APP_SHELL_FILES = [
     './OMSI Contract Dates.html',
-    './',
 ];
 
 self.addEventListener('install', (event) => {

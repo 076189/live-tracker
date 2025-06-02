@@ -588,7 +588,6 @@ select option { background-color: #34495e; color: #ecf0f1; }
 
         <div id="current-profile-display-container" style="display:block;"> <p id="current-profile-display">Today's Operating Profile: (loading...)</p>
 <button id="enableDesktopNotificationsBtn_extra">Enable Desktop Alerts</button>
-<button id="iphoneTestNotificationBtn" style="padding: 10px; margin: 10px; background-color: lightblue;">Test iPhone Notification</button>
         </div>
 
         <div id="top-menu-bar_extra" style="display:block;"> <div id="main-menu-buttons_extra">
@@ -1614,174 +1613,175 @@ async function fetchBankHolidays_ExtraPage() {
 }
 
 async function prepareKeyTripTimesForAlerts_ExtraPage() {
-    console.log("Preparing key trip times for alerts (V9 - Consider Previous Op Day for Overnights)...");
-    const allPotentialEvents = []; // Collect all events here before filtering and deduplicating
-    const todayForAlerts = new Date(); // This is the current calendar day we are generating alerts for
-    lastAlertDataPreparedDate_extra = todayForAlerts.toDateString(); // Update the preparation date
+    console.log("Preparing key trip times for alerts (V9 - Stabilize Alert IDs)...");
+    todayKeyTripEvents_extra = [];
+    const today = new Date();
+    lastAlertDataPreparedDate_extra = today.toDateString();
 
-    const operationalDatesToConsider = [
-        { date: todayForAlerts, label: "current" },
-    ];
-    // Add yesterday to catch services that started then and run into today
-    const yesterdayForAlerts = new Date(todayForAlerts);
-    yesterdayForAlerts.setDate(todayForAlerts.getDate() - 1);
-    operationalDatesToConsider.push({ date: yesterdayForAlerts, label: "previous" });
+    let todaysOperatingProfiles = getOperatingCodesForDate_ExtraPage(today);
+    const todayDateString = getYYYYMMDD_ExtraPage(today);
+    if (operationalOverrides_data && operationalOverrides_data[todayDateString]) {
+        todaysOperatingProfiles = operationalOverrides_data[todayDateString].split(',').map(p => p.trim());
+    }
 
+    if (!todaysOperatingProfiles || todaysOperatingProfiles.length === 0) {
+        console.log("Alerts V9: No operating profiles for today.");
+        return;
+    }
     if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
         console.log("Alerts V9: No RSG configurations loaded.");
-        todayKeyTripEvents_extra = []; // Ensure it's empty if no configs
         return;
     }
 
-    for (const opDay of operationalDatesToConsider) {
-        const currentOperationalDate = opDay.date;
-        let operatingProfilesForThisDate = getOperatingCodesForDate_ExtraPage(currentOperationalDate);
-        const dateStringYYYYMMDD = getYYYYMMDD_ExtraPage(currentOperationalDate);
-        if (operationalOverrides_data && operationalOverrides_data[dateStringYYYYMMDD]) {
-            operatingProfilesForThisDate = operationalOverrides_data[dateStringYYYYMMDD].split(',').map(p => p.trim());
+    const nBusAggregatedData = new Map();
+
+    for (const configKey in rsg_loadedConfigs_extra) { // configKey is stable
+        if (!Object.hasOwnProperty.call(rsg_loadedConfigs_extra, configKey)) continue;
+
+        const rsgConfig = rsg_loadedConfigs_extra[configKey];
+        const configOperatingProfiles = (rsgConfig.operatingProfile || "").split(',').map(p => p.trim());
+        const isActiveToday = configOperatingProfiles.some(cop => todaysOperatingProfiles.includes(cop));
+
+        if (!isActiveToday) continue;
+
+        const routeName = rsgConfig.routeName;
+        if (!routeName) continue;
+        const isNRoute = routeName.toUpperCase().startsWith('N');
+
+        if (!isNRoute) {
+            const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
+            if (routeColorFor24HCheck === NIGHT_BUS_BLUE_COLOR_extra.toUpperCase()) {
+                continue;
+            }
         }
 
-        if (!operatingProfilesForThisDate || operatingProfilesForThisDate.length === 0) {
-            console.log(`Alerts V9: No operating profiles for operational day ${currentOperationalDate.toDateString()}.`);
+        if (!rsgConfig.firstStopTimes || rsgConfig.firstStopTimes.trim() === "" || 
+            !rsgConfig.stopSequence || rsgConfig.stopSequence.length === 0) {
             continue;
         }
 
-        for (const configKey in rsg_loadedConfigs_extra) {
-            if (!Object.hasOwnProperty.call(rsg_loadedConfigs_extra, configKey)) continue;
+        const rawDepartureTimes = (rsgConfig.firstStopTimes || "").split(/\s*[\t;,]\s*/)
+                                     .map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
+        if (rawDepartureTimes.length === 0) continue;
+        
+        let hasLateNightTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) >= 20);
+        let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 4);  
 
-            const rsgConfig = rsg_loadedConfigs_extra[configKey];
-            const configOperatingProfiles = (rsgConfig.operatingProfile || "").split(',').map(p => p.trim());
-            const isActiveForThisOpDate = configOperatingProfiles.some(cop => operatingProfilesForThisDate.includes(cop));
-
-            if (!isActiveForThisOpDate) continue;
-
-            const routeName = rsgConfig.routeName;
-            if (!routeName) continue;
-            const isNRoute = routeName.toUpperCase().startsWith('N');
-
-            if (!isNRoute) { // Exclusion for 24h non-N routes
-                const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
-                if (routeColorFor24HCheck === NIGHT_BUS_BLUE_COLOR_extra.toUpperCase()) {
-                    continue;
-                }
+        const departureTimeObjects = rawDepartureTimes.map(timeStr => {
+            let [hours, minutes] = timeStr.split(':').map(Number);
+            let sortableMinutes = hours * 60 + minutes;
+            if (hasLateNightTimesInList && hasEarlyMorningTimesInList && hours < 4) {
+                sortableMinutes += 1440; 
             }
+            return { timeStr, sortableMinutes };
+        });
+        departureTimeObjects.sort((a, b) => a.sortableMinutes - b.sortableMinutes);
 
-            if (!rsgConfig.firstStopTimes || rsgConfig.firstStopTimes.trim() === "" || 
-                !rsgConfig.stopSequence || rsgConfig.stopSequence.length === 0) {
-                continue;
+        const firstDepartureTimeStr = departureTimeObjects[0].timeStr;
+        const lastDepartureTimeStr = departureTimeObjects[departureTimeObjects.length - 1].timeStr;
+
+        const firstStopOfSequence = rsgConfig.stopSequence[0];
+        const lastStopOfSequence = rsgConfig.stopSequence[rsgConfig.stopSequence.length - 1];
+        const headsignDestinationName = rsgConfig.destinationName;
+        let isPatternConsideredFull = false;
+        // ... (isPatternConsideredFull determination logic as before) ...
+        let validTerminiForHeadsign = [];
+         if (serviceTerminusMappings_extra && serviceTerminusMappings_extra[routeName] && serviceTerminusMappings_extra[routeName][headsignDestinationName]) {
+            validTerminiForHeadsign = serviceTerminusMappings_extra[routeName][headsignDestinationName];
+        } else { 
+            const mainDestStopObj = Object.values(allDefinedStops_data || {}).find(s => s.stopName === headsignDestinationName || s.stopID === headsignDestinationName);
+            if (mainDestStopObj) validTerminiForHeadsign = [mainDestStopObj.stopID];
+        }
+        if (lastStopOfSequence && lastStopOfSequence.stopID) {
+            isPatternConsideredFull = validTerminiForHeadsign.includes(lastStopOfSequence.stopID);
+        }
+
+
+        if (isNRoute) {
+            const serviceLegKey = `${routeName}|${headsignDestinationName}`;
+            if (!nBusAggregatedData.has(serviceLegKey)) {
+                nBusAggregatedData.set(serviceLegKey, {
+                    lineName: routeName, mainDestinationName: headsignDestinationName, allDepartures: []
+                });
             }
-
-            const rawDepartureTimes = (rsgConfig.firstStopTimes || "").split(/\s*[\t;,]\s*/)
-                                         .map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
-            if (rawDepartureTimes.length === 0) continue;
-            
-            let hasLateNightTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) >= 20);
-            let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 4);  
-
-            const departureTimeObjectsSorted = rawDepartureTimes.map(timeStr => {
-                let [h, m] = timeStr.split(':').map(Number);
-                let sortableMinutes = h * 60 + m;
-                if (hasLateNightTimesInList && hasEarlyMorningTimesInList && h < 4) {
-                    sortableMinutes += 1440; 
-                }
-                return { timeStr, sortableMinutes };
-            }).sort((a, b) => a.sortableMinutes - b.sortableMinutes);
-
-            if (departureTimeObjectsSorted.length === 0) continue;
-
-            const firstDepartureTimeStr = departureTimeObjectsSorted[0].timeStr;
-            const lastDepartureTimeStr = departureTimeObjectsSorted[departureTimeObjectsSorted.length - 1].timeStr;
-
-            const firstStopOfSequence = rsgConfig.stopSequence[0];
-            const lastStopOfSequence = rsgConfig.stopSequence[rsgConfig.stopSequence.length - 1];
-            const headsignDestinationName = rsgConfig.destinationName;
-            let isPatternConsideredFull = false;
-            // ... (Your existing isPatternConsideredFull determination logic using serviceTerminusMappings_extra or fallbacks)
-            let validTerminiForHeadsign = [];
-             if (serviceTerminusMappings_extra && serviceTerminusMappings_extra[routeName] && serviceTerminusMappings_extra[routeName][headsignDestinationName]) {
-                validTerminiForHeadsign = serviceTerminusMappings_extra[routeName][headsignDestinationName];
-            } else { 
-                const mainDestStopObj = Object.values(allDefinedStops_data || {}).find(s => s.stopName === headsignDestinationName || s.stopID === headsignDestinationName);
-                if (mainDestStopObj) validTerminiForHeadsign = [mainDestStopObj.stopID];
-            }
-            if (lastStopOfSequence && lastStopOfSequence.stopID) {
-                isPatternConsideredFull = validTerminiForHeadsign.includes(lastStopOfSequence.stopID);
-            }
-
-            // Create event objects using currentOperationalDate as the base for createEventTimeObjForAlert
-            const eventBaseData = {
+            departureTimeObjects.forEach(dtObj => { // Use all departure times from this N-bus config
+                nBusAggregatedData.get(serviceLegKey).allDepartures.push({
+                    departureTimeStr: dtObj.timeStr,
+                    departureTimeObj: createEventTimeObjForAlert(dtObj.timeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList),
+                    originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
+                    actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
+                    isPatternFullLength: isPatternConsideredFull,
+                    rsgConfigKey: configKey, // Store original config key for context
+                    rsgConfigUserDisplayName: rsgConfig.userDisplayName || configKey
+                });
+            });
+        } else {
+            todayKeyTripEvents_extra.push({
+                type: 'rsg-first-trip', configKey: configKey, // Store stable configKey
                 lineName: routeName, headsignDestinationName: headsignDestinationName,
                 originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
                 actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
-                isPatternFullLength: isPatternConsideredFull,
+                departureTime: firstDepartureTimeStr,
+                departureTimeObj: createEventTimeObjForAlert(firstDepartureTimeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList),
+                isPatternFullLength: isPatternConsideredFull, 
                 rsgConfigUserDisplayName: rsgConfig.userDisplayName || configKey // For display
-            };
-            if (isNRoute) { // N-Bus: create overall first/last based on this operational day
-                // For N-buses, we are creating two events from each relevant config: its own first and last.
-                // These will be later aggregated if needed, or we can do it here.
-                // For now, let's add its first and last based on its own times, type will be generic N-bus
-                // The V8 logic for nBusAggregatedData was better for overall. Let's simplify back for a moment
-                // and assume each N-bus RSG config represents a window.
-                 allPotentialEvents.push({
-                    ...eventBaseData, type: 'n-bus-first-trip', // Changed from rsg-first-trip
-                    departureTime: firstDepartureTimeStr,
-                    departureTimeObj: createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
+            });
+            if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjects.length > 1) {
+                todayKeyTripEvents_extra.push({
+                    type: 'rsg-last-trip', configKey: configKey, // Store stable configKey
+                    lineName: routeName, headsignDestinationName: headsignDestinationName,
+                    originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
+                    actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
+                    departureTime: lastDepartureTimeStr,
+                    departureTimeObj: createEventTimeObjForAlert(lastDepartureTimeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList),
+                    isPatternFullLength: isPatternConsideredFull, 
+                    rsgConfigUserDisplayName: rsgConfig.userDisplayName || configKey // For display
                 });
-                if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
-                    allPotentialEvents.push({
-                        ...eventBaseData, type: 'n-bus-last-trip', // Changed from rsg-last-trip
-                        departureTime: lastDepartureTimeStr,
-                        departureTimeObj: createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                    });
-                }
-
-            } else { // Non-N routes
-                allPotentialEvents.push({
-                    ...eventBaseData, type: 'rsg-first-trip', configKey: configKey,
-                    departureTime: firstDepartureTimeStr,
-                    departureTimeObj: createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                });
-                if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
-                    allPotentialEvents.push({
-                        ...eventBaseData, type: 'rsg-last-trip', configKey: configKey,
-                        departureTime: lastDepartureTimeStr,
-                        departureTimeObj: createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                    });
-                }
             }
         }
     }
 
-    // Filter to only keep events whose departureTimeObj is on the *current calendar day* (todayForAlerts)
-    // and is in the future (or very near past for buffer).
-    const nowForFilter = new Date().getTime();
-    const filterWindowStart = nowForFilter - (5 * 60 * 1000); // Allow events from 5 mins ago
+    for (const [serviceLegKey, data] of nBusAggregatedData) {
+        if (data.allDepartures.length === 0) continue;
+        data.allDepartures.sort((a, b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime());
 
-    todayKeyTripEvents_extra = allPotentialEvents.filter(event => {
-        if (!event.departureTimeObj) return false;
-        // Check if the event's calendar date matches today's calendar date
-        const eventCalendarDateStr = event.departureTimeObj.toDateString();
-        if (eventCalendarDateStr !== todayForAlerts.toDateString()) {
-            // If it's from "yesterday's" operational profile but calendrically today (e.g. 01:23 N-bus) it's fine.
-            // The createEventTimeObjForAlert should have set it to today's date if it crossed midnight.
-            // The main check is if the event.departureTimeObj's date part matches todayForAlerts's date part.
-            return false; // This filter might be too aggressive if createEventTimeObjForAlert is perfect.
-                         // Let's rely on createEventTimeObjForAlert to set correct calendar date on departureTimeObj
+        const overallFirstNBusData = data.allDepartures[0];
+        todayKeyTripEvents_extra.push({
+            type: 'n-bus-overall-first',
+            lineName: data.lineName, headsignDestinationName: data.mainDestinationName,
+            originStopName: overallFirstNBusData.originStopName,
+            actualTerminusName: overallFirstNBusData.actualTerminusName,
+            departureTime: overallFirstNBusData.departureTimeStr,
+            departureTimeObj: overallFirstNBusData.departureTimeObj,
+            isPatternFullLength: overallFirstNBusData.isPatternFullLength,
+            rsgConfigUserDisplayName: `N-Service (from ${overallFirstNBusData.rsgConfigUserDisplayName})` // For display
+        });
+
+        if (data.allDepartures.length > 1) {
+            const overallLastNBusData = data.allDepartures[data.allDepartures.length - 1];
+            if (overallLastNBusData.departureTimeStr !== overallFirstNBusData.departureTimeStr) {
+                 todayKeyTripEvents_extra.push({
+                    type: 'n-bus-overall-last',
+                    lineName: data.lineName, headsignDestinationName: data.mainDestinationName,
+                    originStopName: overallLastNBusData.originStopName,
+                    actualTerminusName: overallLastNBusData.actualTerminusName,
+                    departureTime: overallLastNBusData.departureTimeStr,
+                    departureTimeObj: overallLastNBusData.departureTimeObj,
+                    isPatternFullLength: overallLastNBusData.isPatternFullLength,
+                    rsgConfigUserDisplayName: `N-Service (from ${overallLastNBusData.rsgConfigUserDisplayName})`
+                });
+            }
         }
-        // For now, we'll keep all events generated where departureTimeObj is today,
-        // checkAndShowTripAlerts_ExtraPage will do the "is it time yet" check.
-        // The crucial part is that createEventTimeObjForAlert sets the correct *calendar date* on departureTimeObj.
-        return true; 
-    });
-    
-    // Sort all events by their actual calendar time and deduplicate
+    }
+
     todayKeyTripEvents_extra.sort((a,b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime() || a.type.localeCompare(b.type));
     
     const uniqueEvents = [];
     const seenEventSignaturesForAlert = new Set();
     for (const event of todayKeyTripEvents_extra) {
         let signatureBase = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        if (event.configKey) { // For non-N routes
+        // For non-N routes, use the stable configKey in the signature for shown state
+        if (event.type === 'rsg-first-trip' || event.type === 'rsg-last-trip') {
             signatureBase = `${event.type}|${event.configKey}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
         }
         if (!seenEventSignaturesForAlert.has(signatureBase)) {
@@ -1790,8 +1790,7 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         }
     }
     todayKeyTripEvents_extra = uniqueEvents;
-
-    console.log(`Alerts V9: Prepared ${todayKeyTripEvents_extra.length} distinct key trip events relevant for ${todayForAlerts.toDateString()} (considering prev op day).`);
+    console.log(`Alerts V9: Prepared ${todayKeyTripEvents_extra.length} distinct key trip events for ${lastAlertDataPreparedDate_extra}.`);
 }
 
 function checkAndShowTripAlerts_ExtraPage() {
@@ -11354,29 +11353,6 @@ console.log("Content of ukBankHolidaysData_extra AFTER fetch:", JSON.stringify(u
     if (typeof updateAuthUI_ExtraPage === 'function') {
         updateAuthUI_ExtraPage(null);
     }
-
-// Ensure this script runs after the button is in the DOM
-const iphoneTestBtn = document.getElementById('iphoneTestNotificationBtn');
-if (iphoneTestBtn) {
-    iphoneTestBtn.addEventListener('click', () => {
-        if (!("Notification" in window)) {
-            alert("Notifications not supported on this browser/PWA.");
-            return;
-        }
-        if (Notification.permission === "granted") {
-            try {
-                new Notification("iPhone Test Notification!", {
-                    body: "Success! This is a desktop/OS notification from your Home Screen app.",
-                    icon: '/live-tracker/assets/icons/icon-192x192.png' // Make sure this icon path is now valid! Or test with ''
-                });
-            } catch (e) {
-                alert("Error creating notification: " + e.toString());
-            }
-        } else {
-            alert("Permission not granted. Please tap 'Enable Desktop Alerts' first.");
-        }
-    });
-}
 
 const enableDesktopBtn = document.getElementById('enableDesktopNotificationsBtn_extra');
 if (enableDesktopBtn) {

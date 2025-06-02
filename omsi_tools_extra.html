@@ -1613,8 +1613,7 @@ async function fetchBankHolidays_ExtraPage() {
 }
 
 async function prepareKeyTripTimesForAlerts_ExtraPage() {
-    console.log("Preparing key trip times for alerts (V8 - N-Bus overall first/last)...");
-    todayKeyTripEvents_extra = []; // Clear previous day's events
+    todayKeyTripEvents_extra = [];
     const today = new Date();
     lastAlertDataPreparedDate_extra = today.toDateString();
 
@@ -1625,16 +1624,12 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
     }
 
     if (!todaysOperatingProfiles || todaysOperatingProfiles.length === 0) {
-        console.log("Alerts V8: No operating profiles for today.");
         return;
     }
 
     if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
-        console.log("Alerts V8: No RSG configurations loaded.");
         return;
     }
-
-    const nBusAggregatedData = new Map(); // Key: "N-RouteName|MainDestinationName", Value: { departures: [eventData], lineName, mainDestinationName }
 
     for (const configKey in rsg_loadedConfigs_extra) {
         if (!Object.hasOwnProperty.call(rsg_loadedConfigs_extra, configKey)) continue;
@@ -1643,18 +1638,14 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         const configOperatingProfiles = (rsgConfig.operatingProfile || "").split(',').map(p => p.trim());
         const isActiveToday = configOperatingProfiles.some(cop => todaysOperatingProfiles.includes(cop));
 
-        if (!isActiveToday) continue;
+        if (!isActiveToday) {
+            continue;
+        }
 
-        const routeName = rsgConfig.routeName;
-        if (!routeName) continue;
-
-        const isNRoute = routeName.toUpperCase().startsWith('N');
-
-        // Skip 24-hour non-N services (this logic remains for non-N routes handled later)
-        if (!isNRoute) {
-            const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
-            if (routeColorFor24HCheck === NIGHT_BUS_BLUE_COLOR_extra.toUpperCase()) { // No need for !isNRoute here as we are in the !isNRoute block
-                console.log(`Alerts V8: Skipping RSG config "${rsgConfig.userDisplayName || configKey}" for route ${routeName} (24-hour non-N).`);
+        if (rsgConfig.routeName) {
+            const routeColorFor24HCheck = getRouteTileColour_ExtraPage(rsgConfig.routeName, null).toUpperCase();
+            const isNRouteFor24HCheck = rsgConfig.routeName.toUpperCase().startsWith('N');
+            if (routeColorFor24HCheck === NIGHT_BUS_BLUE_COLOR_extra.toUpperCase() && !isNRouteFor24HCheck) {
                 continue;
             }
         }
@@ -1665,125 +1656,105 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         }
 
         const rawDepartureTimes = (rsgConfig.firstStopTimes || "").split(/\s*[\t;,]\s*/)
-                                     .map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
+                                     .map(t => t.trim())
+                                     .filter(t => t.match(/^\d{2}:\d{2}$/));
+
         if (rawDepartureTimes.length === 0) continue;
-        
+
         let hasLateNightTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) >= 20);
-        let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 4);
+        let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 4);  
+
+        const departureTimeObjects = rawDepartureTimes.map(timeStr => {
+            let [hours, minutes] = timeStr.split(':').map(Number);
+            let sortableMinutes = hours * 60 + minutes;
+            if (hasLateNightTimesInList && hasEarlyMorningTimesInList && hours < 4) {
+                sortableMinutes += 1440; 
+            }
+            return { timeStr, sortableMinutes };
+        });
+
+        departureTimeObjects.sort((a, b) => a.sortableMinutes - b.sortableMinutes);
+
+        const firstDepartureTimeStr = departureTimeObjects[0].timeStr;
+        const lastDepartureTimeStr = departureTimeObjects[departureTimeObjects.length - 1].timeStr;
 
         const firstStopOfSequence = rsgConfig.stopSequence[0];
         const lastStopOfSequence = rsgConfig.stopSequence[rsgConfig.stopSequence.length - 1];
-        const headsignDestinationName = rsgConfig.destinationName;
 
-        // Determine if this RSG config pattern is "full length"
         let isPatternConsideredFull = false;
         let validTerminiForHeadsign = [];
-         if (serviceTerminusMappings_extra && serviceTerminusMappings_extra[routeName] && serviceTerminusMappings_extra[routeName][headsignDestinationName]) {
-            validTerminiForHeadsign = serviceTerminusMappings_extra[routeName][headsignDestinationName];
-        } else { /* ... your existing fallback logic for validTerminiForHeadsign ... */ 
-            const mainDestStopObj = Object.values(allDefinedStops_data || {}).find(s => s.stopName === headsignDestinationName || s.stopID === headsignDestinationName);
+        const rsgRouteName = rsgConfig.routeName;
+        const rsgHeadsignDestName = rsgConfig.destinationName;
+
+        if (serviceTerminusMappings_extra && 
+            serviceTerminusMappings_extra[rsgRouteName] && 
+            serviceTerminusMappings_extra[rsgRouteName][rsgHeadsignDestName]) {
+            validTerminiForHeadsign = serviceTerminusMappings_extra[rsgRouteName][rsgHeadsignDestName];
+        } else if (rsg_loadedConfigs_extra) { 
+            const derivedTermini = new Set();
+            for (const otherConfigKey in rsg_loadedConfigs_extra) {
+                const otherRsgConfig = rsg_loadedConfigs_extra[otherConfigKey];
+                if (otherRsgConfig.routeName === rsgRouteName && otherRsgConfig.destinationName === rsgHeadsignDestName && 
+                    otherRsgConfig.stopSequence && otherRsgConfig.stopSequence.length > 0) {
+                    derivedTermini.add(otherRsgConfig.stopSequence[otherRsgConfig.stopSequence.length - 1].stopID);
+                }
+            }
+            if (derivedTermini.size > 0) validTerminiForHeadsign = Array.from(derivedTermini);
+        }
+        if (validTerminiForHeadsign.length === 0) { 
+            const mainDestStopObj = Object.values(allDefinedStops_data || {}).find(
+                s => s.stopName === rsgHeadsignDestName || s.stopID === rsgHeadsignDestName
+            );
             if (mainDestStopObj) validTerminiForHeadsign = [mainDestStopObj.stopID];
         }
+        
         if (lastStopOfSequence && lastStopOfSequence.stopID) {
             isPatternConsideredFull = validTerminiForHeadsign.includes(lastStopOfSequence.stopID);
         }
 
 
-        if (isNRoute) {
-            const serviceLegKey = `${routeName}|${headsignDestinationName}`;
-            if (!nBusAggregatedData.has(serviceLegKey)) {
-                nBusAggregatedData.set(serviceLegKey, {
-                    lineName: routeName,
-                    mainDestinationName: headsignDestinationName,
-                    allDepartures: [] // Store individual departure objects
-                });
-            }
-            rawDepartureTimes.forEach(timeStr => {
-                nBusAggregatedData.get(serviceLegKey).allDepartures.push({
-                    departureTimeStr: timeStr,
-                    departureTimeObj: createEventTimeObjForAlert(timeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                    originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
-                    actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
-                    isPatternFullLength: isPatternConsideredFull, // Nature of the pattern providing this time
-                    rsgConfigName: rsgConfig.userDisplayName || configKey
-                });
-            });
-        } else { // Handle non-N routes (alert per RSG config's first/last)
-            rawDepartureTimes.sort(); // Simple sort for non-N individual config
-            const firstDepTimeStr = rawDepartureTimes[0];
-            const lastDepTimeStr = rawDepartureTimes[rawDepartureTimes.length - 1];
-
-            todayKeyTripEvents_extra.push({
-                type: 'rsg-first-trip', lineName: routeName, headsignDestinationName: headsignDestinationName,
-                originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
-                actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
-                departureTime: firstDepTimeStr,
-                departureTimeObj: createEventTimeObjForAlert(firstDepTimeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                isPatternFullLength: isPatternConsideredFull, rsgConfigName: rsgConfig.userDisplayName || configKey
-            });
-            if (lastDepTimeStr !== firstDepTimeStr || rawDepartureTimes.length > 1) {
-                todayKeyTripEvents_extra.push({
-                    type: 'rsg-last-trip', lineName: routeName, headsignDestinationName: headsignDestinationName,
-                    originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
-                    actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
-                    departureTime: lastDepTimeStr,
-                    departureTimeObj: createEventTimeObjForAlert(lastDepTimeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList),
-                    isPatternFullLength: isPatternConsideredFull, rsgConfigName: rsgConfig.userDisplayName || configKey
-                });
-            }
-        }
-    }
-
-    // Process aggregated N-Bus services
-    for (const [serviceLegKey, data] of nBusAggregatedData) {
-        if (data.allDepartures.length === 0) continue;
-
-        data.allDepartures.sort((a, b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime());
-
-        const overallFirstNBusData = data.allDepartures[0];
+        const finalFirstDepartureTimeObj = createEventTimeObjForAlert(firstDepartureTimeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList);
+        
         todayKeyTripEvents_extra.push({
-            type: 'n-bus-overall-first', // New specific type
-            lineName: data.lineName,
-            headsignDestinationName: data.mainDestinationName,
-            originStopName: overallFirstNBusData.originStopName,
-            actualTerminusName: overallFirstNBusData.actualTerminusName, // Terminus of specific pattern for this time
-            departureTime: overallFirstNBusData.departureTimeStr,
-            departureTimeObj: overallFirstNBusData.departureTimeObj,
-            isPatternFullLength: overallFirstNBusData.isPatternFullLength, // Describes the pattern of this specific trip
-            rsgConfigName: `N-Service (from ${overallFirstNBusData.rsgConfigName})`
+            type: 'rsg-first-trip',
+            lineName: rsgRouteName,
+            headsignDestinationName: rsgHeadsignDestName,
+            originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
+            actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
+            departureTime: firstDepartureTimeStr,
+            departureTimeObj: finalFirstDepartureTimeObj,
+            isPatternFullLength: isPatternConsideredFull,
+            rsgConfigName: rsgConfig.userDisplayName || configKey
         });
 
-        if (data.allDepartures.length > 1) {
-            const overallLastNBusData = data.allDepartures[data.allDepartures.length - 1];
-            if (overallLastNBusData.departureTimeStr !== overallFirstNBusData.departureTimeStr) {
-                 todayKeyTripEvents_extra.push({
-                    type: 'n-bus-overall-last', // New specific type
-                    lineName: data.lineName,
-                    headsignDestinationName: data.mainDestinationName,
-                    originStopName: overallLastNBusData.originStopName,
-                    actualTerminusName: overallLastNBusData.actualTerminusName,
-                    departureTime: overallLastNBusData.departureTimeStr,
-                    departureTimeObj: overallLastNBusData.departureTimeObj,
-                    isPatternFullLength: overallLastNBusData.isPatternFullLength,
-                    rsgConfigName: `N-Service (from ${overallLastNBusData.rsgConfigName})`
-                });
-            }
+        if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjects.length > 1) {
+            const finalLastDepartureTimeObj = createEventTimeObjForAlert(lastDepartureTimeStr, today, hasLateNightTimesInList, hasEarlyMorningTimesInList);
+            todayKeyTripEvents_extra.push({
+                type: 'rsg-last-trip',
+                lineName: rsgRouteName,
+                headsignDestinationName: rsgHeadsignDestName,
+                originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
+                actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
+                departureTime: lastDepartureTimeStr,
+                departureTimeObj: finalLastDepartureTimeObj,
+                isPatternFullLength: isPatternConsideredFull,
+                rsgConfigName: rsgConfig.userDisplayName || configKey
+            });
         }
     }
 
-    // Final sort and deduplication of all collected events
-    todayKeyTripEvents_extra.sort((a,b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime() || a.type.localeCompare(b.type));
+    todayKeyTripEvents_extra.sort((a,b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime() || a.rsgConfigName.localeCompare(b.rsgConfigName) || a.type.localeCompare(b.type));
+    
     const uniqueEvents = [];
     const seenEventSignaturesForAlert = new Set();
     for (const event of todayKeyTripEvents_extra) {
-        const signature = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
+        const signature = `${event.type}|${event.rsgConfigName}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
         if (!seenEventSignaturesForAlert.has(signature)) {
             uniqueEvents.push(event);
             seenEventSignaturesForAlert.add(signature);
         }
     }
     todayKeyTripEvents_extra = uniqueEvents;
-    console.log(`Alerts V8: Prepared ${todayKeyTripEvents_extra.length} distinct key trip events for ${lastAlertDataPreparedDate_extra}.`);
 }
 
 function checkAndShowTripAlerts_ExtraPage() {
@@ -1879,55 +1850,27 @@ async function requestNotificationPermission() {
     }
 
     const currentPermission = Notification.permission;
-
     if (currentPermission === "granted") {
-        // Permission is already granted, you could optionally show a gentle confirmation.
-        // For example: showNativeNotification("OMSI Tools", "Desktop notifications are already enabled.", '/live-tracker/assets/icons/icon-192x192.png');
-        // Or simply do nothing if you only want the test on initial grant.
         localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
-        console.log("Notification permission was already granted.");
-        // Show a test notification if it wasn't shown before for this session upon granting
-        if (typeof showNativeNotification === 'function') {
-             showNativeNotification("OMSI Tools Notifications", "Desktop alerts are active!", '/live-tracker/assets/icons/icon-192x192.png'); // Replace with your icon path or ''
-        }
         return "granted";
     }
 
     if (currentPermission === "denied") {
-        alert("Notification permission was previously denied. To enable, please go to your browser's site settings and allow notifications for this page.");
+        alert("Notification permission was previously denied. Please enable it in your browser's site settings for this site if you want desktop alerts.");
         localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
         return "denied";
     }
 
-    // If permission is "default" (i.e., not yet granted or denied)
-    // This is where the browser will show its Allow/Block prompt
+    // If permission is "default"
     const permissionResult = await Notification.requestPermission();
-
     if (permissionResult === "granted") {
         localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
-        console.log("Notification permission granted by user.");
-        alert("Desktop notifications have been enabled!"); // An in-page alert confirming
-
-        // *** Trigger a test desktop notification immediately ***
-        if (typeof showNativeNotification === 'function') {
-            showNativeNotification(
-                "OMSI Tools Notifications", // Title of the notification
-                "Test successful! You will now receive desktop alerts.", // Body of the notification
-                '' // IMPORTANT: Replace with a VALID icon path or use '' for no icon
-            );
-        } else {
-            console.error("showNativeNotification function is not defined. Cannot show test alert.");
-        }
-        return "granted";
     } else if (permissionResult === "denied") {
         localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
-        alert("Desktop notifications were denied. You can change this in your browser's site settings.");
-        return "denied";
-    } else { // Usually means "default" - user dismissed the prompt
-        localStorage.removeItem('desktopNotificationPreference_omsiExtra');
-        alert("Notification permission request dismissed or not acted upon.");
-        return "default";
+    } else {
+        localStorage.removeItem('desktopNotificationPreference_omsiExtra'); // Or set to 'default'
     }
+    return permissionResult;
 }
 
 function showNativeNotification(title, bodyMessage, iconPath = '') {
@@ -2762,23 +2705,25 @@ async function handleDeleteOpProfile_ExtraPage(profileNameToDelete) {
 
 function populateServiceAnalyzerDropdowns_ExtraPage() {
     if (!serviceAnalyzerStopSelect_el_extra || !allDefinedStops_data) {
+        console.warn("Service Analyzer: Stop select element or allDefinedStops_data not available for populating dropdowns.");
         if (serviceAnalyzerStopSelect_el_extra) {
             serviceAnalyzerStopSelect_el_extra.innerHTML = '<option value="">Error loading stops</option>';
         }
         return;
     }
 
-    const currentSelectedValue = serviceAnalyzerStopSelect_el_extra.value;
-    serviceAnalyzerStopSelect_el_extra.innerHTML = '<option value="">-- Select Stop --</option>';
+    const currentSelectedValue = serviceAnalyzerStopSelect_el_extra.value; // Preserve selection if possible
+    serviceAnalyzerStopSelect_el_extra.innerHTML = '<option value="">-- Select Stop --</option>'; // Clear and add default
 
     const stopsArray = Object.values(allDefinedStops_data);
 
+    // Sort stops by name for user-friendly display
     stopsArray.sort((a, b) => {
         const nameA = (a.stopName || "").toLowerCase();
         const nameB = (b.stopName || "").toLowerCase();
         if (nameA < nameB) return -1;
         if (nameA > nameB) return 1;
-        return (a.stopID || "").localeCompare(b.stopID || "");
+        return 0;
     });
 
     let selectedStillExists = false;
@@ -2797,11 +2742,12 @@ function populateServiceAnalyzerDropdowns_ExtraPage() {
     if (selectedStillExists) {
         serviceAnalyzerStopSelect_el_extra.value = currentSelectedValue;
     } else {
+        // If previously selected value is no longer there, try to sync with text input if it has a value
         if (serviceAnalyzerStopInput_el_extra && serviceAnalyzerStopInput_el_extra.value) {
             const typedValueLower = serviceAnalyzerStopInput_el_extra.value.toLowerCase().trim();
             const matchedOption = Array.from(serviceAnalyzerStopSelect_el_extra.options).find(opt =>
                 opt.text.toLowerCase().includes(typedValueLower) ||
-                (opt.value && opt.value.toLowerCase() === typedValueLower)
+                opt.value.toLowerCase() === typedValueLower
             );
             if (matchedOption) {
                 serviceAnalyzerStopSelect_el_extra.value = matchedOption.value;

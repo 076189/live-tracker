@@ -1934,46 +1934,30 @@ async function requestNotificationPermission() {
 }
 
 function showNativeNotification(title, bodyMessage, iconPath = '') {
-    alert("showNativeNotification called. Permission: " + Notification.permission); // Check if called and permission status
+    // alert("PWA DEBUG: showNativeNotification called. Permission: " + Notification.permission); // Optional: trace if called
     if (typeof checkNotificationPermission !== 'function' || checkNotificationPermission() !== "granted") {
-        alert("Permission not granted, falling back to showTripAlertPopup_ExtraPage.");
+        // alert("PWA DEBUG: Native permission not granted, falling back to showTripAlertPopup_ExtraPage.");
         if (typeof showTripAlertPopup_ExtraPage === 'function') {
             showTripAlertPopup_ExtraPage(`<span class="math-inline">\{title\}\\n</span>{bodyMessage}`);
         }
         return;
     }
 
-    const notificationOptions = {
-        body: bodyMessage,
-        tag: `omsi-trip-alert-${Date.now()}`
-    };
-
+    const notificationOptions = { /* ... your options ... */ };
     if (iconPath && iconPath.trim() !== '') {
         notificationOptions.icon = iconPath;
     }
 
     try {
-        alert("Attempting new Notification(...)");
+        // alert("PWA DEBUG: Attempting new Notification(...)");
         const notification = new Notification(title, notificationOptions);
-        alert("new Notification(...) success!");
-
-        notification.onclick = () => {
-            window.focus();
-            notification.close();
-        };
-
-        notification.onerror = (err) => {
-            alert("Native Notification API error event: " + JSON.stringify(err)); // More detail on error
-            console.error("Native Notification API error event:", err); // Keep console for when it's available
-            if (typeof showTripAlertPopup_ExtraPage === 'function') {
-                showTripAlertPopup_ExtraPage(`Desktop Alert Failed: <span class="math-inline">\{title\}\\n</span>{bodyMessage}`);
-            }
-        };
+        // alert("PWA DEBUG: new Notification(...) was potentially successful.");
     } catch (e) {
-        alert("Error caught creating new Notification(): " + e.message + "\nStack: " + e.stack); // Get more error detail
-        console.error("Error caught creating new Notification():", e);
+        // THIS IS THE CRITICAL ALERT FOR PWA DEBUGGING:
+        alert("PWA ERROR: 'new Notification()' FAILED! Error: " + e.message + ". Fallback popup WILL be shown.");
+        console.error("Error caught creating new Notification():", e); // For completeness
         if (typeof showTripAlertPopup_ExtraPage === 'function') {
-            showTripAlertPopup_ExtraPage(`Desktop Alert Error: <span class="math-inline">\{title\}\\n</span>{bodyMessage}`);
+            showTripAlertPopup_ExtraPage(`Desktop Alert Error (PWA): <span class="math-inline">\{title\}\\n</span>{bodyMessage}`);
         }
     }
 }

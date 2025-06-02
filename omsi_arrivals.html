@@ -717,6 +717,58 @@
         return text.replace(/[.#$[\]]/g, '_');
     }
 
+function isMobileScreen() {
+  // Heuristic to check for phone-like screen widths
+  // You might want to adjust the 768px threshold
+  return window.screen.width < 768;
+}
+
+async function lockToPortraitOnMobile() {
+  if (isMobileScreen()) {
+    try {
+      // Check if the Screen Orientation API is supported
+      if (screen.orientation && typeof screen.orientation.lock === 'function') {
+        // Attempt to lock to 'portrait-primary'
+        // 'portrait-primary' is the primary portrait mode (device upright)
+        // 'portrait' can also be used, which includes 'portrait-secondary' (device upside down)
+        await screen.orientation.lock('portrait-primary');
+        console.log('Screen orientation locked to portrait.');
+      } else {
+        console.warn('Screen Orientation API not available or lock function missing.');
+        // Fallback or older browser handling if necessary (less common now)
+        // For example, some older browsers used prefixed versions:
+        // if (window.screen.lockOrientation) window.screen.lockOrientation('portrait-primary');
+        // else if (window.screen.mozLockOrientation) window.screen.mozLockOrientation('portrait-primary');
+        // else if (window.screen.msLockOrientation) window.screen.msLockOrientation('portrait-primary');
+      }
+    } catch (error) {
+      console.error('Could not lock screen orientation:', error);
+      // This can happen if the browser denies the request,
+      // or if the feature is not supported in the current context (e.g., in an iframe).
+    }
+  } else {
+    console.log('Not a mobile screen, orientation lock not attempted.');
+  }
+}
+
+// When to call lockToPortraitOnMobile():
+// It's best to call this in response to a user gesture (like a button click)
+// or after the page has loaded if it's critical for your app's functionality.
+// Browsers are more likely to honor the lock request if it's tied to user interaction.
+
+// Example: Call on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  // You might want to delay this slightly or tie it to a specific user action
+  // for a better user experience, as an immediate lock might be jarring.
+  lockToPortraitOnMobile();
+});
+
+// Or, for example, after a user clicks a button to enter a specific part of your app:
+// const enterAppButton = document.getElementById('enterAppButton');
+// if (enterAppButton) {
+//   enterAppButton.addEventListener('click', lockToPortraitOnMobile);
+// }
+
     function updateClock() { const now=new Date(),h=String(now.getHours()).padStart(2,'0'),m=String(now.getMinutes()).padStart(2,'0'),s=String(now.getSeconds()).padStart(2,'0'),dn=now.toLocaleDateString(undefined,{weekday:'long'}),d=now.getDate(),mn=now.toLocaleDateString(undefined,{month:'long'}),y=now.getFullYear();if(clockTimeElement)clockTimeElement.textContent=`${h}:${m}:${s}`;if(clockDateElement)clockDateElement.textContent=`${dn} ${d} ${mn} ${y}`;}
     async function fetchBankHolidays(){try{const r=await fetch('https://www.gov.uk/bank-holidays.json');if(!r.ok)throw new Error(`HTTP error! ${r.status}`);const d=await r.json();if(d['england-and-wales']&&d['england-and-wales'].events){const e=d['england-and-wales'].events;ukBankHolidaysData={dates:e.map(ev=>ev.date),titles:e.reduce((a,ev)=>{a[ev.date]=ev.title;return a},{})};}else console.warn("Bank hol format error.")}catch(e){console.error("Failed to fetch bank hols:",e)}};
 

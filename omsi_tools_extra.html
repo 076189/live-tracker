@@ -1915,22 +1915,21 @@ async function fetchBankHolidays_ExtraPage() {
 }
 
 async function prepareKeyTripTimesForAlerts_ExtraPage() {
-    console.log("Preparing key trip times for alerts (V9 - Consider Previous Op Day for Overnights)...");
-    const allPotentialEvents = []; // Collect all events here before filtering and deduplicating
-    const todayForAlerts = new Date(); // This is the current calendar day we are generating alerts for
-    lastAlertDataPreparedDate_extra = todayForAlerts.toDateString(); // Update the preparation date
+    console.log("Preparing key trip times for alerts (V9.1 - Filtered Future RSGs)...");
+    const allPotentialEvents = []; 
+    const todayForAlerts = new Date(); 
+    lastAlertDataPreparedDate_extra = todayForAlerts.toDateString(); 
 
     const operationalDatesToConsider = [
         { date: todayForAlerts, label: "current" },
     ];
-    // Add yesterday to catch services that started then and run into today
     const yesterdayForAlerts = new Date(todayForAlerts);
     yesterdayForAlerts.setDate(todayForAlerts.getDate() - 1);
     operationalDatesToConsider.push({ date: yesterdayForAlerts, label: "previous" });
 
     if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
-        console.log("Alerts V9: No RSG configurations loaded.");
-        todayKeyTripEvents_extra = []; // Ensure it's empty if no configs
+        console.log("Alerts V9.1: No RSG configurations loaded.");
+        todayKeyTripEvents_extra = []; 
         return;
     }
 
@@ -1943,7 +1942,7 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         }
 
         if (!operatingProfilesForThisDate || operatingProfilesForThisDate.length === 0) {
-            console.log(`Alerts V9: No operating profiles for operational day ${currentOperationalDate.toDateString()}.`);
+            console.log(`Alerts V9.1: No operating profiles for operational day ${currentOperationalDate.toDateString()}.`);
             continue;
         }
 
@@ -1951,6 +1950,17 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
             if (!Object.hasOwnProperty.call(rsg_loadedConfigs_extra, configKey)) continue;
 
             const rsgConfig = rsg_loadedConfigs_extra[configKey];
+            const configUserDisplayName = rsgConfig.userDisplayName || ""; // Get display name, or empty string if undefined
+
+            // ---- START: New Filter ----
+            // Skip if userDisplayName contains a future date marker like "(from DDMMYY)"
+            const futureDatePattern = /\(from\s*\d{6}\)/; // Matches "(from XXXXXX)" with optional space
+            if (futureDatePattern.test(configUserDisplayName)) {
+                console.log(`Alerts/KeyDeps: Skipping RSG config "${configUserDisplayName}" (key: ${configKey}) as it appears to be a future-dated config.`);
+                continue; // Skip this configuration entirely
+            }
+            // ---- END: New Filter ----
+
             const configOperatingProfiles = (rsgConfig.operatingProfile || "").split(',').map(p => p.trim());
             const isActiveForThisOpDate = configOperatingProfiles.some(cop => operatingProfilesForThisDate.includes(cop));
 
@@ -1960,7 +1970,7 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
             if (!routeName) continue;
             const isNRoute = routeName.toUpperCase().startsWith('N');
 
-            if (!isNRoute) { // Exclusion for 24h non-N routes
+            if (!isNRoute) { 
                 const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
                 if (routeColorFor24HCheck === NIGHT_BUS_BLUE_COLOR_extra.toUpperCase()) {
                     continue;
@@ -1997,7 +2007,7 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
             const lastStopOfSequence = rsgConfig.stopSequence[rsgConfig.stopSequence.length - 1];
             const headsignDestinationName = rsgConfig.destinationName;
             let isPatternConsideredFull = false;
-            // ... (Your existing isPatternConsideredFull determination logic using serviceTerminusMappings_extra or fallbacks)
+            
             let validTerminiForHeadsign = [];
              if (serviceTerminusMappings_extra && serviceTerminusMappings_extra[routeName] && serviceTerminusMappings_extra[routeName][headsignDestinationName]) {
                 validTerminiForHeadsign = serviceTerminusMappings_extra[routeName][headsignDestinationName];
@@ -2009,34 +2019,28 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
                 isPatternConsideredFull = validTerminiForHeadsign.includes(lastStopOfSequence.stopID);
             }
 
-            // Create event objects using currentOperationalDate as the base for createEventTimeObjForAlert
             const eventBaseData = {
                 lineName: routeName, headsignDestinationName: headsignDestinationName,
                 originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
                 actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
                 isPatternFullLength: isPatternConsideredFull,
-                rsgConfigUserDisplayName: rsgConfig.userDisplayName || configKey // For display
+                rsgConfigUserDisplayName: configUserDisplayName || configKey // Use the filtered display name
             };
-            if (isNRoute) { // N-Bus: create overall first/last based on this operational day
-                // For N-buses, we are creating two events from each relevant config: its own first and last.
-                // These will be later aggregated if needed, or we can do it here.
-                // For now, let's add its first and last based on its own times, type will be generic N-bus
-                // The V8 logic for nBusAggregatedData was better for overall. Let's simplify back for a moment
-                // and assume each N-bus RSG config represents a window.
+
+            if (isNRoute) {
                  allPotentialEvents.push({
-                    ...eventBaseData, type: 'n-bus-first-trip', // Changed from rsg-first-trip
+                    ...eventBaseData, type: 'n-bus-first-trip', 
                     departureTime: firstDepartureTimeStr,
                     departureTimeObj: createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
                 });
                 if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
                     allPotentialEvents.push({
-                        ...eventBaseData, type: 'n-bus-last-trip', // Changed from rsg-last-trip
+                        ...eventBaseData, type: 'n-bus-last-trip', 
                         departureTime: lastDepartureTimeStr,
                         departureTimeObj: createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList),
                     });
                 }
-
-            } else { // Non-N routes
+            } else { 
                 allPotentialEvents.push({
                     ...eventBaseData, type: 'rsg-first-trip', configKey: configKey,
                     departureTime: firstDepartureTimeStr,
@@ -2053,36 +2057,21 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         }
     }
 
-    // Filter to only keep events whose departureTimeObj is on the *current calendar day* (todayForAlerts)
-    // and is in the future (or very near past for buffer).
-    const nowForFilter = new Date().getTime();
-    const filterWindowStart = nowForFilter - (5 * 60 * 1000); // Allow events from 5 mins ago
-
     todayKeyTripEvents_extra = allPotentialEvents.filter(event => {
         if (!event.departureTimeObj) return false;
-        // Check if the event's calendar date matches today's calendar date
         const eventCalendarDateStr = event.departureTimeObj.toDateString();
-        if (eventCalendarDateStr !== todayForAlerts.toDateString()) {
-            // If it's from "yesterday's" operational profile but calendrically today (e.g. 01:23 N-bus) it's fine.
-            // The createEventTimeObjForAlert should have set it to today's date if it crossed midnight.
-            // The main check is if the event.departureTimeObj's date part matches todayForAlerts's date part.
-            return false; // This filter might be too aggressive if createEventTimeObjForAlert is perfect.
-                         // Let's rely on createEventTimeObjForAlert to set correct calendar date on departureTimeObj
-        }
-        // For now, we'll keep all events generated where departureTimeObj is today,
-        // checkAndShowTripAlerts_ExtraPage will do the "is it time yet" check.
-        // The crucial part is that createEventTimeObjForAlert sets the correct *calendar date* on departureTimeObj.
-        return true; 
+        // Only include events whose actual calendar date matches the *current* calendar day
+        // createEventTimeObjForAlert should handle setting the correct calendar day for overnight services.
+        return eventCalendarDateStr === todayForAlerts.toDateString();
     });
     
-    // Sort all events by their actual calendar time and deduplicate
     todayKeyTripEvents_extra.sort((a,b) => a.departureTimeObj.getTime() - b.departureTimeObj.getTime() || a.type.localeCompare(b.type));
     
     const uniqueEvents = [];
     const seenEventSignaturesForAlert = new Set();
     for (const event of todayKeyTripEvents_extra) {
         let signatureBase = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
-        if (event.configKey) { // For non-N routes
+        if (event.configKey) { 
             signatureBase = `${event.type}|${event.configKey}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}`;
         }
         if (!seenEventSignaturesForAlert.has(signatureBase)) {
@@ -2092,7 +2081,7 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
     }
     todayKeyTripEvents_extra = uniqueEvents;
 
-    console.log(`Alerts V9: Prepared ${todayKeyTripEvents_extra.length} distinct key trip events relevant for ${todayForAlerts.toDateString()} (considering prev op day).`);
+    console.log(`Alerts V9.1: Prepared ${todayKeyTripEvents_extra.length} distinct key trip events relevant for ${todayForAlerts.toDateString()} (considering prev op day and filtering future RSGs).`);
 }
 
 function checkAndShowTripAlerts_ExtraPage() {

@@ -11111,9 +11111,47 @@ function rsg_openCopyFromModal_ExtraPage() {
     }
 }
 
-        function updateAuthUI_ExtraPage(user) { 
-            currentUser_extra = user; if (user) { if(authSection_el_extra) authSection_el_extra.style.display = 'none'; if(topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block'; if(logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'block'; if(loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none'; if(authStatus_el_extra) authStatus_el_extra.textContent = ''; if(loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email; if(currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block'; loadInitialData_ExtraPage(); const lastSection = localStorage.getItem('omsiExtraToolsActiveSection'); const firstButton = topMenuBar_el_extra.querySelector('.menu-button'); if (lastSection && document.getElementById(lastSection) && Array.from(topMenuBar_el_extra.querySelectorAll('.menu-button')).some(b => b.dataset.section === lastSection) ) showExtraPageSection(lastSection); else if (firstButton && firstButton.dataset.section) showExtraPageSection(firstButton.dataset.section); } else { if(authSection_el_extra) authSection_el_extra.style.display = 'block'; if(topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none'; if(logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none'; if(loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block'; if(authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.'; if(loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = ''; if(currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none'; if(toolSectionsWrapper_el_extra) toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none'); currentWorkingSchedule_extra = []; closedStopIDs_extra = []; globalCustomRouteColours_extra = {}; stopSpecificRouteColours_extra = {}; pageSpecificSettings = {}; rsg_loadedConfigs_extra = {}; rsg_lastLoadedRouteName_extra = null; rsg_lastLoadedDestName_extra = null; rsg_lastLoadedOpProfile_extra = null; renderUIDependentElements_ExtraPage(); }
+        function updateAuthUI_ExtraPage(user) {
+    currentUser_extra = user;
+    if (user) { // User is logged in
+        if (authSection_el_extra) authSection_el_extra.style.display = 'none'; // Hides the entire auth section, including login form
+        if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block';
+        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'block'; // Shows logout
+        if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none'; // Explicitly hides login form container
+        if (authStatus_el_extra) authStatus_el_extra.textContent = '';
+        if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email;
+        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block';
+        loadInitialData_ExtraPage(); // Load data relevant to the logged-in user
+        const lastSection = localStorage.getItem('omsiExtraToolsActiveSection');
+        const firstButton = topMenuBar_el_extra.querySelector('.menu-button');
+        // Show the last active section or the first available tool section
+        if (lastSection && document.getElementById(lastSection) && Array.from(topMenuBar_el_extra.querySelectorAll('.menu-button')).some(b => b.dataset.section === lastSection)) {
+            showExtraPageSection(lastSection);
+        } else if (firstButton && firstButton.dataset.section) {
+            showExtraPageSection(firstButton.dataset.section);
         }
+    } else { // User is logged out or not yet determined
+        if (authSection_el_extra) authSection_el_extra.style.display = 'block'; // Shows the auth section
+        if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none';
+        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none'; // Hides logout
+        if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block'; // Shows login form container
+        if (authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.';
+        if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = '';
+        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none';
+        // Clear data and UI when logged out
+        if (toolSectionsWrapper_el_extra) toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none');
+        currentWorkingSchedule_extra = [];
+        closedStopIDs_extra = [];
+        globalCustomRouteColours_extra = {};
+        stopSpecificRouteColours_extra = {};
+        pageSpecificSettings = {};
+        rsg_loadedConfigs_extra = {};
+        rsg_lastLoadedRouteName_extra = null;
+        rsg_lastLoadedDestName_extra = null;
+        rsg_lastLoadedOpProfile_extra = null;
+        renderUIDependentElements_ExtraPage(); // Renders based on empty/default data
+    }
+}
         
 async function loadInitialData_ExtraPage() {
     let msg = "Loading data for Extra Modules...";
@@ -11425,36 +11463,65 @@ if (cvNextMonthBtn) {
 }
 
     function initializeExtraAppLogic() {
-        console.log("Firebase ready, Extra app logic init.");
-        if (!window.firebaseOMSI || !window.firebaseOMSI.auth) {
-            console.error("Extra Tools: Firebase OMSI object not found during initializeExtraAppLogic.");
-            if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(null);
-            if (authStatus_el_extra) authStatus_el_extra.textContent = 'Critical Firebase init error for app logic.';
-            return;
-        }
-        const { auth, authOnAuthStateChanged, authSignInWithEmailAndPassword, authSignOut } = window.firebaseOMSI;
-        authOnAuthStateChanged(auth, user => {
-            if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(user);
-            if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra && !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value && typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
-                autoGenerateAndSetNewStopId_ExtraPage();
-            }
-        });
-        if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) {
-            adminLoginForm_el_extra.addEventListener('submit', (e) => {
-                e.preventDefault();
-                authStatus_el_extra.textContent = 'Logging in...';
-                authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value)
-                    .catch(err => { authStatus_el_extra.textContent = `Login Error: ${err.message}`; });
-            });
-        }
-        const logoutButtonElement = document.getElementById('logoutButton_extra');
-        if (logoutButtonElement) {
-            logoutButtonElement.addEventListener('click', () => {
-                localStorage.removeItem('omsiExtraToolsActiveSection');
-                authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e));
-            });
-        }
+    console.log("Firebase ready, Extra app logic init.");
+    if (!window.firebaseOMSI || !window.firebaseOMSI.auth) {
+        console.error("Extra Tools: Firebase OMSI object not found during initializeExtraAppLogic.");
+        if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(null);
+        if (authStatus_el_extra) authStatus_el_extra.textContent = 'Critical Firebase init error for app logic.';
+        return;
     }
+    const {
+        auth,
+        authOnAuthStateChanged,
+        authSignInWithEmailAndPassword,
+        authSignOut
+    } = window.firebaseOMSI;
+
+    // Listen for authentication state changes
+    authOnAuthStateChanged(auth, user => {
+        if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(user);
+        // If user logs in and certain elements are present, auto-generate a stop ID suggestion
+        if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
+            !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
+            typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
+            autoGenerateAndSetNewStopId_ExtraPage();
+        }
+    });
+
+    // Handle the admin login form submission
+    if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) {
+        adminLoginForm_el_extra.addEventListener('submit', (e) => {
+            e.preventDefault();
+            authStatus_el_extra.textContent = 'Logging in...';
+            authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value)
+                .catch(err => {
+                    authStatus_el_extra.textContent = `Login Error: ${err.message}`;
+                });
+        });
+    }
+
+    // Handle logout button click
+    const logoutButtonElement = document.getElementById('logoutButton_extra');
+    if (logoutButtonElement) {
+        logoutButtonElement.addEventListener('click', () => {
+            localStorage.removeItem('omsiExtraToolsActiveSection'); // Clear last viewed section
+            // Cleanup for Trip Alert System
+            if (tripAlertIntervalId_extra) {
+                clearInterval(tripAlertIntervalId_extra);
+                tripAlertIntervalId_extra = null;
+            }
+            todayKeyTripEvents_extra = [];
+            shownTripAlerts_extra = {};
+            lastAlertDataPreparedDate_extra = null;
+            const popup = document.getElementById('omsi-trip-alert-popup');
+            if (popup) {
+                popup.style.display = 'none';
+            }
+            // Sign out from Firebase
+            authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e));
+        });
+    }
+}
 
     if (window.firebaseOMSI && window.firebaseOMSI.auth) {
         initializeExtraAppLogic();

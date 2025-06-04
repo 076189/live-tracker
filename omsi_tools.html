@@ -6,8 +6,8 @@
     <title>OMSI Tools</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="//cdn.jsdelivr.net/npm/eruda"></script>
-    <script>eruda.init();</script>
+    <!--<script src="//cdn.jsdelivr.net/npm/eruda"></script>-->
+    <!--<script>eruda.init();</script>-->
 
     <link rel="manifest" href="/live-tracker/manifest-omsitools.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -999,11 +999,14 @@ const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
 const FB_PATH_PENDING_SCHEDULE_DATA = '/pendingSchedule/schedulesByRoute';
 const FB_PATH_PENDING_UNIQUE_STOPS = '/pendingSchedule/uniqueBusStops';
 const FB_PATH_PENDING_TIMESTAMP = '/pendingSchedule/uploadTimestamp';
+const FB_PATH_ALL_DEFINED_STOPS = '/allDefinedStops';
 const FB_PATH_APPSTATE_STATUS = '/appState/scheduleStatus';
 const FB_PATH_APPSTATE_LAST_UPDATED = '/appState/scheduleLastUpdated';
 const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
 const FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS = '/settings/customRouteColours';
 const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
+const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides';
+let globalOperationalOverrides = {}; // New global variable to hold overrides data
 
 const initialRouteColourMapForTools = {};
 const DEFAULT_ROUTE_COLOUR_TOOLS = "#73809C";
@@ -1073,6 +1076,237 @@ function displayUniqueOperatingProfiles() {
         }
     }
 }
+
+function setupFirebaseListeners() {
+        // Ensure firebaseOMSI object and its database are available
+        if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+            console.error("Firebase not initialized. Cannot set up listeners for tools page.");
+            return;
+        }
+        // Destructure necessary Firebase functions from the global window.firebaseOMSI object
+        const { database, dbOnValue, dbRef, dbChild } = window.firebaseOMSI;
+
+        console.log("[TOOLS DEBUG] Setting up all Firebase listeners for omsi_tools.html...");
+
+        // Listener for App State (e.g., scheduleStatus, lastUpdated)
+        const appStateRef = dbRef(database, '/appState');
+        dbOnValue(appStateRef, (snapshot) => {
+            console.log("[TOOLS DEBUG] App state updated from Firebase.");
+            if (snapshot.exists()) {
+                const appState = snapshot.val();
+                if (typeof currentScheduleStatus !== 'undefined') {
+                    currentScheduleStatus = appState.scheduleStatus || 'idle';
+                }
+                // Update closedStopIDsGlobal if it's managed here and needs to react to appState changes.
+                // Note: The main logic for closedStopIDs is below in its own listener for granular updates.
+            }
+            if (typeof updateStagingStatusDisplay === 'function') {
+                updateStagingStatusDisplay(); // Refresh staging status display based on app state
+            }
+        });
+
+        // Listener for Closed Stops
+        const closedStopsRef = dbRef(database, FB_PATH_APPSTATE_CLOSED_STOPS);
+        dbOnValue(closedStopsRef, (snapshot) => {
+            console.log("[TOOLS DEBUG] Closed stops updated from Firebase.");
+            if (typeof closedStopIDs !== 'undefined') {
+                closedStopIDs = []; // Reset the global array
+                if (snapshot.exists()) {
+                    const fbClosed = snapshot.val();
+                    for(const id_key in fbClosed) {
+                        if(fbClosed[id_key] === true) {
+                            closedStopIDs.push(id_key.toUpperCase());
+                        }
+                    }
+                }
+                // Re-render any UI elements that depend on the closed stops list, e.g., master stop list
+                if (typeof renderUIDependentElements === 'function') {
+                    renderUIDependentElements();
+                }
+            } else {
+                console.warn("[TOOLS DEBUG] 'closedStopIDs' global variable not found, cannot update closed stops list locally.");
+            }
+        });
+
+        // Listener for Global Custom Route Colours
+        const globalCustomColoursRef = dbRef(database, FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS);
+        dbOnValue(globalCustomColoursRef, (snapshot) => {
+            console.log("[TOOLS DEBUG] Global custom colours updated from Firebase.");
+            if (typeof globalCustomRouteColours !== 'undefined') {
+                globalCustomRouteColours = {}; // Reset to ensure old data is cleared
+                if (snapshot.exists()) {
+                    const fbCustomColours = snapshot.val();
+                    if (fbCustomColours && typeof fbCustomColours === 'object') {
+                        for (const route in fbCustomColours) {
+                            if (Object.hasOwnProperty.call(fbCustomColours, route)) {
+                                globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route];
+                            }
+                        }
+                    }
+                }
+                if (typeof renderGlobalCustomRouteColours === 'function') {
+                    renderGlobalCustomRouteColours(); // Re-render the global custom colours list
+                }
+                if (typeof renderUIDependentElements === 'function') {
+                    renderUIDependentElements(); // General UI refresh
+                }
+            } else {
+                console.warn("[TOOLS DEBUG] 'globalCustomRouteColours' global variable not found, cannot update local colours.");
+            }
+        });
+
+        // Listener for Stop-Specific Route Colours
+        const stopSpecificColoursRef = dbRef(database, FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS);
+        dbOnValue(stopSpecificColoursRef, (snapshot) => {
+            console.log("[TOOLS DEBUG] Stop-specific route colours updated from Firebase.");
+            if (typeof stopSpecificRouteColours !== 'undefined') {
+                stopSpecificRouteColours = snapshot.exists() ? snapshot.val() || {} : {};
+                if (typeof renderStopSpecificRouteColours === 'function') {
+                    renderStopSpecificRouteColours(); // Re-render the stop-specific colours list
+                }
+                if (typeof renderUIDependentElements === 'function') {
+                    renderUIDependentElements(); // General UI refresh
+                }
+            } else {
+                console.warn("[TOOLS DEBUG] 'stopSpecificRouteColours' global variable not found, cannot update local colours.");
+            }
+        });
+
+        // Listener for Operational Overrides (THIS IS THE KEY ADDITION)
+        const operationalOverridesRef = dbRef(database, FB_PATH_OPERATIONAL_OVERRIDES);
+        dbOnValue(operationalOverridesRef, (snapshot) => {
+            console.log("[TOOLS DEBUG] Operational overrides data updated from Firebase.");
+            if (typeof globalOperationalOverrides !== 'undefined') { // Check if the global variable exists
+                if (snapshot.exists()) {
+                    globalOperationalOverrides = snapshot.val();
+                } else {
+                    globalOperationalOverrides = {}; // Ensure it's an empty object if no overrides exist
+                }
+                // Crucial: Re-run the function that updates the display based on the new overrides data
+                if (typeof updateCurrentProfileDisplayOnSetup === 'function') {
+                    updateCurrentProfileDisplayOnSetup();
+                } else {
+                    console.error("updateCurrentProfileDisplayOnSetup function not found in omsi_tools.html script, cannot update profile display.");
+                }
+            } else {
+                console.warn("[TOOLS DEBUG] 'globalOperationalOverrides' global variable not found, cannot update local overrides.");
+            }
+        });
+        console.log("[TOOLS DEBUG] Firebase listener for operational overrides set up.");
+
+        // Listener for ALL defined stops
+        const allDefinedStopsListenerRef = dbRef(database, FB_PATH_ALL_DEFINED_STOPS);
+        dbOnValue(allDefinedStopsListenerRef, (snapshot) => {
+            console.log("[TOOLS DEBUG] All defined stops data updated from Firebase.");
+            const newUniqueStopsArray = [];
+            if (snapshot.exists() && typeof snapshot.val() === 'object') {
+                const definedStopsObject = snapshot.val();
+                for (const keyInFirebase in definedStopsObject) {
+                    if (Object.hasOwnProperty.call(definedStopsObject, keyInFirebase)) {
+                        const stopData = definedStopsObject[keyInFirebase];
+                        if (stopData && typeof stopData === 'object') {
+                            let stopIDFromData = (stopData.stopID && typeof stopData.stopID === 'string')
+                                ? stopData.stopID.toUpperCase()
+                                : keyInFirebase.toUpperCase(); // Fallback to key if stopID property is missing
+
+                            newUniqueStopsArray.push({
+                                stopID: stopIDFromData,
+                                stopName: stopData.stopName || "Unknown Name",
+                                direction: stopData.direction || ""
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Deduplicate based on stopID and ensure proper structure
+            const seenStopIDs = new Set();
+            // Assuming 'uniqueStops' is a global variable in omsi_tools.html.
+            // If it's not, you'll need to decide where this processed list is stored.
+            if (typeof uniqueStops !== 'undefined') {
+                 uniqueStops = newUniqueStopsArray.filter(stop => {
+                    if (!stop.stopID) return false;
+                    if (seenStopIDs.has(stop.stopID)) {
+                        console.warn(`[TOOLS LISTENER] Duplicate stopID ${stop.stopID} found during processing. Keeping first instance.`);
+                        return false;
+                    }
+                    seenStopIDs.add(stop.stopID);
+                    return true;
+                });
+
+                // Sort them consistently for display in selectors/lists
+                uniqueStops.sort((a, b) => {
+                    const nameA = (a.stopName || "").toLowerCase();
+                    const nameB = (b.stopName || "").toLowerCase();
+                    if (nameA < nameB) return -1;
+                    if (nameA > nameB) return 1;
+                    return (a.stopID || "").toLowerCase().localeCompare((b.stopID || "").toLowerCase());
+                });
+
+                // Trigger a re-render of any UI elements that depend on the unique stops list (e.g., stop selectors)
+                if (typeof renderUIDependentElements === 'function') {
+                    renderUIDependentElements();
+                }
+            } else {
+                console.warn("[TOOLS DEBUG] 'uniqueStops' global variable not found, cannot update local stops list from /allDefinedStops listener.");
+            }
+        });
+
+        // Listener for Live Schedule Data
+        // This is crucial if currentWorkingSchedule is kept updated by a listener,
+        // rather than only on initial page load.
+        const liveScheduleRef = dbRef(database, FB_PATH_LIVE_SCHEDULE_DATA);
+        dbOnValue(liveScheduleRef, (snapshot) => {
+            console.log("[TOOLS DEBUG] Live schedule data updated from Firebase.");
+            const flatScheduleFromDBListener = [];
+            if (snapshot.exists()) {
+                const schedulesByRoute = snapshot.val();
+                // Flatten the new structured data back into a flat array
+                if (schedulesByRoute && typeof schedulesByRoute === 'object') {
+                    for (const routeKey in schedulesByRoute) {
+                        if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
+                            const routeData = schedulesByRoute[routeKey];
+                            if (routeData && typeof routeData === 'object') {
+                                for (const profileKey in routeData) {
+                                    if (Object.hasOwnProperty.call(routeData, profileKey)) {
+                                        const profileData = routeData[profileKey];
+                                        if (profileData && typeof profileData === 'object') {
+                                            for (const destKey in profileData) {
+                                                if (Object.hasOwnProperty.call(profileData, destKey)) {
+                                                    const destData = profileData[destKey];
+                                                    if (destData && Array.isArray(destData.entries)) {
+                                                        destData.entries.forEach(entry => {
+                                                            if (entry) flatScheduleFromDBListener.push({ ...entry });
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Update your global 'currentWorkingSchedule' variable
+                if (typeof currentWorkingSchedule !== 'undefined') {
+                    currentWorkingSchedule = flatScheduleFromDBListener.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fblistener_flat`}));
+                } else {
+                    console.warn("[TOOLS DEBUG] 'currentWorkingSchedule' global variable not found, cannot update local schedule.");
+                }
+            } else {
+                if (typeof currentWorkingSchedule !== 'undefined') {
+                    currentWorkingSchedule = []; // Clear if no data
+                }
+            }
+            // Trigger a re-render of any UI elements that depend on the schedule data
+            if (typeof renderUIDependentElements === 'function') {
+                renderUIDependentElements();
+            }
+        });
+
+        console.log("[TOOLS DEBUG] All Firebase listeners set up.");
+    }
 
 function displayReferenceOperatingProfiles() {
     const referenceProfilesUL = document.getElementById('referenceOperatingProfilesUL');
@@ -1231,7 +1465,7 @@ function showSection(sectionId) {
 function hideAllToolSections() { allToolContentSections.forEach(s => s.style.display = 'none'); }
 
 async function updateAuthUI(user) {
-    const logoutContainerElement = document.getElementById('logout-container'); // Ensure this var is appropriately scoped if used elsewhere
+    const logoutContainerElement = document.getElementById('logout-container');
 
     currentUser = user; // currentUser should be a global variable in your script
     if (typeof hideAllToolSections === 'function') {
@@ -1262,6 +1496,13 @@ async function updateAuthUI(user) {
             await loadInitialData();
         }
         
+        // ****** NEW ADDITION: Setup Firebase listeners AFTER data is loaded and user is authenticated ******
+        if (typeof setupFirebaseListeners === 'function') {
+            setupFirebaseListeners();
+        } else {
+            console.error("setupFirebaseListeners function not found in omsi_tools.html script, cannot set up real-time updates.");
+        }
+
         if (typeof initializeAutoApplyScheduler === 'function') {
             initializeAutoApplyScheduler();
         }
@@ -1665,65 +1906,96 @@ function isSchoolHolidayPeriodForSetup(dateObject) {
     return false;
 }
 
-function updateCurrentProfileDisplayOnSetup() {
+// In omsi_tools.html, within the main <script> block
+
+async function updateCurrentProfileDisplayOnSetup() {
     const now = new Date();
-    const dayOfWeek = now.getDay();
-    const todayDateString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayDateString = getYYYYMMDD(now); // Dependency: getYYYYMMDD
+    let displayHtml = "";
+    let displayLabel = "Today's Operating Profile:";
 
-    let profileDisplayText = "";
-    let isBankHol = false;
-    let serviceTypeDisplay = "";
-    let isOverridden = false;
-    let finalDisplayLabel = "Today's Operating Profile:";
+    // This calls getOperatingCodesForToday_Tools which determines the base operating profiles.
+    const autoDeterminedGeneralProfiles = getOperatingCodesForToday_Tools(); // Dependency: getOperatingCodesForToday_Tools
+    const autoDeterminedGeneralProfileString = autoDeterminedGeneralProfiles.length > 0 ? autoDeterminedGeneralProfiles.join(', ') : 'N/A';
 
-
-    if (typeof globalOperationalOverrides !== 'undefined' && globalOperationalOverrides && globalOperationalOverrides[todayDateString] && currentUser) {
-        const overrideProfileValue = globalOperationalOverrides[todayDateString];
-        profileDisplayText = `${overrideProfileValue} (Manual Override)`;
-        isOverridden = true;
-        finalDisplayLabel = "Today's Profile:";
+    let isBankHolidayToday = false;
+    // Dependency: ukBankHolidaysData (global variable populated by fetchBankHolidaysForSetup)
+    if (ukBankHolidaysData && ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(todayDateString)) {
+        isBankHolidayToday = true;
     }
 
-
-    if (!isOverridden) {
-        if (ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(todayDateString)) {
-            let holidayTitle = ukBankHolidaysData.titles[todayDateString] || "Bank Holiday";
-            holidayTitle = toTitleCase_display(holidayTitle);
-            isBankHol = true;
-            if (holidayTitle.toLowerCase().includes("good friday")) {
-                profileDisplayText = holidayTitle;
-                serviceTypeDisplay = "(Saturday Service)";
-            } else {
-                profileDisplayText = holidayTitle;
-                serviceTypeDisplay = "(Sunday Service)";
-            }
-        }
-
-        let dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek];
-
-        if (!isBankHol) {
-            profileDisplayText = dayName;
-            if (typeof isSchoolHolidayPeriodForSetup === 'function' && isSchoolHolidayPeriodForSetup(now)) {
-                profileDisplayText += " (School Holiday)";
-            }
-        } else {
-            profileDisplayText += ` ${serviceTypeDisplay} - Observed on a ${dayName}`;
-            if (typeof isSchoolHolidayPeriodForSetup === 'function' && isSchoolHolidayPeriodForSetup(now)) {
-                profileDisplayText += " (School Holiday Period)";
-            }
-        }
+    if (isBankHolidayToday) {
+        // Dependency: toTitleCase_display
+        const holidayTitle = ukBankHolidaysData.titles[todayDateString] || "Bank Holiday";
+        displayLabel = `${toTitleCase_display(holidayTitle)}:`;
+    } else {
+        displayLabel = `Today's Operating Profile:`;
     }
 
-    const operatingCodes = (typeof getOperatingCodesForToday_Tools === 'function' && !isOverridden) ? getOperatingCodesForToday_Tools() : (isOverridden ? [profileDisplayText.split(' (')[0]] : []);
+    const customProfileRoutes = new Map();
+    let allRoutesWithSchedules = new Set();
+
+    // Dependency: currentWorkingSchedule (global variable populated by loadInitialData)
+    currentWorkingSchedule.forEach(entry => {
+        if (entry.lineName) {
+            allRoutesWithSchedules.add(entry.lineName);
+        }
+    });
+
+    allRoutesWithSchedules.forEach(routeName => {
+        // We are *not* determining route colors here, just whether an operational override exists for the route.
+        // The previous version accidentally included route color logic. This is removed.
+
+        let effectiveProfileStringForRoute = autoDeterminedGeneralProfileString;
+
+        // Dependency: globalOperationalOverrides (global variable populated from Firebase)
+        if (typeof globalOperationalOverrides !== 'undefined' && globalOperationalOverrides && globalOperationalOverrides[todayDateString] && globalOperationalOverrides[todayDateString][routeName]) {
+            effectiveProfileStringForRoute = globalOperationalOverrides[todayDateString][routeName];
+        }
+        
+        // If this route has a specific override for today, or if its effective profile (after considering general rules) differs from the "general default"
+        // (This distinction is primarily for the display, to list specific routes if their profile is different from the overall calculated day type).
+        if (effectiveProfileStringForRoute !== autoDeterminedGeneralProfileString) {
+            customProfileRoutes.set(effectiveProfileStringForRoute, (customProfileRoutes.get(effectiveProfileStringForRoute) || new Set()).add(routeName));
+        }
+    });
+
+    if (customProfileRoutes.size > 0) {
+        displayHtml = `${displayLabel}<br>`;
+        let customRouteLines = [];
+
+        const sortedCustomProfileStrings = Array.from(customProfileRoutes.keys()).sort();
+
+        sortedCustomProfileStrings.forEach(profileString => {
+            const routesForThisProfile = Array.from(customProfileRoutes.get(profileString)).sort();
+            customRouteLines.push(`${routesForThisProfile.join(', ')}: <strong style="color:#f1c40f;">${profileString}</strong>`);
+        });
+
+        displayHtml += `<span style="margin-left:1em;">${customRouteLines.join('<br><span style="margin-left:1em;">')}</span>`;
+
+        let totalCustomRoutesCount = 0;
+        customProfileRoutes.forEach(routesSet => totalCustomRoutesCount += routesSet.size);
+
+        if (allRoutesWithSchedules.size > totalCustomRoutesCount) {
+            displayHtml += `<br><span style="margin-left:1em; opacity:0.8;">All Other Routes: ${autoDeterminedGeneralProfileString}</span>`;
+        }
+    } else {
+        displayHtml = `${displayLabel} ${autoDeterminedGeneralProfileString}`;
+    }
 
     if (currentProfileDisplayElement) {
-        const codesString = operatingCodes.length > 0 ? ` [Codes: ${operatingCodes.join(', ')}]` : "";
-        currentProfileDisplayElement.textContent = `${finalDisplayLabel} ${profileDisplayText}${codesString}`;
+        currentProfileDisplayElement.innerHTML = displayHtml;
     }
 }
 
+function getYYYYMMDD(dateSource) {
+    const d = dateSource ? new Date(dateSource) : new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
 
-// --- Form & Data Handling Functions ---
 function isValidScheduleDataFromText(jsonData) {
     if (!jsonData || jsonData.length === 0) return false;
     const requiredColumns = ['StopID', 'StopName', 'Direction', 'LineName', 'DestinationName', 'ScheduledTime', 'OperatingProfile'];
@@ -2156,6 +2428,8 @@ async function handleApplyNow() {
     }
 }
 
+// In omsi_tools.html, locate this function
+
 async function loadInitialData() {
     let msg = "Loading data from Firebase...";
     if (fileStatusElement) fileStatusElement.textContent = msg;
@@ -2164,6 +2438,7 @@ async function loadInitialData() {
     closedStopIDs = [];
     globalCustomRouteColours = {};
     stopSpecificRouteColours = {};
+    globalOperationalOverrides = {}; // Initialize here to ensure it's fresh
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         msg = "Firebase not connected. Cannot load data.";
@@ -2205,7 +2480,7 @@ async function loadInitialData() {
                 currentWorkingSchedule.push({
                     internalId: `${fbStop.stopID}_definition_fbload_${Date.now()}`,
                     stopID: fbStop.stopID,
-                    stopName: fbStop.stopName || "Unknown Stop Name",
+                    stopName: fbStop.stopName || "Unnamed Stop (via upload)",
                     direction: fbStop.direction || ""
                 });
             }
@@ -2225,6 +2500,17 @@ async function loadInitialData() {
         const stopSpecificColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS));
         if (stopSpecificColoursSnap.exists()) stopSpecificRouteColours = stopSpecificColoursSnap.val() || {};
 
+        // NEW: Fetch operational overrides (This is the crucial part for the profile display)
+        const overridesSnap = await dbGet(dbChild(dbRef(database), '/operationalOverrides')); 
+        if (overridesSnap.exists()) {
+            globalOperationalOverrides = overridesSnap.val() || {}; // Ensure it's an object if exists
+            console.log("[TOOLS DEBUG] Fetched operational overrides:", globalOperationalOverrides);
+        } else {
+            globalOperationalOverrides = {};
+            console.log("[TOOLS DEBUG] No operational overrides found in Firebase.");
+        }
+
+
         msg = `Data loaded. Working schedule now contains ${currentWorkingSchedule.length} total items (schedule entries + stop definitions). ${closedStopIDs.length} closed stops identified.`;
     } catch (error) {
         msg = "Error loading data from Firebase: " + error.message;
@@ -2235,7 +2521,12 @@ async function loadInitialData() {
     if (typeof compileEffectiveRouteColoursForTools === 'function') compileEffectiveRouteColoursForTools();
     renderUIDependentElements();
     updateStagingStatusDisplay();
-    if (typeof fetchBankHolidaysForSetup === 'function') fetchBankHolidaysForSetup();
+    // This is called AFTER globalOperationalOverrides is populated
+    if (typeof fetchBankHolidaysForSetup === 'function') {
+        await fetchBankHolidaysForSetup(); // Await this to ensure bank holidays are loaded before profile display
+    }
+    // Call the profile display function after all necessary data is loaded
+    updateCurrentProfileDisplayOnSetup(); 
 }
 
 async function updateStagingStatusDisplay() {

@@ -6,9 +6,6 @@
     <title>OMSI Tools</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!--<script src="//cdn.jsdelivr.net/npm/eruda"></script>-->
-    <!--<script>eruda.init();</script>-->
-
     <link rel="manifest" href="/live-tracker/manifest-omsitools.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -562,17 +559,34 @@
             }
         }
 
-        /* Bulk Edit Tools - Update Destination Grid */
-        .bulk-edit-route-destination > .form-grid {
-            display: grid !important;
-            gap: 0.75rem !important; /* Preserve original gap if desired */
-            align-items: end !important; /* Preserve original alignment */
-            grid-template-columns: 1fr !important; /* Default to single column for small screens */
+        /* Bulk Edit Tools - Update Destination Grid (now using tiles) */
+        .bulk-edit-route-destination-grid {
+            display: grid;
+            gap: 1.5rem; /* Space between tiles container and input fields */
+            grid-template-columns: 1fr; /* Stack on small screens */
         }
         @media (min-width: 768px) { /* md breakpoint or similar */
-            .bulk-edit-route-destination > .form-grid {
-                grid-template-columns: 1fr 1.5fr 1.5fr auto !important; /* Original layout for larger screens */
+            .bulk-edit-route-destination-grid {
+                grid-template-columns: 1fr; /* Still 1 column on tablet, but inner grid handles inputs */
             }
+        }
+        /* Styles for the route tiles container */
+        .specific-route-colour-tiles-container { /* Reusing styles from stop-specific colour section */
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5em;
+            padding: 0.75rem;
+            border: 1px solid #4A5568;
+            border-radius: 0.25rem;
+            background-color: rgba(0,0,0,0.05);
+            min-height: 40px;
+            margin-bottom: 1rem; /* Adjusted margin, as the container is now part of a larger grid */
+        }
+        .specific-route-colour-tiles-placeholder { /* Reusing styles */
+            width: 100%;
+            text-align: center;
+            opacity: 0.7;
+            padding: 0.5rem;
         }
 
         /* Analytics & Validation - Consolidate Operating Days Grid */
@@ -709,11 +723,18 @@
             </div>
 
             <div id="bulk-edit-tools-section" class="tool-content-section section"> <h2 style="margin-bottom:1rem;">Bulk Edit Tools & Colour Management</h2> <div class="subsection bulk-edit-route-destination"> <h3 class="subsection-title">Update Destination for a Route</h3>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1.5fr 1.5fr auto; align-items:end; gap: 0.75rem;">
-                        <div><label for="bulkEditTargetLineName">Target Line</label><input type="text" id="bulkEditTargetLineName" placeholder="e.g., 186" autocomplete="off"></div>
-                        <div><label for="bulkEditOldDestination">Old Destination (optional)</label><input type="text" id="bulkEditOldDestination" placeholder="Blank to update all" autocomplete="off"></div>
-                        <div><label for="bulkEditNewDestination">New Destination</label><input type="text" id="bulkEditNewDestination" placeholder="New destination" autocomplete="off"></div>
-                        <div style="padding-bottom:0.05rem;"><button id="bulkUpdateRouteDestinationButton" class="button">Update Destination</button></div>
+                    <div class="bulk-edit-route-destination-grid">
+                        <div class="w-full">
+                            <label>Select Route(s) to Update:</label>
+                            <div id="bulkEditRouteTilesContainer" class="specific-route-colour-tiles-container">
+                                <p id="bulkEditRouteTilesPlaceholder" class="specific-route-colour-tiles-placeholder">Loading routes...</p>
+                            </div>
+                        </div>
+                        <div class="form-grid" style="grid-template-columns: 1.5fr 1.5fr auto; align-items:end; gap: 0.75rem; margin-top: 1rem;">
+                            <div><label for="bulkEditOldDestination">Old Destination (optional)</label><input type="text" id="bulkEditOldDestination" placeholder="Blank to update all" autocomplete="off"></div>
+                            <div><label for="bulkEditNewDestination">New Destination</label><input type="text" id="bulkEditNewDestination" placeholder="New destination" autocomplete="off"></div>
+                            <div style="padding-bottom:0.05rem;"><button id="bulkUpdateRouteDestinationButton" class="button">Update Destination</button></div>
+                        </div>
                     </div>
                 </div>
 
@@ -858,7 +879,7 @@
                 </div>
             </div>
 
-        </div> </div> </body>
+        </div> </div>
 <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
       import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
@@ -902,7 +923,9 @@ const refreshOperatingProfilesButton = document.getElementById('refreshOperating
 const operatingProfilesStatusMessage = document.getElementById('operatingProfilesStatusMessage');
 const uniqueOperatingProfilesUL = document.getElementById('uniqueOperatingProfilesUL');
 
-const bulkEditTargetLineNameInput = document.getElementById('bulkEditTargetLineName');
+// DOM Elements for Bulk Edit Tools (Updated for tiles)
+const bulkEditRouteTilesContainer = document.getElementById('bulkEditRouteTilesContainer');
+const bulkEditRouteTilesPlaceholder = document.getElementById('bulkEditRouteTilesPlaceholder');
 const bulkEditOldDestinationInput = document.getElementById('bulkEditOldDestination');
 const bulkEditNewDestinationInput = document.getElementById('bulkEditNewDestination');
 const bulkUpdateRouteDestinationButton = document.getElementById('bulkUpdateRouteDestinationButton');
@@ -1097,7 +1120,6 @@ function setupFirebaseListeners() {
                 if (typeof currentScheduleStatus !== 'undefined') {
                     currentScheduleStatus = appState.scheduleStatus || 'idle';
                 }
-                // Update closedStopIDsGlobal if it's managed here and needs to react to appState changes.
                 // Note: The main logic for closedStopIDs is below in its own listener for granular updates.
             }
             if (typeof updateStagingStatusDisplay === 'function') {
@@ -1450,6 +1472,7 @@ function showSection(sectionId) {
             populateRouteSelectorForColours(); renderGlobalCustomRouteColours();
             populateStopSelectorForSpecificColours(); renderStopSpecificRouteColours();
             if (selectStopForSpecificRouteColour?.value) displayRoutesForSpecificColouring();
+            displayRoutesForBulkEditing(); // Added for bulk edit routes as tiles
         } else if (sectionId === 'view-departures-section') {
             populateStopSelectorForDeparturesView();
             if(selectStopForDeparturesView?.value) displayDeparturesForSelectedStop();
@@ -1906,26 +1929,21 @@ function isSchoolHolidayPeriodForSetup(dateObject) {
     return false;
 }
 
-// In omsi_tools.html, within the main <script> block
-
 async function updateCurrentProfileDisplayOnSetup() {
     const now = new Date();
-    const todayDateString = getYYYYMMDD(now); // Dependency: getYYYYMMDD
+    const todayDateString = getYYYYMMDD(now);
     let displayHtml = "";
     let displayLabel = "Today's Operating Profile:";
 
-    // This calls getOperatingCodesForToday_Tools which determines the base operating profiles.
-    const autoDeterminedGeneralProfiles = getOperatingCodesForToday_Tools(); // Dependency: getOperatingCodesForToday_Tools
+    const autoDeterminedGeneralProfiles = getOperatingCodesForToday_Tools();
     const autoDeterminedGeneralProfileString = autoDeterminedGeneralProfiles.length > 0 ? autoDeterminedGeneralProfiles.join(', ') : 'N/A';
 
     let isBankHolidayToday = false;
-    // Dependency: ukBankHolidaysData (global variable populated by fetchBankHolidaysForSetup)
     if (ukBankHolidaysData && ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(todayDateString)) {
         isBankHolidayToday = true;
     }
 
     if (isBankHolidayToday) {
-        // Dependency: toTitleCase_display
         const holidayTitle = ukBankHolidaysData.titles[todayDateString] || "Bank Holiday";
         displayLabel = `${toTitleCase_display(holidayTitle)}:`;
     } else {
@@ -1935,7 +1953,6 @@ async function updateCurrentProfileDisplayOnSetup() {
     const customProfileRoutes = new Map();
     let allRoutesWithSchedules = new Set();
 
-    // Dependency: currentWorkingSchedule (global variable populated by loadInitialData)
     currentWorkingSchedule.forEach(entry => {
         if (entry.lineName) {
             allRoutesWithSchedules.add(entry.lineName);
@@ -1943,18 +1960,12 @@ async function updateCurrentProfileDisplayOnSetup() {
     });
 
     allRoutesWithSchedules.forEach(routeName => {
-        // We are *not* determining route colors here, just whether an operational override exists for the route.
-        // The previous version accidentally included route color logic. This is removed.
-
         let effectiveProfileStringForRoute = autoDeterminedGeneralProfileString;
 
-        // Dependency: globalOperationalOverrides (global variable populated from Firebase)
         if (typeof globalOperationalOverrides !== 'undefined' && globalOperationalOverrides && globalOperationalOverrides[todayDateString] && globalOperationalOverrides[todayDateString][routeName]) {
             effectiveProfileStringForRoute = globalOperationalOverrides[todayDateString][routeName];
         }
         
-        // If this route has a specific override for today, or if its effective profile (after considering general rules) differs from the "general default"
-        // (This distinction is primarily for the display, to list specific routes if their profile is different from the overall calculated day type).
         if (effectiveProfileStringForRoute !== autoDeterminedGeneralProfileString) {
             customProfileRoutes.set(effectiveProfileStringForRoute, (customProfileRoutes.get(effectiveProfileStringForRoute) || new Set()).add(routeName));
         }
@@ -2199,24 +2210,80 @@ function isValidHeaderStructure(parsedHeaders) {
     return true;
 }
 
+// Function to display route tiles for bulk editing
+function displayRoutesForBulkEditing() {
+    if (!bulkEditRouteTilesContainer || !bulkEditRouteTilesPlaceholder) return;
+
+    bulkEditRouteTilesContainer.innerHTML = ''; // Clear previous tiles
+
+    const uniqueRoutes = [...new Set(currentWorkingSchedule.map(e => e.lineName))]
+                            .filter(Boolean)
+                            .sort(compareLineNames);
+
+    if (uniqueRoutes.length === 0) {
+        bulkEditRouteTilesPlaceholder.textContent = 'No routes found in the current schedule.';
+        bulkEditRouteTilesPlaceholder.style.display = 'block';
+        return;
+    } else {
+        bulkEditRouteTilesPlaceholder.style.display = 'none';
+    }
+
+    uniqueRoutes.forEach(lineName => {
+        const tile = document.createElement('span');
+        tile.classList.add('route-tile-tools-list', 'specific-colour-route-tile'); // Reusing existing tile styles
+        tile.textContent = lineName;
+        tile.dataset.lineName = lineName;
+
+        // Apply a default color or a global custom color if available for the tile background
+        const bgColor = getRouteTileColourForTools(lineName); // Use the existing color logic
+        tile.style.backgroundColor = bgColor;
+        tile.style.color = getTextColourForBackgroundTools(bgColor);
+
+        tile.setAttribute('role', 'checkbox');
+        tile.setAttribute('aria-checked', 'false');
+        tile.setAttribute('tabindex', '0'); // Make it focusable
+
+        tile.addEventListener('click', () => {
+            tile.classList.toggle('selected-for-color-edit'); // Reusing this class for visual selection
+            tile.setAttribute('aria-checked', tile.classList.contains('selected-for-color-edit').toString());
+        });
+
+        tile.addEventListener('keydown', (event) => {
+            if (event.key === ' ' || event.key === 'Enter') {
+                event.preventDefault();
+                tile.click();
+            }
+        });
+
+        bulkEditRouteTilesContainer.appendChild(tile);
+    });
+}
+
 function handleBulkUpdateRouteDestination() {
     if (!currentUser) { alert("Please log in to perform bulk updates."); return; }
-    const targetLineName = bulkEditTargetLineNameInput.value.trim().toUpperCase();
+
+    const selectedLineNamesElements = bulkEditRouteTilesContainer.querySelectorAll('.specific-colour-route-tile.selected-for-color-edit');
+    const selectedLineNames = Array.from(selectedLineNamesElements).map(tile => tile.dataset.lineName.trim().toUpperCase());
+
     const oldDestination = bulkEditOldDestinationInput.value.trim();
     const newDestination = bulkEditNewDestinationInput.value.trim();
 
-    if (!targetLineName) { alert("Target Line Name is required."); bulkEditTargetLineNameInput.focus(); return; }
+    if (selectedLineNames.length === 0) {
+        alert("Please select at least one Route tile.");
+        if (bulkEditRouteTilesPlaceholder) bulkEditRouteTilesPlaceholder.textContent = 'Please select routes to update.';
+        return;
+    }
     if (!newDestination) { alert("New Destination Name is required."); bulkEditNewDestinationInput.focus(); return; }
 
     let updatedCount = 0;
     currentWorkingSchedule.forEach(entry => {
-        if (entry.lineName && entry.lineName.toUpperCase() === targetLineName) {
+        if (entry.lineName && selectedLineNames.includes(entry.lineName.toUpperCase())) { // Check if the entry's lineName is among the selected
             if (oldDestination) {
                 if (entry.destinationName && entry.destinationName.toLowerCase() === oldDestination.toLowerCase()) {
                     entry.destinationName = newDestination;
                     updatedCount++;
                 }
-            } else {
+            } else { // If oldDestination is blank, update all entries for the selected routes
                 entry.destinationName = newDestination;
                 updatedCount++;
             }
@@ -2224,11 +2291,15 @@ function handleBulkUpdateRouteDestination() {
     });
 
     if (updatedCount > 0) {
-        renderUIDependentElements();
+        renderUIDependentElements(); // Re-render UI elements that might show schedule data
         updateStagingStatusDisplay();
-        alert(`${updatedCount} entries for Line "${targetLineName}" had their destination updated to "${newDestination}".`);
+        alert(`${updatedCount} entries for selected Route(s) had their destination updated to "${newDestination}".`);
+        // Deselect tiles after update
+        selectedLineNamesElements.forEach(tile => tile.classList.remove('selected-for-color-edit'));
+        if (bulkEditRouteTilesPlaceholder) bulkEditRouteTilesPlaceholder.textContent = 'Routes updated. Select new routes if needed.';
+
     } else {
-        alert(`No entries found for Line "${targetLineName}"` + (oldDestination ? ` with Old Destination "${oldDestination}"` : "") + " to update.");
+        alert(`No entries found for the selected route(s)` + (oldDestination ? ` with Old Destination "${oldDestination}"` : "") + " to update.");
     }
 }
 
@@ -2428,107 +2499,6 @@ async function handleApplyNow() {
     }
 }
 
-// In omsi_tools.html, locate this function
-
-async function loadInitialData() {
-    let msg = "Loading data from Firebase...";
-    if (fileStatusElement) fileStatusElement.textContent = msg;
-
-    currentWorkingSchedule = [];
-    closedStopIDs = [];
-    globalCustomRouteColours = {};
-    stopSpecificRouteColours = {};
-    globalOperationalOverrides = {}; // Initialize here to ensure it's fresh
-
-    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
-        msg = "Firebase not connected. Cannot load data.";
-        if (fileStatusElement) fileStatusElement.textContent = msg;
-        renderUIDependentElements();
-        return;
-    }
-
-    const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
-    try {
-        const scheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA));
-        const flatScheduleFromDB = [];
-        if (scheduleSnap.exists()) {
-            const schedulesByRoute = scheduleSnap.val();
-            for (const routeKey in schedulesByRoute) {
-                const routeData = schedulesByRoute[routeKey];
-                for (const profileKey in routeData) {
-                    const profileData = routeData[profileKey];
-                    for (const destKey in profileData) {
-                        const destData = profileData[destKey];
-                        if (destData && Array.isArray(destData.entries)) {
-                            destData.entries.forEach(entry => {
-                                flatScheduleFromDB.push({ ...entry });
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        currentWorkingSchedule = flatScheduleFromDB.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_flat`}));
-
-        const uniqueStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_UNIQUE_STOPS));
-        const firebaseUniqueStops = uniqueStopsSnap.exists() && Array.isArray(uniqueStopsSnap.val()) ? uniqueStopsSnap.val() : [];
-
-        const stopIDsAlreadyInScheduleFromRoutes = new Set(currentWorkingSchedule.map(e => e.stopID.toUpperCase()));
-
-        firebaseUniqueStops.forEach(fbStop => {
-            if (fbStop && fbStop.stopID && !stopIDsAlreadyInScheduleFromRoutes.has(fbStop.stopID.toUpperCase())) {
-                currentWorkingSchedule.push({
-                    internalId: `${fbStop.stopID}_definition_fbload_${Date.now()}`,
-                    stopID: fbStop.stopID,
-                    stopName: fbStop.stopName || "Unnamed Stop (via upload)",
-                    direction: fbStop.direction || ""
-                });
-            }
-        });
-
-        const closedSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
-        if (closedSnap.exists()) {
-            const fbClosed = closedSnap.val();
-            for(const id_key in fbClosed) {
-                if(fbClosed[id_key]===true) closedStopIDs.push(id_key.toUpperCase());
-            }
-        }
-
-        const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
-        if (globalColoursSnap.exists()) globalCustomRouteColours = globalColoursSnap.val() || {};
-
-        const stopSpecificColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS));
-        if (stopSpecificColoursSnap.exists()) stopSpecificRouteColours = stopSpecificColoursSnap.val() || {};
-
-        // NEW: Fetch operational overrides (This is the crucial part for the profile display)
-        const overridesSnap = await dbGet(dbChild(dbRef(database), '/operationalOverrides')); 
-        if (overridesSnap.exists()) {
-            globalOperationalOverrides = overridesSnap.val() || {}; // Ensure it's an object if exists
-            console.log("[TOOLS DEBUG] Fetched operational overrides:", globalOperationalOverrides);
-        } else {
-            globalOperationalOverrides = {};
-            console.log("[TOOLS DEBUG] No operational overrides found in Firebase.");
-        }
-
-
-        msg = `Data loaded. Working schedule now contains ${currentWorkingSchedule.length} total items (schedule entries + stop definitions). ${closedStopIDs.length} closed stops identified.`;
-    } catch (error) {
-        msg = "Error loading data from Firebase: " + error.message;
-        currentWorkingSchedule = [];
-    }
-    if (fileStatusElement) fileStatusElement.textContent = msg;
-
-    if (typeof compileEffectiveRouteColoursForTools === 'function') compileEffectiveRouteColoursForTools();
-    renderUIDependentElements();
-    updateStagingStatusDisplay();
-    // This is called AFTER globalOperationalOverrides is populated
-    if (typeof fetchBankHolidaysForSetup === 'function') {
-        await fetchBankHolidaysForSetup(); // Await this to ensure bank holidays are loaded before profile display
-    }
-    // Call the profile display function after all necessary data is loaded
-    updateCurrentProfileDisplayOnSetup(); 
-}
-
 async function updateStagingStatusDisplay() {
     let pTime = null;
     let lTime = null;
@@ -2617,6 +2587,7 @@ function saveGlobalCustomRouteColours() {
     if(selectStopForDeparturesView?.value) displayDeparturesForSelectedStop();
     if (selectStopForSpecificRouteColour?.value) displayRoutesForSpecificColouring();
     if (document.getElementById('stop-management-tool-section')?.style.display === 'block') populateMasterStopList_SM();
+    displayRoutesForBulkEditing(); // Added to refresh bulk edit tiles
 }
 
 function saveStopSpecificRouteColoursToFirebase() {
@@ -2638,6 +2609,7 @@ function saveStopSpecificRouteColoursToFirebase() {
                 if (selectStopForSpecificRouteColour?.value) displayRoutesForSpecificColouring();
                 if (document.getElementById('stop-management-tool-section')?.style.display==='block') populateMasterStopList_SM();
                 if (selectStopForDeparturesView?.value) displayDeparturesForSelectedStop();
+                displayRoutesForBulkEditing(); // Added to refresh bulk edit tiles
             })
             .catch(error => {
                 if(stopSpecificRouteColourStatusMessage){
@@ -2666,6 +2638,7 @@ function renderUIDependentElements() {
         renderGlobalCustomRouteColours();
         renderStopSpecificRouteColours();
         populateConsolidateStopSelect();
+        displayRoutesForBulkEditing(); // Call to populate bulk edit route tiles
 
         const activeSectionId = localStorage.getItem(LOCAL_STORAGE_ACTIVE_SECTION_KEY);
         if (activeSectionId) {
@@ -2701,6 +2674,9 @@ function renderUIDependentElements() {
         if(masterStopListUL_SM) masterStopListUL_SM.innerHTML = "";
         if(masterStopListStatus_SM) masterStopListStatus_SM.textContent = 'Please log in to view stops.';
         if(duplicateEntriesResults) duplicateEntriesResults.innerHTML = '<p>Please log in to detect duplicates.</p>';
+        if(bulkEditRouteTilesContainer) bulkEditRouteTilesContainer.innerHTML = ''; // Clear bulk edit tiles
+        if(bulkEditRouteTilesPlaceholder) bulkEditRouteTilesPlaceholder.style.display = 'block';
+        if(bulkEditRouteTilesPlaceholder) bulkEditRouteTilesPlaceholder.textContent = 'Please log in to view routes.';
     }
 }
 
@@ -3421,7 +3397,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (countFileInput && typeof handleCountFileUpload === 'function') countFileInput.addEventListener('change', handleCountFileUpload);
 
     // Bulk Edit Listeners
-    if(bulkEditTargetLineNameInput) bulkEditTargetLineNameInput.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
+    // No longer needed: if(bulkEditTargetLineNameInput) bulkEditTargetLineNameInput.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
     if(bulkUpdateRouteDestinationButton && typeof handleBulkUpdateRouteDestination === 'function') bulkUpdateRouteDestinationButton.addEventListener('click', handleBulkUpdateRouteDestination);
 
     // Colour Management Listeners
@@ -3501,7 +3477,9 @@ if (window.firebaseOMSI && window.firebaseOMSI.auth) {
     if (viewArrivalsButton) viewArrivalsButton.addEventListener('click', () => { window.location.href = "omsi_arrivals.html"; });
     if (countFileInput) countFileInput.addEventListener('change', handleCountFileUpload);
 
-    if(bulkEditTargetLineNameInput) bulkEditTargetLineNameInput.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
+    // This line was removed based on your request for route tiles.
+    // if(bulkEditTargetLineNameInput) bulkEditTargetLineNameInput.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
+
     if(bulkUpdateRouteDestinationButton) bulkUpdateRouteDestinationButton.addEventListener('click', handleBulkUpdateRouteDestination);
 
     if (saveRouteColourButton) saveRouteColourButton.addEventListener('click', handleSaveGlobalRouteColour);

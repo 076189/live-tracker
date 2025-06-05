@@ -16,6 +16,20 @@
     <meta name="theme-color" content="#2c3e50">
     
     <style>
+/* --- Styles for Responsive SRU Batch Actions --- */
+.sru-batch-actions {
+    display: flex;
+    flex-wrap: wrap; /* Allows buttons to wrap to the next line on small screens */
+    gap: 0.5rem;     /* Creates consistent spacing between buttons */
+    margin-top: 1em; /* Adds some space above the button group */
+}
+
+.sru-batch-actions .button {
+    flex: 1 1 220px; /* Magic sauce: Buttons can grow and shrink, with a preferred base width of 220px */
+    margin: 0;       /* Reset individual margins, gap property will handle spacing */
+    text-align: center;
+}
+
         @font-face {
             font-family: 'NJFont Medium Web';
             src: url('fonts/NJFont-Medium.ttf') format('truetype');
@@ -10050,6 +10064,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         rsg_batchScheduleItems &&
         rsg_batchScheduleItems.length > 0
     ) {
+        // --- BATCH SCHEDULING LOGIC ---
         modalStatus.textContent = `Processing ${rsg_batchScheduleItems.length} configurations for scheduling...`;
         modalStatus.style.color = "#f1c40f";
 
@@ -10077,12 +10092,21 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                 await dbSet(
                     dbRef(
                         database,
-                        `<span class="math-inline">\{FB\_PATH\_SCHEDULED\_ROUTE\_UPDATES\}/</span>{scheduleKey}`
+                        `${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${scheduleKey}`
                     ),
                     configurationToSchedule
                 );
+
+                // --- OPTIMISTIC UPDATE (BATCH) ---
+                if (typeof scheduledRouteUpdates_extra !== 'object' || scheduledRouteUpdates_extra === null) {
+                    scheduledRouteUpdates_extra = {};
+                }
+                scheduledRouteUpdates_extra[scheduleKey] = configurationToSchedule;
+                // --- END OPTIMISTIC UPDATE ---
+
                 successCount++;
             } catch (error) {
+                console.error("Error saving a batch schedule item to Firebase:", error);
                 errorCount++;
             }
         }
@@ -10095,12 +10119,9 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             rsgStatusMessage_el_extra.style.color =
                 errorCount > 0 ? "#e74c3c" : "#2ecc71";
         }
-        rsg_batchScheduleItems = [];
-        setTimeout(
-            rsg_closeScheduleDateTimeModal_ExtraPage,
-            errorCount > 0 ? 4000 : 2000
-        );
+        
     } else {
+        // --- SINGLE CONFIGURATION SCHEDULING LOGIC ---
         const routeName = rsgRouteNameInput_el_extra.value.trim();
         let operatingProfile =
             rsg_getSelectedOpProfilesString_ExtraPage();
@@ -10172,21 +10193,25 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             await dbSet(
                 dbRef(
                     database,
-                    `<span class="math-inline">\{FB\_PATH\_SCHEDULED\_ROUTE\_UPDATES\}/</span>{scheduleKey}`
+                    `${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${scheduleKey}`
                 ),
                 configurationToSchedule
             );
+
+            // --- OPTIMISTIC UPDATE (SINGLE) ---
+            if (typeof scheduledRouteUpdates_extra !== 'object' || scheduledRouteUpdates_extra === null) {
+                scheduledRouteUpdates_extra = {};
+            }
+            scheduledRouteUpdates_extra[scheduleKey] = configurationToSchedule;
+            // --- END OPTIMISTIC UPDATE ---
+
             modalStatus.textContent =
                 "Configuration scheduled successfully!";
             modalStatus.style.color = "#2ecc71";
             if (rsgStatusMessage_el_extra) {
-                rsgStatusMessage_el_extra.textContent = `Current configuration for <span class="math-inline">\{routeName\} \(</span>{operatingProfile}) scheduled for ${goLiveDateObj.toLocaleString()}.`;
+                rsgStatusMessage_el_extra.textContent = `Current configuration for ${routeName} (${operatingProfile}) scheduled for ${goLiveDateObj.toLocaleString()}.`;
                 rsgStatusMessage_el_extra.style.color = "#2ecc71";
             }
-            setTimeout(
-                rsg_closeScheduleDateTimeModal_ExtraPage,
-                2000
-            );
         } catch (error) {
             modalStatus.textContent =
                 "Error scheduling: " + error.message;
@@ -10199,13 +10224,24 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         }
     }
 
-    isScheduledTasksCacheValid_extra = false;
-    if (
-        typeof loadAndDisplayScheduledUpdates_ExtraPage ===
-        "function"
-    ) {
-        loadAndDisplayScheduledUpdates_ExtraPage();
+    // --- SHARED LOGIC AFTER EITHER BATCH OR SINGLE SCHEDULING ---
+
+    // Invalidate the HTML cache and call the RENDER function directly
+    // instead of the LOAD function to avoid the race condition.
+    isScheduledTasksCacheValid_extra = false; 
+    if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
+        renderScheduledUpdatesList_ExtraPage();
     }
+    // Also update the due tasks banner in case this new task is immediately due
+    if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
+        checkAndDisplayDueUpdatesNotification_ExtraPage();
+    }
+    
+    // Close modal after a delay
+    setTimeout(
+        rsg_closeScheduleDateTimeModal_ExtraPage,
+        errorCount > 0 ? 4000 : 2000
+    );
 }
 
         function handleScheduleThisConfiguration() {
@@ -10390,6 +10426,9 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         );
     }
 
+    const individualTasksFragment =
+        document.createDocumentFragment();
+    let anyContentRenderedOverall = false;
     const allKnownRouteNamesFromSchedule = [
         ...new Set(
             currentWorkingSchedule_extra
@@ -10436,11 +10475,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             goLiveISO
         ].push(task);
     });
-
-    const individualTasksFragment =
-        document.createDocumentFragment();
-    let anyContentRenderedOverall = false;
-
     const allRoutesToDisplaySet = new Set([
         ...allKnownRouteNamesFromSchedule,
         ...Object.keys(applyTasksGroupedByRouteThenTime).filter(
@@ -10456,7 +10490,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
     const sortedRoutesToDisplay = Array.from(
         allRoutesToDisplaySet
     ).sort(compareLineNames_ExtraPage);
-
     if (
         sortedRoutesToDisplay.length > 0 ||
         (applyTasksGroupedByRouteThenTime["UnspecifiedRoute"] &&
@@ -10483,7 +10516,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         sectionTitle.style.marginBottom = "1em";
         individualTasksFragment.appendChild(sectionTitle);
     }
-
     sortedRoutesToDisplay.forEach((routeName) => {
         const tasksByTimeForThisRoute =
             applyTasksGroupedByRouteThenTime[routeName];
@@ -10493,7 +10525,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                 (task.status === "pending" ||
                     task.status === "error")
         );
-
         if (
             (tasksByTimeForThisRoute &&
                 Object.keys(tasksByTimeForThisRoute).length > 0) ||
@@ -10505,7 +10536,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             routeGroupDiv.style.marginBottom = "2rem";
             routeGroupDiv.style.paddingTop = "0.5rem";
             routeGroupDiv.style.borderLeft = "3px solid #607D8B";
-
             const routeHeading = document.createElement("h4");
             routeHeading.style.marginTop = "0.2em";
             routeHeading.style.marginBottom = "0.5em";
@@ -10514,7 +10544,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             routeHeading.style.paddingBottom = "0.4em";
             routeHeading.textContent = `Route: ${routeName}`;
             routeGroupDiv.appendChild(routeHeading);
-
             const cancelAllForRouteButton =
                 document.createElement("button");
             cancelAllForRouteButton.className =
@@ -10531,9 +10560,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             cancelAllForRouteButton.style.color = "white";
             cancelAllForRouteButton.dataset.routeName = routeName;
             routeGroupDiv.appendChild(cancelAllForRouteButton);
-
             let contentAddedForThisRouteSection = false;
-
             if (
                 tasksByTimeForThisRoute &&
                 Object.keys(tasksByTimeForThisRoute).length > 0
@@ -10547,7 +10574,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                 applyUpdatesSubheading.style.fontSize = "1em";
                 applyUpdatesSubheading.style.marginBottom = "0.5em";
                 routeGroupDiv.appendChild(applyUpdatesSubheading);
-
                 const sortedGoLiveTimes = Object.keys(
                     tasksByTimeForThisRoute
                 ).sort(
@@ -10567,7 +10593,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                             return opA.localeCompare(opB);
                         return destA.localeCompare(destB);
                     });
-
                     const batchContainerDiv =
                         document.createElement("div");
                     batchContainerDiv.className =
@@ -10579,7 +10604,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         "4px solid #3498db";
                     batchContainerDiv.dataset.scheduleKey =
                         goLiveISO + "_" + routeName;
-
                     let batchStatusSummary = batchOfTasks.some(
                         (t) => t.status === "error"
                     )
@@ -10591,7 +10615,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         batchStatusSummary === "pending"
                             ? "#f39c12"
                             : "#e74c3c"
-                    }">(${batchStatusSummary})</span></h6>`; // Added class here
+                    }">(${batchStatusSummary})</span></h6>`;
                     batchDetailsHTML += `<p style="font-size:0.85em; margin-bottom:0.5em;">Contains ${batchOfTasks.length} update(s). Applying replaces <strong>entire Route ${routeName}</strong>.</p>`;
                     batchDetailsHTML +=
                         '<ul style="font-size:0.8em; padding-left:1.5em; margin-bottom:0.75em;">';
@@ -10613,10 +10637,10 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         }</span></li>`;
                     });
                     batchDetailsHTML += "</ul>";
-
-                    const batchActionsDiv =
-                        document.createElement("div");
-                    batchActionsDiv.style.marginTop = "0.5em";
+                    
+                    // --- MODIFICATION 1: Create the new responsive container ---
+                    const batchActionsDiv = document.createElement("div");
+                    batchActionsDiv.className = "sru-batch-actions"; // Use the new class for flexbox styling
 
                     const applyBatchButton =
                         document.createElement("button");
@@ -10632,15 +10656,12 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                     batchActionsDiv.appendChild(applyBatchButton);
 
                     batchOfTasks.forEach((task) => {
-                        const cancelTaskButton =
-                            document.createElement("button");
-                        cancelTaskButton.className =
-                            "button small-action neutral sru-cancel-task-btn";
+                        // --- MODIFICATION 2: Update the class and remove inline styles for the cancel buttons ---
+                        const cancelTaskButton = document.createElement("button");
+                        cancelTaskButton.className = "button secondary sru-cancel-task-btn"; // Use 'secondary' for red, remove 'small-action' and 'neutral'
                         cancelTaskButton.textContent = `Cancel Update: (P: ${
                             task.operatingProfile || "N/A"
                         }, D: ${task.destinationName || "N/A"})`;
-                        cancelTaskButton.style.marginLeft = "8px";
-                        cancelTaskButton.style.fontSize = "0.75em";
                         cancelTaskButton.title = `Cancel only this specific update task: ${task.key}`;
                         cancelTaskButton.dataset.key = task.key;
                         cancelTaskButton.dataset.taskType =
@@ -10654,7 +10675,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                     routeGroupDiv.appendChild(batchContainerDiv);
                 });
             }
-
             if (deleteTasksForThisRoute.length > 0) {
                 contentAddedForThisRouteSection = true;
                 const routeDeletionsSubheading =
@@ -10679,7 +10699,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         ? "0.75em"
                         : "0";
                 routeGroupDiv.appendChild(routeDeletionsSubheading);
-
                 deleteTasksForThisRoute.sort(
                     (a, b) =>
                         new Date(a.goLiveDateTime).getTime() -
@@ -10694,7 +10713,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                     itemDiv.style.borderLeft = "4px solid #c0392b";
                     itemDiv.dataset.scheduleKey = task.key;
                     itemDiv.dataset.taskType = "deleteEntireRoute";
-
                     let statusColor =
                         task.status === "pending"
                             ? "#f39c12"
@@ -10719,7 +10737,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         }</button> `;
                     }
                     actionsHTML += `<button class="button small-action neutral sru-cancel-task-btn" data-key="${task.key}" data-task-type="deleteEntireRoute" style="margin-left:8px;">Cancel</button>`;
-
                     itemDiv.innerHTML = `
                         <h6 class="sru-task-title-heading" style="margin-top:0; margin-bottom:0.4em; font-size:1.0em; color: #e74c3c;">ROUTE WITHDRAWN (Go-Live: ${new Date(
                             task.goLiveDateTime
@@ -10737,11 +10754,10 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                                 ? `<p style="font-size:0.8em; color:#e74c3c;">Error: ${task.lastError}</p>`
                                 : ""
                         }
-                        <div class="scheduled-update-actions" style="margin-top:0.75em;">${actionsHTML}</div>`; // Added class here
+                        <div class="scheduled-update-actions" style="margin-top:0.75em;">${actionsHTML}</div>`;
                     routeGroupDiv.appendChild(itemDiv);
                 });
             }
-
             if (!contentAddedForThisRouteSection) {
                 const noTasksMsg = document.createElement("p");
                 noTasksMsg.textContent = `(No pending or error tasks currently scheduled for Route ${routeName})`;
@@ -10847,7 +10863,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         )
                             ? "error (in batch)"
                             : "pending";
-                        let batchDetailsHTML = `<h6 class="sru-task-title-heading" style="margin-top:0; margin-bottom:0.6em; font-size:1.0em; color: #ecf0f1;">Batch Go-Live: ${ // Added class here
+                        let batchDetailsHTML = `<h6 class="sru-task-title-heading" style="margin-top:0; margin-bottom:0.6em; font-size:1.0em; color: #ecf0f1;">Batch Go-Live: ${
                             goLiveISO === "UnknownTime"
                                 ? "Unknown"
                                 : new Date(
@@ -10883,38 +10899,27 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                             }</span></li>`;
                         });
                         batchDetailsHTML += "</ul>";
-                        batchContainerDiv.innerHTML =
-                            batchDetailsHTML;
+                        
+                        // --- Also apply the new responsive container to these special categories ---
+                        const batchActionsDiv = document.createElement("div");
+                        batchActionsDiv.className = "sru-batch-actions";
 
-                        const batchActionsDiv =
-                            document.createElement("div");
-                        batchActionsDiv.style.marginTop = "0.5em";
                         batchOfTasks.forEach((task) => {
-                            const cancelTaskButton =
-                                document.createElement("button");
-                            cancelTaskButton.className =
-                                "button small-action neutral sru-cancel-task-btn";
+                            const cancelTaskButton = document.createElement("button");
+                            // --- And apply the new classes/styles here too ---
+                            cancelTaskButton.className = "button secondary sru-cancel-task-btn";
                             cancelTaskButton.textContent = `Cancel Update for Route ${
                                 task.routeName || "N/A"
                             }`;
-                            cancelTaskButton.style.marginLeft =
-                                "8px";
-                            cancelTaskButton.style.fontSize =
-                                "0.75em";
                             cancelTaskButton.title = `Cancel only this specific update task: ${task.key}`;
                             cancelTaskButton.dataset.key = task.key;
-                            cancelTaskButton.dataset.taskType =
-                                "applySchedule";
-                            batchActionsDiv.appendChild(
-                                cancelTaskButton
-                            );
+                            cancelTaskButton.dataset.taskType = "applySchedule";
+                            batchActionsDiv.appendChild(cancelTaskButton);
                         });
-                        batchContainerDiv.appendChild(
-                            batchActionsDiv
-                        );
-                        specialRouteGroupDiv.appendChild(
-                            batchContainerDiv
-                        );
+                        
+                        batchContainerDiv.innerHTML = batchDetailsHTML;
+                        batchContainerDiv.appendChild(batchActionsDiv);
+                        specialRouteGroupDiv.appendChild(batchContainerDiv);
                     });
             }
 
@@ -10969,7 +10974,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         }</button> `;
                     }
                     actionsHTML += `<button class="button small-action neutral sru-cancel-task-btn" data-key="${task.key}" data-task-type="deleteEntireRoute" style="margin-left:8px;">Cancel</button>`;
-                    itemDiv.innerHTML = `<h6 class="sru-task-title-heading" style="margin-top:0; margin-bottom:0.4em; font-size:1.0em; color: #e74c3c;">DELETE ENTIRE ROUTE ${ // Added class here
+                    itemDiv.innerHTML = `<h6 class="sru-task-title-heading" style="margin-top:0; margin-bottom:0.4em; font-size:1.0em; color: #e74c3c;">DELETE ENTIRE ROUTE ${
                         task.routeName || ""
                     } (Go-Live: ${new Date(
                         task.goLiveDateTime
@@ -11000,7 +11005,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             fragment.appendChild(specialRouteGroupDiv);
         }
     }
-
     renderSpecialCategoryTasksToFragment(
         individualTasksFragment,
         "Tasks with Unspecified Route Name",
@@ -11014,10 +11018,9 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         "Tasks with Invalid Go-Live Time",
         "InvalidGoLiveTime",
         applyTasksGroupedByRouteThenTime,
-        [], // No delete tasks for this special category typically
+        [],
         "#EF9A9A"
     );
-
     listContainer.innerHTML = "";
     if (!anyContentRenderedOverall) {
         listContainer.innerHTML =
@@ -11026,7 +11029,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         listContainer.appendChild(individualTasksFragment);
     }
     cachedScheduledTasksHTML_extra = listContainer.innerHTML;
-
 
     const batchRadiosFragment = document.createDocumentFragment();
     const sruApplyAllForTimeButton = document.getElementById(
@@ -11037,33 +11039,14 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
     );
 
     if (batchRadiosContainer && sruApplyAllForTimeButton) {
-        const allPendingApplyScheduleTasksForRadioPopulation = [];
-        if (
-            typeof scheduledRouteUpdates_extra === "object" &&
-            scheduledRouteUpdates_extra !== null
-        ) {
-            Object.values(scheduledRouteUpdates_extra).forEach(
-                (value) => {
-                    if (
-                        value &&
-                        typeof value === "object" &&
-                        (value.taskType === "applySchedule" ||
-                            value.taskTypeDisplay ===
-                                "applySchedule") &&
-                        value.status === "pending" &&
-                        value.goLiveDateTime
-                    ) {
-                        allPendingApplyScheduleTasksForRadioPopulation.push(
-                            value
-                        );
-                    }
-                }
-            );
-        }
+        const allPendingTasksForRadio = [
+            ...allApplyScheduleTasks.filter(task => task.status === 'pending' && task.goLiveDateTime),
+            ...allDeleteTasks.filter(task => task.status === 'pending' && task.goLiveDateTime)
+        ];
 
         const uniqueGoLiveTimesForRadio = [
             ...new Set(
-                allPendingApplyScheduleTasksForRadioPopulation.map(
+                allPendingTasksForRadio.map(
                     (task) => task.goLiveDateTime
                 )
             ),
@@ -11074,9 +11057,10 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         if (uniqueGoLiveTimesForRadio.length > 0) {
             uniqueGoLiveTimesForRadio.forEach((isoTime) => {
                 const tasksForThisTime =
-                    allPendingApplyScheduleTasksForRadioPopulation.filter(
+                    allPendingTasksForRadio.filter(
                         (t) => t.goLiveDateTime === isoTime
                     );
+                
                 const affectedRoutesAtThisTime = [
                     ...new Set(
                         tasksForThisTime.map(
@@ -11084,17 +11068,19 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                         )
                     ),
                 ].sort(compareLineNames_ExtraPage);
-                const totalUpdatesForThisTime =
-                    tasksForThisTime.length;
+
+                const totalTasksForThisTime = tasksForThisTime.length;
                 const radioId = `sru-batch-golive-${new Date(
                     isoTime
                 ).getTime()}`;
+
                 const radioLabel = document.createElement("label");
                 radioLabel.htmlFor = radioId;
                 radioLabel.style.display = "block";
                 radioLabel.style.marginBottom = "0.5em";
                 radioLabel.style.cursor = "pointer";
                 radioLabel.style.color = "#ecf0f1";
+                
                 const radioButton = document.createElement("input");
                 radioButton.type = "radio";
                 radioButton.name = "sruBatchGoLiveTime_extra";
@@ -11108,25 +11094,24 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                     if (sruApplyAllStatusMessage) {
                         sruApplyAllStatusMessage.textContent = `Selected Go-Live: ${new Date(
                             isoTime
-                        ).toLocaleString()}. This will affect ${
+                        ).toLocaleString()}. This will process ${totalTasksForThisTime} task(s) affecting ${
                             affectedRoutesAtThisTime.length
                         } route(s): ${affectedRoutesAtThisTime.join(
                             ", "
-                        )} with ${totalUpdatesForThisTime} total update task(s).`;
+                        )}.`;
                         sruApplyAllStatusMessage.style.color =
                             "#f1c40f";
                     }
                 });
+                
                 radioLabel.appendChild(radioButton);
                 radioLabel.appendChild(
                     document.createTextNode(
                         `${new Date(
                             isoTime
-                        ).toLocaleString()} (${totalUpdatesForThisTime} tasks for ${
+                        ).toLocaleString()} (${totalTasksForThisTime} total tasks for ${
                             affectedRoutesAtThisTime.length
-                        } routes: ${affectedRoutesAtThisTime.join(
-                            ", "
-                        )})`
+                        } routes: ${affectedRoutesAtThisTime.join(", ")})`
                     )
                 );
                 batchRadiosFragment.appendChild(radioLabel);
@@ -11137,7 +11122,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             const p = document.createElement("p");
             p.style.opacity = "0.7";
             p.textContent =
-                "No pending batches with valid go-live times available to apply globally by time.";
+                "No pending tasks with valid go-live times available.";
             batchRadiosFragment.appendChild(p);
             if (sruApplyAllForTimeButton)
                 sruApplyAllForTimeButton.disabled = true;
@@ -11146,6 +11131,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         batchRadiosContainer.appendChild(batchRadiosFragment);
         cachedBatchRadiosHTML_extra = batchRadiosContainer.innerHTML;
     }
+    
     isScheduledTasksCacheValid_extra = true;
 }
 
@@ -11163,26 +11149,37 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
 
     const selectedGoLiveDateTimeISO = selectedRadio.value;
     if(sruApplyAllStatusMessage_el_extra) {
-        sruApplyAllStatusMessage_el_extra.textContent = `Preparing to apply all batches for ${new Date(selectedGoLiveDateTimeISO).toLocaleString()}...`;
+        sruApplyAllStatusMessage_el_extra.textContent = `Preparing to apply all tasks for ${new Date(selectedGoLiveDateTimeISO).toLocaleString()}...`;
         sruApplyAllStatusMessage_el_extra.style.color = "#3498db";
     }
 
-    const tasksToProcessForSelectedTime = [];
+    // --- MODIFICATION START: Gather BOTH update and delete tasks ---
+    const tasksToProcess = [];
+    // Gather update tasks
     if (typeof scheduledRouteUpdates_extra === 'object' && scheduledRouteUpdates_extra !== null) {
         Object.entries(scheduledRouteUpdates_extra).forEach(([key, task]) => {
-            if (task && task.taskType === 'applySchedule' && task.status === 'pending' && task.goLiveDateTime === selectedGoLiveDateTimeISO && task.scheduledEntries && task.scheduledEntries.length > 0) {
-                tasksToProcessForSelectedTime.push({ key, ...task });
+            if (task && (task.taskType === 'applySchedule' || task.taskTypeDisplay === 'applySchedule') && task.status === 'pending' && task.goLiveDateTime === selectedGoLiveDateTimeISO) {
+                tasksToProcess.push({ key, ...task, taskType: 'applySchedule' }); // Normalize taskType
             }
         });
     }
+    // Gather delete tasks
+    if (typeof scheduledRouteDeletions_extra === 'object' && scheduledRouteDeletions_extra !== null) {
+         Object.entries(scheduledRouteDeletions_extra).forEach(([key, task]) => {
+            if (task && (task.taskType === 'deleteEntireRoute' || task.taskTypeDisplay === 'deleteEntireRoute') && task.status === 'pending' && task.goLiveDateTime === selectedGoLiveDateTimeISO) {
+                tasksToProcess.push({ key, ...task, taskType: 'deleteEntireRoute' }); // Normalize taskType
+            }
+        });
+    }
+    // --- MODIFICATION END ---
 
-    if (tasksToProcessForSelectedTime.length === 0) {
-        if(sruApplyAllStatusMessage_el_extra) { sruApplyAllStatusMessage_el_extra.textContent = "No valid pending timetable updates found for the selected time. The list might have refreshed."; sruApplyAllStatusMessage_el_extra.style.color = "#f1c40f"; }
-        loadAndDisplayScheduledUpdates_ExtraPage(); // Refresh the list as something changed
+    if (tasksToProcess.length === 0) {
+        if(sruApplyAllStatusMessage_el_extra) { sruApplyAllStatusMessage_el_extra.textContent = "No valid pending tasks found for the selected time. The list might have refreshed."; sruApplyAllStatusMessage_el_extra.style.color = "#f1c40f"; }
+        loadAndDisplayScheduledUpdates_ExtraPage(); // Refresh the list
         return;
     }
 
-    const tasksGroupedByRoute = tasksToProcessForSelectedTime.reduce((acc, task) => {
+    const tasksGroupedByRoute = tasksToProcess.reduce((acc, task) => {
         const routeName = task.routeName || "UnspecifiedRoute";
         if (!acc[routeName]) {
             acc[routeName] = [];
@@ -11192,64 +11189,57 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
     }, {});
 
     const affectedRouteNames = Object.keys(tasksGroupedByRoute).sort(compareLineNames_ExtraPage);
-    const confirmMessage = `EXTREME CAUTION!\n\nYou are about to apply ALL pending timetable updates scheduled for:\nGo-Live Time: ${new Date(selectedGoLiveDateTimeISO).toLocaleString()}\n\nThis will affect the following ${affectedRouteNames.length} route(s):\n- ${affectedRouteNames.join('\n- ')}\n\nFor EACH of these routes, ALL of their current schedule data will be DELETED and REPLACED with the new schedule from these batches.\n\nThis action is IRREVERSIBLE for the live schedule data.\nAre you absolutely sure you want to proceed?`;
+    const confirmMessage = `EXTREME CAUTION!\n\nYou are about to apply ALL pending tasks scheduled for:\nGo-Live Time: ${new Date(selectedGoLiveDateTimeISO).toLocaleString()}\n\nThis will affect the following ${affectedRouteNames.length} route(s):\n- ${affectedRouteNames.join('\n- ')}\n\nFor EACH route, its current schedule data will be DELETED/REPLACED. This is IRREVERSIBLE.\nAre you sure you want to proceed?`;
 
     if (!confirm(confirmMessage)) {
-        if(sruApplyAllStatusMessage_el_extra) { sruApplyAllStatusMessage_el_extra.textContent = "Bulk batch application cancelled by user."; sruApplyAllStatusMessage_el_extra.style.color = ""; }
+        if(sruApplyAllStatusMessage_el_extra) { sruApplyAllStatusMessage_el_extra.textContent = "Bulk operation cancelled by user."; sruApplyAllStatusMessage_el_extra.style.color = ""; }
         return;
     }
 
-    if(sruApplyAllStatusMessage_el_extra) { sruApplyAllStatusMessage_el_extra.textContent = `Processing ${tasksToProcessForSelectedTime.length} tasks for ${affectedRouteNames.length} routes. This may take some time...`; }
+    if(sruApplyAllStatusMessage_el_extra) { sruApplyAllStatusMessage_el_extra.textContent = `Processing ${tasksToProcess.length} tasks for ${affectedRouteNames.length} routes. This may take some time...`; }
     if(sruApplyAllForTimeButton_el_extra) sruApplyAllForTimeButton_el_extra.disabled = true;
 
 
-    let allAffectedTaskKeys = [];
+    let allAffectedTaskKeysAndTypes = [];
     let totalEntriesAdded = 0;
-    let errorsDuringLocalProcessing = [];
 
-    // Create a deep copy of the working schedule to modify
     let tempWorkingSchedule = JSON.parse(JSON.stringify(currentWorkingSchedule_extra));
 
+    // --- MODIFICATION START: Process deletions first, then updates for each route ---
     for (const routeName of affectedRouteNames) {
         const tasksForThisRoute = tasksGroupedByRoute[routeName];
         if (!tasksForThisRoute || tasksForThisRoute.length === 0) continue;
 
-        let allNewEntriesForThisRoute = [];
-        tasksForThisRoute.forEach(task => {
-            allNewEntriesForThisRoute.push(...JSON.parse(JSON.stringify(task.scheduledEntries))); // Deep copy entries
-            if (task.key) allAffectedTaskKeys.push(task.key);
-        });
+        const hasDeletionTask = tasksForThisRoute.some(t => t.taskType === 'deleteEntireRoute');
+        const updateTasks = tasksForThisRoute.filter(t => t.taskType === 'applySchedule');
 
-        if (allNewEntriesForThisRoute.length === 0) {
-            errorsDuringLocalProcessing.push(`Route ${routeName}: No schedule entries found in its tasks for this batch time. Skipped adding new entries, but existing data for this route (if any) will be removed as part of the overwrite.`);
-            // Continue to remove existing entries for this route to fulfill "overwrite"
+        // Step 1: Remove all existing entries for this route from the temporary schedule
+        tempWorkingSchedule = tempWorkingSchedule.filter(entry => 
+            !entry.lineName || entry.lineName.toUpperCase() !== routeName.toUpperCase()
+        );
+
+        // Step 2: If there are updates, collect their entries and add them back
+        if (updateTasks.length > 0) {
+            let allNewEntriesForThisRoute = [];
+            updateTasks.forEach(task => {
+                if (task.scheduledEntries && task.scheduledEntries.length > 0) {
+                     allNewEntriesForThisRoute.push(...JSON.parse(JSON.stringify(task.scheduledEntries)));
+                }
+            });
+            const entriesToAddWithUniqueIds = allNewEntriesForThisRoute.map((e, idx) => ({
+                ...e,
+                internalId: e.internalId || `${e.stopID}_${e.lineName}_${(e.scheduledTime||"0000").replace(':','')}_applyAll_${Date.now()}_${idx}`
+            }));
+            tempWorkingSchedule.push(...entriesToAddWithUniqueIds);
+            totalEntriesAdded += entriesToAddWithUniqueIds.length;
         }
         
-        // Remove all existing entries for this route from the temporary schedule
-        let removedCountForRoute = 0;
-        tempWorkingSchedule = tempWorkingSchedule.filter(entry => {
-            if (entry.lineName && entry.lineName.toUpperCase() === routeName.toUpperCase()) {
-                removedCountForRoute++;
-                return false;
-            }
-            return true;
-        });
-
-        // Add new (or potentially empty if error above) entries for this route
-        const entriesToAddWithUniqueIds = allNewEntriesForThisRoute.map((e, idx) => ({
-            ...e,
-            internalId: e.internalId || `${e.stopID}_${e.lineName}_${(e.scheduledTime||"0000").replace(':','')}_applyAllBatches_${Date.now()}_${idx}`
-        }));
-        tempWorkingSchedule.push(...entriesToAddWithUniqueIds);
-        totalEntriesAdded += entriesToAddWithUniqueIds.length;
+        // Collect all task keys for status update
+        tasksForThisRoute.forEach(task => allAffectedTaskKeysAndTypes.push({ key: task.key, type: task.taskType }));
     }
-
-    if (errorsDuringLocalProcessing.length > 0) {
-        alert("Some issues were found during local processing:\n" + errorsDuringLocalProcessing.join("\n") + "\n\nProceeding with Firebase update based on processed data. Review affected routes carefully after completion.");
-    }
+    // --- MODIFICATION END ---
 
     try {
-        // Update the main global working schedule with the processed data
         currentWorkingSchedule_extra = tempWorkingSchedule; 
         
         await rebuildAndSaveEntireScheduleToFirebase_ExtraPage(currentWorkingSchedule_extra);
@@ -11259,37 +11249,40 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
         const appliedAtTimestamp = new Date().toISOString();
         const appliedByEmail = currentUser_extra ? currentUser_extra.email : "system (bulk apply)";
         const statusUpdates = {};
-        allAffectedTaskKeys.forEach(taskKey => {
-            statusUpdates[`${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${taskKey}/status`] = 'applied (all batches for time)';
-            statusUpdates[`${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${taskKey}/appliedAt`] = appliedAtTimestamp;
-            statusUpdates[`${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${taskKey}/appliedBy`] = appliedByEmail;
+        
+        allAffectedTaskKeysAndTypes.forEach(taskInfo => {
+            const firebasePath = taskInfo.type === 'applySchedule' ? FB_PATH_SCHEDULED_ROUTE_UPDATES : FB_PATH_SCHEDULED_DELETIONS;
+            statusUpdates[`${firebasePath}/${taskInfo.key}/status`] = 'applied (all for time)';
+            statusUpdates[`${firebasePath}/${taskInfo.key}/appliedAt`] = appliedAtTimestamp;
+            statusUpdates[`${firebasePath}/${taskInfo.key}/appliedBy`] = appliedByEmail;
         });
 
         await dbUpdate(dbRef(database), statusUpdates);
-        console.log("Bulk apply: Status of affected tasks updated in Firebase.");
+        console.log("Bulk apply: Status of all affected tasks updated in Firebase.");
 
         if(sruApplyAllStatusMessage_el_extra) {
-            sruApplyAllStatusMessage_el_extra.textContent = `Successfully applied all batches for ${new Date(selectedGoLiveDateTimeISO).toLocaleString()}. ${affectedRouteNames.length} routes updated, ${totalEntriesAdded} total new entries added. Schedule is live.`;
+            sruApplyAllStatusMessage_el_extra.textContent = `Successfully applied all tasks for ${new Date(selectedGoLiveDateTimeISO).toLocaleString()}. ${affectedRouteNames.length} routes affected. Schedule is live.`;
             sruApplyAllStatusMessage_el_extra.style.color = "#2ecc71";
         }
-        loadAndDisplayScheduledUpdates_ExtraPage(); // Refresh the list
-        renderUIDependentElements_ExtraPage();     // Refresh other UI if needed
+        await loadAndDisplayScheduledUpdates_ExtraPage(); // Use await to ensure data is fresh before next step
+        renderUIDependentElements_ExtraPage();
 
     } catch (error) {
-        console.error("Error applying all batches for selected time:", error);
+        console.error("Error applying all tasks for selected time:", error);
         if(sruApplyAllStatusMessage_el_extra) {
-            sruApplyAllStatusMessage_el_extra.textContent = `CRITICAL ERROR applying batches: ${error.message}. Schedule may be inconsistent. MANUAL REVIEW REQUIRED.`;
+            sruApplyAllStatusMessage_el_extra.textContent = `CRITICAL ERROR applying tasks: ${error.message}. Schedule may be inconsistent. MANUAL REVIEW REQUIRED.`;
             sruApplyAllStatusMessage_el_extra.style.color = "#e74c3c";
         }
-        // Attempt to mark tasks as error if main save failed
-        const { database, dbUpdate, dbRef } = window.firebaseOMSI; // ensure it's in scope
+        // Attempt to mark tasks as error
+        const { database, dbUpdate, dbRef } = window.firebaseOMSI;
         const errorStatusUpdates = {};
-         allAffectedTaskKeys.forEach(taskKey => {
-            errorStatusUpdates[`${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${taskKey}/status`] = 'error';
-            errorStatusUpdates[`${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${taskKey}/lastError`] = `Bulk Apply Error (Main Schedule): ${error.message}`;
+        allAffectedTaskKeysAndTypes.forEach(taskInfo => {
+            const firebasePath = taskInfo.type === 'applySchedule' ? FB_PATH_SCHEDULED_ROUTE_UPDATES : FB_PATH_SCHEDULED_DELETIONS;
+            errorStatusUpdates[`${firebasePath}/${taskInfo.key}/status`] = 'error';
+            errorStatusUpdates[`${firebasePath}/${taskInfo.key}/lastError`] = `Bulk Apply Error: ${error.message}`;
         });
-        await dbUpdate(dbRef(database), errorStatusUpdates).catch(err => console.error("Failed to mark batch tasks as error:", err));
-        loadAndDisplayScheduledUpdates_ExtraPage(); // Refresh to show error state
+        await dbUpdate(dbRef(database), errorStatusUpdates).catch(err => console.error("Failed to mark tasks as error:", err));
+        await loadAndDisplayScheduledUpdates_ExtraPage();
     } finally {
         if(sruApplyAllForTimeButton_el_extra) sruApplyAllForTimeButton_el_extra.disabled = false;
     }
@@ -11346,7 +11339,7 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
 
     if (!taskCollection[taskKey]) {
         alert(
-            `Error: Task with key "<span class="math-inline">\{taskKey\}" not found for type "</span>{userFriendlyTaskName}". It might have already been processed or deleted. The list will refresh.`
+            `Error: Task with key "${taskKey}" not found for type "${userFriendlyTaskName}". It might have already been processed or deleted. The list will refresh.`
         );
         if (
             typeof loadAndDisplayScheduledUpdates_ExtraPage ===
@@ -11375,11 +11368,15 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
         actionVerb = "CANCEL and DELETE record of";
     }
 
+    // --- MODIFICATION START: Corrected the confirmation message ---
+    // The original message incorrectly used HTML and had a syntax error for variables.
+    // This new version uses plain text and the correct ${variable} syntax.
     if (
         !confirm(
-            `Are you sure you want to ${actionVerb} the <span class="math-inline">\{taskDescription\} for\:\\nRoute\: "</span>{routeNameForConfirm}"\nProfile(s): "${profileForConfirm}"\nGo-Live: ${goLiveForConfirm}\n\nThis action cannot be undone.`
+            `Are you sure you want to ${actionVerb} the ${taskDescription} for:\nRoute: "${routeNameForConfirm}"\nProfile(s): "${profileForConfirm}"\nGo-Live: ${goLiveForConfirm}\n\nThis action cannot be undone.`
         )
     ) {
+    // --- MODIFICATION END ---
         if (rsgStatusMessage_el_extra) {
             rsgStatusMessage_el_extra.textContent =
                 "Operation cancelled by user.";
@@ -11405,7 +11402,7 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
 
     try {
         await dbRemove(
-            dbRef(database, `<span class="math-inline">\{firebasePath\}/</span>{taskKey}`)
+            dbRef(database, `${firebasePath}/${taskKey}`)
         );
 
         if (taskCollection && taskCollection[taskKey]) {
@@ -11425,7 +11422,7 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
         )
             checkAndDisplayDueUpdatesNotification_ExtraPage();
 
-        const successMsg = `<span class="math-inline">\{userFriendlyTaskName\} for "</span>{routeNameForConfirm}" (Profile: ${profileForConfirm}, Go-Live: ${goLiveForConfirm}) has been cancelled/record deleted.`;
+        const successMsg = `${userFriendlyTaskName} for "${routeNameForConfirm}" (Profile: ${profileForConfirm}, Go-Live: ${goLiveForConfirm}) has been cancelled/record deleted.`;
         if (rsgStatusMessage_el_extra) {
             rsgStatusMessage_el_extra.textContent = successMsg;
             rsgStatusMessage_el_extra.style.color = "#2ecc71";

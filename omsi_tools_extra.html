@@ -458,7 +458,6 @@
             </div>
         </div>
         <p id="kd-status-message_extra" style="min-height:1.2em; margin-top:1rem; font-size:0.85em; text-align:center;"></p>
-        <button id="kd-refresh-btn_extra" class="button neutral" style="display:block; margin: 1rem auto;">Refresh Now</button>
     </div>
 
     <div id="day-profile-override-section_extra" class="tool-content-section section" style="display:none;">
@@ -831,7 +830,7 @@
             </div>
             <div>
                 <label>Departures (Sorted by Day Offset -> Profile -> Time)</label>
-                <div id="stopDeparturesListContainer_extra" style="max-height: 400px; overflow-y: auto; border: 1px solid #4A5568; padding: 0.5rem; border-radius: 0.25rem;">
+                <div id="stopDeparturesListContainer_extra" style="border: 1px solid #4A5568; padding: 0.5rem; border-radius: 0.25rem;">
                     <ul id="stopDeparturesList_extra"></ul>
                     <p id="noDeparturesForStopMessage_extra" style="padding: 0.5rem;">Select a stop to view departures.</p>
                 </div>
@@ -1389,6 +1388,17 @@ const sruCancelAllGlobalStatusMessage_el_extra = document.getElementById('sru-ca
             // Firebase forbids '.', '#', '$', '[', ']'
             return text.replace(/[.#$[\]]/g, '_');
         }
+
+function rsg_handleDestinationNameSelectChange_ExtraPage() {
+    if (!rsgDestinationNameSelect_el_extra || !rsgDestinationNameInput_el_extra) {
+        return;
+    }
+    rsgDestinationNameInput_el_extra.value = rsgDestinationNameSelect_el_extra.value;
+    const event = new Event('input', { bubbles: true, cancelable: true });
+    rsgDestinationNameInput_el_extra.dispatchEvent(event);
+    const blurEvent = new Event('blur', { bubbles: true, cancelable: true });
+    rsgDestinationNameInput_el_extra.dispatchEvent(blurEvent);
+}
 
 function showTripAlertPopup_ExtraPage(message, type = 'info') { // Added type for styling
     const banner = document.getElementById('global-notification-banner');
@@ -2490,15 +2500,6 @@ function dpo_selectAllRoutes_ExtraPage() {
         dpoStatusMessageEl.style.color = '#2ecc71';
     }
 }
-
-// --- DOMContent Loaded
-
-document.addEventListener('DOMContentLoaded', () => {
-    
-    if (dpoSelectAllRoutesButton_el_extra && typeof dpo_selectAllRoutes_ExtraPage === 'function') {
-        dpoSelectAllRoutesButton_el_extra.addEventListener('click', dpo_selectAllRoutes_ExtraPage);
-    }
-});
 
 const departuresSelect = document.getElementById('selectStopForDeparturesView_extra');
     if (departuresSelect) {
@@ -8786,22 +8787,18 @@ function rsg_clearProfileSelections_ExtraPage() {
     rsg_showSaveConfigModal_ExtraPage();
 }
 
-        function rsg_handleDestinationNameInputChange_ExtraPage() { 
-            if (!rsgDestinationNameInput_el_extra || !rsgDestinationNameSelect_el_extra) return; 
-            const typedDest = rsgDestinationNameInput_el_extra.value.trim(); 
-            const matchedOption = Array.from(rsgDestinationNameSelect_el_extra.options).find(opt => opt.value === typedDest); 
-            if (matchedOption) { 
-                rsgDestinationNameSelect_el_extra.value = matchedOption.value; 
-                if (rsgDestinationNameInput_el_extra.value !== matchedOption.value) rsgDestinationNameInput_el_extra.value = matchedOption.value; 
-            } else {
-                // If typed value doesn't match an existing option, clear the select to imply "custom" or "none"
-                rsgDestinationNameSelect_el_extra.value = ""; 
-            }
-            // Now call rsg_loadOrPullConfiguration_ExtraPage immediately after a change that affects the identity of the config.
-            // This is done to check if this new combination of Route+Profile+Dest matches a saved config.
-            rsg_loadOrPullConfiguration_ExtraPage(); 
-            rsg_updateRsgActionButtonsState(); // Added call
-        }
+        function rsg_handleDestinationNameInputChange_ExtraPage() {
+    if (!rsgDestinationNameInput_el_extra || !rsgDestinationNameSelect_el_extra) return;
+    const typedDest = rsgDestinationNameInput_el_extra.value.trim();
+    const matchedOption = Array.from(rsgDestinationNameSelect_el_extra.options).find(opt => opt.value === typedDest);
+    if (matchedOption) {
+        rsgDestinationNameSelect_el_extra.value = matchedOption.value;
+        if (rsgDestinationNameInput_el_extra.value !== matchedOption.value) rsgDestinationNameInput_el_extra.value = matchedOption.value;
+    } else {
+        rsgDestinationNameSelect_el_extra.value = "";
+    }
+    rsg_updateRsgActionButtonsState(); // Added call
+}
 
         function rsg_handleDestinationNameInputChange_ExtraPage() { 
     if (!rsgDestinationNameInput_el_extra || !rsgDestinationNameSelect_el_extra) return; 
@@ -9799,7 +9796,7 @@ async function handleApplyMasterListStopIdChangesButton_ExtraPage() {
         rsgStatusMessage_el_extra.textContent = statusMsg;
         rsgStatusMessage_el_extra.style.color = statusColor;
         delete rsgStatusMessage_el_extra.dataset.profileAssumed;
-        rsg_updateRsgActionButtonsState(); // Added call
+        rsg_updateRsgActionButtonsState();
     }
     return rsg_generatedPreviewEntries_extra.length > 0;
 }
@@ -9860,40 +9857,28 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         return;
     }
 
-    // Get target details from RSG form inputs
     const targetRouteName = rsgRouteNameInput_el_extra.value.trim().toUpperCase();
-    let targetOpProfile = rsg_getSelectedOpProfilesString_ExtraPage(); // From checkboxes
+    let targetOpProfile = rsg_getSelectedOpProfilesString_ExtraPage();
     const targetDestName = rsgDestinationNameInput_el_extra.value.trim();
+    const previewSample = rsg_generatedPreviewEntries_extra[0];
 
-    const previewSample = rsg_generatedPreviewEntries_extra[0]; // Assuming preview is not empty here
-
-    // If checkboxes were empty, but preview was generated (e.g. from a loaded config or assumed profile),
-    // use the profile from the preview sample for consistency in the confirmation and subsequent operations.
     if (!targetOpProfile && previewSample && previewSample.OperatingProfile) {
         targetOpProfile = previewSample.OperatingProfile;
-        console.log("rsg_handleAddGeneratedToWorkingSchedule: Using Operating Profile from preview sample as checkboxes were empty:", targetOpProfile);
     }
 
-    // Validate that the preview matches the current form settings for Route, Destination, and final Operating Profile
-    if (previewSample.lineName.toUpperCase() !== targetRouteName ||
-        previewSample.destinationName !== targetDestName ||
-        previewSample.OperatingProfile !== targetOpProfile) {
-
-        let mismatchDetail = "";
-        if (previewSample.lineName.toUpperCase() !== targetRouteName) mismatchDetail += `Route (Preview: ${previewSample.lineName}, Form: ${targetRouteName}). `;
-        if (previewSample.destinationName !== targetDestName) mismatchDetail += `Destination (Preview: ${previewSample.destinationName}, Form: ${targetDestName}). `;
-        if (previewSample.OperatingProfile !== targetOpProfile) mismatchDetail += `Profile (Preview: ${previewSample.OperatingProfile}, Form: ${targetOpProfile}). `;
-
+    if (!targetRouteName || !targetOpProfile || !targetDestName) {
         if (rsgStatusMessage_el_extra) {
-            rsgStatusMessage_el_extra.textContent = `Form settings (Route/Dest/Profile) do not match the generated preview. Mismatches: ${mismatchDetail}Please re-generate preview if settings changed.`;
+            rsgStatusMessage_el_extra.textContent = "Route Name, Operating Profile, and Destination Name must be defined in Section 1 to update the schedule.";
             rsgStatusMessage_el_extra.style.color = "#e74c3c";
         }
         return;
     }
     
-    if (!targetRouteName || !targetOpProfile || !targetDestName) {
+    if (previewSample.lineName.toUpperCase() !== targetRouteName ||
+        previewSample.destinationName !== targetDestName ||
+        previewSample.OperatingProfile !== targetOpProfile) {
         if (rsgStatusMessage_el_extra) {
-            rsgStatusMessage_el_extra.textContent = "Route Name, Operating Profile, and Destination Name must be defined in Section 1 to update the schedule.";
+            rsgStatusMessage_el_extra.textContent = `Form settings do not match the generated preview. Please re-generate preview if settings changed.`;
             rsgStatusMessage_el_extra.style.color = "#e74c3c";
         }
         return;
@@ -9909,110 +9894,62 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
 
     let newEntriesCount = rsg_generatedPreviewEntries_extra.length;
     let operationPerformed = false;
-    // Deep copy the preview entries to avoid modifying the preview state directly
     const entriesToAdd = JSON.parse(JSON.stringify(rsg_generatedPreviewEntries_extra));
 
-    if (actionChoice === "1") { // OVERWRITE for specific R/P/D
+    if (actionChoice === "1") {
         if (confirm(`ARE YOU SURE you want to REMOVE all existing entries for Route "${targetRouteName}", Profile "${targetOpProfile}", Destination "${targetDestName}" AND THEN ADD these ${newEntriesCount} new entries?`)) {
             let removedCount = 0;
-            // Filter out existing entries that match the exact R/P/D
             currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry => {
                 const matchesRPD = entry.lineName && entry.lineName.toUpperCase() === targetRouteName &&
                                    entry.OperatingProfile === targetOpProfile &&
                                    entry.destinationName === targetDestName;
                 if (matchesRPD) {
                     removedCount++;
-                    return false; // Exclude this entry
+                    return false;
                 }
-                return true; // Keep other entries
+                return true;
             });
             
-            // Add the new entries from the preview
             currentWorkingSchedule_extra.push(...entriesToAdd);
-            
-            if (rsgStatusMessage_el_extra) {
-                rsgStatusMessage_el_extra.textContent = `Locally removed ${removedCount} existing entries. Will add ${newEntriesCount} new entries for ${targetRouteName}/${targetOpProfile}/${targetDestName}. Preparing to save...`;
-                rsgStatusMessage_el_extra.style.color = "#f1c40f"; // Yellow for processing
-            }
             operationPerformed = true;
         } else {
-            if (rsgStatusMessage_el_extra) {
-                rsgStatusMessage_el_extra.textContent = "Overwrite operation cancelled by user.";
-                rsgStatusMessage_el_extra.style.color = ""; // Neutral
-            }
-            return; // User cancelled overwrite confirmation
+             if (rsgStatusMessage_el_extra) rsgStatusMessage_el_extra.textContent = "Overwrite operation cancelled by user.";
+            return;
         }
-    } else if (actionChoice === "2") { // ADD (append)
-        currentWorkingSchedule_extra.push(...entriesToAdd); // Append new entries
-        if (rsgStatusMessage_el_extra) {
-            rsgStatusMessage_el_extra.textContent = `${newEntriesCount} entries will be ADDED to the working schedule (for ${targetRouteName}/${targetOpProfile}/${targetDestName} if applicable). Preparing to save...`;
-            rsgStatusMessage_el_extra.style.color = "#f1c40f"; // Yellow for processing
-        }
+    } else if (actionChoice === "2") {
+        currentWorkingSchedule_extra.push(...entriesToAdd);
         operationPerformed = true;
     } else {
-        if (actionChoice !== null && rsgStatusMessage_el_extra) { // User entered something other than 1 or 2
-            rsgStatusMessage_el_extra.textContent = "Invalid choice. Operation cancelled.";
-        } else if (rsgStatusMessage_el_extra) { // User pressed Cancel on the prompt
-             rsgStatusMessage_el_extra.textContent = "Add to working schedule cancelled.";
-        }
-        if (rsgStatusMessage_el_extra) rsgStatusMessage_el_extra.style.color = ""; // Neutral
-        return; // Invalid choice or cancelled
+        if (rsgStatusMessage_el_extra) rsgStatusMessage_el_extra.textContent = "Operation cancelled.";
+        return;
     }
 
     if (operationPerformed) {
-        // Ensure targetRouteName for the save operation is correctly from the RSG form
-        const rsgRouteNameForSave = rsgRouteNameInput_el_extra.value.trim().toUpperCase(); 
-
-        if (!rsgRouteNameForSave) { // Should have been caught earlier, but a good final check
-            console.error("RSG Add to Working: Critical error - targetRouteName is empty before Firebase save.");
-            if (rsgStatusMessage_el_extra) {
-                rsgStatusMessage_el_extra.textContent = "Error: Route name missing for save operation. Cannot proceed.";
-                rsgStatusMessage_el_extra.style.color = "#e74c3c";
-            }
-            return; 
-        }
-
         try {
-            // *** THIS IS THE MODIFIED PART ***
-            // Call the new targeted save function, passing only the route name.
-            // The save function will then extract all data for this route (across all its R/P/Ds)
-            // from the currentWorkingSchedule_extra and update Firebase accordingly.
-            if (rsgStatusMessage_el_extra) { // Update status before await
-                 rsgStatusMessage_el_extra.textContent = `Saving changes for route "${rsgRouteNameForSave}" to Firebase...`;
-                 rsgStatusMessage_el_extra.style.color = "#3498db"; // Blue for in-progress
-            }
-            await saveSpecificRouteDataToFirebase_ExtraPage(rsgRouteNameForSave); 
-            
-            // Success message after saveSpecificRouteDataToFirebase_ExtraPage completes
             if (rsgStatusMessage_el_extra) {
-                const messageAction = actionChoice === "1" 
-                    ? `Overwrote entries for R/P/D "${targetRouteName}/${targetOpProfile}/${targetDestName}" and added ${newEntriesCount} new ones.` 
-                    : `Added ${newEntriesCount} entries for R/P/D "${targetRouteName}/${targetOpProfile}/${targetDestName}".`;
-                rsgStatusMessage_el_extra.textContent = `Successfully saved to Firebase. ${messageAction} Working schedule now has ${currentWorkingSchedule_extra.length} total entries.`;
-                rsgStatusMessage_el_extra.style.color = "#2ecc71"; // Green for success
+                 rsgStatusMessage_el_extra.textContent = `Saving changes for route "${targetRouteName}" to Firebase...`;
+                 rsgStatusMessage_el_extra.style.color = "#3498db";
+            }
+            await saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName); 
+            
+            if (rsgStatusMessage_el_extra) {
+                rsgStatusMessage_el_extra.textContent = `Successfully saved to Firebase. Working schedule now has ${currentWorkingSchedule_extra.length} total entries.`;
+                rsgStatusMessage_el_extra.style.color = "#2ecc71";
             }
             
-            // Reset the RSG preview and update UI elements
-            rsg_resetPreviewState("Successfully added to working schedule and saved to Firebase. Ready for new generation.", "success");
-            renderUIDependentElements_ExtraPage(); // Refresh any UI elements dependent on the schedule
+            rsg_resetPreviewState("Successfully added to working schedule and saved to Firebase.", "success");
+            renderUIDependentElements_ExtraPage();
 
         } catch (error) {
-            // Error handling specifically for the saveSpecificRouteDataToFirebase_ExtraPage call
-            // The saveSpecificRouteDataToFirebase_ExtraPage function might set its own detailed error message.
             console.error("Error in rsg_handleAddGeneratedToWorkingSchedule_ExtraPage (calling targeted save to Firebase):", error);
-            if (rsgStatusMessage_el_extra && !rsgStatusMessage_el_extra.textContent.includes("Error saving route")) { 
-                // Check if a more specific error wasn't already set by the save function
-                rsgStatusMessage_el_extra.textContent = "Error saving to Firebase: " + error.message + ". Local changes might not be live. Please review.";
+            if (rsgStatusMessage_el_extra) { 
+                rsgStatusMessage_el_extra.textContent = "Error saving to Firebase: " + error.message;
                 rsgStatusMessage_el_extra.style.color = "#e74c3c";
             }
-            // At this point, currentWorkingSchedule_extra reflects the local changes,
-            // but Firebase save failed. The user needs to be aware.
         }
     }
 }
-        // ++ END Route Schedule Generator Functions ++
 
-// ++ Functions for "Schedule This Configuration" -- START ++
         function rsg_closeScheduleDateTimeModal_ExtraPage() {
     const modal = document.getElementById('rsg-schedule-datetime-modal-extra');
     if (modal) modal.style.display = 'none';
@@ -10245,57 +10182,51 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
 }
 
         function handleScheduleThisConfiguration() {
-            console.log("Schedule This Configuration button clicked!");
-            const scheduleModal = document.getElementById('rsg-schedule-datetime-modal-extra');
-            
-            if (!currentUser_extra) {
-                alert("Please log in to schedule configurations.");
-                if (rsgStatusMessage_el_extra) {
-                    rsgStatusMessage_el_extra.textContent = "Please log in.";
-                    rsgStatusMessage_el_extra.style.color = "#e74c3c";
-                }
-                return;
-            }
-
-            if (scheduleModal) {
-                // Perform a pre-check to ensure the current RSG form state can generate a valid preview.
-                // The rsg_handleGenerateSchedulePreview_ExtraPage(true) function itself will set status messages if validation fails.
-                if (!rsg_handleGenerateSchedulePreview_ExtraPage(true)) { // Pass true for isPreCheck
-                    // rsg_handleGenerateSchedulePreview_ExtraPage(true) will already set rsgStatusMessage_el_extra on failure.
-                    // We could add an additional, more direct message here if desired, but it might be redundant.
-                    // e.g., if(rsgStatusMessage_el_extra) rsgStatusMessage_el_extra.textContent = "Cannot schedule: current RSG form is invalid. Please correct and generate a preview.";
-                    return; 
-                }
-                
-                // If pre-check passes (meaning a valid schedule *could* be generated), then proceed to show modal.
-                const modalStatus = document.getElementById('rsg-schedule-datetime-modal-status-extra');
-                if (modalStatus) modalStatus.textContent = ''; // Clear previous modal status
-
-                const goLiveInput = document.getElementById('rsg-go-live-datetime-input-extra');
-                if (goLiveInput) {
-                    const tomorrow = new Date();
-                    tomorrow.setDate(tomorrow.getDate() + 1); // Default to tomorrow
-                    tomorrow.setHours(5, 0, 0, 0); // Default to 05:00 AM (typical service change time)
-                    
-                    const year = tomorrow.getFullYear();
-                    const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
-                    const day = String(tomorrow.getDate()).padStart(2, '0');
-                    const hours = String(tomorrow.getHours()).padStart(2, '0');
-                    const minutes = String(tomorrow.getMinutes()).padStart(2, '0');
-                    goLiveInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
-                }
-                scheduleModal.style.display = 'flex';
-            } else {
-                console.error("Schedule DateTime modal (rsg-schedule-datetime-modal-extra) not found!");
-                if (rsgStatusMessage_el_extra) {
-                     rsgStatusMessage_el_extra.textContent = "Error: Scheduling modal component is missing.";
-                     rsgStatusMessage_el_extra.style.color = "#e74c3c";
-                }
-            }
+    console.log("Schedule This Configuration button clicked!");
+    const scheduleModal = document.getElementById('rsg-schedule-datetime-modal-extra');
+    
+    if (!currentUser_extra) {
+        alert("Please log in to schedule configurations.");
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "Please log in.";
+            rsgStatusMessage_el_extra.style.color = "#e74c3c";
         }
-        // ++ Functions for "Schedule This Configuration" -- END ++
+        return;
+    }
 
-// ++ Scheduled Route Updates (SRU) Functions -- START ++
+    if (scheduleModal) {
+        // Perform a pre-check to ensure the current RSG form state can generate a valid preview.
+        if (!rsg_handleGenerateSchedulePreview_ExtraPage(true)) { // Pass true for isPreCheck
+            // The pre-check function will set its own user-facing error message.
+            return; 
+        }
+        
+        // If pre-check passes, show the modal.
+        const modalStatus = document.getElementById('rsg-schedule-datetime-modal-status-extra');
+        if (modalStatus) modalStatus.textContent = ''; // Clear previous modal status
+
+        const goLiveInput = document.getElementById('rsg-go-live-datetime-input-extra');
+        if (goLiveInput) {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(5, 0, 0, 0); // Default to 05:00 AM
+            
+            const year = tomorrow.getFullYear();
+            const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+            const day = String(tomorrow.getDate()).padStart(2, '0');
+            const hours = String(tomorrow.getHours()).padStart(2, '0');
+            const minutes = String(tomorrow.getMinutes()).padStart(2, '0');
+            goLiveInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+        scheduleModal.style.display = 'flex';
+    } else {
+        console.error("Schedule DateTime modal (rsg-schedule-datetime-modal-extra) not found!");
+        if (rsgStatusMessage_el_extra) {
+             rsgStatusMessage_el_extra.textContent = "Error: Scheduling modal component is missing.";
+             rsgStatusMessage_el_extra.style.color = "#e74c3c";
+        }
+    }
+}
 
         async function loadAndDisplayScheduledUpdates_ExtraPage() {
     const listContainer = document.getElementById('sru-updates-list-container-extra');
@@ -12347,6 +12278,11 @@ function renderUIDependentElements_ExtraPage() {
         updateAuthUI_ExtraPage(null); // Initialize UI for logged-out state
     }
 
+
+    if (dpoSelectAllRoutesButton_el_extra && typeof dpo_selectAllRoutes_ExtraPage === 'function') {
+        dpoSelectAllRoutesButton_el_extra.addEventListener('click', dpo_selectAllRoutes_ExtraPage);
+    }
+
     // --- General UI Listeners ---
     const iphoneTestBtn = document.getElementById('iphoneTestNotificationBtn');
     if (iphoneTestBtn) {
@@ -12632,20 +12568,20 @@ function renderUIDependentElements_ExtraPage() {
         rsgStopSearchInput_el_extra.addEventListener('input', rsg_handleStopSearch_ExtraPage);
     }
     if (rsgGenerateScheduleButton_el_extra && typeof rsg_handleGenerateSchedulePreview_ExtraPage === 'function') {
-        rsgGenerateScheduleButton_el_extra.addEventListener('click', () => rsg_handleGenerateSchedulePreview_ExtraPage(false));
-    }
-    if (rsgSaveConfigurationButton_el_extra && typeof rsg_handleSaveConfiguration_ExtraPage === 'function') {
-        rsgSaveConfigurationButton_el_extra.addEventListener('click', rsg_handleSaveConfiguration_ExtraPage);
-    }
-    if (rsgAddToWorkingScheduleButton_el_extra && typeof rsg_handleAddGeneratedToWorkingSchedule_ExtraPage === 'function') {
-        rsgAddToWorkingScheduleButton_el_extra.addEventListener('click', rsg_handleAddGeneratedToWorkingSchedule_ExtraPage);
-    }
-    if (rsgScheduleThisConfigButton_el_extra && typeof handleScheduleThisConfiguration === 'function') {
-        rsgScheduleThisConfigButton_el_extra.addEventListener('click', handleScheduleThisConfiguration);
-    }
-    if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage === 'function') {
-        rsgScheduleDateTimeConfirmBtn.addEventListener('click', rsg_confirmScheduleGoLive_ExtraPage);
-    }
+    rsgGenerateScheduleButton_el_extra.addEventListener('click', () => rsg_handleGenerateSchedulePreview_ExtraPage(false));
+}
+if (rsgSaveConfigurationButton_el_extra && typeof rsg_handleSaveConfiguration_ExtraPage === 'function') {
+    rsgSaveConfigurationButton_el_extra.addEventListener('click', rsg_handleSaveConfiguration_ExtraPage);
+}
+if (rsgAddToWorkingScheduleButton_el_extra && typeof rsg_handleAddGeneratedToWorkingSchedule_ExtraPage === 'function') {
+    rsgAddToWorkingScheduleButton_el_extra.addEventListener('click', rsg_handleAddGeneratedToWorkingSchedule_ExtraPage);
+}
+if (rsgScheduleThisConfigButton_el_extra && typeof handleScheduleThisConfiguration === 'function') {
+    rsgScheduleThisConfigButton_el_extra.addEventListener('click', handleScheduleThisConfiguration);
+}
+if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage === 'function') {
+    rsgScheduleDateTimeConfirmBtn.addEventListener('click', rsg_confirmScheduleGoLive_ExtraPage);
+}
     if (rsgScheduleDateTimeCancelBtn && typeof rsg_closeScheduleDateTimeModal_ExtraPage === 'function') {
         rsgScheduleDateTimeCancelBtn.addEventListener('click', rsg_closeScheduleDateTimeModal_ExtraPage);
     }

@@ -12406,7 +12406,8 @@ function renderUIDependentElements_ExtraPage() {
             navigator.serviceWorker.register('/live-tracker/sw-omsitoolsextra.js')
                 .then(registration => {
                     console.log('Service Worker registered with scope:', registration.scope);
-                    // No longer call getFCMTokenAndStore here. It will be called from authOnAuthStateChanged.
+                    // Removed direct call to getFCMTokenAndStore from here.
+                    // It will be called from authOnAuthStateChanged once user is confirmed logged in.
                 })
                 .catch(error => {
                     console.error('Service Worker registration failed:', error);
@@ -12545,8 +12546,7 @@ function renderUIDependentElements_ExtraPage() {
         const {
             auth,
             authOnAuthStateChanged,
-            authSignInWithEmailAndPassword,
-            authSignOut
+            // Removed direct imports for getMessaging and getToken here, as they are accessed via window.firebaseOMSI.messaging
         } = window.firebaseOMSI;
 
         authOnAuthStateChanged(auth, async user => { // Made async for await updateAuthUI_ExtraPage
@@ -12554,28 +12554,49 @@ function renderUIDependentElements_ExtraPage() {
                 await updateAuthUI_ExtraPage(user); // Await to ensure data loads before other UI updates
             }
             if (user) { // Only proceed if a user is genuinely logged in
-        console.log("FCM DEBUG: User authenticated. Attempting to get FCM token.");
-        // Ensure the service worker is ready before trying to get the token
-        if ('serviceWorker' in navigator) {
-            try {
-                const registration = await navigator.serviceWorker.ready; // Wait for SW to be active
-                if (registration && typeof getFCMTokenAndStore === 'function') {
-                    await getFCMTokenAndStore(registration); // Call the function to get and store the token
+                console.log("FCM DEBUG: User authenticated. Attempting to get FCM token.");
+                // Ensure the service worker is ready before trying to get the token
+                if ('serviceWorker' in navigator) {
+                    try {
+                        const registration = await navigator.serviceWorker.ready; // Wait for SW to be active
+                        // Check if firebaseOMSI.messaging and fcmGetToken are available before calling
+                        if (registration && typeof getFCMTokenAndStore === 'function' &&
+                            window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken) { 
+                            await getFCMTokenAndStore(registration); // Call the function to get and store the token
+                        } else {
+                            console.warn("FCM DEBUG: Service Worker not ready OR Firebase Messaging/getToken not defined after user login. Retrying FCM token acquisition later.");
+                            // Add a retry mechanism for FCM token acquisition.
+                            // This ensures we don't just give up if a dependency isn't immediately ready.
+                            setTimeout(async () => {
+                                console.log("FCM DEBUG: Retrying FCM token acquisition after delay...");
+                                if (window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken && currentUser_extra) {
+                                    try {
+                                        const retryRegistration = await navigator.serviceWorker.ready;
+                                        if (retryRegistration) {
+                                            await getFCMTokenAndStore(retryRegistration);
+                                        }
+                                    } catch (err) {
+                                        console.error("FCM DEBUG: Error during FCM token retry:", err);
+                                    }
+                                } else {
+                                    console.warn("FCM DEBUG: FCM or currentUser still not ready after retry delay.");
+                                }
+                            }, 3000); // Retry after 3 seconds
+                        }
+                    } catch (err) {
+                        console.error("FCM DEBUG: Error waiting for Service Worker ready:", err);
+                    }
                 } else {
-                    console.warn("FCM DEBUG: Service Worker not ready or getFCMTokenAndStore not defined after user login.");
+                    console.warn("FCM DEBUG: Service Worker not supported in this browser.");
                 }
-            } catch (err) {
-                console.error("FCM DEBUG: Error waiting for Service Worker ready:", err);
+            } else {
+                console.log("FCM DEBUG: User logged out. Skipping FCM token acquisition.");
+                // If a user logs out, you might want to delete their FCM token from Firebase
+                // (This is more complex and depends on how you want to manage tokens, but a good practice)
             }
-        } else {
-            console.warn("FCM DEBUG: Service Worker not supported in this browser.");
-        }
-    } else {
-        console.log("FCM DEBUG: User logged out. Skipping FCM token acquisition.");
-        // If a user logs out, you might want to delete their FCM token from Firebase
-        // (This is more complex and depends on how you want to manage tokens, but a good practice)
-    }
 
+            // This part handles auto-generating a new stop ID if the user is logged in
+            // and the input fields for new stop name and ID are empty.
             if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
                 !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
                 typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {

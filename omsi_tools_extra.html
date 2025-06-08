@@ -1389,38 +1389,47 @@ const sruCancelAllGlobalStatusMessage_el_extra = document.getElementById('sru-ca
             return text.replace(/[.#$[\]]/g, '_');
         }
 
-// Your VAPID Public Key - replace with the key you provided
-const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; //
+// Your VAPID Public Key - this is the key you provided earlier
+const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; 
 
 async function getFCMTokenAndStore() {
     if (!currentUser_extra || !window.firebaseOMSI || !window.firebaseOMSI.messaging || !window.firebaseOMSI.fcmGetToken) {
-        console.warn("FCM: User not logged in, Firebase Messaging, or getToken function not available.");
+        console.warn("FCM: User not logged in, Firebase Messaging, or getToken function not available. Cannot get token.");
         return;
     }
 
     try {
         const messaging = window.firebaseOMSI.messaging;
 
-        // Register the service worker FIRST, explicitly using the correct path.
-        // This is crucial if your service worker is NOT in the root directory.
-        const serviceWorkerRegistration = await navigator.serviceWorker.register('https://076189.github.io/live-tracker/sw-omsitoolsextra.js');
-        console.log('Service Worker registered with scope: ', serviceWorkerRegistration.scope);
+        // Register the service worker explicitly with its correct path relative to the domain root.
+        // This is crucial if your service worker is NOT in the root directory (which it isn't, it's in /live-tracker/)
+        // We've added .then() and .catch() to log the exact outcome of the registration attempt.
+        const serviceWorkerRegistration = await navigator.serviceWorker.register('/live-tracker/sw-omsitoolsextra.js')
+            .then(reg => {
+                console.log('SW Registration SUCCESS:', reg); // Success log
+                return reg;
+            })
+            .catch(err => {
+                console.error('SW Registration FAILED:', err); // Failure log
+                throw err; // Re-throw to stop token acquisition
+            });
 
-        // Get registration token. Pass in the service worker registration and the VAPID key.
+        console.log('Service Worker registered with scope: ', serviceWorkerRegistration.scope); // This log will only happen on successful registration
+
+        // Get registration token. Pass in the messaging instance, the service worker registration, and the VAPID key.
         const currentToken = await window.firebaseOMSI.fcmGetToken(messaging, {
-            serviceWorkerRegistration: serviceWorkerRegistration, // Use the registration object
-            vapidKey: VAPID_PUBLIC_KEY //
+            serviceWorkerRegistration: serviceWorkerRegistration,
+            vapidKey: VAPID_PUBLIC_KEY
         });
 
         if (currentToken) {
             console.log('FCM Registration Token:', currentToken);
             const { database, dbSet, dbRef } = window.firebaseOMSI;
-            // Store tokens under a 'fcmTokens' path, keyed by user ID, then token ID (for multiple devices or to simplify lookup)
-            // It's often good to store the token itself as the key if you might have multiple per user.
-            await dbSet(dbRef(database, `fcmTokens/${currentUser_extra.uid}/${currentToken}`), true); //
-            console.log('FCM token stored in Firebase for user:', currentUser_extra.uid); //
+            // Store tokens under a 'fcmTokens' path, keyed by user ID, then token ID.
+            await dbSet(dbRef(database, `fcmTokens/${currentUser_extra.uid}/${currentToken}`), true);
+            console.log('FCM token stored in Firebase for user:', currentUser_extra.uid);
 
-            // Handle receiving foreground messages (when the page is open and focused)
+            // OPTIONAL: Handle receiving foreground messages (when the page is open and focused)
             window.firebaseOMSI.fcmOnMessage(messaging, (payload) => {
                 console.log('Foreground message received. ', payload);
                 // You can show an in-app notification or a native notification here
@@ -1428,14 +1437,15 @@ async function getFCMTokenAndStore() {
             });
 
         } else {
-            console.warn('No FCM registration token available. Ensure permission is granted and service worker is registered.');
+            console.warn('No FCM registration token available. This can happen if permission is denied, or if the service worker failed to register.');
         }
     } catch (err) {
-        console.error('An error occurred while retrieving FCM token:', err);
-        if (Notification.permission === 'default') {
-            alert('To receive alerts even when offline, please enable notifications when prompted by the browser.');
-        } else if (Notification.permission === 'denied') {
-            alert('Notifications are blocked. Please enable them in your browser settings to receive alerts.');
+        console.error('An error occurred during FCM token acquisition process:', err);
+        // Provide user feedback if the token acquisition fails after permission is granted
+        if (Notification.permission === 'granted') { 
+             alert('Error setting up push notifications: ' + err.message + '. Please ensure your browser supports them and try again.');
+        } else if (Notification.permission === 'default') { 
+             alert('To receive alerts even when offline, please enable notifications when prompted by the browser.');
         }
     }
 }

@@ -1967,14 +1967,13 @@ async function requestNotificationPermission() {
     const currentPermission = Notification.permission;
 
     if (currentPermission === "granted") {
-        // Permission is already granted, you could optionally show a gentle confirmation.
-        // For example: showNativeNotification("OMSI Tools", "Desktop notifications are already enabled.", '/live-tracker/assets/icons/icon-192x192.png');
-        // Or simply do nothing if you only want the test on initial grant.
         localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
         console.log("Notification permission was already granted.");
-        // Show a test notification if it wasn't shown before for this session upon granting
+        // Call getFCMTokenAndStore() even if permission was pre-granted
+        // This is where you trigger the token acquisition process.
+        await getFCMTokenAndStore(); // <--- ADD THIS LINE
         if (typeof showNativeNotification === 'function') {
-             showNativeNotification("OMSI Tools Notifications", "Desktop alerts are active!", '/live-tracker/assets/icons/icon-192x192.png'); // Replace with your icon path or ''
+             showNativeNotification("OMSI Tools Notifications", "Desktop alerts are active!", '/live-tracker/assets/icons/icon-192x192.png');
         }
         return "granted";
     }
@@ -1986,7 +1985,6 @@ async function requestNotificationPermission() {
     }
 
     // If permission is "default" (i.e., not yet granted or denied)
-    // This is where the browser will show its Allow/Block prompt
     const permissionResult = await Notification.requestPermission();
 
     if (permissionResult === "granted") {
@@ -1994,12 +1992,15 @@ async function requestNotificationPermission() {
         console.log("Notification permission granted by user.");
         alert("Desktop notifications have been enabled!"); // An in-page alert confirming
 
-        // *** Trigger a test desktop notification immediately ***
+        // Call getFCMTokenAndStore() when permission is newly granted
+        await getFCMTokenAndStore(); // <--- ADD THIS LINE
+
+        // Trigger a test desktop notification immediately
         if (typeof showNativeNotification === 'function') {
             showNativeNotification(
-                "OMSI Tools Notifications", // Title of the notification
-                "Test successful! You will now receive desktop alerts.", // Body of the notification
-                '' // IMPORTANT: Replace with a VALID icon path or use '' for no icon
+                "OMSI Tools Notifications",
+                "Test successful! You will now receive desktop alerts.",
+                ''
             );
         } else {
             console.error("showNativeNotification function is not defined. Cannot show test alert.");

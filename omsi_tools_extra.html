@@ -1141,9 +1141,6 @@
           authOnAuthStateChanged: onAuthStateChanged,
           authSignInWithEmailAndPassword: signInWithEmailAndPassword,
           authSignOut: signOut
-          messaging: messaging, // Assign the messaging instance
-          fcmGetToken: getToken, // Assign the getToken function
-          fcmOnMessage: onMessage
       };
       document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebaseOMSI }));
     </script>
@@ -12405,20 +12402,17 @@ function renderUIDependentElements_ExtraPage() {
         document.addEventListener('DOMContentLoaded', () => {
     console.log("OMSI Tools Extra DOMContentLoaded");
     if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/live-tracker/sw-omsitoolsextra.js')
-                    .then(registration => { // <-- This 'registration' object is what we need
-                        console.log('Service Worker registered with scope:', registration.scope);
-                        // NEW: Call getFCMTokenAndStore here for immediate token acquisition upon SW activation
-                        if (currentUser_extra) { // Only attempt if a user is logged in
-                            getFCMTokenAndStore(registration); // Pass the registration object
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Service Worker registration failed:', error);
-                    });
-            });
-        }
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/live-tracker/sw-omsitoolsextra.js')
+                .then(registration => {
+                    console.log('Service Worker registered with scope:', registration.scope);
+                    // No longer call getFCMTokenAndStore here. It will be called from authOnAuthStateChanged.
+                })
+                .catch(error => {
+                    console.error('Service Worker registration failed:', error);
+                });
+        });
+    }
 
 
     if (dpoSelectAllRoutesButton_el_extra && typeof dpo_selectAllRoutes_ExtraPage === 'function') {
@@ -12559,9 +12553,29 @@ function renderUIDependentElements_ExtraPage() {
             if (typeof updateAuthUI_ExtraPage === 'function') {
                 await updateAuthUI_ExtraPage(user); // Await to ensure data loads before other UI updates
             }
-            // This auto-suggest logic should ideally run *after* data loading within updateAuthUI_ExtraPage is complete.
-            // updateAuthUI_ExtraPage calls loadInitialData, which then calls renderUIDependentElements.
-            // For now, this placement is okay but keep an eye on timing if issues arise.
+            if (user) { // Only proceed if a user is genuinely logged in
+        console.log("FCM DEBUG: User authenticated. Attempting to get FCM token.");
+        // Ensure the service worker is ready before trying to get the token
+        if ('serviceWorker' in navigator) {
+            try {
+                const registration = await navigator.serviceWorker.ready; // Wait for SW to be active
+                if (registration && typeof getFCMTokenAndStore === 'function') {
+                    await getFCMTokenAndStore(registration); // Call the function to get and store the token
+                } else {
+                    console.warn("FCM DEBUG: Service Worker not ready or getFCMTokenAndStore not defined after user login.");
+                }
+            } catch (err) {
+                console.error("FCM DEBUG: Error waiting for Service Worker ready:", err);
+            }
+        } else {
+            console.warn("FCM DEBUG: Service Worker not supported in this browser.");
+        }
+    } else {
+        console.log("FCM DEBUG: User logged out. Skipping FCM token acquisition.");
+        // If a user logs out, you might want to delete their FCM token from Firebase
+        // (This is more complex and depends on how you want to manage tokens, but a good practice)
+    }
+
             if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
                 !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
                 typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {

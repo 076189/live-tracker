@@ -1,9 +1,12 @@
 const CACHE_NAME = 'live-tracker-cache-v1';
 const urlsToCache = [
-  '/live-tracker/tools.html',
-  '/live-tracker/tracker.html',
-  '/live-tracker/style.css', // Example CSS file
-  '/live-tracker/script.js', // Example JS file
+  '/076189/live-tracker/live-tracker-b22742a107f91303504b3f0686f482c9b45481ed/tools.html',
+  '/076189/live-tracker/live-tracker-b22742a107f91303504b3f0686f482c9b45481ed/tracker.html',
+  // You mentioned style.css and script.js, but these were not in the provided file list with a full path.
+  // Please adjust these paths if they are in different subdirectories or uncomment if they exist at the base path.
+  // If these files exist in the same directory as tools.html and tracker.html, use the following:
+  // '/076189/live-tracker/live-tracker-b22742a107f91303504b3f0686f482c9b45481ed/style.css',
+  // '/076189/live-tracker/live-tracker-b22742a107f91303504b3f0686f482c9b45481ed/script.js',
 ];
 
 // Install event: Cache the static resources
@@ -12,6 +15,9 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then((cache) => {
       console.log('Opened cache');
       return cache.addAll(urlsToCache);
+    }).catch((error) => {
+      console.error('Failed to add URLs to cache:', error);
+      // Log the specific URL that failed if possible or check browser's network tab
     })
   );
 });

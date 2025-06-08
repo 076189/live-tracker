@@ -140,32 +140,28 @@ self.addEventListener('fetch', event => {
 // --- START: Firebase Cloud Messaging (FCM) Push Event Handlers ---
 
 // Handle incoming background messages (when your app is not in focus or closed)
-// Firebase's SDK automatically handles displaying the 'notification' payload.
-// Use this handler if you need to process 'data' payloads or override the default notification display.
 messaging.onBackgroundMessage(function(payload) {
     console.log('[sw-omsitoolsextra.js] Received background message ', payload);
 
-    // If a notification payload is present (like from Firebase Console "Notifications" tab),
-    // FCM will *automatically* display it. No need to call self.registration.showNotification() here
-    // for notification payloads, unless you want to deeply customize it and override FCM's default.
-    if (payload.notification) {
-        console.log('[sw-omsitoolsextra.js] Notification payload received. FCM will auto-display this notification.');
-        // If you need custom data from the notification payload for click actions,
-        // it's already available in event.notification.data (set by FCM).
-        // If you had *only* a 'data' payload and wanted to show a notification, you'd do it here.
-        // For now, no action needed for payload.notification here to prevent double display.
-    } else if (payload.data) {
-        // This block is specifically for 'data-only' messages, where you MUST manually show notification.
-        console.log('[sw-omsitoolsextra.js] Data payload received, displaying manually.');
-        const notificationTitle = payload.data.title || 'New Data Alert';
-        const notificationOptions = {
-            body: payload.data.body || 'You have new information.',
-            icon: payload.data.icon || '/live-tracker/assets/icons/icon-192x192.png', // Default icon
-            badge: payload.data.badge || '/live-tracker/assets/icons/badge-72x72.png', // Optional: badge icon for Android
-            data: payload.data, // Attach full data payload for click handling
-        };
-        self.registration.showNotification(notificationTitle, notificationOptions);
-    }
+    // Default values if title/body/icon are not directly in payload.notification or payload.data
+    const notificationTitle = payload.notification?.title || payload.data?.title || 'OMSI Tools Alert';
+    const notificationBody = payload.notification?.body || payload.data?.body || 'New scheduled update or departure information.';
+    const notificationIcon = payload.notification?.icon || payload.data?.icon || '/live-tracker/assets/icons/icon-192x192.png';
+    const notificationImage = payload.notification?.image || payload.data?.image; // Optional image
+
+    const notificationOptions = {
+        body: notificationBody,
+        icon: notificationIcon,
+        image: notificationImage,
+        badge: payload.data?.badge || '/live-tracker/assets/icons/badge-72x72.png', // Optional: badge icon for Android
+        data: payload.data || payload.notification // Attach the full data/notification payload for click handling
+    };
+
+    // --- CRITICAL FIX: Explicitly show the notification ---
+    // FCM SDK provides the payload, but the Service Worker must call showNotification.
+    event.waitUntil(
+        self.registration.showNotification(notificationTitle, notificationOptions)
+    );
 });
 
 

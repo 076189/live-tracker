@@ -1,4 +1,4 @@
-// sw-omsi.js
+// sw-omsitoolsextra.js
 const CACHE_NAME = 'omsi-tools-extra-cache-v1'; // NEW cache name
 const urlsToCache = [
   // Paths are absolute from the domain root (076189.github.io)

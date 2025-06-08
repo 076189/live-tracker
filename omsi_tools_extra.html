@@ -1959,61 +1959,72 @@ function checkNotificationPermission() {
 }
 
 async function requestNotificationPermission() {
+    // Check if Notification API is supported by the browser
     if (!("Notification" in window)) {
         alert("This browser does not support desktop notifications.");
         return "unsupported";
     }
 
-    const currentPermission = Notification.permission;
+    const currentPermission = Notification.permission; // Get the current notification permission status
 
+    // If permission is already granted
     if (currentPermission === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store preference
         console.log("Notification permission was already granted.");
-        // Call getFCMTokenAndStore() even if permission was pre-granted
-        // This is where you trigger the token acquisition process.
-        await getFCMTokenAndStore(); // <--- ADD THIS LINE
+
+        // --- NEW/MODIFIED CODE HERE ---
+        // If permission is already granted, we still want to try to get the FCM token.
+        // This is the call that was previously missed.
+        await getFCMTokenAndStore(); // Attempt to get and store the FCM token
+        // --- END NEW/MODIFIED CODE ---
+
+        // Show a native test notification confirming alerts are active
         if (typeof showNativeNotification === 'function') {
              showNativeNotification("OMSI Tools Notifications", "Desktop alerts are active!", '/live-tracker/assets/icons/icon-192x192.png');
         }
-        return "granted";
+        return "granted"; // Indicate that permission is granted
     }
 
+    // If permission was previously denied
     if (currentPermission === "denied") {
         alert("Notification permission was previously denied. To enable, please go to your browser's site settings and allow notifications for this page.");
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
-        return "denied";
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store preference
+        return "denied"; // Indicate that permission is denied
     }
 
-    // If permission is "default" (i.e., not yet granted or denied)
-    const permissionResult = await Notification.requestPermission();
+    // If permission is "default" (user hasn't explicitly granted or denied yet)
+    const permissionResult = await Notification.requestPermission(); // Request permission from the user
 
+    // If permission is now granted after the prompt
     if (permissionResult === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store preference
         console.log("Notification permission granted by user.");
-        alert("Desktop notifications have been enabled!"); // An in-page alert confirming
+        alert("Desktop notifications have been enabled!"); // Inform user
 
-        // Call getFCMTokenAndStore() when permission is newly granted
-        await getFCMTokenAndStore(); // <--- ADD THIS LINE
+        // --- NEW/MODIFIED CODE HERE ---
+        // If permission is newly granted, also get the FCM token.
+        await getFCMTokenAndStore(); // Attempt to get and store the FCM token
+        // --- END NEW/MODIFIED CODE ---
 
-        // Trigger a test desktop notification immediately
+        // Trigger a native test notification immediately upon successful granting
         if (typeof showNativeNotification === 'function') {
             showNativeNotification(
-                "OMSI Tools Notifications",
-                "Test successful! You will now receive desktop alerts.",
-                ''
+                "OMSI Tools Notifications", // Notification title
+                "Test successful! You will now receive desktop alerts.", // Notification body
+                '' // Icon path
             );
         } else {
             console.error("showNativeNotification function is not defined. Cannot show test alert.");
         }
-        return "granted";
-    } else if (permissionResult === "denied") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
+        return "granted"; // Indicate that permission is granted
+    } else if (permissionResult === "denied") { // If permission is denied after prompt
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store preference
         alert("Desktop notifications were denied. You can change this in your browser's site settings.");
-        return "denied";
-    } else { // Usually means "default" - user dismissed the prompt
-        localStorage.removeItem('desktopNotificationPreference_omsiExtra');
+        return "denied"; // Indicate that permission is denied
+    } else { // User dismissed the prompt
+        localStorage.removeItem('desktopNotificationPreference_omsiExtra'); // Remove preference
         alert("Notification permission request dismissed or not acted upon.");
-        return "default";
+        return "default"; // Indicate default state
     }
 }
 

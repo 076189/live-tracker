@@ -1459,21 +1459,41 @@ async function getFCMTokenAndStore(serviceWorkerRegistration) {
         });
 
         if (currentToken) {
-            console.log('FCM Registration Token:', currentToken); // THIS IS THE LOG YOU ARE LOOKING FOR
+            console.log('FCM Registration Token:', currentToken);
             const { database, dbSet, dbRef } = window.firebaseOMSI;
             // Store tokens under a 'fcmTokens' path, keyed by user ID, then token ID.
             await dbSet(dbRef(database, `fcmTokens/${currentUser_extra.uid}/${currentToken}`), true);
             console.log('FCM token stored in Firebase for user:', currentUser_extra.uid);
 
-            // OPTIONAL: Handle receiving foreground messages (when the page is open and focused)
-            // This function will automatically use the messaging instance from above.
+            // Handle receiving foreground messages (when the page is open and focused)
             if (window.firebaseOMSI.fcmOnMessage) {
                 window.firebaseOMSI.fcmOnMessage(messaging, (payload) => {
-                    console.log('Foreground message received. ', payload);
-                    showNativeNotification(payload.notification.title, payload.notification.body, payload.notification.icon);
+                    // NEW: Distinct log for onMessage listener activation
+                    console.log('FCM DEBUG: *** FOREGROUND MESSAGE RECEIVED BY onMessage LISTENER *** ', payload);
+                    
+                    const notificationTitle = payload.notification.title;
+                    const notificationBody = payload.notification.body;
+                    const notificationIcon = payload.notification.icon || '/live-tracker/assets/icons/icon-192x192.png';
+
+                    // 1. Always show the in-page banner (reliable foreground feedback)
+                    if (typeof showTripAlertPopup_ExtraPage === 'function') {
+                        console.log('FCM DEBUG: Calling showTripAlertPopup_ExtraPage for in-page banner.');
+                        showTripAlertPopup_ExtraPage(`${notificationTitle}: ${notificationBody}`, 'info');
+                    } else {
+                        console.warn("FCM DEBUG: showTripAlertPopup_ExtraPage function not found for foreground handling.");
+                    }
+
+                    // 2. Attempt to show the native notification as well (might be suppressed by browser/OS for active tabs)
+                    if (typeof showNativeNotification === 'function') {
+                        console.log('FCM DEBUG: Calling showNativeNotification for OS-level pop-up.');
+                        showNativeNotification(notificationTitle, notificationBody, notificationIcon);
+                    } else {
+                        console.warn("FCM DEBUG: showNativeNotification function not found for foreground handling.");
+                    }
+                    
                 });
             } else {
-                console.warn("FCM DEBUG: window.firebaseOMSI.fcmOnMessage is not defined.");
+                console.warn("FCM DEBUG: window.firebaseOMSI.fcmOnMessage is not defined (should not happen now).");
             }
 
         } else {

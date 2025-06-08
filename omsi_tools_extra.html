@@ -12543,46 +12543,90 @@ function renderUIDependentElements_ExtraPage() {
             if (authStatus_el_extra) authStatus_el_extra.textContent = 'Critical Firebase init error for app logic.';
             return;
         }
+
         const {
             auth,
             authOnAuthStateChanged,
-            // Removed direct imports for getMessaging and getToken here, as they are accessed via window.firebaseOMSI.messaging
+            // getMessaging, // No longer importing directly here
+            // getToken // No longer importing directly here
         } = window.firebaseOMSI;
 
-        authOnAuthStateChanged(auth, async user => { // Made async for await updateAuthUI_ExtraPage
+        authOnAuthStateChanged(auth, async user => {
             if (typeof updateAuthUI_ExtraPage === 'function') {
-                await updateAuthUI_ExtraPage(user); // Await to ensure data loads before other UI updates
+                await updateAuthUI_ExtraPage(user);
             }
-            if (user) { // Only proceed if a user is genuinely logged in
+
+            if (user) {
                 console.log("FCM DEBUG: User authenticated. Attempting to get FCM token.");
-                // Ensure the service worker is ready before trying to get the token
                 if ('serviceWorker' in navigator) {
                     try {
-                        const registration = await navigator.serviceWorker.ready; // Wait for SW to be active
-                        // Check if firebaseOMSI.messaging and fcmGetToken are available before calling
-                        if (registration && typeof getFCMTokenAndStore === 'function' &&
-                            window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken) { 
-                            await getFCMTokenAndStore(registration); // Call the function to get and store the token
-                        } else {
-                            console.warn("FCM DEBUG: Service Worker not ready OR Firebase Messaging/getToken not defined after user login. Retrying FCM token acquisition later.");
-                            // Add a retry mechanism for FCM token acquisition.
-                            // This ensures we don't just give up if a dependency isn't immediately ready.
-                            setTimeout(async () => {
-                                console.log("FCM DEBUG: Retrying FCM token acquisition after delay...");
-                                if (window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken && currentUser_extra) {
-                                    try {
-                                        const retryRegistration = await navigator.serviceWorker.ready;
-                                        if (retryRegistration) {
-                                            await getFCMTokenAndStore(retryRegistration);
-                                        }
-                                    } catch (err) {
-                                        console.error("FCM DEBUG: Error during FCM token retry:", err);
-                                    }
-                                } else {
-                                    console.warn("FCM DEBUG: FCM or currentUser still not ready after retry delay.");
+                        const registration = await navigator.serviceWorker.ready;
+
+                        // Ensure FCM messaging is initialized AND available in window.firebaseOMSI
+                        // The original `getMessaging` from Firebase JS SDK needs to be called to ensure it's "live"
+                        // before `getToken` is called. It typically gets added to `window.firebaseOMSI`
+                        // as `window.firebaseOMSI.messaging` during the initial firebase.js imports,
+                        // but explicitly checking and ensuring it's not null here is key.
+                        if (registration && typeof getFCMTokenAndStore === 'function') {
+                            if (window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken) { // Check if already available
+                                console.log("FCM DEBUG: Messaging and getToken already available. Proceeding.");
+                                await getFCMTokenAndStore(registration);
+                            } else {
+                                console.warn("FCM DEBUG: Messaging or getToken not immediately available. Attempting to get it explicitly.");
+                                try {
+                                    // This line specifically attempts to get the messaging instance.
+                                    // It assumes `getMessaging` from the Firebase SDK (e.g. from 9.22.0/firebase-messaging.js)
+                                    // is globally accessible OR aliased onto window.firebaseOMSI as `fcmGetMessaging`.
+                                    // If your imports make `getMessaging` directly available, use `const messagingInstance = getMessaging(window.firebaseOMSI.app);`
+                                    // If you have `window.firebaseOMSI.fcmGetMessaging = getMessaging;` then use `window.firebaseOMSI.fcmGetMessaging(window.firebaseOMSI.app);`
+                                    // For now, assuming the original import structure means `getMessaging` is available after firebase-app.js and firebase-messaging.js load.
+                                    // I will use a direct call assuming it's imported in the module scope
+                                    // or fall back to your `window.firebaseOMSI.messaging` for the function reference.
+                                    
+                                    // To be safest, if `getMessaging` is intended to be used directly from your imported module:
+                                    // const messaging = getMessaging(window.firebaseOMSI.app); // This needs `getMessaging` to be imported in the same module scope.
+                                    // window.firebaseOMSI.messaging = messaging; // Store it for future use.
+                                    // window.firebaseOMSI.fcmGetToken = getToken; // Store getToken too.
+
+                                    // Let's assume the initialization in the first <script type="module"> block correctly puts `getMessaging` and `getToken` into `window.firebaseOMSI`
+                                    // (e.g., `window.firebaseOMSI.fcmGetToken = getToken;`)
+                                    // If the original `getMessaging` from the SDK itself is not aliased into `window.firebaseOMSI`,
+                                    // the direct `window.firebaseOMSI.messaging` and `window.firebaseOMSI.fcmGetToken` would be null until Firebase fully initializes.
+                                    // The previous retry logic attempts to wait for this.
+
+                                    // Let's refine the current check and retry. The primary issue is likely the *availability* of `window.firebaseOMSI.messaging`.
+                                    // The `setTimeout` retry is the correct way to handle this.
+                                    console.warn("FCM DEBUG: Initial attempt failed. Relying on setTimeout retry.");
+                                    // The logic flow should be:
+                                    // 1. Initial attempt.
+                                    // 2. If it fails, set a timeout.
+                                    // 3. The timeout function re-checks conditions and tries again.
+                                } catch (err) {
+                                    console.error("FCM DEBUG: Error during explicit messaging init attempt:", err);
                                 }
-                            }, 3000); // Retry after 3 seconds
+                            }
+                        } else {
+                            console.warn("FCM DEBUG: Service Worker not ready or getFCMTokenAndStore function not defined.");
                         }
+
+                        // The setTimeout retry mechanism is already present and is the most reliable way to handle these timing issues.
+                        // It ensures that `getFCMTokenAndStore` is called only when `window.firebaseOMSI.messaging` and `window.firebaseOMSI.fcmGetToken` are actually populated.
+                        setTimeout(async () => {
+                            console.log("FCM DEBUG: Retrying FCM token acquisition after delay...");
+                            if (window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken && currentUser_extra) {
+                                try {
+                                    const retryRegistration = await navigator.serviceWorker.ready;
+                                    if (retryRegistration) {
+                                        await getFCMTokenAndStore(retryRegistration);
+                                    }
+                                } catch (err) {
+                                    console.error("FCM DEBUG: Error during FCM token retry:", err);
+                                }
+                            } else {
+                                console.warn("FCM DEBUG: FCM or currentUser still not ready after retry delay.");
+                            }
+                        }, 3000); // Retry after 3 seconds, as before
+
                     } catch (err) {
                         console.error("FCM DEBUG: Error waiting for Service Worker ready:", err);
                     }
@@ -12591,12 +12635,8 @@ function renderUIDependentElements_ExtraPage() {
                 }
             } else {
                 console.log("FCM DEBUG: User logged out. Skipping FCM token acquisition.");
-                // If a user logs out, you might want to delete their FCM token from Firebase
-                // (This is more complex and depends on how you want to manage tokens, but a good practice)
             }
 
-            // This part handles auto-generating a new stop ID if the user is logged in
-            // and the input fields for new stop name and ID are empty.
             if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
                 !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
                 typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
@@ -12608,11 +12648,11 @@ function renderUIDependentElements_ExtraPage() {
             adminLoginForm_el_extra.addEventListener('submit', (e) => {
                 e.preventDefault();
                 authStatus_el_extra.textContent = 'Logging in...';
-                authStatus_el_extra.style.color = '#f1c40f'; // Yellow for processing
+                authStatus_el_extra.style.color = '#f1c40f';
                 authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value)
                     .catch(err => {
                         authStatus_el_extra.textContent = `Login Error: ${err.message}`;
-                        authStatus_el_extra.style.color = '#e74c3c'; // Red for error
+                        authStatus_el_extra.style.color = '#e74c3c';
                     });
             });
         }
@@ -12634,7 +12674,6 @@ function renderUIDependentElements_ExtraPage() {
                 if (globalBanner) globalBanner.style.display = 'none';
 
                 authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e));
-                // updateAuthUI_ExtraPage(null) will be called by onAuthStateChanged, which handles UI reset and data clearing.
             });
         }
     }

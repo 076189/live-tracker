@@ -1113,135 +1113,35 @@
 
     </div>
 <script type="module">
-      // Firebase Configuration (ensure this is identical to your existing config)
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+      import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+      import { getDatabase, ref, set, onValue, get, child, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
       const firebaseConfig = {
-        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
-        authDomain: "omsi-c5505.firebaseapp.com",
-        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app",
-        projectId: "omsi-c5505",
-        storageBucket: "omsi-c5505.appspot.com",
-        messagingSenderId: "503595375440",
-        appId: "1:503595375440:web:356be6684b77ff5909ea55",
-        measurementId: "G-VN7X65V3F9"
+        apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", // Replace with your actual Firebase API Key
+        authDomain: "omsi-c5505.firebaseapp.com", // Replace with your actual Firebase Auth Domain
+        databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", // Replace with your actual Firebase Database URL
+        projectId: "omsi-c5505", // Replace with your actual Firebase Project ID
+        storageBucket: "omsi-c5505.appspot.com", // Replace with your actual Firebase Storage Bucket
+        messagingSenderId: "503595375440", // Replace with your actual Firebase Messaging Sender ID
+        appId: "1:503595375440:web:356be6684b77ff5909ea55", // Replace with your actual Firebase App ID
+        measurementId: "G-VN7X65V3F9" // Replace with your actual Firebase Measurement ID
       };
 
-      // Import the compatibility versions of Firebase libraries.
-      // These imports modify the global 'firebase' object.
-      // We are not using named imports here.
-      import "https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js";
-      import "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js";
-      import "https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js";
-      import "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js";
+      const app = initializeApp(firebaseConfig);
+      const database = getDatabase(app);
+      const auth = getAuth(app);
 
-      // Initialize Firebase App instance using the global 'firebase' object
-      // This 'app' variable will be the single instance used throughout.
-      const app = firebase.initializeApp(firebaseConfig);
-
-      // Get service instances directly from the 'app' object, or the 'firebase' global if preferred
-      // Using 'app.auth()', 'app.database()', 'app.messaging()' is generally cleaner.
-      const auth = app.auth();
-      const database = app.database();
-      const messaging = app.messaging();
-
-      // Expose Firebase objects and functions globally if needed by other scripts
-      // or for easier access in other parts of this file.
       window.firebaseOMSI = {
-          app: app, // Expose the app instance itself
-          database: database, // Directly expose the database instance
-          auth: auth,
-          messaging: messaging,
-
-          // Helper functions mapping to the compat SDK methods
-          // Use an arrow function for dbRef to correctly capture 'database' instance
-          // For dbChild, take the baseRef as an argument and call .child() on it
-          dbRef: (path = '/') => database.ref(path), // Creates a new reference. Default to root.
-          dbSet: function(ref, value) { return ref.set(value); },
-          dbOnValue: function(ref, callback) { return ref.on('value', callback); },
-          dbGet: function(ref) { return ref.once('value'); },
-          dbChild: function(baseRef, path) { return baseRef.child(path); }, // 'baseRef' must be a Firebase Reference object
-          dbUpdate: function(ref, updates) { return ref.update(updates); },
-          dbRemove: function(ref) { return ref.remove(); },
-
-          authOnAuthStateChanged: auth.onAuthStateChanged.bind(auth),
-          authSignInWithEmailAndPassword: auth.signInWithEmailAndPassword.bind(auth),
-          authSignOut: auth.signOut.bind(auth),
+          database: database, auth: auth,
+          dbRef: ref, dbSet: set, dbOnValue: onValue, dbGet: get,
+          dbChild: child, dbUpdate: update, dbRemove: remove,
+          authOnAuthStateChanged: onAuthStateChanged,
+          authSignInWithEmailAndPassword: signInWithEmailAndPassword,
+          authSignOut: signOut
       };
       document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebaseOMSI }));
-
-      //
-      // --- New Push Notification Subscription Function (for omsi_tools_extra.html) ---
-      // This part should be within the same script type="module" block or in a separate script tag
-      // that is loaded after this module script.
-      //
-      async function subscribeUserToPush() {
-          if (!("Notification" in window)) {
-              alert("This browser does not support desktop notifications.");
-              return;
-          }
-          if (!('serviceWorker' in navigator)) {
-              alert("This browser does not support Service Workers, which are required for push notifications.");
-              return;
-          }
-          if (Notification.permission === "denied") {
-              alert("Notification permission was previously denied. Please enable it in your browser settings for this site.");
-              return;
-          }
-
-          try {
-              const registration = await navigator.serviceWorker.ready;
-              console.log("Service Worker ready for push subscription.");
-
-              const VAPID_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; // Your PUBLIC VAPID key
-
-              // Use messaging instance directly with its getToken method
-              const token = await messaging.getToken({ vapidKey: VAPID_KEY });
-              console.log("FCM Registration Token:", token);
-
-              // OPTIONAL: Send this token to your Firebase Realtime Database
-              if (window.currentUser_extra && window.firebaseOMSI && window.firebaseOMSI.dbSet) {
-                  const userId = window.currentUser_extra.uid;
-                  await window.firebaseOMSI.dbSet(window.firebaseOMSI.dbRef(`fcmTokens/${userId}/${token.replace(/\./g, '_')}`), true);
-                  console.log("FCM token saved to Firebase RTDB for user:", userId);
-              }
-
-              alert("Desktop notifications enabled and subscribed!");
-              // Use showNativeNotification from the existing global scope if defined
-              if (typeof showNativeNotification === 'function') {
-                  showNativeNotification("OMSI Tools", "You are now subscribed to notifications!", '/live-tracker/assets/icons/icon-192x192.png');
-              }
-
-          } catch (err) {
-              console.error('Error subscribing to push notifications:', err);
-              alert(`Error subscribing to notifications: ${err.message}. Check console for details.`);
-          }
-      }
-
-      // Handle incoming messages while the app is in the foreground
-      // Use onMessage method directly from the messaging instance
-      messaging.onMessage((payload) => {
-          console.log('Foreground Message received. ', payload);
-          const notificationTitle = payload.notification.title || 'New Notification';
-          const notificationOptions = {
-              body: payload.notification.body,
-              icon: payload.notification.icon || '/live-tracker/assets/icons/icon-192x192.png'
-          };
-          new Notification(notificationTitle, notificationOptions);
-      });
-
-      // Export functions needed globally
-      window.subscribeUserToPush = subscribeUserToPush; // Make subscribeUserToPush globally accessible
-
-      // Service Worker Registration (Added/Updated)
-      if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.register('/sw-omsitoolsextra.js')
-              .then((registration) => {
-                  console.log('Service Worker registered with scope: ', registration.scope);
-              })
-              .catch((error) => {
-                  console.error('Service Worker registration failed: ', error);
-              });
-      }
-</script>
+    </script>
 
 <script>
 // --- Global State Variables ---
@@ -5132,9 +5032,10 @@ async function updateCurrentProfileDisplay_ExtraPage() {
             }
         }
 
-        async function loadAndDisplayOverrides_ExtraPage() {
+        // In omsi_tools_extra.html, inside loadAndDisplayOverrides_ExtraPage
+async function loadAndDisplayOverrides_ExtraPage() {
     const activeOverridesListElement = document.getElementById('activeOverridesList_extra');
-    const overridesHeadingElement = document.getElementById('dpo-active-overrides-title');
+    const overridesHeadingElement = document.getElementById('dpo-active-overrides-title'); 
 
     if (!activeOverridesListElement || !window.firebaseOMSI) {
         if(activeOverridesListElement) activeOverridesListElement.innerHTML = '<p>Error: System dependencies missing.</p>';
@@ -5146,59 +5047,54 @@ async function updateCurrentProfileDisplay_ExtraPage() {
     try {
         const snapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
         let html = "";
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const today = new Date(); // Current date is Wednesday, June 4, 2025
+        today.setHours(0, 0, 0, 0); 
 
-        const currentYear = today.getFullYear();
-        const fixedDaysAhead = 365;
-        const actualFutureCutoffDate = new Date(today);
-        actualFutureCutoffDate.setDate(today.getDate() + fixedDaysAhead);
+        const currentYear = today.getFullYear(); // 2025
+        
+        // --- MODIFIED SECTION ---
+        const fixedDaysAhead = 365; // Always show 365 days
+        const targetYearForDisplay = currentYear + 1; // It will span into the next year if 365 days is used.
+        // --- END MODIFIED SECTION ---
 
         if (overridesHeadingElement) {
-            overridesHeadingElement.textContent = `All Active Overrides Within The Next ${fixedDaysAhead} Days`;
+            // Updated text: "All Active Overrides Within The Next 365 Days"
+            overridesHeadingElement.textContent = `All Active Overrides Within The Next 365 Days`;
         }
 
         const allOverrides = snapshot.exists() ? snapshot.val() : {};
         const relevantOverrides = [];
+        
+        // Calculate the actual future cutoff date for filtering overrides based on 365 days from today
+        const actualFutureCutoffDate = new Date(today);
+        actualFutureCutoffDate.setDate(today.getDate() + fixedDaysAhead);
+
 
         for (const dateKey in allOverrides) {
             if (Object.hasOwnProperty.call(allOverrides, dateKey) && /^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
-                const overrideDate = new Date(dateKey + "T00:00:00");
-
-                if (overrideDate >= today && overrideDate <= actualFutureCutoffDate) {
-                    const dateOverrideValue = allOverrides[dateKey]; // Can be a string OR an object
-
-                    if (typeof dateOverrideValue === 'string') {
-                        // This is a general override for the date, apply to all routes or a special marker
-                        // For display, we might show it as "ALL ROUTES: <profile>"
-                        relevantOverrides.push({
-                            date: dateKey,
-                            routeName: 'ALL_ROUTES_OVERRIDE', // Special internal marker
-                            profile: dateOverrideValue
-                        });
-                    } else if (typeof dateOverrideValue === 'object' && dateOverrideValue !== null) {
-                        // This is an object of route-specific overrides
-                        for (const routeName in dateOverrideValue) {
-                            if (Object.hasOwnProperty.call(dateOverrideValue, routeName)) {
+                const overrideDate = new Date(dateKey + "T00:00:00"); 
+                
+                // Filter overrides to only show those within the next fixedDaysAhead days from today
+                if (overrideDate >= today && overrideDate <= actualFutureCutoffDate) { 
+                    const routeOverridesForDate = allOverrides[dateKey];
+                    if (routeOverridesForDate && typeof routeOverridesForDate === 'object' && Object.keys(routeOverridesForDate).length > 0) {
+                        for (const routeName in routeOverridesForDate) {
+                            if (Object.hasOwnProperty.call(routeOverridesForDate, routeName)) {
                                 relevantOverrides.push({
                                     date: dateKey,
                                     routeName: routeName,
-                                    profile: dateOverrideValue[routeName]
+                                    profile: routeOverridesForDate[routeName]
                                 });
                             }
                         }
                     }
-                    // Ignore other types or malformed entries
                 }
             }
         }
-
+        
         relevantOverrides.sort((a,b) => {
             const dateCompare = a.date.localeCompare(b.date);
             if (dateCompare !== 0) return dateCompare;
-            // Sort ALL_ROUTES_OVERRIDE first for a given date
-            if (a.routeName === 'ALL_ROUTES_OVERRIDE' && b.routeName !== 'ALL_ROUTES_OVERRIDE') return -1;
-            if (a.routeName !== 'ALL_ROUTES_OVERRIDE' && b.routeName === 'ALL_ROUTES_OVERRIDE') return 1;
             return compareLineNames_ExtraPage(a.routeName, b.routeName);
         });
 
@@ -5214,34 +5110,23 @@ async function updateCurrentProfileDisplay_ExtraPage() {
                     groupedHtml += `<li style="margin-top:0.75em; margin-bottom:0.25em;"><strong>${formatDateToDDMonthYYYY_ExtraPage(ov.date)}:</strong>
                                     <div style="margin-top:0.5em; display:flex; flex-wrap:wrap; gap:0.4em; padding-left:15px;">`;
                 }
-
-                const displayProfile = String(ov.profile || "").replace(/,/g, ', ');
-                let routeDisplayName = ov.routeName;
-                let bgColor, textColor;
-
-                if (ov.routeName === 'ALL_ROUTES_OVERRIDE') {
-                    // Special styling for general overrides
-                    routeDisplayName = `ALL ROUTES`;
-                    bgColor = '#95a5a6'; // A neutral grey
-                    textColor = getTextColourForBackground_ExtraPage(bgColor);
-                } else {
-                    bgColor = getRouteTileColour_ExtraPage(ov.routeName);
-                    textColor = getTextColourForBackground_ExtraPage(bgColor);
-                }
-
+                
+                const displayProfile = String(ov.profile || "").replace(/,/g, ', '); 
+                const bgColor = getRouteTileColour_ExtraPage(ov.routeName);
+                const textColor = getTextColourForBackground_ExtraPage(bgColor);
 
                 groupedHtml += `
-                    <span class="route-tile-tools-list"
+                    <span class="route-tile-tools-list" 
                           style="background-color:${bgColor}; color:${textColor}; padding:0.3em 0.6em; font-size:0.85em; cursor:help;"
-                          title="${routeDisplayName}: ${displayProfile}">
-                        ${routeDisplayName}
+                          title="${ov.routeName}: ${displayProfile}">
+                        ${ov.routeName}
                         <span style="font-size:0.75em; opacity:0.8; display:block; line-height:1.2;">${displayProfile}</span>
                     </span>`;
             });
             groupedHtml += "</div></li></ul>";
             html = groupedHtml;
         } else {
-            html = `<p>No route-specific overrides set for the next ${fixedDaysAhead} day(s).</p>`;
+            html = `<p>No route-specific overrides set for the next ${fixedDaysAhead} day(s).</p>`; 
         }
         activeOverridesListElement.innerHTML = html;
     } catch (error) {
@@ -12424,8 +12309,23 @@ function renderUIDependentElements_ExtraPage() {
     const enableDesktopBtn = document.getElementById('enableDesktopNotificationsBtn_extra');
     if (enableDesktopBtn) {
         enableDesktopBtn.addEventListener('click', async () => {
-            // This now calls the Firebase Cloud Messaging subscription function
-            await subscribeUserToPush(); 
+            // This uses the newer requestNotificationPermission function which handles localStorage
+            if (typeof requestNotificationPermission === 'function') {
+                await requestNotificationPermission();
+            } else if (!("Notification" in window)) { // Fallback if new function isn't there
+                alert("This browser does not support desktop notifications.");
+            } else { // Original simpler logic if new function is missing
+                const permission = await Notification.requestPermission();
+                if (permission === "granted") {
+                    alert("Desktop notifications enabled!");
+                    localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
+                } else if (permission === "denied") {
+                    alert("Desktop notifications denied. You can change this in your browser's site settings if you change your mind.");
+                    localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
+                } else {
+                    alert("Notification permission request dismissed or not acted upon.");
+                }
+            }
         });
     }
 
@@ -12450,65 +12350,86 @@ function renderUIDependentElements_ExtraPage() {
         });
     }
 
+    // --- Firebase Auth Initialization ---
     function initializeExtraAppLogic() {
-    console.log("Firebase ready, Extra app logic init.");
-    if (!window.firebaseOMSI || !window.firebaseOMSI.auth) {
-        console.error("Extra Tools: Firebase OMSI object not found during initializeExtraAppLogic.");
-        if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(null);
-        if (authStatus_el_extra) authStatus_el_extra.textContent = 'Critical Firebase init error for app logic.';
-        return;
+        console.log("Firebase ready, Extra app logic init.");
+        if (!window.firebaseOMSI || !window.firebaseOMSI.auth) {
+            console.error("Extra Tools: Firebase OMSI object not found during initializeExtraAppLogic.");
+            if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(null);
+            if (authStatus_el_extra) authStatus_el_extra.textContent = 'Critical Firebase init error for app logic.';
+            return;
+        }
+        const {
+            auth,
+            authOnAuthStateChanged,
+            authSignInWithEmailAndPassword,
+            authSignOut
+        } = window.firebaseOMSI;
+
+        authOnAuthStateChanged(auth, async user => { // Made async for await updateAuthUI_ExtraPage
+            if (typeof updateAuthUI_ExtraPage === 'function') {
+                await updateAuthUI_ExtraPage(user); // Await to ensure data loads before other UI updates
+            }
+            // This auto-suggest logic should ideally run *after* data loading within updateAuthUI_ExtraPage is complete.
+            // updateAuthUI_ExtraPage calls loadInitialData, which then calls renderUIDependentElements.
+            // For now, this placement is okay but keep an eye on timing if issues arise.
+            if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
+                !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
+                typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
+                autoGenerateAndSetNewStopId_ExtraPage();
+            }
+        });
+
+        if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) {
+            adminLoginForm_el_extra.addEventListener('submit', (e) => {
+                e.preventDefault();
+                authStatus_el_extra.textContent = 'Logging in...';
+                authStatus_el_extra.style.color = '#f1c40f'; // Yellow for processing
+                authSignInWithEmailAndPassword(auth, inputEmail_el_extra.value, inputPassword_el_extra.value)
+                    .catch(err => {
+                        authStatus_el_extra.textContent = `Login Error: ${err.message}`;
+                        authStatus_el_extra.style.color = '#e74c3c'; // Red for error
+                    });
+            });
+        }
+
+        const logoutButtonElement = document.getElementById('logoutButton_extra');
+        if (logoutButtonElement) {
+            logoutButtonElement.addEventListener('click', () => {
+                console.log("Logout button clicked. Cleaning up...");
+                localStorage.removeItem('omsiExtraToolsActiveSection');
+
+                if (tripAlertIntervalId_extra) { clearInterval(tripAlertIntervalId_extra); tripAlertIntervalId_extra = null; console.log("Trip alert monitor stopped."); }
+                if (keyDeparturesIntervalId_extra) { clearInterval(keyDeparturesIntervalId_extra); keyDeparturesIntervalId_extra = null; console.log("Key departures monitor stopped.");}
+                
+                todayKeyTripEvents_extra = [];
+                shownTripAlerts_extra = {};
+                lastAlertDataPreparedDate_extra = null;
+                
+                const globalBanner = document.getElementById('global-notification-banner');
+                if (globalBanner) globalBanner.style.display = 'none';
+
+                authSignOut(auth).catch(e => console.error("Sign-out error (Extra):", e));
+                // updateAuthUI_ExtraPage(null) will be called by onAuthStateChanged, which handles UI reset and data clearing.
+            });
+        }
     }
-    // Access auth directly from the global app or window.firebaseOMSI
-    const { auth } = window.firebaseOMSI; // Get the auth instance
 
-    // Bind the onAuthStateChanged method to the auth instance
-    auth.onAuthStateChanged(async user => {
-        if (typeof updateAuthUI_ExtraPage === 'function') {
-            await updateAuthUI_ExtraPage(user);
-        }
-        if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
-            !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
-            typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
-            autoGenerateAndSetNewStopId_ExtraPage();
-        }
-    });
-
-    if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) {
-        adminLoginForm_el_extra.addEventListener('submit', (e) => {
-            e.preventDefault();
-            authStatus_el_extra.textContent = 'Logging in...';
-            authStatus_el_extra.style.color = '#f1c40f';
-            // Use the bound signInWithEmailAndPassword from window.firebaseOMSI if you set it up that way
-            // or directly from the 'auth' instance here:
-            auth.signInWithEmailAndPassword(inputEmail_el_extra.value, inputPassword_el_extra.value)
-                .catch(err => {
-                    authStatus_el_extra.textContent = `Login Error: ${err.message}`;
-                    authStatus_el_extra.style.color = '#e74c3c';
-                });
+    if (window.firebaseOMSI && window.firebaseOMSI.auth) {
+        initializeExtraAppLogic();
+    } else {
+        document.addEventListener('firebaseReady', () => {
+            if (window.firebaseOMSI && window.firebaseOMSI.auth) {
+                initializeExtraAppLogic();
+            } else {
+                console.error("Extra Tools: Firebase still not ready after firebaseReady event!");
+                if (typeof updateAuthUI_ExtraPage === 'function') updateAuthUI_ExtraPage(null);
+                if (authStatus_el_extra) authStatus_el_extra.textContent = 'Fatal: Firebase did not initialize.';
+            }
+        }, {
+            once: true
         });
     }
-
-    const logoutButtonElement = document.getElementById('logoutButton_extra');
-    if (logoutButtonElement) {
-        logoutButtonElement.addEventListener('click', () => {
-            console.log("Logout button clicked. Cleaning up...");
-            localStorage.removeItem('omsiExtraToolsActiveSection');
-
-            if (tripAlertIntervalId_extra) { clearInterval(tripAlertIntervalId_extra); tripAlertIntervalId_extra = null; console.log("Trip alert monitor stopped."); }
-            if (keyDeparturesIntervalId_extra) { clearInterval(keyDeparturesIntervalId_extra); keyDeparturesIntervalId_extra = null; console.log("Key departures monitor stopped.");}
-
-            todayKeyTripEvents_extra = [];
-            shownTripAlerts_extra = {};
-            lastAlertDataPreparedDate_extra = null;
-
-            const globalBanner = document.getElementById('global-notification-banner');
-            if (globalBanner) globalBanner.style.display = 'none';
-
-            // Use the bound signOut from window.firebaseOMSI or directly from 'auth' instance
-            auth.signOut().catch(e => console.error("Sign-out error (Extra):", e));
-        });
-    }
-}
 
     // --- Main Menu Button Listeners ---
     const menuButtons = topMenuBar_el_extra ? topMenuBar_el_extra.querySelectorAll('.menu-button') : [];

@@ -1394,41 +1394,63 @@ const sruCancelAllGlobalStatusMessage_el_extra = document.getElementById('sru-ca
 // Your VAPID Public Key - this is the key you provided earlier
 const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; 
 
+// Ensure VAPID_PUBLIC_KEY is defined globally at the top of your script block
+// const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; 
+
 async function getFCMTokenAndStore(serviceWorkerRegistration) {
-    // Basic checks for Firebase availability and user login status
-    if (!currentUser_extra || !window.firebaseOMSI || !window.firebaseOMSI.messaging || !window.firebaseOMSI.fcmGetToken) {
-        console.warn("FCM: User not logged in, Firebase Messaging, or getToken function not available. Cannot get token.");
+    console.log("FCM DEBUG: Entering getFCMTokenAndStore.");
+
+    // Initial check for Firebase availability and user login status
+    if (!currentUser_extra) {
+        console.warn("FCM DEBUG: currentUser_extra is null. Cannot get token.");
+        return;
+    }
+    if (!window.firebaseOMSI) {
+        console.warn("FCM DEBUG: window.firebaseOMSI is null. Cannot get token.");
+        return;
+    }
+    if (!window.firebaseOMSI.messaging) {
+        console.warn("FCM DEBUG: window.firebaseOMSI.messaging is null. Cannot get token.");
+        return;
+    }
+    if (!window.firebaseOMSI.fcmGetToken) {
+        console.warn("FCM DEBUG: window.firebaseOMSI.fcmGetToken is null. Cannot get token.");
         return;
     }
 
     // Crucial check: Ensure a valid ServiceWorkerRegistration object is passed in.
-    // This function now *expects* the registration to be provided by the caller.
     if (!serviceWorkerRegistration || !(serviceWorkerRegistration instanceof ServiceWorkerRegistration)) {
-        console.error("FCM: Invalid Service Worker Registration provided to getFCMTokenAndStore(). Cannot get token.");
-        // Attempt to get the current registration if it's somehow not passed but exists
+        console.error("FCM DEBUG: Invalid Service Worker Registration provided initially. Attempting recovery.");
         try {
             serviceWorkerRegistration = await navigator.serviceWorker.ready;
             if (!serviceWorkerRegistration) {
-                console.error("FCM: navigator.serviceWorker.ready did not return a registration. Cannot proceed.");
+                console.error("FCM DEBUG: Recovery failed. navigator.serviceWorker.ready did not return a registration. Cannot proceed.");
                 return;
             }
-            console.log("FCM: Recovered Service Worker Registration via navigator.serviceWorker.ready.");
+            console.log("FCM DEBUG: Recovered Service Worker Registration successfully via navigator.serviceWorker.ready.");
         } catch (err) {
-            console.error("FCM: Failed to get Service Worker Registration via navigator.serviceWorker.ready:", err);
+            console.error("FCM DEBUG: Recovery attempt for Service Worker Registration failed:", err);
             return;
         }
     }
 
     try {
         const messaging = window.firebaseOMSI.messaging; // Get the Firebase Messaging instance
+        const fcmGetToken = window.firebaseOMSI.fcmGetToken; // Get the getToken function
+
+        // Confirm these critical variables are defined before using them.
+        console.log("FCM DEBUG: messaging instance defined:", !!messaging);
+        console.log("FCM DEBUG: fcmGetToken function defined:", !!fcmGetToken);
+        console.log("FCM DEBUG: serviceWorkerRegistration defined:", !!serviceWorkerRegistration);
+        console.log("FCM DEBUG: VAPID_PUBLIC_KEY defined and length:", VAPID_PUBLIC_KEY ? VAPID_PUBLIC_KEY.length : 'undefined');
 
         // Log the scope of the service worker that is now active.
-        console.log('Service Worker is active with scope:', serviceWorkerRegistration.scope);
+        console.log('FCM DEBUG: Service Worker active with scope:', serviceWorkerRegistration.scope);
 
-        // Get the FCM registration token using the provided serviceWorkerRegistration.
-        const currentToken = await window.firebaseOMSI.fcmGetToken(messaging, {
+        // Attempt to get the FCM registration token.
+        const currentToken = await fcmGetToken(messaging, {
             serviceWorkerRegistration: serviceWorkerRegistration,
-            vapidKey: VAPID_PUBLIC_KEY // Your VAPID Public Key
+            vapidKey: VAPID_PUBLIC_KEY
         });
 
         if (currentToken) {
@@ -1440,25 +1462,31 @@ async function getFCMTokenAndStore(serviceWorkerRegistration) {
 
             // OPTIONAL: Handle receiving foreground messages (when the page is open and focused)
             // This function will automatically use the messaging instance from above.
-            window.firebaseOMSI.fcmOnMessage(messaging, (payload) => {
-                console.log('Foreground message received. ', payload);
-                // You can show an in-app notification or a native notification here
-                showNativeNotification(payload.notification.title, payload.notification.body, payload.notification.icon);
-            });
+            if (window.firebaseOMSI.fcmOnMessage) {
+                window.firebaseOMSI.fcmOnMessage(messaging, (payload) => {
+                    console.log('Foreground message received. ', payload);
+                    showNativeNotification(payload.notification.title, payload.notification.body, payload.notification.icon);
+                });
+            } else {
+                console.warn("FCM DEBUG: window.firebaseOMSI.fcmOnMessage is not defined.");
+            }
 
         } else {
-            console.warn('No FCM registration token available. This can happen if permission is denied, or if the service worker failed to register.');
+            console.warn('FCM DEBUG: getToken returned null or undefined. No FCM registration token available. This can happen if permission is denied (even if browser says granted), VAPID key is wrong, or Firebase setup is incomplete.');
         }
     } catch (err) {
-        console.error('An error occurred during FCM token acquisition process:', err);
-        // Provide user feedback if the token acquisition fails after permission is granted
+        console.error('FCM DEBUG: An error occurred during FCM token acquisition process:', err);
         if (Notification.permission === 'granted') {
              alert('Error setting up push notifications: ' + err.message + '. Please ensure your browser supports them and try again.');
         } else if (Notification.permission === 'default') {
              alert('To receive alerts even when offline, please enable notifications when prompted by the browser.');
         }
     }
+    console.log("FCM DEBUG: Exiting getFCMTokenAndStore.");
 }
+
+// requestNotificationPermission function remains the same as provided in the previous turn.
+// (It calls getFCMTokenAndStore(activeRegistration) or getFCMTokenAndStore(newRegistration) where needed)
 
 function rsg_handleDestinationNameSelectChange_ExtraPage() {
     if (!rsgDestinationNameSelect_el_extra || !rsgDestinationNameInput_el_extra) {

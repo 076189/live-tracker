@@ -1,11 +1,10 @@
-// sw-omsitoolsextra.js
-const CACHE_NAME = 'omsi-tools-extra-cache-v1'; // NEW cache name
+const CACHE_NAME = 'omsi-tools-extra-cache-v2'; // NEW cache name - IMPORTANT: Increment to force update!
 const urlsToCache = [
   // Paths are absolute from the domain root (076189.github.io)
   // These should correctly map to your files within the 'live-tracker' directory.
   '/live-tracker/omsi_tools_extra.html',
   '/live-tracker/manifest-omsitoolsextra.json', // Cache the manifest
-  '/live-tracker/offline.html',      // Your fallback offline page
+  '/live-tracker/offline.html',     // Your fallback offline page
 
   // Add ONE OR TWO essential assets you are SURE exist.
   // For example, if your main page uses a specific CSS or a critical image:
@@ -139,22 +138,33 @@ self.addEventListener('fetch', event => {
 
 // --- START: Firebase Cloud Messaging (FCM) Push Event Handlers ---
 
-// Handle incoming background messages (when your app is not in focus or closed)
-messaging.onBackgroundMessage(function(payload) {
-    console.log('[sw-omsitoolsextra.js] Received background message. Attempting to show notification.', payload); // <-- NEW LOG HERE
+// Handle incoming push messages
+self.addEventListener('push', function(event) {
+    console.log('[sw-omsitoolsextra.js] Received push event.', event);
+
+    let payloadData;
+    try {
+        payloadData = event.data.json();
+        console.log('[sw-omsitoolsextra.js] Push event data (parsed):', payloadData);
+    } catch (e) {
+        console.error('[sw-omsitoolsextra.js] Error parsing push event data as JSON:', e);
+        payloadData = event.data.text(); // Fallback to text if not JSON
+        console.log('[sw-omsitoolsextra.js] Push event data (raw text):', payloadData);
+        payloadData = { data: { body: payloadData } }; // Create a basic payload if it's just text
+    }
 
     // Default values if title/body/icon are not directly in payload.notification or payload.data
-    const notificationTitle = payload.notification?.title || payload.data?.title || 'OMSI Tools Alert';
-    const notificationBody = payload.notification?.body || payload.data?.body || 'New scheduled update or departure information.';
-    const notificationIcon = payload.notification?.icon || payload.data?.icon || '/live-tracker/assets/icons/icon-192x192.png';
-    const notificationImage = payload.notification?.image || payload.data?.image; // Optional image
+    const notificationTitle = payloadData.notification?.title || payloadData.data?.title || 'OMSI Tools Alert';
+    const notificationBody = payloadData.notification?.body || payloadData.data?.body || 'New scheduled update or departure information.';
+    const notificationIcon = payloadData.notification?.icon || payloadData.data?.icon || '/live-tracker/assets/icons/icon-192x192.png';
+    const notificationImage = payloadData.notification?.image || payloadData.data?.image; // Optional image
 
     const notificationOptions = {
         body: notificationBody,
         icon: notificationIcon,
         image: notificationImage,
-        badge: payload.data?.badge || '/live-tracker/assets/icons/badge-72x72.png', // Optional: badge icon for Android
-        data: payload.data || payload.notification // Attach the full data/notification payload for click handling
+        badge: payloadData.data?.badge || '/live-tracker/assets/icons/badge-72x72.png', // Optional: badge icon for Android
+        data: payloadData.data || payloadData.notification || {} // Attach the full data/notification payload for click handling
     };
 
     // --- CRITICAL FIX: Explicitly show the notification ---
@@ -162,10 +172,10 @@ messaging.onBackgroundMessage(function(payload) {
     event.waitUntil(
         self.registration.showNotification(notificationTitle, notificationOptions)
         .then(() => {
-            console.log('[sw-omsitoolsextra.js] Notification successfully shown.'); // <-- NEW SUCCESS LOG
+            console.log('[sw-omsitoolsextra.js] Notification successfully shown.');
         })
         .catch(error => {
-            console.error('[sw-omsitoolsextra.js] Error showing notification:', error); // <-- NEW ERROR LOG
+            console.error('[sw-omsitoolsextra.js] Error showing notification:', error);
             // Attempt to send this error back to the main page's console if possible, though not guaranteed.
             self.clients.matchAll().then(clients => {
                 clients.forEach(client => {

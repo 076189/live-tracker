@@ -12338,21 +12338,68 @@ function renderUIDependentElements_ExtraPage() {
     const iphoneTestBtn = document.getElementById('iphoneTestNotificationBtn');
     if (iphoneTestBtn) {
         iphoneTestBtn.addEventListener('click', () => {
+            console.log("TEST BUTTON CLICKED - Listener Fired!"); // Debug log
+
+            // Ensure Notification API is supported
             if (!("Notification" in window)) {
-                alert("Notifications not supported on this browser/PWA.");
+                console.log("Browser does not support native desktop notifications."); // Log instead of alert
+                alert("Your browser does not support desktop notifications."); // Keep alert for user feedback
                 return;
             }
+
+            // Check if permission is granted
             if (Notification.permission === "granted") {
                 try {
-                    new Notification("iPhone Test Notification!", {
+                    const options = {
                         body: "Success! This is a desktop/OS notification from your Home Screen app.",
-                        icon: '/live-tracker/assets/icons/icon-192x192.png'
-                    });
+                        icon: '/live-tracker/assets/icons/icon-192x192.png', // Ensure this path is correct
+                        // Add data to the notification itself for the click action
+                        data: {
+                            url: 'https://076189.github.io/live-tracker/omsi_tools_extra.html' // URL to open on click
+                        }
+                    };
+                    const notification = new Notification("iPhone Test Notification!", options);
+
+                    console.log("Notification object created successfully."); // Debug log
+
+                    // Add click handler for this specific notification (only for page-triggered ones)
+                    notification.onclick = function(event) {
+                        console.log('Test notification clicked directly.', event); // Debug log
+                        event.preventDefault(); // Prevent default browser action if any
+
+                        const clickUrl = this.data.url; // Get URL from the notification's data
+
+                        if (clickUrl) {
+                            // Try to open a new window or focus an existing one
+                            // This part works best when a service worker is in control,
+                            // but can be simulated with window.open
+                            clients.openWindow(clickUrl).then(windowClient => {
+                                if (windowClient) {
+                                    windowClient.focus();
+                                } else {
+                                    // Fallback if clients.openWindow fails (e.g., not PWA context)
+                                    window.open(clickUrl, '_blank');
+                                }
+                            }).catch(e => {
+                                console.error("Error opening window on notification click:", e);
+                                window.open(clickUrl, '_blank'); // Final fallback
+                            });
+                        }
+                        this.close(); // Close the notification after click
+                    };
+
                 } catch (e) {
-                    alert("Error creating notification: " + e.toString());
+                    console.error("Error creating native notification:", e); // Log the error
+                    alert("Error creating notification: " + e.message); // Alert user to error
                 }
             } else {
-                alert("Permission not granted. Please tap 'Enable Desktop Alerts' first.");
+                console.warn("Notification permission not granted. Current status:", Notification.permission); // Log the status
+                // Provide user guidance if permission is not granted
+                if (Notification.permission === "default") {
+                    alert("Notification permission not granted. Please click 'Enable Desktop Alerts' first and allow the prompt.");
+                } else if (Notification.permission === "denied") {
+                    alert("Notification permission was denied. You need to enable it in your browser's site settings.");
+                }
             }
         });
     }

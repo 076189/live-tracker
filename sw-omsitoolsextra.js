@@ -5,7 +5,7 @@ const urlsToCache = [
   // These should correctly map to your files within the 'live-tracker' directory.
   '/live-tracker/omsi_tools_extra.html',
   '/live-tracker/manifest-omsitoolsextra.json', // Cache the manifest
-  '/live-tracker/offline.html',        // Your fallback offline page
+  '/live-tracker/offline.html',      // Your fallback offline page
 
   // Add ONE OR TWO essential assets you are SURE exist.
   // For example, if your main page uses a specific CSS or a critical image:
@@ -57,7 +57,7 @@ self.addEventListener('install', event => {
               fetch(new Request(url, { mode: 'no-cors' }))
                 .then(response => {
                   if (!response.ok && response.type !== 'opaque') {
-                       console.warn(`[SW ${CACHE_NAME}] Diagnostic fetch for ${url} failed with status: ${response.status}`);
+                        console.warn(`[SW ${CACHE_NAME}] Diagnostic fetch for ${url} failed with status: ${response.status}`);
                   }
                 })
                 .catch(() => {
@@ -140,20 +140,34 @@ self.addEventListener('fetch', event => {
 // --- START: Firebase Cloud Messaging (FCM) Push Event Handlers ---
 
 // Handle incoming background messages (when your app is not in focus or closed)
+// Firebase's SDK automatically handles displaying the 'notification' payload.
+// Use this handler if you need to process 'data' payloads or override the default notification display.
 messaging.onBackgroundMessage(function(payload) {
     console.log('[sw-omsitoolsextra.js] Received background message ', payload);
 
-    const notificationTitle = payload.notification.title || 'New Notification';
-    const notificationOptions = {
-        body: payload.notification.body || 'You have a new message.',
-        icon: payload.notification.icon || '/live-tracker/assets/icons/icon-192x192.png', // Default icon
-        badge: '/live-tracker/assets/icons/badge-72x72.png', // Optional: badge icon for Android
-        data: payload.data, // Custom data from the payload (useful for click actions)
-        // You can add more options here, e.g., actions, image, vibration
-    };
-
-    self.registration.showNotification(notificationTitle, notificationOptions);
+    // If a notification payload is present (like from Firebase Console "Notifications" tab),
+    // FCM will *automatically* display it. No need to call self.registration.showNotification() here
+    // for notification payloads, unless you want to deeply customize it and override FCM's default.
+    if (payload.notification) {
+        console.log('[sw-omsitoolsextra.js] Notification payload received. FCM will auto-display this notification.');
+        // If you need custom data from the notification payload for click actions,
+        // it's already available in event.notification.data (set by FCM).
+        // If you had *only* a 'data' payload and wanted to show a notification, you'd do it here.
+        // For now, no action needed for payload.notification here to prevent double display.
+    } else if (payload.data) {
+        // This block is specifically for 'data-only' messages, where you MUST manually show notification.
+        console.log('[sw-omsitoolsextra.js] Data payload received, displaying manually.');
+        const notificationTitle = payload.data.title || 'New Data Alert';
+        const notificationOptions = {
+            body: payload.data.body || 'You have new information.',
+            icon: payload.data.icon || '/live-tracker/assets/icons/icon-192x192.png', // Default icon
+            badge: payload.data.badge || '/live-tracker/assets/icons/badge-72x72.png', // Optional: badge icon for Android
+            data: payload.data, // Attach full data payload for click handling
+        };
+        self.registration.showNotification(notificationTitle, notificationOptions);
+    }
 });
+
 
 // Handle notification clicks
 self.addEventListener('notificationclick', function(event) {
@@ -161,6 +175,7 @@ self.addEventListener('notificationclick', function(event) {
     event.notification.close(); // Close the notification after click
 
     // Check if a URL is provided in the notification's data payload
+    // event.notification.data is where custom data attached to the notification would be
     const click_redirect_url = event.notification.data?.url || '/live-tracker/omsi_tools_extra.html'; // Default to the tools page
 
     event.waitUntil(

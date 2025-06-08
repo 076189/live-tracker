@@ -1394,44 +1394,52 @@ const sruCancelAllGlobalStatusMessage_el_extra = document.getElementById('sru-ca
 // Your VAPID Public Key - this is the key you provided earlier
 const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; 
 
-async function getFCMTokenAndStore() {
+async function getFCMTokenAndStore(serviceWorkerRegistration) {
+    // Basic checks for Firebase availability and user login status
     if (!currentUser_extra || !window.firebaseOMSI || !window.firebaseOMSI.messaging || !window.firebaseOMSI.fcmGetToken) {
         console.warn("FCM: User not logged in, Firebase Messaging, or getToken function not available. Cannot get token.");
         return;
     }
 
+    // Crucial check: Ensure a valid ServiceWorkerRegistration object is passed in.
+    // This function now *expects* the registration to be provided by the caller.
+    if (!serviceWorkerRegistration || !(serviceWorkerRegistration instanceof ServiceWorkerRegistration)) {
+        console.error("FCM: Invalid Service Worker Registration provided to getFCMTokenAndStore(). Cannot get token.");
+        // Attempt to get the current registration if it's somehow not passed but exists
+        try {
+            serviceWorkerRegistration = await navigator.serviceWorker.ready;
+            if (!serviceWorkerRegistration) {
+                console.error("FCM: navigator.serviceWorker.ready did not return a registration. Cannot proceed.");
+                return;
+            }
+            console.log("FCM: Recovered Service Worker Registration via navigator.serviceWorker.ready.");
+        } catch (err) {
+            console.error("FCM: Failed to get Service Worker Registration via navigator.serviceWorker.ready:", err);
+            return;
+        }
+    }
+
     try {
-        const messaging = window.firebaseOMSI.messaging;
+        const messaging = window.firebaseOMSI.messaging; // Get the Firebase Messaging instance
 
-        // Register the service worker explicitly with its correct path relative to the domain root.
-        // This is crucial if your service worker is NOT in the root directory (which it isn't, it's in /live-tracker/)
-        // We've added .then() and .catch() to log the exact outcome of the registration attempt.
-        const serviceWorkerRegistration = await navigator.serviceWorker.register('sw-omsitoolsextra.js')
-            .then(reg => {
-                console.log('SW Registration SUCCESS:', reg); // Success log
-                return reg;
-            })
-            .catch(err => {
-                console.error('SW Registration FAILED:', err); // Failure log
-                throw err; // Re-throw to stop token acquisition
-            });
+        // Log the scope of the service worker that is now active.
+        console.log('Service Worker is active with scope:', serviceWorkerRegistration.scope);
 
-        console.log('Service Worker registered with scope: ', serviceWorkerRegistration.scope); // This log will only happen on successful registration
-
-        // Get registration token. Pass in the messaging instance, the service worker registration, and the VAPID key.
+        // Get the FCM registration token using the provided serviceWorkerRegistration.
         const currentToken = await window.firebaseOMSI.fcmGetToken(messaging, {
             serviceWorkerRegistration: serviceWorkerRegistration,
-            vapidKey: VAPID_PUBLIC_KEY
+            vapidKey: VAPID_PUBLIC_KEY // Your VAPID Public Key
         });
 
         if (currentToken) {
-            console.log('FCM Registration Token:', currentToken);
+            console.log('FCM Registration Token:', currentToken); // THIS IS THE LOG YOU ARE LOOKING FOR
             const { database, dbSet, dbRef } = window.firebaseOMSI;
             // Store tokens under a 'fcmTokens' path, keyed by user ID, then token ID.
             await dbSet(dbRef(database, `fcmTokens/${currentUser_extra.uid}/${currentToken}`), true);
             console.log('FCM token stored in Firebase for user:', currentUser_extra.uid);
 
             // OPTIONAL: Handle receiving foreground messages (when the page is open and focused)
+            // This function will automatically use the messaging instance from above.
             window.firebaseOMSI.fcmOnMessage(messaging, (payload) => {
                 console.log('Foreground message received. ', payload);
                 // You can show an in-app notification or a native notification here
@@ -1444,9 +1452,9 @@ async function getFCMTokenAndStore() {
     } catch (err) {
         console.error('An error occurred during FCM token acquisition process:', err);
         // Provide user feedback if the token acquisition fails after permission is granted
-        if (Notification.permission === 'granted') { 
+        if (Notification.permission === 'granted') {
              alert('Error setting up push notifications: ' + err.message + '. Please ensure your browser supports them and try again.');
-        } else if (Notification.permission === 'default') { 
+        } else if (Notification.permission === 'default') {
              alert('To receive alerts even when offline, please enable notifications when prompted by the browser.');
         }
     }
@@ -1959,72 +1967,88 @@ function checkNotificationPermission() {
 }
 
 async function requestNotificationPermission() {
-    // Check if Notification API is supported by the browser
+    // Check if the Notification API is supported by the user's browser.
     if (!("Notification" in window)) {
         alert("This browser does not support desktop notifications.");
         return "unsupported";
     }
 
-    const currentPermission = Notification.permission; // Get the current notification permission status
+    const currentPermission = Notification.permission; // Get the current notification permission status.
 
-    // If permission is already granted
+    // If permission is already granted.
     if (currentPermission === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store preference
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store the user's preference in local storage.
         console.log("Notification permission was already granted.");
 
-        // --- NEW/MODIFIED CODE HERE ---
-        // If permission is already granted, we still want to try to get the FCM token.
-        // This is the call that was previously missed.
-        await getFCMTokenAndStore(); // Attempt to get and store the FCM token
-        // --- END NEW/MODIFIED CODE ---
+        // Attempt to get the active Service Worker registration.
+        // navigator.serviceWorker.ready returns a promise that resolves with the ServiceWorkerRegistration object
+        // when the service worker is active.
+        let activeRegistration = null;
+        try {
+            activeRegistration = await navigator.serviceWorker.ready;
+        } catch (err) {
+            console.error("Failed to get active Service Worker registration during permission check:", err);
+        }
 
-        // Show a native test notification confirming alerts are active
+        // If an active Service Worker registration is found, proceed to get the FCM token.
+        if (activeRegistration) {
+            await getFCMTokenAndStore(activeRegistration); // Pass the active registration to getFCMTokenAndStore.
+        } else {
+            console.warn("FCM: Notification permission granted, but no active Service Worker registration found. Token acquisition will defer to SW activation.");
+            // This case means the SW might be installing or activating, but not yet 'ready'.
+            // The getFCMTokenAndStore call from DOMContentLoaded's .then(registration => ...) will handle it.
+        }
+
+        // Show a native notification to confirm that desktop alerts are active.
         if (typeof showNativeNotification === 'function') {
              showNativeNotification("OMSI Tools Notifications", "Desktop alerts are active!", '/live-tracker/assets/icons/icon-192x192.png');
         }
-        return "granted"; // Indicate that permission is granted
+        return "granted"; // Return 'granted' as the final permission status.
     }
 
-    // If permission was previously denied
+    // If permission was previously denied by the user.
     if (currentPermission === "denied") {
         alert("Notification permission was previously denied. To enable, please go to your browser's site settings and allow notifications for this page.");
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store preference
-        return "denied"; // Indicate that permission is denied
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store the denied preference.
+        return "denied"; // Return 'denied'.
     }
 
-    // If permission is "default" (user hasn't explicitly granted or denied yet)
-    const permissionResult = await Notification.requestPermission(); // Request permission from the user
+    // If permission is in the "default" state (meaning the user has not yet made a choice).
+    // This will trigger the browser's native permission prompt.
+    const permissionResult = await Notification.requestPermission();
 
-    // If permission is now granted after the prompt
+    // If the user grants permission through the prompt.
     if (permissionResult === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store preference
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store the granted preference.
         console.log("Notification permission granted by user.");
-        alert("Desktop notifications have been enabled!"); // Inform user
+        alert("Desktop notifications have been enabled!"); // Inform the user.
 
-        // --- NEW/MODIFIED CODE HERE ---
-        // If permission is newly granted, also get the FCM token.
-        await getFCMTokenAndStore(); // Attempt to get and store the FCM token
-        // --- END NEW/MODIFIED CODE ---
+        // Wait for the Service Worker to be ready and active before attempting to get the FCM token.
+        // This is crucial as getToken requires an active service worker registration.
+        const newRegistration = await navigator.serviceWorker.ready;
+        if (newRegistration) {
+            await getFCMTokenAndStore(newRegistration); // Pass the new active registration to getFCMTokenAndStore.
+        } else {
+            console.error("FCM: Permission granted, but Service Worker registration was not ready. Token acquisition failed.");
+        }
 
-        // Trigger a native test notification immediately upon successful granting
+        // Show a test native notification immediately after permission is granted.
         if (typeof showNativeNotification === 'function') {
             showNativeNotification(
-                "OMSI Tools Notifications", // Notification title
-                "Test successful! You will now receive desktop alerts.", // Notification body
-                '' // Icon path
+                "OMSI Tools Notifications", // Title of the notification.
+                "Test successful! You will now receive desktop alerts.", // Body of the notification.
+                '' // Icon path (empty string for default or no icon).
             );
-        } else {
-            console.error("showNativeNotification function is not defined. Cannot show test alert.");
         }
-        return "granted"; // Indicate that permission is granted
-    } else if (permissionResult === "denied") { // If permission is denied after prompt
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store preference
+        return "granted"; // Return 'granted'.
+    } else if (permissionResult === "denied") { // If the user denies permission through the prompt.
+        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store the denied preference.
         alert("Desktop notifications were denied. You can change this in your browser's site settings.");
-        return "denied"; // Indicate that permission is denied
-    } else { // User dismissed the prompt
-        localStorage.removeItem('desktopNotificationPreference_omsiExtra'); // Remove preference
+        return "denied"; // Return 'denied'.
+    } else { // If the user dismisses the prompt without making a choice.
+        localStorage.removeItem('desktopNotificationPreference_omsiExtra'); // Remove any stored preference.
         alert("Notification permission request dismissed or not acted upon.");
-        return "default"; // Indicate default state
+        return "default"; // Return 'default'.
     }
 }
 
@@ -12349,14 +12373,18 @@ function renderUIDependentElements_ExtraPage() {
 
         document.addEventListener('DOMContentLoaded', () => {
     console.log("OMSI Tools Extra DOMContentLoaded");
-    if ('serviceWorker' in navigator) { // Check if browser supports Service Workers
-            window.addEventListener('load', () => { // Wait for the entire page to load before registering
-                navigator.serviceWorker.register('/live-tracker/sw-omsitoolsextra.js') //
-                    .then(registration => {
-                        console.log('Service Worker registered with scope:', registration.scope); //
+    if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/live-tracker/sw-omsitoolsextra.js')
+                    .then(registration => { // <-- This 'registration' object is what we need
+                        console.log('Service Worker registered with scope:', registration.scope);
+                        // NEW: Call getFCMTokenAndStore here for immediate token acquisition upon SW activation
+                        if (currentUser_extra) { // Only attempt if a user is logged in
+                            getFCMTokenAndStore(registration); // Pass the registration object
+                        }
                     })
                     .catch(error => {
-                        console.error('Service Worker registration failed:', error); //
+                        console.error('Service Worker registration failed:', error);
                     });
             });
         }

@@ -636,6 +636,7 @@
         closedStopIDsGlobal = [];
 
     let allScheduledData = [];
+    let liveCurtailmentData = {};
     let uniqueStops = [];
     let currentSelectedStopID = null;
     let ukBankHolidaysData = { dates: [], titles: {} };
@@ -893,37 +894,29 @@ async function lockToPortraitOnMobile() {
     function displaySystemUpdateMessage() { console.log("[ARRIVALS DEBUG] Displaying system update message."); if (busListElement) { busListElement.innerHTML = `<li class="system-update-message">Live bus arrivals are not available at this time.<br>System update in progress.</li>`; } if (liveUpdateIntervalId) { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; } }
     function isCustomMessageActive() { if (!customMessageSettings || !customMessageSettings.isEnabled || !customMessageSettings.text) { return false; } const now = new Date(); const startTime = customMessageSettings.startTimeISO ? new Date(customMessageSettings.startTimeISO) : null; const endTime = customMessageSettings.endTimeISO ? new Date(customMessageSettings.endTimeISO) : null; if (customMessageSettings.isEnabled && customMessageSettings.text && !startTime && !endTime) { return true; } if (startTime && endTime) { return now >= startTime && now <= endTime; } else if (startTime) { return now >= startTime; } else if (endTime) { return now <= endTime; } return false; }
 
-    function updateAndDisplayLiveArrivals() {
+    // ==============================================================================
+// REPLACE your entire, existing updateAndDisplayLiveArrivals function with this
+// ==============================================================================
+
+// ==============================================================================
+// PASTE THIS to fully revert the function in: omsi_arrivals.html
+// ==============================================================================
+function updateAndDisplayLiveArrivals() {
         if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
-            if (!currentSelectedStopID || !allScheduledData || allScheduledData.length === 0) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">${(!allScheduledData || allScheduledData.length === 0) ? 'No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.' : 'Select a stop.'}</li>`;} previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
-            if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`; } previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
-            const nowForProcessing = new Date(); const messageActive = isCustomMessageActive();
-            const busDisplaySlotsCount = messageActive ? MAX_DISPLAY_ROWS - 1 : MAX_DISPLAY_ROWS; const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
-            const processedBuses = allScheduledData.filter(bus => bus.stopID === currentSelectedStopID).map((bus, mapIndex) => {
+        if (!currentSelectedStopID || !allScheduledData || allScheduledData.length === 0) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">${(!allScheduledData || allScheduledData.length === 0) ? 'No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.' : 'Select a stop.'}</li>`;} previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
+        if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`; } previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
+
+        const nowForProcessing = new Date();
+        const messageActive = isCustomMessageActive();
+        const busDisplaySlotsCount = messageActive ? MAX_DISPLAY_ROWS - 1 : MAX_DISPLAY_ROWS;
+        const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
+
+        const processedBuses = allScheduledData
+            .filter(bus => bus.stopID === currentSelectedStopID)
+            .map((bus, mapIndex) => {
                 if (!bus || !bus.OperatingProfile || typeof bus.OperatingProfile !== 'string' || bus.OperatingProfile.trim() === "") return null;
 
-                // Determine day codes for today and adjacent days, also accounting for route-specific overrides
-                let dayCodesForToday = getCodesForCalendarDay(nowForProcessing);
-
-                // Now, check for route-specific operational override for this bus
-                const dateStringYYYYMMDD = `${nowForProcessing.getFullYear()}-${String(nowForProcessing.getMonth() + 1).padStart(2, '0')}-${String(nowForProcessing.getDate()).padStart(2, '0')}`;
-                if (globalOperationalOverrides[dateStringYYYYMMDD] &&
-                    typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' && // Check if it's an object for route-specific overrides
-                    globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName] &&
-                    typeof globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName] === 'string') {
-
-                    const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName];
-                    dayCodesForToday = routeSpecificOverride.split(',').map(p => p.trim()).filter(p => p);
-                    console.log(`[ARRIVALS DEBUG] Applying route-specific override for ${bus.lineName} on ${dateStringYYYYMMDD}: ${routeSpecificOverride}`);
-                }
-
-                // Check if the bus's operating profile matches any of the applicable day codes
-                const busOpCodesLower = bus.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
-                const dayCodesLower = dayCodesForToday.map(c => c.toLowerCase());
-
-                let isBusOperatingToday = busOpCodesLower.some(boc => dayCodesLower.includes(boc));
-                if (!isBusOperatingToday) return null;
-
+                // --- NEW ROBUST LOGIC START ---
                 let tempTimeStr = String(bus.scheduledTime).trim();
                 const tempNumTime = parseFloat(tempTimeStr);
                 if (!isNaN(tempNumTime) && tempNumTime >= 0 && tempNumTime < 1 && !tempTimeStr.includes(':')) {
@@ -931,24 +924,59 @@ async function lockToPortraitOnMobile() {
                     tempTimeStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`;
                 }
                 const tempParts = tempTimeStr.match(/^(\d{1,2}):(\d{2})$/);
-                let hrs = -1;
-                if (tempParts) {
-                    const parsedHrs = parseInt(tempParts[1],10);
-                    if (!isNaN(parsedHrs) && parsedHrs >=0 && parsedHrs <=23) hrs = parsedHrs;
-                }
-                const mins = tempParts ? parseInt(tempParts[2], 10) : -1;
-                if (hrs === -1 || mins === -1) return null;
-
-                let adjustedSchedTime = new Date(nowForProcessing.getFullYear(), nowForProcessing.getMonth(), nowForProcessing.getDate(), hrs, mins, 0);
-
-                // Handle overnight services (DayOffset logic)
+                if (!tempParts) return null;
+                const hrs = parseInt(tempParts[1], 10);
+                const mins = parseInt(tempParts[2], 10);
                 const dayOffsetFromFile = parseInt(bus.DayOffset || "0") || 0;
-                if (dayOffsetFromFile > 0 && hrs < earlyMorningThresholdHours) {
-                    adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
-                } else if (hrs >= 20 && nowForProcessing.getHours() < earlyMorningThresholdHours && dayOffsetFromFile === 0) {
-                } else if (hrs < earlyMorningThresholdHours && nowForProcessing.getHours() >= 20) {
-                    adjustedSchedTime.setDate(adjustedSchedTime.getDate() + 1);
+                if (isNaN(hrs) || isNaN(mins) || hrs < 0 || hrs > 23 || mins < 0 || mins > 59) return null;
+
+                // Determine the correct calendar date for this specific bus schedule entry
+                let scheduleDate = new Date(nowForProcessing); // Start with today's date
+                
+                // This block determines if the bus's operating day was actually YESTERDAY
+                if (nowForProcessing.getHours() < earlyMorningThresholdHours) {
+                    if (hrs >= 20) {
+                        // Case 1: It's just past midnight, and the bus time is from late last night (e.g. 23:55)
+                        scheduleDate.setDate(scheduleDate.getDate() - 1);
+                    } else if (dayOffsetFromFile > 0 && hrs < earlyMorningThresholdHours) {
+                        // Case 2: It's just past midnight, and we are processing a bus with a DayOffset (e.g. 01:30),
+                        // meaning its service day also started yesterday.
+                        scheduleDate.setDate(scheduleDate.getDate() - dayOffsetFromFile);
+                    }
                 }
+
+                let dayCodesForThisBus = getCodesForCalendarDay(scheduleDate);
+
+                // Check for route-specific operational override for this bus's effective date
+                const dateStringYYYYMMDD = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}`;
+                if (globalOperationalOverrides[dateStringYYYYMMDD] &&
+                    typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' &&
+                    globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName] &&
+                    typeof globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName] === 'string') {
+                    
+                    const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName];
+                    dayCodesForThisBus = routeSpecificOverride.split(',').map(p => p.trim()).filter(p => p);
+                }
+
+                // Check if the bus's operating profile matches any of the applicable day codes for its effective date
+                const busOpCodesLower = bus.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
+                const dayCodesLower = dayCodesForThisBus.map(c => c.toLowerCase());
+                if (!busOpCodesLower.some(boc => dayCodesLower.includes(boc))) {
+                    return null;
+                }
+
+                // Use the determined scheduleDate to construct the final time object
+                let adjustedSchedTime = new Date(scheduleDate.getFullYear(), scheduleDate.getMonth(), scheduleDate.getDate(), hrs, mins, 0);
+
+                // Handle special case for viewing next-day's early buses from the current evening
+                if (dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() >= 20) {
+                    adjustedSchedTime.setDate(adjustedSchedTime.getDate() + 1);
+                } else if (dayOffsetFromFile > 0) {
+                    // This is now simpler: if DayOffset is present, it's an explicit instruction to advance from the determined scheduleDate.
+                    // Since we already adjusted scheduleDate back for DayOffset buses, we add the offset back here to get the correct calendar day.
+                    adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
+                }
+                // --- NEW ROBUST LOGIC END ---
 
                 const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
                 const arrTxt = generateArrivalText(diffSecs);
@@ -962,6 +990,9 @@ async function lockToPortraitOnMobile() {
                 return passesTimeWindow;
             })
             .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0, MAX_DEPARTURES_OVERALL).map((bus, index) => ({ ...bus, originalMasterIndex: index }));
+
+            // ... (The rest of the function remains identical to your existing file) ...
+            // ... (This includes the logic for cycling departures and rendering the list) ...
 
             const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
             const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
@@ -1052,6 +1083,50 @@ async function lockToPortraitOnMobile() {
                 if (busListElement) busListElement.innerHTML = `<li class="no-buses-message">Live bus arrivals are not available at this time.</li>`;
             }
     }
+
+function segmentScheduleEntriesIntoTrips(scheduleEntriesForServiceLeg) {
+    const allTrips = [];
+    if (!scheduleEntriesForServiceLeg || scheduleEntriesForServiceLeg.length === 0) {
+        return allTrips;
+    }
+
+    // Ensure entries are sorted by time to correctly identify trip boundaries
+    const sortedEntries = [...scheduleEntriesForServiceLeg].sort((a, b) => {
+        const dayOffsetA = parseInt(a.DayOffset || 0);
+        const dayOffsetB = parseInt(b.DayOffset || 0);
+        if (dayOffsetA !== dayOffsetB) return dayOffsetA - dayOffsetB;
+
+        const timeA = (a.scheduledTime || "99:99").replace(':', '');
+        const timeB = (b.scheduledTime || "99:99").replace(':', '');
+        return timeA.localeCompare(timeB);
+    });
+
+    let currentTrip = [];
+    let previousStopTimeAbs = -1;
+    const MIN_STOPS_BEFORE_RESTART = 3; // Heuristic: min stops before a repeat of start stop ID is a new trip
+
+    for (let i = 0; i < sortedEntries.length; i++) {
+        const entry = sortedEntries[i];
+        if (!entry.stopID || !entry.scheduledTime) continue;
+
+        const currentStopTimeAbs = (parseInt(entry.DayOffset || 0) * 1440) + (parseInt(entry.scheduledTime.split(':')[0]) * 60) + parseInt(entry.scheduledTime.split(':')[1]);
+
+        // If time goes backwards, or if the first stop of the current trip is seen again after several other stops, it's a new trip.
+        if (currentTrip.length > 0 &&
+           (currentStopTimeAbs < previousStopTimeAbs ||
+           (entry.stopID === currentTrip[0].stopID && currentTrip.length >= MIN_STOPS_BEFORE_RESTART))) {
+            allTrips.push([...currentTrip]); // Finalize the previous trip
+            currentTrip = []; // Start a new trip
+        }
+        currentTrip.push(entry);
+        previousStopTimeAbs = currentStopTimeAbs;
+    }
+
+    if (currentTrip.length > 0) {
+        allTrips.push([...currentTrip]); // Add the last trip
+    }
+    return allTrips;
+}
 
 async function loadInitialData() {
     console.log("[ARRIVALS DEBUG] loadInitialData from Firebase called.");
@@ -1248,8 +1323,7 @@ async function loadInitialData() {
     setupFirebaseListeners();
 }
 
-
-    function setupFirebaseListeners() {
+function setupFirebaseListeners() {
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         console.error("Firebase not initialized. Cannot set up listeners for arrivals page.");
         return;
@@ -1479,6 +1553,18 @@ async function loadInitialData() {
             displaySystemUpdateMessage();
         }
     });
+
+    // *** NEW LISTENER FOR CURTAILMENTS ***
+    const liveInterventionsRef = dbRef(database, '/liveServiceInterventions/curtailments');
+    dbOnValue(liveInterventionsRef, (snapshot) => {
+        console.log("[ARRIVALS DEBUG] Live curtailment data updated from Firebase.");
+        liveCurtailmentData = snapshot.exists() ? snapshot.val() : {};
+        // Trigger a refresh of the arrivals board if a stop is currently selected
+        if (currentSelectedStopID) {
+            updateAndDisplayLiveArrivals(); // This will re-render the arrivals with the new data
+        }
+    });
+
     console.log("[ARRIVALS DEBUG] All Firebase listeners set up.");
 }
 
@@ -1490,7 +1576,7 @@ async function loadInitialData() {
     function closeStopSelectionModal() { if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'none'; }
 
     function selectStop(stopID) {
-        currentSelectedStopID = stopID; localStorage.setItem('lastSelectedStopID', stopID); currentDepartureCycleStartIndex = 0; allUpcomingBusesMasterList = []; previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); const stopInfoAreaClear = document.getElementById('stop-info-area'); if (stopInfoAreaClear) stopInfoAreaClear.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; } if(routeTilesContainerElement) { routeTilesContainerElement.innerHTML = ''; } if(busListElement) busListElement.innerHTML = ''; return; } const selectedStopDetails = uniqueStops.find(s => s && s.stopID === stopID); const stopInfoArea = document.getElementById('stop-info-area'); if (stopInfoArea) stopInfoArea.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none';  } if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; if (!selectedStopDetails) { console.warn(`[ARRIVALS DEBUG] No details for stopID (selectStop): ${stopID}`); if (stopInfoArea) { const errorHeader = document.createElement('div'); errorHeader.className = 'main-stop-name-line'; errorHeader.style.textAlign = 'center'; errorHeader.textContent = 'Stop Info Missing'; stopInfoArea.appendChild(errorHeader); } if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Details missing for ${sanitize(stopID)}.</li>`; if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } const newBusStopHeader = document.createElement('div'); newBusStopHeader.id = 'bus-stop-header'; newBusStopHeader.title = 'Click to change stop'; newBusStopHeader.style.display = 'flex'; newBusStopHeader.style.flexDirection = 'column'; newBusStopHeader.style.alignItems = 'center'; newBusStopHeader.style.justifyContent = 'center'; newBusStopHeader.style.paddingBottom = '0.25rem'; newBusStopHeader.style.cursor = 'pointer'; newBusStopHeader.style.textAlign = 'center'; newBusStopHeader.style.marginTop = '-0.5rem'; let stopNameFull = selectedStopDetails.stopName || "Unknown Stop"; let mainNamePart = stopNameFull; let qualifierPart = null; let stopLetters = null; const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/; const qualifierMatch = mainNamePart.match(qualifierRegex); if (qualifierMatch) { mainNamePart = qualifierMatch[1].trim(); qualifierPart = qualifierMatch[2].trim(); } const letterRegex = /\(([A-Z0-9]{1,3})\)$/; let tempLetterMatch = mainNamePart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim(); } else if (qualifierPart) { tempLetterMatch = qualifierPart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim(); } } const mainNameLineDiv = document.createElement('div'); mainNameLineDiv.className = 'main-stop-name-line'; mainNameLineDiv.textContent = mainNamePart; newBusStopHeader.appendChild(mainNameLineDiv); if (qualifierPart && qualifierPart !== "") { const qElem = document.createElement('div'); qElem.className = 'stop-name-qualifier'; qElem.textContent = qualifierPart; newBusStopHeader.appendChild(qElem); } const newBusStopDirection = document.createElement('p'); newBusStopDirection.id = 'bus-stop-direction'; newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; newBusStopDirection.style.fontWeight = 'normal'; newBusStopDirection.style.textAlign = 'center'; newBusStopDirection.style.opacity = '0.75'; newBusStopDirection.style.marginTop = '0.25rem'; newBusStopDirection.style.minHeight = '1.2em'; newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; if(stopInfoArea) { stopInfoArea.appendChild(newBusStopHeader); stopInfoArea.appendChild(newBusStopDirection); newBusStopHeader.addEventListener('click', openStopSelectionModal); } if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) { const allServingRoutesEver = new Set(); allScheduledData.forEach(bus => { if (bus && bus.stopID === currentSelectedStopID && bus.lineName) allServingRoutesEver.add(bus.lineName); }); const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames); routeTilesContainerElement.innerHTML = ''; sortedServingRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'route-tile'; tile.textContent = lineName; let tileBGColour = getRouteTileColour(lineName); let tileTextColour = getTextColourForBackground(tileBGColour); tile.style.backgroundColor = tileBGColour; tile.style.color = tileTextColour; routeTilesContainerElement.appendChild(tile); }); } if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { const circleElement = document.createElement('span'); circleElement.className = 'stop-letter-circle'; const letterSpan = document.createElement('span'); letterSpan.textContent = stopLetters; circleElement.appendChild(letterSpan); circleElement.style.alignItems = 'center'; circleElement.style.justifyContent = 'center'; stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.appendChild(circleElement); stopLetterDisplayElement.style.display = 'inline-flex'; requestAnimationFrame(() => { if (!document.body.contains(circleElement) || !document.body.contains(letterSpan)) return; const circStyle=window.getComputedStyle(circleElement); const circDiam=parseFloat(circStyle.width); if(isNaN(circDiam) || circDiam <= 0) return; letterSpan.style.fontFamily = window.getComputedStyle(document.body).fontFamily; letterSpan.style.fontWeight="bold"; const lCount=(stopLetters || "").length; if(lCount===0) { letterSpan.textContent = ''; return; } const MIN_FS=6; let curSize, tgtWidth; if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;} else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;} else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;} curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); let iter=0; let txtMeasW; do{ letterSpan.style.fontSize=curSize+"px"; txtMeasW=getTextWidth(stopLetters,`bold ${curSize}px "${getComputedStyle(letterSpan).fontFamily}"`); if(txtMeasW > tgtWidth && curSize > MIN_FS) curSize -= 0.5; else break; iter++; } while(iter<50 && curSize>MIN_FS); letterSpan.style.fontSize=curSize+"px"; letterSpan.style.lineHeight = circDiam + 'px'; }); } else { if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; } if (closedStopIDsGlobal.includes(stopID.toUpperCase())) { if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;} if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } updateAndDisplayLiveArrivals(); if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 10000);
+        currentSelectedStopID = stopID; localStorage.setItem('lastSelectedStopID', stopID); currentDepartureCycleStartIndex = 0; allUpcomingBusesMasterList = []; previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); const stopInfoAreaClear = document.getElementById('stop-info-area'); if (stopInfoAreaClear) stopInfoAreaClear.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; } if(routeTilesContainerElement) { routeTilesContainerElement.innerHTML = ''; } if(busListElement) busListElement.innerHTML = ''; return; } const selectedStopDetails = uniqueStops.find(s => s && s.stopID === stopID); const stopInfoArea = document.getElementById('stop-info-area'); if (stopInfoArea) stopInfoArea.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none';  } if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; if (!selectedStopDetails) { console.warn(`[ARRIVALS DEBUG] No details for stopID (selectStop): ${stopID}`); if (stopInfoArea) { const errorHeader = document.createElement('div'); errorHeader.className = 'main-stop-name-line'; errorHeader.style.textAlign = 'center'; errorHeader.textContent = 'Stop Info Missing'; stopInfoArea.appendChild(errorHeader); } if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Details missing for ${sanitize(stopID)}.</li>`; if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } const newBusStopHeader = document.createElement('div'); newBusStopHeader.id = 'bus-stop-header'; newBusStopHeader.title = 'Click to change stop'; newBusStopHeader.style.display = 'flex'; newBusStopHeader.style.flexDirection = 'column'; newBusStopHeader.style.alignItems = 'center'; newBusStopHeader.style.justifyContent = 'center'; newBusStopHeader.style.paddingBottom = '0.25rem'; newBusStopHeader.style.cursor = 'pointer'; newBusStopHeader.style.textAlign = 'center'; newBusStopHeader.style.marginTop = '-0.5rem'; let stopNameFull = selectedStopDetails.stopName || "Unknown Stop"; let mainNamePart = stopNameFull; let qualifierPart = null; let stopLetters = null; const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/; const qualifierMatch = mainNamePart.match(qualifierRegex); if (qualifierMatch) { mainNamePart = qualifierMatch[1].trim(); qualifierPart = qualifierMatch[2].trim(); } const letterRegex = /\(([A-Z0-9]{1,3})\)$/; let tempLetterMatch = mainNamePart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim(); } else if (qualifierPart) { tempLetterMatch = qualifierPart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim(); } } const mainNameLineDiv = document.createElement('div'); mainNameLineDiv.className = 'main-stop-name-line'; mainNameLineDiv.textContent = mainNamePart; newBusStopHeader.appendChild(mainNameLineDiv); if (qualifierPart && qualifierPart !== "") { const qElem = document.createElement('div'); qElem.className = 'stop-name-qualifier'; qElem.textContent = qualifierPart; newBusStopHeader.appendChild(qElem); } const newBusStopDirection = document.createElement('p'); newBusStopDirection.id = 'bus-stop-direction'; newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; newBusStopDirection.style.fontWeight = 'normal'; newBusStopDirection.style.textAlign = 'center'; newBusStopDirection.style.opacity = '0.75'; newBusStopDirection.style.marginTop = '0.25rem'; newBusStopDirection.style.minHeight = '1.2em'; newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; if(stopInfoArea) { stopInfoArea.appendChild(newBusStopHeader); stopInfoArea.appendChild(newBusStopDirection); newBusStopHeader.addEventListener('click', openStopSelectionModal); } if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) { const allServingRoutesEver = new Set(); allScheduledData.forEach(bus => { if (bus && bus.stopID === currentSelectedStopID && bus.lineName) allServingRoutesEver.add(bus.lineName); }); const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames); routeTilesContainerElement.innerHTML = ''; sortedServingRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'route-tile'; tile.textContent = lineName; let tileBGColour = getRouteTileColour(lineName); let tileTextColour = getTextColourForBackground(tileBGColour); tile.style.backgroundColor = tileBGColour; tile.style.color = tileTextColour; routeTilesContainerElement.appendChild(tile); }); } if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { const circleElement = document.createElement('span'); circleElement.className = 'stop-letter-circle'; const letterSpan = document.createElement('span'); letterSpan.textContent = stopLetters; circleElement.appendChild(letterSpan); circleElement.style.alignItems = 'center'; circleElement.style.justifyContent = 'center'; stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.appendChild(circleElement); stopLetterDisplayElement.style.display = 'inline-flex'; requestAnimationFrame(() => { if (!document.body.contains(circleElement) || !document.body.contains(letterSpan)) return; const circStyle=window.getComputedStyle(circleElement); const circDiam=parseFloat(circStyle.width); if(isNaN(circDiam) || circDiam <= 0) return; letterSpan.style.fontFamily = window.getComputedStyle(document.body).fontFamily; letterSpan.style.fontWeight="bold"; const lCount=(stopLetters || "").length; if(lCount===0) { letterSpan.textContent = ''; return; } const MIN_FS=6; let curSize, tgtWidth; if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;} else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;} else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;} curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); let iter=0; let txtMeasW; do{ letterSpan.style.fontSize=curSize+"px"; txtMeasW=getTextWidth(stopLetters,`bold ${curSize}px "${getComputedStyle(letterSpan).fontFamily}"`); if(txtMeasW > tgtWidth && curSize > MIN_FS) curSize -= 0.5; else break; iter++; } while(iter<50 && curSize>MIN_FS); letterSpan.style.fontSize=curSize+"px"; letterSpan.style.lineHeight = circDiam + 'px'; }); } else { if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; } if (closedStopIDsGlobal.includes(stopID.toUpperCase())) { if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;} if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } updateAndDisplayLiveArrivals(); if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 60000);
     }
 
     document.addEventListener('DOMContentLoaded', () => {

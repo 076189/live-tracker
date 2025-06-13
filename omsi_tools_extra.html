@@ -1706,78 +1706,96 @@ function slc_populateDestinationSelect() {
     const routeSelect = document.getElementById('slc-route-select-extra');
     const destSelect = document.getElementById('slc-destination-select-extra');
     if (!routeSelect || !destSelect) return;
-    
-    const selectedRoute = routeSelect.value;
-    destSelect.innerHTML = '<option value="">-- Select Direction --</option>';
-    destSelect.disabled = true;
 
-    if (selectedRoute) {
-        const uniqueDests = [...new Set(currentWorkingSchedule_extra.filter(e => e.lineName === selectedRoute).map(e => e.destinationName))].filter(Boolean).sort();
-        if (uniqueDests.length > 0) {
-            uniqueDests.forEach(dest => destSelect.add(new Option(dest, dest)));
-            destSelect.disabled = false;
+    const selectedRoute = routeSelect.value;
+    destSelect.innerHTML = '<option value="">-- Select Journey Variant --</option>';
+    destSelect.disabled = true;
+    
+    // This will clear the terminus points dropdown when the route changes.
+    slc_populateCurtailmentPointsSelect(); 
+
+    if (!selectedRoute) return;
+
+    // This logic finds all saved RSG configurations for the selected route.
+    const matchingConfigs = [];
+    const futureDatePattern = /\(from\s*\d{6}\)/;
+    for (const key in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[key];
+        if (config.routeName === selectedRoute && !futureDatePattern.test(config.userDisplayName || key)) {
+            matchingConfigs.push({ key, ...config });
         }
     }
-    slc_populateCurtailmentPointsSelect(); // Trigger chain reaction
+
+    // Sort the configurations alphabetically by their display name
+    matchingConfigs.sort((a, b) => (a.userDisplayName || a.key).localeCompare(b.userDisplayName || b.key));
+
+    // Populate the dropdown with the descriptive name and unique key
+    if (matchingConfigs.length > 0) {
+        matchingConfigs.forEach(config => {
+            const option = document.createElement('option');
+            // The VALUE is now the unique key of the saved config
+            option.value = config.key; 
+            // The TEXT is the user-friendly display name
+            option.textContent = config.userDisplayName || config.key; 
+            destSelect.appendChild(option);
+        });
+        destSelect.disabled = false;
+    }
+    
+    // Trigger the next function in the chain
+    destSelect.dispatchEvent(new Event('change'));
 }
 
 async function slc_populateCurtailmentPointsSelect() {
-    // Get references to the UI elements
-    const route = document.getElementById('slc-route-select-extra').value;
-    const dest = document.getElementById('slc-destination-select-extra').value;
+    const destSelect = document.getElementById('slc-destination-select-extra');
     const pointSelect = document.getElementById('slc-curtailment-point-select-extra');
-    
-    if (!pointSelect) return;
+    if (!destSelect || !pointSelect) return;
 
-    // Reset the dropdown to its default state
+    // The value from the destination select is now the unique key of the RSG config
+    const selectedConfigKey = destSelect.value;
+    
     pointSelect.innerHTML = '<option value="">-- Select Point --</option>';
     pointSelect.disabled = true;
 
-    // Exit if we don't have both a route and a destination selected
-    if (!route || !dest) {
+    if (!selectedConfigKey) {
+        return; 
+    }
+
+    // Find the full configuration data using the unique key
+    const configData = rsg_loadedConfigs_extra[selectedConfigKey];
+    if (!configData || !configData.routeName || !configData.destinationName) {
+        // This case handles if the selected config is somehow invalid
+        pointSelect.innerHTML = '<option value="">Invalid config selected</option>';
         return;
     }
 
-    // Get the Firebase database tools
+    // Extract the raw route and destination names from the config data
+    const route = configData.routeName;
+    const dest = configData.destinationName;
+
+    // Build the correct Firebase path using the raw names
     const { database, dbGet, dbRef } = window.firebaseOMSI;
     const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(dest)}`;
     
-    // Fetch the data from the correct path in Firebase
     const snapshot = await dbGet(dbRef(database, path));
 
     if (snapshot.exists()) {
         const definedPoints = snapshot.val();
-        
-        // Check if the data is a valid, non-empty array
         if (Array.isArray(definedPoints) && definedPoints.length > 0) {
-            
-            // It's good practice to clear it again right before populating
             pointSelect.innerHTML = '<option value="">-- Select Point --</option>';
-            
-            // Loop through the points found in the database
             definedPoints.forEach(point => {
-                // Create a JSON string for the option's value. This handily stores
-                // both the stop ID and the display name in one attribute.
                 const optionValue = JSON.stringify({
                     stopId: point.lastStopID,
                     displayName: point.newDestinationName
                 });
-
-                // Create the visible text for the option
                 const optionText = `${point.newDestinationName} (${point.lastStopID})`;
-                
-                // Add the new <option> to the <select> dropdown
                 pointSelect.add(new Option(optionText, optionValue));
             });
-            
-            // Enable the dropdown now that it has options
             pointSelect.disabled = false;
         } else {
-            // This message shows if the path exists but contains no points
             pointSelect.innerHTML = '<option value="">No defined points for this service</option>';
         }
     } else {
-        // This message shows if the Firebase path itself doesn't exist
         pointSelect.innerHTML = '<option value="">No defined points for this service</option>';
     }
 }

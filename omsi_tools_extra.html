@@ -1747,35 +1747,30 @@ function slc_populateDestinationSelect() {
 }
 
 async function slc_populateCurtailmentPointsSelect() {
+    const routeSelect = document.getElementById('slc-route-select-extra');
     const destSelect = document.getElementById('slc-destination-select-extra');
     const pointSelect = document.getElementById('slc-curtailment-point-select-extra');
-    if (!destSelect || !pointSelect) return;
+    
+    if (!routeSelect || !destSelect || !pointSelect) return;
 
-    // The value from the destination select is now the unique key of the RSG config
-    const selectedConfigKey = destSelect.value;
+    // This is the full descriptive name, e.g., "22 to Lakeside - MF, Sa, Su"
+    const selectedJourneyIdentifier = destSelect.value; 
+    const route = routeSelect.value;
     
     pointSelect.innerHTML = '<option value="">-- Select Point --</option>';
     pointSelect.disabled = true;
 
-    if (!selectedConfigKey) {
+    if (!route || !selectedJourneyIdentifier) {
         return; 
     }
 
-    // Find the full configuration data using the unique key
-    const configData = rsg_loadedConfigs_extra[selectedConfigKey];
-    if (!configData || !configData.routeName || !configData.destinationName) {
-        // This case handles if the selected config is somehow invalid
-        pointSelect.innerHTML = '<option value="">Invalid config selected</option>';
-        return;
-    }
-
-    // Extract the raw route and destination names from the config data
-    const route = configData.routeName;
-    const dest = configData.destinationName;
-
-    // Build the correct Firebase path using the raw names
+    // --- THIS IS THE CORRECTED LOGIC ---
+    // Build the path using the selected descriptive name directly.
     const { database, dbGet, dbRef } = window.firebaseOMSI;
-    const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(dest)}`;
+    const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(selectedJourneyIdentifier)}`;
+    
+    // For your debugging, you can check the console to see the exact path it's now trying to read.
+    console.log("Fetching curtailment points from path:", path);
     
     const snapshot = await dbGet(dbRef(database, path));
 
@@ -1796,7 +1791,8 @@ async function slc_populateCurtailmentPointsSelect() {
             pointSelect.innerHTML = '<option value="">No defined points for this service</option>';
         }
     } else {
-        pointSelect.innerHTML = '<option value="">No defined points for this service</option>';
+        // This will now correctly show if no data is found at the new path.
+        pointSelect.innerHTML = '<option value="">No defined points found for this journey</option>';
     }
 }
 

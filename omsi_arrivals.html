@@ -636,6 +636,7 @@
         closedStopIDsGlobal = [];
 
     let allScheduledData = [];
+    let activeMassCurtailments = {};
     let uniqueStops = [];
     let currentSelectedStopID = null;
     let ukBankHolidaysData = { dates: [], titles: {} };
@@ -699,6 +700,7 @@
     const FB_PATH_CUSTOM_STATUS_MESSAGE = '/appState/customStatusMessage';
     const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides';
     const FB_PATH_ALL_DEFINED_STOPS = '/allDefinedStops';
+    const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
 
 
     let customMessageSettings = {
@@ -874,6 +876,7 @@
     function isCustomMessageActive() { if (!customMessageSettings || !customMessageSettings.isEnabled || !customMessageSettings.text) { return false; } const now = new Date(); const startTime = customMessageSettings.startTimeISO ? new Date(customMessageSettings.startTimeISO) : null; const endTime = customMessageSettings.endTimeISO ? new Date(customMessageSettings.endTimeISO) : null; if (customMessageSettings.isEnabled && customMessageSettings.text && !startTime && !endTime) { return true; } if (startTime && endTime) { return now >= startTime && now <= endTime; } else if (startTime) { return now >= startTime; } else if (endTime) { return now <= endTime; } return false; }
     
     // --- UPDATED: This function now reads embedded curtailment data ---
+    // --- UPDATED: This function now reads embedded curtailment data ---
     function updateAndDisplayLiveArrivals() {
         if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
         if (!currentSelectedStopID || !allScheduledData || allScheduledData.length === 0) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">${(!allScheduledData || allScheduledData.length === 0) ? 'No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.' : 'Select a stop.'}</li>`;} previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
@@ -928,8 +931,35 @@
 
                 let busDataForProcessing = { ...bus };
 
-                // --- NEW SIMPLIFIED CURTAILMENT LOGIC ---
-                // Checks for curtailment data embedded directly in the schedule entry
+                // --- NEW LOGIC TO APPLY SERVICE-WIDE CURTAILMENTS DYNAMICALLY ---
+                // This checks the rules from `/liveServiceInterventions/massCurtailments`.
+                // It only applies a rule if the bus hasn't already been curtailed by a more specific single-trip intervention.
+                if (!busDataForProcessing.curtailment && Object.keys(activeMassCurtailments).length > 0) {
+                    for (const key in activeMassCurtailments) {
+                        const rule = activeMassCurtailments[key];
+                        // Check if the rule object is valid and currently active
+                        if (rule && rule.startTime && rule.endTime && rule.routeName && rule.destinationName) {
+                            const startTime = new Date(rule.startTime);
+                            const endTime = new Date(rule.endTime);
+
+                            if (nowForProcessing >= startTime && nowForProcessing <= endTime &&
+                                rule.routeName === busDataForProcessing.lineName &&
+                                rule.destinationName === busDataForProcessing.destinationName)
+                            {
+                                // This bus matches an active service-wide rule. Apply it dynamically.
+                                busDataForProcessing.curtailment = {
+                                    curtailAtStopID: rule.newTerminusStopId,
+                                    newDestinationName: rule.newTerminusDisplayName,
+                                    appliedAt: rule.startTime // Use the rule's start time for reference
+                                };
+                                break; // Rule applied, no need to check other rules for this bus
+                            }
+                        }
+                    }
+                }
+                // --- END OF NEW LOGIC ---
+
+                // --- EXISTING CURTAILMENT LOGIC (Now works with both single-trip and service-wide curtailments) ---
                 if (busDataForProcessing.curtailment) {
                     const curtailmentInfo = busDataForProcessing.curtailment;
                     const stopSequence = busDataForProcessing.tripStopSequence || [];
@@ -943,7 +973,7 @@
                     // Otherwise, update the destination for display to the new curtailed destination
                     busDataForProcessing.destinationName = curtailmentInfo.newDestinationName;
                 }
-                // --- END NEW CURTAILMENT LOGIC ---
+                // --- END OF EXISTING CURTAILMENT LOGIC ---
 
                 const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
                 const arrTxt = generateArrivalText(diffSecs);
@@ -1123,6 +1153,14 @@ async function loadInitialData() {
             globalOperationalOverrides = overridesSnapshot.val();
         } else {
             globalOperationalOverrides = {};
+        }
+
+const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
+        if (massCurtailmentsSnapshot.exists()) {
+            activeMassCurtailments = massCurtailmentsSnapshot.val() || {};
+            console.log(`[ARRIVALS DEBUG] Loaded ${Object.keys(activeMassCurtailments).length} mass curtailment rules.`);
+        } else {
+            activeMassCurtailments = {};
         }
 
         const scheduleSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
@@ -1333,6 +1371,17 @@ function setupFirebaseListeners() {
                 if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
                 else if (currentSelectedStopID) selectStop(currentSelectedStopID);
             }
+
+const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
+    dbOnValue(massCurtailmentsRef, (snapshot) => {
+        console.log("[ARRIVALS DEBUG] Mass curtailment data updated from Firebase listener.");
+        activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
+        // If a stop is currently selected, force a refresh of the arrivals board to apply the new rules
+        if (currentSelectedStopID) {
+            updateAndDisplayLiveArrivals();
+        }
+ });
+
             const fbClosedStops = appState.closedStopIDs || {};
             const newClosed = [];
             for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID.toUpperCase()); }

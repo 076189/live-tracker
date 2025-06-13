@@ -1372,16 +1372,6 @@ function setupFirebaseListeners() {
                 else if (currentSelectedStopID) selectStop(currentSelectedStopID);
             }
 
-const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
-    dbOnValue(massCurtailmentsRef, (snapshot) => {
-        console.log("[ARRIVALS DEBUG] Mass curtailment data updated from Firebase listener.");
-        activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
-        // If a stop is currently selected, force a refresh of the arrivals board to apply the new rules
-        if (currentSelectedStopID) {
-            updateAndDisplayLiveArrivals();
-        }
- });
-
             const fbClosedStops = appState.closedStopIDs || {};
             const newClosed = [];
             for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID.toUpperCase()); }
@@ -1426,11 +1416,20 @@ const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
         if (currentSelectedStopID) selectStop(currentSelectedStopID);
     });
 
+    // --- NEW LISTENER FOR DYNAMIC CURTAILMENTS --- //
+    const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
+    dbOnValue(massCurtailmentsRef, (snapshot) => {
+        console.log("[ARRIVALS DEBUG] Mass curtailment data updated from Firebase listener.");
+        activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
+        // If a stop is currently selected, force a refresh of the arrivals board to apply the new rules
+        if (currentSelectedStopID) {
+            updateAndDisplayLiveArrivals();
+        }
+    });
+    // --- END OF NEW LISTENER --- //
+
     console.log("[ARRIVALS DEBUG] All Firebase listeners set up.");
 }
-
-    // --- The selectStop, populateStopSelectionModal, and other UI functions remain unchanged ---
-    // (The file content continues with these functions as they were in the original file)
 
     function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID.toUpperCase()); li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
     function filterStopList() { if (stopSearchInput) populateStopSelectionModal(stopSearchInput.value); }

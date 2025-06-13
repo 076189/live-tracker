@@ -875,8 +875,35 @@
     function displaySystemUpdateMessage() { console.log("[ARRIVALS DEBUG] Displaying system update message."); if (busListElement) { busListElement.innerHTML = `<li class="system-update-message">Live bus arrivals are not available at this time.<br>System update in progress.</li>`; } if (liveUpdateIntervalId) { clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; } }
     function isCustomMessageActive() { if (!customMessageSettings || !customMessageSettings.isEnabled || !customMessageSettings.text) { return false; } const now = new Date(); const startTime = customMessageSettings.startTimeISO ? new Date(customMessageSettings.startTimeISO) : null; const endTime = customMessageSettings.endTimeISO ? new Date(customMessageSettings.endTimeISO) : null; if (customMessageSettings.isEnabled && customMessageSettings.text && !startTime && !endTime) { return true; } if (startTime && endTime) { return now >= startTime && now <= endTime; } else if (startTime) { return now >= startTime; } else if (endTime) { return now <= endTime; } return false; }
     
-    // --- UPDATED: This function now reads embedded curtailment data ---
-    // --- UPDATED: This function now reads embedded curtailment data ---
+function extractDestinationNameFromRule(ruleDestination) {
+        // This function is designed to extract just the destination name from a potentially
+        // verbose string like "35 to Amcotts - MF, Sa" or "RouteName to Destination - Profile".
+        // It should handle cases where only the destination is present, or the full string.
+
+        if (!ruleDestination || typeof ruleDestination !== 'string') {
+            return ruleDestination; // Return as is if not a string or empty/null
+        }
+
+        // Regex Explanation:
+        // ^(?:[A-Z0-9]+\s+to\s+)?  - Non-capturing group: Optionally matches "ROUTE_NUMBER to " (e.g., "35 to ").
+        //                           `?:` makes it non-capturing, `?` makes it optional.
+        // (.*?)                   - Capturing group 1: Matches any character (`.`) zero or more times (`*?`) non-greedily.
+        //                           This captures the destination name itself.
+        // (?:\s+-\s+.*)?$         - Non-capturing group: Optionally matches " - " followed by any characters to the end of the string.
+        //                           This handles the "- PROFILE" part if it exists.
+        // `i` flag                - Makes the match case-insensitive.
+
+        const match = ruleDestination.match(/^(?:[A-Z0-9]+\s+to\s+)?(.*?)(?:\s+-\s+.*)?$/i);
+
+        if (match && match[1]) {
+            return match[1].trim(); // Return the captured destination part, trimmed of whitespace
+        }
+
+        // If no specific pattern is matched, return the original string.
+        // This handles cases where ruleDestination is already just the plain destination name.
+        return ruleDestination;
+    }
+
     function updateAndDisplayLiveArrivals() {
         if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
         if (!currentSelectedStopID || !allScheduledData || allScheduledData.length === 0) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">${(!allScheduledData || allScheduledData.length === 0) ? 'No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.' : 'Select a stop.'}</li>`;} previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
@@ -942,9 +969,12 @@
                             const startTime = new Date(rule.startTime);
                             const endTime = new Date(rule.endTime);
 
+                            // Extract the simplified destination from the rule's destinationName
+                            const ruleSimpleDestination = extractDestinationNameFromRule(rule.destinationName);
+
                             if (nowForProcessing >= startTime && nowForProcessing <= endTime &&
                                 rule.routeName === busDataForProcessing.lineName &&
-                                rule.destinationName === busDataForProcessing.destinationName)
+                                ruleSimpleDestination === busDataForProcessing.destinationName) // MODIFIED LINE
                             {
                                 // This bus matches an active service-wide rule. Apply it dynamically.
                                 busDataForProcessing.curtailment = {
@@ -1247,7 +1277,8 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
             } else {
                 if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No valid stops to select.</li>`;
             }
-        } else {
+        }
+        else {
             const stopInfoArea = document.getElementById('stop-info-area');
             if (stopInfoArea) { stopInfoArea.innerHTML = '<div class="main-stop-name-line" style="text-align: center;">No Stops Available</div>'; }
             if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule data or stops defined. Use <a href="setup.html" style="color:#90cdf4;">Setup tools</a>.</li>`;
@@ -1419,11 +1450,11 @@ function setupFirebaseListeners() {
     // --- NEW LISTENER FOR DYNAMIC CURTAILMENTS --- //
     const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
     dbOnValue(massCurtailmentsRef, (snapshot) => {
-        console.log("[ARRIVALS DEBUG] Mass curtailment data updated from Firebase listener.");
+        console.log("[ARRIVALS DEBUG] Mass curtailment data updated from Firebase listener. Forcing arrivals re-render.");
         activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
         // If a stop is currently selected, force a refresh of the arrivals board to apply the new rules
         if (currentSelectedStopID) {
-            updateAndDisplayLiveArrivals();
+            updateAndDisplayLiveArrivals(); // THIS IS THE CRUCIAL LINE ADDED/MODIFIED
         }
     });
     // --- END OF NEW LISTENER --- //

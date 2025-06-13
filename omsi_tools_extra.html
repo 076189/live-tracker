@@ -495,11 +495,60 @@
                 <button class="menu-button" data-section="calendar-view-section_extra">Events Calendar</button>
                 <button class="menu-button" data-section="curtailment-config-section_extra">Curtailment Points</button>
                 <button class="menu-button" data-section="trip-curtailment-section_extra">Live Trip Intervention</button>
+                <button class="menu-button" data-section="route-curtailment-section_extra">Service Leg Curtailment</button>
             </div>
         </div>
 
         <div id="tool-sections-wrapper_extra">
 
+            <div id="route-curtailment-section_extra" class="tool-content-section section" style="display:none;">
+                <h2>Service Leg Curtailment</h2>
+                <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
+                    Set a temporary terminus for all trips on a specific service leg (route and direction).
+                </p>
+            
+                <div class="subsection">
+                    <h3 class="subsection-title">1. Define Service Curtailment</h3>
+                    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); align-items: end;">
+                        <div>
+                            <label for="slc-route-select-extra">Route to Curtail:</label>
+                            <select id="slc-route-select-extra" class="schedule-generator-input"></select>
+                        </div>
+                        <div>
+                            <label for="slc-destination-select-extra">Direction/Destination:</label>
+                            <select id="slc-destination-select-extra" class="schedule-generator-input" disabled></select>
+                        </div>
+                        <div>
+                            <label for="slc-curtailment-point-select-extra">New Temporary Terminus:</label>
+                            <select id="slc-curtailment-point-select-extra" class="schedule-generator-input" disabled></select>
+                        </div>
+                    </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; align-items: end; margin-top: 1rem;">
+                         <div>
+                            <label for="slc-start-time-input-extra">Curtailment Start From:</label>
+                            <input type="datetime-local" id="slc-start-time-input-extra" class="schedule-generator-input">
+                        </div>
+                        <div>
+                            <label for="slc-end-time-input-extra">Curtailment End At:</label>
+                            <input type="datetime-local" id="slc-end-time-input-extra" class="schedule-generator-input">
+                        </div>
+                    </div>
+                </div>
+            
+                <div class="subsection" style="margin-top: 1.5rem;">
+                    <h3 class="subsection-title">2. Activate Curtailment</h3>
+                    <button id="slc-activate-button-extra" class="button secondary">Activate Service Curtailment</button>
+                    <p id="slc-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+                </div>
+            
+                <div class="subsection" style="margin-top: 2rem;">
+                    <h3 class="subsection-title">Active & Upcoming Service Curtailments</h3>
+                    <button id="slc-refresh-list-button-extra" class="button neutral small-action" style="margin-bottom: 1em;">Refresh</button>
+                    <div id="slc-active-list-extra">
+                        <p>Loading...</p>
+                    </div>
+                </div>
+            </div>
             <div id="key-departures-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>Key First & Last Departures (Today)</h2>
                 <p style="font-size:0.9em; margin-bottom:1em; opacity: 0.8;">
@@ -1079,6 +1128,7 @@
 	let serviceTerminusMappings_extra = {};
 	let cv_currentDisplayDate_extra = new Date();
         let rsg_batchScheduleItems = [];
+	let massCurtailments_data = {};
         let allDefinedStops_data = {};
 	let dpo_selectedRoutes_extra = []; // New: Stores routes selected for DPO override
         let dpo_currentOverridesForSelectedDate = {}; // New: Stores the route-specific overrides for the currently selected date.
@@ -1126,6 +1176,7 @@
         // --- Firebase Path Constants ---
         const FB_PATH_PAGE_EXTRA_SETTINGS = '/settings/extraModulesPageSettings';
         const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides';
+	const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
         const FB_PATH_SCHEDULED_DELETIONS = '/scheduledRouteDeletions';
         const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute'; // New path for structured schedule data
 	const FB_PATH_CURTAILMENT_POINTS = '/operationalSettings/curtailmentPoints';
@@ -1462,58 +1513,439 @@ function op_points_populateDestSelect() {
     if (!routeSelect || !destSelect) return;
 
     const selectedRoute = routeSelect.value;
-    destSelect.innerHTML = '<option value="">-- Select Destination --</option>'; 
+    // Reset the destination dropdown and clear the stop list that depends on it
+    destSelect.innerHTML = '<option value="">--- Select Journey Variant ---</option>';
+    op_points_populateLastStopSelect();
 
-    if (selectedRoute) {
-        const destinationsForRoute = new Set();
-        for (const key in rsg_loadedConfigs_extra) {
-            const config = rsg_loadedConfigs_extra[key];
-            if (config.routeName === selectedRoute && config.destinationName) {
-                destinationsForRoute.add(config.destinationName);
+    if (!selectedRoute) return;
+
+    // This is a regular expression to find "(from DDMMYY)" in the name
+    const futureDatePattern = /\(from\s*\d{6}\)/;
+    const matchingConfigs = [];
+
+    // 1. Find all configs for the selected route
+    for (const key in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[key];
+        if (config.routeName === selectedRoute) {
+            // 2. Filter out any configs that match the future-date pattern in their name
+            if (config.userDisplayName && !futureDatePattern.test(config.userDisplayName)) {
+                matchingConfigs.push({ key, ...config });
             }
         }
-        const sortedDests = Array.from(destinationsForRoute).sort();
-        sortedDests.forEach(d => destSelect.add(new Option(d, d)));
+    }
+
+    // Sort the valid, current configs alphabetically by their display name
+    matchingConfigs.sort((a, b) => (a.userDisplayName || a.key).localeCompare(b.userDisplayName || b.key));
+
+    // 3. Populate the dropdown using your custom names
+    if (matchingConfigs.length > 0) {
+        matchingConfigs.forEach(config => {
+            const option = document.createElement('option');
+            // The VALUE is the unique key to identify the exact schedule
+            option.value = config.key;
+            // The TEXT is your existing, descriptive name
+            option.textContent = config.userDisplayName || config.key;
+            destSelect.appendChild(option);
+        });
+    }
+
+    // Automatically trigger the logic to populate the "Last Stop" select
+    destSelect.dispatchEvent(new Event('change'));
+}
+function op_points_populateLastStopSelect() {
+    const destSelect = document.getElementById('op-points-dest-select-extra');
+    const lastStopSelect = document.getElementById('op-points-last-stop-select-extra');
+    if (!destSelect || !lastStopSelect) return;
+
+    // The value from the destination select is now the unique key of the RSG config
+    const selectedConfigKey = destSelect.value;
+    lastStopSelect.innerHTML = '<option value="">--- Select Last Stop ---</option>'; // Reset dropdown
+
+    if (!selectedConfigKey) {
+        return; // Exit if no specific journey is selected
+    }
+
+    // Directly look up the configuration using its unique key
+    const matchingConfig = rsg_loadedConfigs_extra[selectedConfigKey];
+
+    // If we found the config, populate the dropdown with its stop sequence
+    if (matchingConfig && matchingConfig.stopSequence) {
+        // Exclude the very last stop, as a curtailment cannot end at the final destination
+        const stopsToShow = matchingConfig.stopSequence.slice(0, -1);
+
+        stopsToShow.forEach(stop => {
+            const option = document.createElement('option');
+            option.value = stop.stopID;
+            option.textContent = `${stop.stopName} (${stop.stopID})`;
+            lastStopSelect.appendChild(option);
+        });
+    }
+}
+
+// --- START: Mass Route Curtailment Functions ---
+
+function mrc_setupToolForRoute() {
+    const selectedRoute = document.getElementById('curtail-route-select-extra').value;
+    const mrcSection = document.getElementById('mass-route-curtailment-subsection-extra');
+    
+    if (!selectedRoute) {
+        mrcSection.style.display = 'none';
+        return;
     }
     
-    op_points_populateLastStopSelect();
-    op_points_updateCopyButtonState(); // <-- ADD THIS LINE
+    mrcSection.style.display = 'block';
+
+    // Reset form fields
+    document.getElementById('mrc-term-stop-search-input-extra').value = '';
+    document.getElementById('mrc-selected-term-stop-display-extra').textContent = 'Selected: (None)';
+    document.getElementById('mrc-selected-term-stop-id-extra').value = '';
+    document.getElementById('mrc-new-dest-display-name-extra').value = '';
+    document.getElementById('mrc-start-time-input-extra').value = '';
+    document.getElementById('mrc-end-time-input-extra').value = '';
+    document.getElementById('mrc-status-message-extra').textContent = '';
+
+    mrc_renderActiveCurtailments();
 }
 
-function op_points_populateLastStopSelect() {
-    const routeSelect = document.getElementById('op-points-route-select-extra');
-    const destSelect = document.getElementById('op-points-dest-select-extra');
-    const stopSelect = document.getElementById('op-points-last-stop-select-extra');
-    if (!routeSelect || !destSelect || !stopSelect) return;
+function mrc_renderActiveCurtailments() {
+    const displayDiv = document.getElementById('mrc-active-display-extra');
+    const formDiv = document.getElementById('mrc-form-extra');
+    const selectedRoute = document.getElementById('curtail-route-select-extra').value;
+    
+    let activeCurtailment = null;
+    let activeCurtailmentId = null;
+    const now = new Date();
 
-    const selectedRoute = routeSelect.value;
-    const selectedDest = destSelect.value;
-    stopSelect.innerHTML = '<option value="">-- Select Stop --</option>'; // Clear previous options
-
-    if (selectedRoute && selectedDest) {
-        let matchingConfigFound = null;
-        // Find the first RSG config that matches the selected route and destination
-        for (const key in rsg_loadedConfigs_extra) {
-            const config = rsg_loadedConfigs_extra[key];
-            if (config.routeName === selectedRoute && config.destinationName === selectedDest) {
-                matchingConfigFound = config;
-                break; // Found a match, no need to look further
+    for (const key in massCurtailments_data) {
+        const mc = massCurtailments_data[key];
+        if (mc.routeName === selectedRoute) {
+            const endTime = new Date(mc.endTime);
+            if (endTime > now) {
+                activeCurtailment = mc;
+                activeCurtailmentId = key;
+                break;
             }
         }
+    }
 
-        if (matchingConfigFound && matchingConfigFound.stopSequence && matchingConfigFound.stopSequence.length > 0) {
-            // Populate the dropdown directly from the config's stopSequence
-            matchingConfigFound.stopSequence.forEach(stop => {
-                if (stop && stop.stopID && stop.stopName) {
-                    stopSelect.add(new Option(`${stop.stopName} (${stop.stopID})`, stop.stopID));
-                }
-            });
-        } else {
-            // Handle case where no matching RSG config is found
-            stopSelect.innerHTML = '<option value="">-- No RSG config found for this R/D --</option>';
-        }
+    if (activeCurtailment) {
+        displayDiv.style.display = 'block';
+        formDiv.style.display = 'none';
+        const endTime = new Date(activeCurtailment.endTime);
+        displayDiv.innerHTML = `
+            <p style="margin-top:0; font-weight:bold; color: #f39c12;">This route is currently curtailed!</p>
+            <p style="font-size:0.9em; margin-bottom:0.5em;">All services are terminating at <strong>${activeCurtailment.newTerminusDisplayName} (${activeCurtailment.newTerminusStopId})</strong>.</p>
+            <p style="font-size:0.9em; margin-bottom:1rem;">This is active until: <strong>${endTime.toLocaleString()}</strong>.</p>
+            <button class="button save" onclick="mrc_handleCancelCurtailment('${activeCurtailmentId}')">Lift Curtailment Now</button>
+        `;
+    } else {
+        displayDiv.style.display = 'none';
+        formDiv.style.display = 'block';
     }
 }
+
+function mrc_handleStopSearch() {
+    const searchInput = document.getElementById('mrc-term-stop-search-input-extra');
+    const resultsDiv = document.getElementById('mrc-term-stop-search-results-extra');
+    const searchTerm = searchInput.value.toLowerCase().trim();
+    resultsDiv.innerHTML = '';
+    resultsDiv.style.display = searchTerm.length >= 2 ? 'block' : 'none';
+
+    if (searchTerm.length < 2) return;
+
+    const filteredStops = Object.values(allDefinedStops_data).filter(stop => 
+        (stop.stopName || "").toLowerCase().includes(searchTerm) || 
+        (stop.stopID || "").toLowerCase().includes(searchTerm)
+    ).slice(0, 5);
+
+    if (filteredStops.length > 0) {
+        const list = document.createElement('ul');
+        list.style.listStyle = 'none';
+        list.style.padding = '0';
+        list.style.margin = '0';
+        list.style.border = '1px solid #7f8c8d';
+        list.style.borderRadius = '0.25rem';
+        list.style.backgroundColor = '#2c3e50';
+        list.style.position = 'absolute';
+        list.style.width = '100%';
+
+        filteredStops.forEach(stop => {
+            const li = document.createElement('li');
+            li.textContent = `${stop.stopName} (${stop.stopID})`;
+            li.style.padding = '0.5rem';
+            li.style.cursor = 'pointer';
+            li.addEventListener('mouseenter', () => li.style.backgroundColor = '#34495e');
+            li.addEventListener('mouseleave', () => li.style.backgroundColor = '#2c3e50');
+            li.addEventListener('click', () => {
+                document.getElementById('mrc-selected-term-stop-id-extra').value = stop.stopID;
+                document.getElementById('mrc-selected-term-stop-display-extra').textContent = `Selected: ${stop.stopName} (${stop.stopID})`;
+                document.getElementById('mrc-new-dest-display-name-extra').value = stop.stopName;
+                searchInput.value = `${stop.stopName} (${stop.stopID})`;
+                resultsDiv.style.display = 'none';
+            });
+            list.appendChild(li);
+        });
+        resultsDiv.appendChild(list);
+    } else {
+        resultsDiv.innerHTML = `<div style="padding:0.5rem; background-color: #2c3e50; border: 1px solid #7f8c8d; border-radius: 0.25rem;">No stops found.</div>`;
+    }
+}
+
+// --- START: Service Leg Curtailment (SLC) Functions ---
+
+function slc_populateRouteSelect() {
+    const selectEl = document.getElementById('slc-route-select-extra');
+    if (!selectEl) return;
+    const uniqueRoutes = [...new Set(currentWorkingSchedule_extra.map(e => e.lineName))].filter(Boolean).sort(compareLineNames_ExtraPage);
+    selectEl.innerHTML = '<option value="">-- Select Route --</option>';
+    uniqueRoutes.forEach(route => selectEl.add(new Option(route, route)));
+    slc_populateDestinationSelect(); // Trigger chain reaction
+}
+
+function slc_populateDestinationSelect() {
+    const routeSelect = document.getElementById('slc-route-select-extra');
+    const destSelect = document.getElementById('slc-destination-select-extra');
+    if (!routeSelect || !destSelect) return;
+    
+    const selectedRoute = routeSelect.value;
+    destSelect.innerHTML = '<option value="">-- Select Direction --</option>';
+    destSelect.disabled = true;
+
+    if (selectedRoute) {
+        const uniqueDests = [...new Set(currentWorkingSchedule_extra.filter(e => e.lineName === selectedRoute).map(e => e.destinationName))].filter(Boolean).sort();
+        if (uniqueDests.length > 0) {
+            uniqueDests.forEach(dest => destSelect.add(new Option(dest, dest)));
+            destSelect.disabled = false;
+        }
+    }
+    slc_populateCurtailmentPointsSelect(); // Trigger chain reaction
+}
+
+async function slc_populateCurtailmentPointsSelect() {
+    // Get references to the UI elements
+    const route = document.getElementById('slc-route-select-extra').value;
+    const dest = document.getElementById('slc-destination-select-extra').value;
+    const pointSelect = document.getElementById('slc-curtailment-point-select-extra');
+    
+    if (!pointSelect) return;
+
+    // Reset the dropdown to its default state
+    pointSelect.innerHTML = '<option value="">-- Select Point --</option>';
+    pointSelect.disabled = true;
+
+    // Exit if we don't have both a route and a destination selected
+    if (!route || !dest) {
+        return;
+    }
+
+    // Get the Firebase database tools
+    const { database, dbGet, dbRef } = window.firebaseOMSI;
+    const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(dest)}`;
+    
+    // Fetch the data from the correct path in Firebase
+    const snapshot = await dbGet(dbRef(database, path));
+
+    if (snapshot.exists()) {
+        const definedPoints = snapshot.val();
+        
+        // Check if the data is a valid, non-empty array
+        if (Array.isArray(definedPoints) && definedPoints.length > 0) {
+            
+            // It's good practice to clear it again right before populating
+            pointSelect.innerHTML = '<option value="">-- Select Point --</option>';
+            
+            // Loop through the points found in the database
+            definedPoints.forEach(point => {
+                // Create a JSON string for the option's value. This handily stores
+                // both the stop ID and the display name in one attribute.
+                const optionValue = JSON.stringify({
+                    stopId: point.lastStopID,
+                    displayName: point.newDestinationName
+                });
+
+                // Create the visible text for the option
+                const optionText = `${point.newDestinationName} (${point.lastStopID})`;
+                
+                // Add the new <option> to the <select> dropdown
+                pointSelect.add(new Option(optionText, optionValue));
+            });
+            
+            // Enable the dropdown now that it has options
+            pointSelect.disabled = false;
+        } else {
+            // This message shows if the path exists but contains no points
+            pointSelect.innerHTML = '<option value="">No defined points for this service</option>';
+        }
+    } else {
+        // This message shows if the Firebase path itself doesn't exist
+        pointSelect.innerHTML = '<option value="">No defined points for this service</option>';
+    }
+}
+
+async function slc_handleActivateCurtailment() {
+    const statusEl = document.getElementById('slc-status-message-extra');
+    const route = document.getElementById('slc-route-select-extra').value;
+    const dest = document.getElementById('slc-destination-select-extra').value;
+    const pointJSON = document.getElementById('slc-curtailment-point-select-extra').value;
+    const startTime = document.getElementById('slc-start-time-input-extra').value;
+    const endTime = document.getElementById('slc-end-time-input-extra').value;
+
+    if (!route || !dest || !pointJSON || !startTime || !endTime) {
+        statusEl.textContent = "All fields are required.";
+        statusEl.style.color = "#e74c3c";
+        return;
+    }
+
+    const point = JSON.parse(pointJSON);
+    const startTimeObj = new Date(startTime);
+    const endTimeObj = new Date(endTime);
+
+    if (endTimeObj <= startTimeObj) {
+        statusEl.textContent = "End time must be after start time.";
+        statusEl.style.color = "#e74c3c";
+        return;
+    }
+
+    const record = {
+        routeName: route,
+        destinationName: dest,
+        newTerminusStopId: point.stopId,
+        newTerminusDisplayName: point.displayName,
+        startTime: startTimeObj.toISOString(),
+        endTime: endTimeObj.toISOString(),
+        user: currentUser_extra.email
+    };
+
+    if (!confirm(`Confirm Curtailment:\n\nRoute: ${route}\nDirection: ${dest}\nNew Terminus: ${point.displayName}\nActive From: ${startTimeObj.toLocaleString()}\nActive Until: ${endTimeObj.toLocaleString()}`)) {
+        statusEl.textContent = "Activation cancelled.";
+        return;
+    }
+    
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    const newKey = `masscurt-${Date.now()}`;
+    try {
+        await dbSet(dbRef(database, `${FB_PATH_MASS_CURTAILMENTS}/${newKey}`), record);
+        massCurtailments_data[newKey] = record;
+        statusEl.textContent = "Service leg curtailment activated!";
+        statusEl.style.color = "#2ecc71";
+        slc_renderActiveCurtailments();
+    } catch (error) {
+        statusEl.textContent = "Error: " + error.message;
+        statusEl.style.color = "#e74c3c";
+    }
+}
+
+function slc_renderActiveCurtailments() {
+    const listDiv = document.getElementById('slc-active-list-extra');
+    listDiv.innerHTML = '';
+    const now = new Date();
+    
+    const activeCurtailments = Object.entries(massCurtailments_data).filter(([key, mc]) => {
+        return new Date(mc.endTime) > now;
+    });
+
+    if (activeCurtailments.length === 0) {
+        listDiv.innerHTML = '<p style="opacity:0.7;">No active or upcoming service curtailments.</p>';
+        return;
+    }
+
+    let html = '<ul style="list-style-type: none; padding: 0;">';
+    activeCurtailments.sort(([, a], [, b]) => new Date(a.startTime) - new Date(b.startTime)).forEach(([key, mc]) => {
+        html += `
+            <li style="background-color: rgba(255,255,255,0.05); padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong style="color: #f39c12;">${mc.routeName} to ${mc.destinationName}</strong><br>
+                    <span style="font-size:0.9em;">Terminating at: <strong>${mc.newTerminusDisplayName}</strong></span><br>
+                    <span style="font-size:0.8em; opacity:0.8;">Active until: ${new Date(mc.endTime).toLocaleString()}</span>
+                </div>
+                <button class="button save small-action" onclick="slc_handleCancelCurtailment('${key}')">Lift Now</button>
+            </li>
+        `;
+    });
+    html += '</ul>';
+    listDiv.innerHTML = html;
+}
+
+async function slc_handleCancelCurtailment(curtailmentId) {
+    if (!curtailmentId || !confirm("Lift this service curtailment immediately?")) return;
+    const { database, dbRemove, dbRef } = window.firebaseOMSI;
+    try {
+        await dbRemove(dbRef(database, `${FB_PATH_MASS_CURTAILMENTS}/${curtailmentId}`));
+        delete massCurtailments_data[curtailmentId];
+        slc_renderActiveCurtailments();
+    } catch (error) {
+        alert("Error lifting curtailment: " + error.message);
+    }
+}
+// --- END: Service Leg Curtailment (SLC) Functions ---
+
+async function mrc_handleActivateCurtailment() {
+    const statusEl = document.getElementById('mrc-status-message-extra');
+    const route = document.getElementById('rc-route-select-extra').value;
+    const stopId = document.getElementById('mrc-selected-term-stop-id-extra').value;
+    const displayName = document.getElementById('mrc-new-dest-display-name-extra').value.trim();
+    const startTime = document.getElementById('rc-start-time-input-extra').value;
+    const endTime = document.getElementById('rc-end-time-input-extra').value;
+
+    if (!route || !stopId || !displayName || !startTime || !endTime) {
+        statusEl.textContent = "All fields are required to activate a curtailment.";
+        statusEl.style.color = "#e74c3c";
+        return;
+    }
+    
+    const startTimeObj = new Date(startTime);
+    const endTimeObj = new Date(endTime);
+    if (endTimeObj <= startTimeObj) {
+        statusEl.textContent = "End time must be after the start time.";
+        statusEl.style.color = "#e74c3c";
+        return;
+    }
+
+    const record = {
+        routeName: route,
+        newTerminusStopId: stopId,
+        newTerminusDisplayName: displayName,
+        startTime: startTimeObj.toISOString(),
+        endTime: endTimeObj.toISOString(),
+        user: currentUser_extra.email
+    };
+
+    if (!confirm(`Are you sure you want to curtail ALL services on Route ${route} to terminate at ${displayName} from ${startTimeObj.toLocaleString()} until ${endTimeObj.toLocaleString()}?`)) {
+        statusEl.textContent = "Activation cancelled.";
+        return;
+    }
+
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    const newKey = `masscurt-${Date.now()}`;
+    try {
+        await dbSet(dbRef(database, `${FB_PATH_MASS_CURTAILMENTS}/${newKey}`), record);
+        massCurtailments_data[newKey] = record;
+        statusEl.textContent = "Mass curtailment activated successfully!";
+        statusEl.style.color = "#2ecc71";
+        mrc_renderActiveCurtailments(); // Refresh the display
+        displayDeparturesForSelectedStop_ExtraPage(); // Refresh the main departures view if it's visible
+    } catch (error) {
+        statusEl.textContent = "Error activating curtailment: " + error.message;
+        statusEl.style.color = "#e74c3c";
+    }
+}
+
+async function mrc_handleCancelCurtailment(curtailmentId) {
+    if (!curtailmentId) return;
+    if (!confirm("Are you sure you want to lift this route-wide curtailment?")) return;
+
+    const { database, dbRemove, dbRef } = window.firebaseOMSI;
+    try {
+        await dbRemove(dbRef(database, `${FB_PATH_MASS_CURTAILMENTS}/${curtailmentId}`));
+        delete massCurtailments_data[curtailmentId];
+        document.getElementById('mrc-status-message-extra').textContent = "Curtailment lifted.";
+        mrc_renderActiveCurtailments();
+    } catch (error) {
+        document.getElementById('mrc-status-message-extra').textContent = "Error lifting curtailment: " + error.message;
+    }
+}
+
+// --- END: Mass Route Curtailment Functions ---
 
 async function op_points_displayDefinedPoints() {
     const routeSelect = document.getElementById('op-points-route-select-extra');
@@ -1522,15 +1954,26 @@ async function op_points_displayDefinedPoints() {
     if (!routeSelect || !destSelect || !listDiv) return;
 
     const route = routeSelect.value;
-    const dest = destSelect.value;
+    const destConfigKey = destSelect.value; // The value is the unique key of the RSG config
     listDiv.innerHTML = '<p>Select a route and destination to view points.</p>';
 
-    if (route && dest) {
+    if (route && destConfigKey) {
+        // Since destConfigKey is the unique key, we can get the actual destinationName from it
+        const configForDestName = rsg_loadedConfigs_extra[destConfigKey];
+        if (!configForDestName || !configForDestName.destinationName) {
+            listDiv.innerHTML = '<p>Could not find configuration details for the selected destination.</p>';
+            return;
+        }
+        const destinationName = configForDestName.destinationName;
+
         const { database, dbGet, dbRef } = window.firebaseOMSI;
-        const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(dest)}`;
+        const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(destinationName)}`;
         const snapshot = await dbGet(dbRef(database, path));
-        definedCurtailmentPoints[path] = snapshot.exists() ? snapshot.val() : [];
-        const points = definedCurtailmentPoints[path];
+        
+        // Use a local variable for the points from this specific path
+        const points = snapshot.exists() ? snapshot.val() : [];
+        // Still update the global cache if you use it elsewhere
+        definedCurtailmentPoints[path] = points; 
 
         if (points.length === 0) {
             listDiv.innerHTML = '<p>No official curtailment points defined for this service.</p>';
@@ -1539,20 +1982,12 @@ async function op_points_displayDefinedPoints() {
 
         // --- NEW LOGIC TO SORT POINTS ---
         let stopOrderFromRsg = [];
-        let matchingConfigFound = null;
-
-        // Find the corresponding RSG config to get the correct stop order
-        for (const key in rsg_loadedConfigs_extra) {
-            const config = rsg_loadedConfigs_extra[key];
-            if (config.routeName === route && config.destinationName === dest) {
-                matchingConfigFound = config;
-                break;
-            }
-        }
-
-        // If a config is found, create an array of its stop IDs in sequence
-        if (matchingConfigFound && matchingConfigFound.stopSequence) {
-            stopOrderFromRsg = matchingConfigFound.stopSequence.map(s => s.stopID);
+        
+        // Find the corresponding RSG config to get the correct stop order.
+        // The `configForDestName` we found earlier is the one we need.
+        if (configForDestName && configForDestName.stopSequence) {
+            // Create an array of its stop IDs in sequence
+            stopOrderFromRsg = configForDestName.stopSequence.map(s => s.stopID);
         }
 
         // Sort the 'points' array based on the index of the stop in the RSG sequence
@@ -1572,10 +2007,11 @@ async function op_points_displayDefinedPoints() {
 
         // Now, use the 'sortedPoints' array to build the HTML
         let html = '<ul style="list-style-type: none; padding-left: 0;">';
-        sortedPoints.forEach((point, index) => { // Use sortedPoints here instead of points
+        sortedPoints.forEach((point) => { // Use sortedPoints here instead of points
             const stopInfo = allDefinedStops_data[point.lastStopID.toUpperCase()] || { stopName: 'Unknown Stop' };
+            
             // The original index for deletion needs to come from the unsorted 'points' array
-            const originalIndex = points.findIndex(p => p.lastStopID === point.lastStopID);
+            const originalIndex = points.findIndex(p => p.lastStopID === point.lastStopID && p.newDestinationName === point.newDestinationName);
             
             html += `<li style="display:flex; justify-content:space-between; align-items:center; padding: 0.5em; border-bottom: 1px solid #4A5568;">
                         <span><strong>Last Stop:</strong> ${stopInfo.stopName} (${point.lastStopID}) | <strong>Displays As:</strong> "${point.newDestinationName}"</span>
@@ -1593,16 +2029,33 @@ async function op_points_displayDefinedPoints() {
 async function op_points_handleAddPoint() {
     const statusMsg = document.getElementById('op-points-status-message-extra');
     const route = document.getElementById('op-points-route-select-extra').value;
-    const dest = document.getElementById('op-points-dest-select-extra').value;
+    const destConfigKey = document.getElementById('op-points-dest-select-extra').value; // This is the config key
     const lastStopID = document.getElementById('op-points-last-stop-select-extra').value;
     const newDestName = document.getElementById('op-points-dest-name-input-extra').value.trim();
-    if (!route || !dest || !lastStopID || !newDestName) {
-        statusMsg.textContent = 'All fields are required.';
+
+    // --- START: CORRECTED LOGIC ---
+    // First, validate that a destination config is actually selected.
+    if (!route || !destConfigKey || !lastStopID || !newDestName) {
+        statusMsg.textContent = 'All fields (Route, Destination, Last Stop, Display Name) are required.';
         statusMsg.style.color = '#f1c40f';
         return;
     }
+
+    // Now, get the actual destination name from the loaded RSG configuration using the key.
+    const configData = rsg_loadedConfigs_extra[destConfigKey];
+    if (!configData || !configData.destinationName) {
+        statusMsg.textContent = 'Error: Could not find configuration details for the selected destination.';
+        statusMsg.style.color = '#e74c3c';
+        return;
+    }
+    const destinationName = configData.destinationName; // This is the correct name to use for the path.
+    // --- END: CORRECTED LOGIC ---
+
     const newPoint = { lastStopID, newDestinationName: newDestName };
-    const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(dest)}`;
+    // Use the correct `destinationName` variable to build the path
+    const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(destinationName)}`;
+    
+    // The rest of the function remains the same
     let currentPoints = definedCurtailmentPoints[path] || [];
     if (currentPoints.some(p => p.lastStopID === newPoint.lastStopID)) {
          statusMsg.textContent = 'This stop is already defined as a curtailment point.';
@@ -1615,7 +2068,8 @@ async function op_points_handleAddPoint() {
         await dbSet(dbRef(database, path), currentPoints);
         statusMsg.textContent = 'Curtailment point added successfully.';
         statusMsg.style.color = '#2ecc71';
-        op_points_displayDefinedPoints();
+        // Calling the display function will now find the point at the correct path
+        op_points_displayDefinedPoints(); 
     } catch (error) {
         statusMsg.textContent = 'Error saving point: ' + error.message;
         statusMsg.style.color = '#e74c3c';
@@ -2005,65 +2459,93 @@ function op_points_closeCopyModal() {
 function op_points_populateCopyModalDestSelect() {
     const sourceRouteSelect = document.getElementById('op-copy-source-route-select-extra');
     const sourceDestSelect = document.getElementById('op-copy-source-dest-select-extra');
+    if (!sourceRouteSelect || !sourceDestSelect) return;
+
     const selectedSourceRoute = sourceRouteSelect.value;
-    
-    sourceDestSelect.innerHTML = '<option value="">-- Select Source Destination --</option>';
-    
-    if (selectedSourceRoute) {
-        const destinations = new Set();
-        for (const key in definedCurtailmentPoints) {
-            const [route, dest] = key.split('/').slice(-2).map(k => k.replace(/_/g, ' ')); // Simplified key parsing
-            if (sanitizeFirebaseKey(route) === sanitizeFirebaseKey(selectedSourceRoute)) {
-                destinations.add(dest);
-            }
-        }
-         // Also check RSG configs for destinations
-        for (const key in rsg_loadedConfigs_extra) {
-            const config = rsg_loadedConfigs_extra[key];
-            if (config.routeName === selectedSourceRoute) {
-                destinations.add(config.destinationName);
-            }
-        }
-        Array.from(destinations).sort().forEach(dest => sourceDestSelect.add(new Option(dest, dest)));
-    }
-    
+    sourceDestSelect.innerHTML = '<option value="">--- Select Source Journey ---</option>';
+
+    // This will clear the eligible points list whenever the source route changes.
     op_points_findAndDisplayEligiblePoints();
+
+    if (!selectedSourceRoute) {
+        return;
+    }
+
+    // This pattern finds names with "(from DDMMYY)" to exclude them
+    const futureDatePattern = /\(from\s*\d{6}\)/;
+    const matchingConfigs = [];
+
+    // 1. Find all configs for the selected source route
+    for (const key in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[key];
+        if (config.routeName === selectedSourceRoute) {
+            // 2. Filter out future-dated schedules
+            if (config.userDisplayName && !futureDatePattern.test(config.userDisplayName)) {
+                matchingConfigs.push({ key, ...config });
+            }
+        }
+    }
+
+    // Sort the valid configs by their descriptive name
+    matchingConfigs.sort((a, b) => (a.userDisplayName || a.key).localeCompare(b.userDisplayName || b.key));
+
+    // 3. Populate the dropdown with the descriptive names and unique keys
+    if (matchingConfigs.length > 0) {
+        matchingConfigs.forEach(config => {
+            const option = document.createElement('option');
+            // The VALUE is the unique key
+            option.value = config.key;
+            // The TEXT is your descriptive name
+            option.textContent = config.userDisplayName || config.key;
+            sourceDestSelect.appendChild(option);
+        });
+    }
+
+    // Automatically trigger the logic to find eligible points for the first item in the list
+    sourceDestSelect.dispatchEvent(new Event('change'));
 }
 
 async function op_points_findAndDisplayEligiblePoints() {
     const container = document.getElementById('op-copy-eligible-points-container-extra');
     const sourceRoute = document.getElementById('op-copy-source-route-select-extra').value;
-    const sourceDest = document.getElementById('op-copy-source-dest-select-extra').value;
+    const sourceDestKey = document.getElementById('op-copy-source-dest-select-extra').value; // This is the source config key
     const targetRoute = document.getElementById('op-points-route-select-extra').value;
-    const targetDest = document.getElementById('op-points-dest-select-extra').value;
+    const targetDestKey = document.getElementById('op-points-dest-select-extra').value; // This is the target config key
 
     container.innerHTML = '<p style="opacity:0.7;">Loading...</p>';
 
-    if (!sourceRoute || !sourceDest) {
+    if (!sourceRoute || !sourceDestKey) {
         container.innerHTML = '<p style="opacity:0.7;">Select a source route and destination.</p>';
         return;
     }
 
-    // 1. Get the stop sequence for the TARGET route from its RSG config
+    // --- START: CORRECTED LOGIC ---
+    // 1. Get the stop sequence for the TARGET route directly using its config key.
     let targetStopIds = new Set();
-    for (const key in rsg_loadedConfigs_extra) {
-        const config = rsg_loadedConfigs_extra[key];
-        if (config.routeName === targetRoute && config.destinationName === targetDest) {
-            if (config.stopSequence) {
-                config.stopSequence.forEach(s => targetStopIds.add(s.stopID));
-            }
-            break;
-        }
+    const targetConfig = rsg_loadedConfigs_extra[targetDestKey]; // The 'value' of the dest select is the key
+
+    if (targetConfig && targetConfig.stopSequence) {
+        targetConfig.stopSequence.forEach(s => targetStopIds.add(s.stopID));
     }
+    // --- END: CORRECTED LOGIC ---
 
     if (targetStopIds.size === 0) {
+        // This is the error message you were seeing. It will now only trigger if the looked-up config truly has no stops.
         container.innerHTML = '<p style="color:#f1c40f;">Target route has no defined stop sequence in RSG. Cannot determine eligibility.</p>';
         return;
     }
 
     // 2. Get the defined curtailment points for the SOURCE route
+    // Note: The source destination dropdown also uses the config key as its value. We need the actual destinationName from the config.
+    const sourceConfig = rsg_loadedConfigs_extra[sourceDestKey];
+    if (!sourceConfig) {
+        container.innerHTML = '<p style="color:#e74c3c;">Could not load source configuration data.</p>';
+        return;
+    }
+    const sourceDestName = sourceConfig.destinationName; // Get the actual destination name for the Firebase path
+    
     const { database, dbGet, dbRef } = window.firebaseOMSI;
-    const sourcePath = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(sourceRoute)}/${sanitizeFirebaseKey(sourceDest)}`;
+    const sourcePath = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(sourceRoute)}/${sanitizeFirebaseKey(sourceDestName)}`;
     const snapshot = await dbGet(dbRef(database, sourcePath));
     const sourcePoints = snapshot.exists() ? snapshot.val() : [];
     
@@ -2075,7 +2557,7 @@ async function op_points_findAndDisplayEligiblePoints() {
         return;
     }
 
-    // 4. Render checkboxes for eligible points
+    // 4. Render checkboxes for eligible points (this part remains the same)
     container.innerHTML = '';
     eligiblePoints.forEach((point, index) => {
         const stopInfo = allDefinedStops_data[point.lastStopID.toUpperCase()] || { stopName: 'Unknown Stop' };
@@ -2102,7 +2584,8 @@ async function op_points_findAndDisplayEligiblePoints() {
 
 async function op_points_performCopy() {
     const targetRoute = document.getElementById('op-points-route-select-extra').value;
-    const targetDest = document.getElementById('op-points-dest-select-extra').value;
+    // The value of the destination dropdown is the unique key of the RSG config
+    const targetDestKey = document.getElementById('op-points-dest-select-extra').value;
     const statusMsg = document.getElementById('op-copy-modal-status-extra');
     const selectedCheckboxes = document.querySelectorAll('#op-copy-eligible-points-container-extra input[type="checkbox"]:checked');
 
@@ -2112,13 +2595,22 @@ async function op_points_performCopy() {
         return;
     }
 
+    // First, we must get the actual destination name from the target's config key
+    const targetConfig = rsg_loadedConfigs_extra[targetDestKey];
+    if (!targetConfig || !targetConfig.destinationName) {
+        statusMsg.textContent = "Error: Could not determine target destination name from selection.";
+        statusMsg.style.color = "#e74c3c";
+        return;
+    }
+    const targetDestinationName = targetConfig.destinationName;
+
     statusMsg.textContent = "Copying points...";
     statusMsg.style.color = "#3498db";
 
     const { database, dbGet, dbSet, dbRef } = window.firebaseOMSI;
-    const targetPath = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(targetRoute)}/${sanitizeFirebaseKey(targetDest)}`;
+    const targetPath = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(targetRoute)}/${sanitizeFirebaseKey(targetDestinationName)}`;
     
-    // Get current points for the target to avoid overwriting/duplicating
+    // Get current points for the target to avoid duplicates
     const snapshot = await dbGet(dbRef(database, targetPath));
     let targetPoints = snapshot.exists() ? snapshot.val() : [];
 
@@ -2128,14 +2620,18 @@ async function op_points_performCopy() {
             lastStopID: cb.value,
             newDestinationName: cb.dataset.newDestName
         };
-        // Add only if it doesn't already exist
-        if (!targetPoints.some(p => p.lastStopID === newPoint.lastStopID)) {
+
+        // --- START: CORRECTED DUPLICATE CHECK ---
+        // The check now verifies that BOTH the stopID and the newDestinationName do not already exist together.
+        if (!targetPoints.some(p => p.lastStopID === newPoint.lastStopID && p.newDestinationName === newPoint.newDestinationName)) {
             targetPoints.push(newPoint);
             pointsAddedCount++;
         }
+        // --- END: CORRECTED DUPLICATE CHECK ---
     });
 
     if (pointsAddedCount === 0) {
+        // This message will now only appear if all selected points are true duplicates (same stop AND same display name).
         statusMsg.textContent = "All selected points already exist on the target.";
         statusMsg.style.color = "#7f8c8d";
         return;
@@ -2155,8 +2651,6 @@ async function op_points_performCopy() {
         statusMsg.style.color = "#e74c3c";
     }
 }
-
-// --- END: Functions for Copying Curtailment Points ---
 
 function populateScdStopSelector_ExtraPage() {
     if (!scdStopSelect_el_extra || !allDefinedStops_data) {
@@ -12966,10 +13460,14 @@ function rsg_openCopyFromModal_ExtraPage() {
     if (sectionToShow) {
         sectionToShow.style.display = "block";
         localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
+        
+        // Clear any running intervals from other sections
         if (keyDeparturesIntervalId_extra) {
             clearInterval(keyDeparturesIntervalId_extra);
             keyDeparturesIntervalId_extra = null;
         }
+
+        // Run setup functions based on which section is being shown
         if (sectionId === "day-profile-override-section_extra") {
             if (typeof loadAndDisplayOverrides_ExtraPage === 'function') loadAndDisplayOverrides_ExtraPage();
             if (typeof dpo_populateProfileCheckboxes_ExtraPage === 'function') dpo_populateProfileCheckboxes_ExtraPage();
@@ -12983,14 +13481,6 @@ function rsg_openCopyFromModal_ExtraPage() {
             }
         } else if (sectionId === "stop-manager-tool-section_extra") {
             if (typeof populateMasterStopList_ExtraPage === 'function') populateMasterStopList_ExtraPage();
-            if (inputNewStopName_el_extra && inputNewStopId_el_extra &&
-                !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&
-                typeof autoGenerateAndSetNewStopId_ExtraPage === 'function') {
-                autoGenerateAndSetNewStopId_ExtraPage();
-            }
-            if (duplicateStopsByNameDirResults_el_extra) {
-                duplicateStopsByNameDirResults_el_extra.innerHTML = 'Click "Find Duplicates (Name/Dir)" to check.';
-            }
         } else if (sectionId === "global-route-deletion-section_extra") {
             if (typeof populateGlobalRouteToDeleteList_ExtraPage === 'function') populateGlobalRouteToDeleteList_ExtraPage();
         } else if (sectionId === "route-schedule-generator-section_extra") {
@@ -12998,20 +13488,13 @@ function rsg_openCopyFromModal_ExtraPage() {
             if (typeof rsg_populateProfileCheckboxes_ExtraPage === 'function') rsg_populateProfileCheckboxes_ExtraPage();
             if (typeof rsg_renderSavedConfigsList_ExtraPage === 'function') rsg_renderSavedConfigsList_ExtraPage();
             if (typeof rsg_loadOrPullConfiguration_ExtraPage === 'function') rsg_loadOrPullConfiguration_ExtraPage(null, true);
-            if (typeof rsg_updateRsgActionButtonsState === 'function') rsg_updateRsgActionButtonsState();
         } else if (sectionId === "route-profile-deletion-section_extra") {
             if (typeof rpd_populateRouteSelect_ExtraPage === 'function') rpd_populateRouteSelect_ExtraPage();
         } else if (sectionId === "view-departures-section_extra") {
-            if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') {
-                populateStopSelectorForDeparturesView_ExtraPage();
-            }
-            if (typeof displayDeparturesForSelectedStop_ExtraPage === 'function') {
-                displayDeparturesForSelectedStop_ExtraPage();
-            }
+            if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') populateStopSelectorForDeparturesView_ExtraPage();
+            if (typeof displayDeparturesForSelectedStop_ExtraPage === 'function') displayDeparturesForSelectedStop_ExtraPage();
         } else if (sectionId === "timetable-exporter-section_extra") {
             if (typeof populateTimetableExporterRouteSelect_ExtraPage === 'function') populateTimetableExporterRouteSelect_ExtraPage();
-            if (tteRouteNameInput_el_extra) tteRouteNameInput_el_extra.value = "";
-            if (tteStatusMessage_el_extra) tteStatusMessage_el_extra.textContent = "Select a route to download its timetable.";
         } else if (sectionId === "scheduled-route-updates-section_extra") {
             if (isScheduledTasksCacheValid_extra && cachedScheduledTasksHTML_extra && cachedBatchRadiosHTML_extra) {
                 const listContainer = document.getElementById("sru-updates-list-container-extra");
@@ -13024,25 +13507,22 @@ function rsg_openCopyFromModal_ExtraPage() {
             }
         } else if (sectionId === "scheduled-route-deletion-section_extra") {
             if (typeof srd_populateRouteSelect_ExtraPage === 'function') srd_populateRouteSelect_ExtraPage();
-            if (srdGoLiveDateTimeInput_el_extra) srdGoLiveDateTimeInput_el_extra.value = "";
-            if (srdStatusMessage_el_extra) srdStatusMessage_el_extra.textContent = "Select a route and future date/time for deletion.";
         } else if (sectionId === 'config-data-section_extra') {
             if (typeof displaySchoolHolidays_ExtraPage === 'function') displaySchoolHolidays_ExtraPage();
             if (typeof renderEditableOpProfiles_ExtraPage === 'function') renderEditableOpProfiles_ExtraPage();
-            const opStatusEl = document.getElementById('op-profiles-status-extra');
-            if (opStatusEl) opStatusEl.textContent = '';
-            const shStatusEl = document.getElementById('sh-status-message-extra');
-            if (shStatusEl) shStatusEl.textContent = '';
         } else if (sectionId === 'calendar-view-section_extra') {
              if (typeof renderCalendarView_ExtraPage === 'function') {
                 cv_currentDisplayDate_extra = new Date();
                 renderCalendarView_ExtraPage();
              }
         } else if (sectionId === 'curtailment-config-section_extra') {
-            op_points_populateRouteSelect();
-            op_points_populateDestSelect();
+            if (typeof op_points_populateRouteSelect === 'function') op_points_populateRouteSelect();
         } else if (sectionId === 'trip-curtailment-section_extra') {
-            curtail_populateSelectors();
+            if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
+            if (typeof mrc_setupToolForRoute === 'function') mrc_setupToolForRoute();
+        } else if (sectionId === 'route-curtailment-section_extra') {
+            if (typeof slc_populateRouteSelect === 'function') slc_populateRouteSelect();
+            if (typeof slc_renderActiveCurtailments === 'function') slc_renderActiveCurtailments();
         }
     }
 }
@@ -13097,17 +13577,17 @@ async function loadInitialData_ExtraPage() {
     globalCustomRouteColours_extra = {};
     stopSpecificRouteColours_extra = {};
     rsg_loadedConfigs_extra = {};
-    allDefinedStops_data = {}; // This will be derived, not loaded directly
+    allDefinedStops_data = {};
     schoolHolidayDateRanges_extra = [];
     operationalOverrides_data = {};
-    scheduledRouteDeletions_extra = scheduledRouteDeletions_extra || {};
-    scheduledRouteUpdates_extra = scheduledRouteUpdates_extra || {};
+    massCurtailments_data = {}; // For Service Leg Curtailment
+    scheduledRouteDeletions_extra = {};
+    scheduledRouteUpdates_extra = {};
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         msg = "Firebase not connected. Using default configurations where possible.";
         console.error(msg);
         if (masterStopListStatus_el_extra) masterStopListStatus_el_extra.textContent = msg;
-        // Fallback to hardcoded defaults
         if (DEFAULT_SCHOOL_HOLIDAY_RANGES && Array.isArray(DEFAULT_SCHOOL_HOLIDAY_RANGES)) {
              schoolHolidayDateRanges_extra = DEFAULT_SCHOOL_HOLIDAY_RANGES.map((h, index) => ({
                 id: h.id || `sh-default-fb-err-${Date.now()}-${index}`, ...h
@@ -13125,14 +13605,12 @@ async function loadInitialData_ExtraPage() {
     try {
         console.log("loadInitialData_ExtraPage: Attempting to load core data from Firebase...");
         
-        // Load RSG configurations FIRST, as they are the new source of truth for stops.
         const rsgConfigsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIGS));
         rsg_loadedConfigs_extra = rsgConfigsSnap.exists() ? rsgConfigsSnap.val() || {} : {};
         console.log(`Loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configurations.`);
 
-        // *** NEW LOGIC: DERIVE allDefinedStops_data FROM RSG CONFIGS ***
         console.log("Deriving all stops directly from loaded RSG configurations...");
-        allDefinedStops_data = {}; // Reset the master list
+        allDefinedStops_data = {};
         if (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') {
             for (const configKey in rsg_loadedConfigs_extra) {
                 const config = rsg_loadedConfigs_extra[configKey];
@@ -13140,10 +13618,8 @@ async function loadInitialData_ExtraPage() {
                     config.stopSequence.forEach(stop => {
                         if (stop && stop.stopID) {
                             const stopIDUpper = stop.stopID.toUpperCase();
-                            // Add or overwrite the stop in our master derived list.
-                            // This ensures we have a unique list by ID.
                             allDefinedStops_data[stopIDUpper] = {
-                                stopID: stopIDUpper, // Store with consistent casing
+                                stopID: stopIDUpper,
                                 stopName: stop.stopName,
                                 direction: stop.direction || ""
                             };
@@ -13153,31 +13629,23 @@ async function loadInitialData_ExtraPage() {
             }
         }
         console.log(`Derived ${Object.keys(allDefinedStops_data).length} unique stop definitions from RSG configs.`);
-        // *** END OF NEW LOGIC ***
-
-        // Load actual schedule entries
+        
         const scheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULES_BY_ROUTE));
         const flatScheduleFromDB = [];
         if (scheduleSnap.exists() && typeof scheduleSnap.val() === 'object' && scheduleSnap.val() !== null) {
             const schedulesByRoute = scheduleSnap.val();
             for (const routeKey in schedulesByRoute) {
-                if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
-                    const routeData = schedulesByRoute[routeKey];
-                    if (routeData && typeof routeData === 'object') {
-                        for (const profileKey in routeData) {
-                            if (Object.hasOwnProperty.call(routeData, profileKey)) {
-                                const profileData = routeData[profileKey];
-                                if (profileData && typeof profileData === 'object') {
-                                    for (const destKey in profileData) {
-                                        if (Object.hasOwnProperty.call(profileData, destKey)) {
-                                            const destData = profileData[destKey];
-                                            if (destData && Array.isArray(destData.entries)) {
-                                                destData.entries.forEach(entry => {
-                                                    if (entry) flatScheduleFromDB.push({ ...entry });
-                                                });
-                                            }
-                                        }
-                                    }
+                const routeData = schedulesByRoute[routeKey];
+                if (routeData && typeof routeData === 'object') {
+                    for (const profileKey in routeData) {
+                        const profileData = routeData[profileKey];
+                        if (profileData && typeof profileData === 'object') {
+                            for (const destKey in profileData) {
+                                const destData = profileData[destKey];
+                                if (destData && Array.isArray(destData.entries)) {
+                                    destData.entries.forEach(entry => {
+                                        if (entry) flatScheduleFromDB.push({ ...entry });
+                                    });
                                 }
                             }
                         }
@@ -13191,7 +13659,6 @@ async function loadInitialData_ExtraPage() {
         }));
         console.log(`Loaded ${currentWorkingSchedule_extra.length} live schedule entries.`);
 
-        // Load Editable Operating Profiles
         const opProfilesSnap = await dbGet(dbRef(database, FB_PATH_EDITABLE_OP_PROFILES));
         if (opProfilesSnap.exists() && Array.isArray(opProfilesSnap.val()) && opProfilesSnap.val().length > 0) {
             RSG_OPERATING_PROFILES_LIST = opProfilesSnap.val();
@@ -13203,7 +13670,6 @@ async function loadInitialData_ExtraPage() {
         }
         console.log(`Loaded ${RSG_OPERATING_PROFILES_LIST.length} operating profiles.`);
 
-        // Load School Holiday Dates
         const shSnap = await dbGet(dbRef(database, FB_PATH_SCHOOL_HOLIDAYS));
         let holidaysLoadedFromFirebase = false;
         if (shSnap.exists() && Array.isArray(shSnap.val())) {
@@ -13224,12 +13690,14 @@ async function loadInitialData_ExtraPage() {
         }
         console.log(`Loaded ${schoolHolidayDateRanges_extra.length} school holiday ranges.`);
 
-        // Load Day Profile Overrides
         const dpoSnap = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
         operationalOverrides_data = dpoSnap.exists() ? dpoSnap.val() || {} : {};
         console.log(`Loaded ${Object.keys(operationalOverrides_data).length} day profile overrides.`);
+        
+        const massCurtailmentsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
+        massCurtailments_data = massCurtailmentsSnap.exists() ? massCurtailmentsSnap.val() || {} : {};
+        console.log(`Loaded ${Object.keys(massCurtailments_data).length} mass curtailment records.`);
 
-        // Pre-calculate stop to serving routes map
         stopToServingRoutesMap_extra.clear();
         currentWorkingSchedule_extra.forEach(entry => {
             if (entry.stopID && entry.lineName && entry.lineName.trim() !== "") {
@@ -13240,7 +13708,6 @@ async function loadInitialData_ExtraPage() {
             }
         });
 
-        // Load other settings/data
         const closedSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
         closedStopIDs_extra = (closedSnap.exists() && closedSnap.val()) ? Object.keys(closedSnap.val()).filter(id => closedSnap.val()[id] === true).map(id => id.toUpperCase()) : [];
 
@@ -13260,10 +13727,10 @@ async function loadInitialData_ExtraPage() {
     } catch (error) {
         console.error("Firebase Load Error (Extra Tools):", error);
         msg = "Error loading data (Extra Tools): " + error.message;
-        // Reset all data structures
+        // Reset all data structures on critical error
         currentWorkingSchedule_extra = []; closedStopIDs_extra = []; globalCustomRouteColours_extra = {};
         stopSpecificRouteColours_extra = {}; rsg_loadedConfigs_extra = {}; allDefinedStops_data = {};
-        operationalOverrides_data = {}; scheduledRouteDeletions_extra = {}; scheduledRouteUpdates_extra = {};
+        operationalOverrides_data = {}; massCurtailments_data = {}; scheduledRouteDeletions_extra = {}; scheduledRouteUpdates_extra = {};
         if (DEFAULT_SCHOOL_HOLIDAY_RANGES && Array.isArray(DEFAULT_SCHOOL_HOLIDAY_RANGES)) {
             schoolHolidayDateRanges_extra = DEFAULT_SCHOOL_HOLIDAY_RANGES.map((h, index) => ({id: h.id || `sh-loaderr-${Date.now()}-${index}`, ...h}));
         } else { schoolHolidayDateRanges_extra = []; }
@@ -13369,6 +13836,19 @@ const topMenuBar = document.getElementById('top-menu-bar_extra');
                 });
             }
 
+if (document.getElementById('slc-route-select-extra')) {
+    document.getElementById('slc-route-select-extra').addEventListener('change', slc_populateDestinationSelect);
+}
+if (document.getElementById('slc-destination-select-extra')) {
+    document.getElementById('slc-destination-select-extra').addEventListener('change', slc_populateCurtailmentPointsSelect);
+}
+if (document.getElementById('slc-activate-button-extra')) {
+    document.getElementById('slc-activate-button-extra').addEventListener('click', slc_handleActivateCurtailment);
+}
+if (document.getElementById('slc-refresh-list-button-extra')) {
+    document.getElementById('slc-refresh-list-button-extra').addEventListener('click', slc_renderActiveCurtailments);
+}
+
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('/live-tracker/sw-omsitoolsextra.js')
@@ -13382,6 +13862,20 @@ const topMenuBar = document.getElementById('top-menu-bar_extra');
                 });
         });
     }
+
+if (document.getElementById('curtail-route-select-extra')) {
+    document.getElementById('curtail-route-select-extra').addEventListener('change', () => {
+        // This now calls both the original function for single trips and the new one for mass curtailment
+        curtail_populateDestSelect();
+        mrc_setupToolForRoute();
+    });
+}
+if (document.getElementById('rc-term-stop-search-input-extra')) {
+    document.getElementById('rc-term-stop-search-input-extra').addEventListener('input', mrc_handleStopSearch);
+}
+if (document.getElementById('rc-activate-button-extra')) {
+    document.getElementById('rc-activate-button-extra').addEventListener('click', mrc_handleActivateCurtailment);
+}
 
 
     if (dpoSelectAllRoutesButton_el_extra && typeof dpo_selectAllRoutes_ExtraPage === 'function') {

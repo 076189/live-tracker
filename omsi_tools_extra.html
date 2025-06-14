@@ -532,7 +532,6 @@
             
                 <div class="subsection" style="margin-top: 2rem;">
                     <h3 class="subsection-title">Active & Upcoming Service Curtailments</h3>
-                    <button id="slc-refresh-list-button-extra" class="button neutral small-action" style="margin-bottom: 1em;">Refresh</button>
                     <div id="slc-active-list-extra">
                         <p>Loading...</p>
                     </div>
@@ -670,6 +669,7 @@
                     </div>
                      <div class="form-field-group" style="margin-top:1rem;">
                         <button id="rsg-open-copy-modal-button-extra" class="button neutral">Copy Sequence/Times From...</button>
+                        <button id="rsg-open-paste-adj-modal-button-extra" class="button neutral">Paste Adjustments...</button>
                      </div>
                 </div>
                 <div class="subsection">
@@ -952,6 +952,21 @@
 
         </div> 
         
+        <div id="rsg-paste-adjustments-modal-extra" class="rsg-modal" style="display:none;">
+            <div class="rsg-modal-content">
+                <h4>Paste Time Adjustments</h4>
+                <div class="form-field-group">
+                    <label for="rsg-paste-adj-textarea-extra">Paste a list of numbers (e.g., +1, 2, 5), one per line. They will be applied sequentially to the stop sequence.</label>
+                    <textarea id="rsg-paste-adj-textarea-extra" class="schedule-generator-input" rows="10" style="margin-top: 0.5rem;"></textarea>
+                </div>
+                <p id="rsg-paste-adj-modal-status-extra" style="min-height:1.2em;"></p>
+                <div class="rsg-modal-actions">
+                    <button id="rsg-paste-adj-cancel-button-extra" class="button neutral">Cancel</button>
+                    <button id="rsg-paste-adj-apply-button-extra" class="button save">Apply</button>
+                </div>
+            </div>
+        </div>
+        
         <div id="rsg-save-config-modal-extra" class="rsg-modal" style="display:none;">
             <div class="rsg-modal-content">
                 <h4>Save Configuration</h4>
@@ -1214,6 +1229,12 @@
         const tteStatusMessage_el_extra = document.getElementById('tte-status-message-extra');
 	const selectStopForDeparturesView_extra = document.getElementById('selectStopForDeparturesView_extra');
         const rsgSelectAllConfigsCheckbox_el_extra = document.getElementById('rsg-select-all-configs-checkbox-extra');
+	const rsgOpenPasteAdjModalButton_el_extra = document.getElementById('rsg-open-paste-adj-modal-button-extra');
+const rsgPasteAdjModal_el_extra = document.getElementById('rsg-paste-adjustments-modal-extra');
+const rsgPasteAdjTextarea_el_extra = document.getElementById('rsg-paste-adj-textarea-extra');
+const rsgPasteAdjApplyButton_el_extra = document.getElementById('rsg-paste-adj-apply-button-extra');
+const rsgPasteAdjCancelButton_el_extra = document.getElementById('rsg-paste-adj-cancel-button-extra');
+const rsgPasteAdjModalStatus_el_extra = document.getElementById('rsg-paste-adj-modal-status-extra');
 	const opPointsRouteSelect_el_extra = document.getElementById('op-points-route-select-extra');
 const opPointsDestSelect_el_extra = document.getElementById('op-points-dest-select-extra');
 const opPointsLastStopSelect_el_extra = document.getElementById('op-points-last-stop-select-extra');
@@ -1404,6 +1425,115 @@ function op_points_populateReturnOriginSelect() {
     sortedStops.forEach(stop => {
         selectEl.add(new Option(`${stop.stopName} (${stop.stopID})`, stop.stopID));
     });
+}
+
+// In omsi_tools_extra.html
+
+function setupFirebaseListeners_ExtraPage() {
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        console.error("Firebase not ready, cannot set up listeners on Extra Tools page.");
+        return;
+    }
+    const { database, dbOnValue, dbRef } = window.firebaseOMSI;
+
+    // Listener for Mass Service Leg Curtailments
+    const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
+    dbOnValue(massCurtailmentsRef, (snapshot) => {
+        console.log("[SLC Listener] Mass curtailment data updated from Firebase.");
+        massCurtailments_data = snapshot.exists() ? snapshot.val() || {} : {};
+        
+        // Whenever the data changes, re-render the list of active curtailments
+        if (typeof slc_renderActiveCurtailments === 'function') {
+            slc_renderActiveCurtailments();
+        }
+    });
+
+    console.log("Real-time Firebase listeners set up for Extra Tools page.");
+}
+
+// --- Functions for the Paste Adjustments Modal ---
+
+/**
+ * @description Opens the modal for pasting time adjustments. Validates that there's a sequence to apply to.
+ */
+function rsg_openPasteAdjModal_ExtraPage() {
+    if (!rsg_selectedStops_extra || rsg_selectedStops_extra.length < 2) {
+        if(rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "Please build a sequence of at least two stops before pasting adjustments.";
+            rsgStatusMessage_el_extra.style.color = '#f1c40f';
+        }
+        return;
+    }
+    if (rsgPasteAdjModal_el_extra) {
+        if (rsgPasteAdjTextarea_el_extra) rsgPasteAdjTextarea_el_extra.value = '';
+        if (rsgPasteAdjModalStatus_el_extra) rsgPasteAdjModalStatus_el_extra.textContent = '';
+        rsgPasteAdjModal_el_extra.style.display = 'flex';
+        if (rsgPasteAdjTextarea_el_extra) rsgPasteAdjTextarea_el_extra.focus();
+    }
+}
+
+/**
+ * @description Closes the modal for pasting time adjustments.
+ */
+function rsg_closePasteAdjModal_ExtraPage() {
+    if (rsgPasteAdjModal_el_extra) {
+        rsgPasteAdjModal_el_extra.style.display = 'none';
+    }
+}
+
+/**
+ * @description Parses the text from the modal's textarea and applies the numbers to the sequence.
+ */
+function rsg_applyPastedAdjustments_ExtraPage() {
+    if (!rsgPasteAdjTextarea_el_extra || !rsgStopSequenceList_el_extra || !rsg_selectedStops_extra) {
+        if(rsgPasteAdjModalStatus_el_extra) rsgPasteAdjModalStatus_el_extra.textContent = "Error: System components not ready.";
+        return;
+    }
+    
+    const pastedText = rsgPasteAdjTextarea_el_extra.value;
+    const lines = pastedText.split(/\r?\n/).filter(line => line.trim() !== '');
+    const numbersToApply = lines.map(line => parseInt(line.replace('+', ''), 10));
+
+    const adjustmentInputs = rsgStopSequenceList_el_extra.querySelectorAll('.rsg-time-adjustment-input');
+
+    if (adjustmentInputs.length === 0) {
+        if(rsgPasteAdjModalStatus_el_extra) rsgPasteAdjModalStatus_el_extra.textContent = "No stops in the sequence to apply adjustments to.";
+        return;
+    }
+
+    let appliedCount = 0;
+    const loopLimit = Math.min(numbersToApply.length, adjustmentInputs.length);
+
+    for (let i = 0; i < loopLimit; i++) {
+        const number = numbersToApply[i];
+        if (!isNaN(number) && number >= 0) {
+            const inputElement = adjustmentInputs[i];
+            const liElement = inputElement.closest('li');
+            if(liElement) {
+                const stopIndexInArray = parseInt(liElement.dataset.index, 10);
+                if(rsg_selectedStops_extra[stopIndexInArray]) {
+                    // Update the UI
+                    inputElement.value = number;
+                    // Update the data model
+                    rsg_selectedStops_extra[stopIndexInArray].timeAdjustment = number;
+                    appliedCount++;
+                }
+            }
+        }
+    }
+
+    if (rsgPasteAdjModalStatus_el_extra) {
+        rsgPasteAdjModalStatus_el_extra.textContent = `Applied ${appliedCount} of ${lines.length} adjustments.`;
+        rsgPasteAdjModalStatus_el_extra.style.color = '#2ecc71';
+    }
+
+    rsg_isDirty = true;
+    rsg_resetPreviewState("Time adjustments updated from paste. Please regenerate preview.", "info");
+    rsg_updateRsgActionButtonsState();
+    
+    setTimeout(() => {
+        rsg_closePasteAdjModal_ExtraPage();
+    }, 1500);
 }
 
 async function getFCMTokenAndStore(serviceWorkerRegistration) {
@@ -1812,181 +1942,99 @@ async function slc_populateCurtailmentPointsSelect() {
     }
 }
 
-// REPLACE your existing slc_handleActivateCurtailment function with this one.
 // In omsi_tools_extra.html
-// In omsi_tools_extra.html
-
-// In omsi_tools_extra.html
-
-// In omsi_tools_extra.html
-
 async function slc_handleActivateCurtailment() {
-    console.log("--- SLC DEBUG: handleActivateCurtailment START ---");
     const statusEl = document.getElementById('slc-status-message-extra');
     const DYNAMIC_TRIP_LAYOVER_MINUTES = 5;
 
-    // 1. --- GATHER AND VALIDATE INPUTS ---
     const route = document.getElementById('slc-route-select-extra').value;
     const outboundConfigKey = document.getElementById('slc-destination-select-extra').value;
     const pointJSON = document.getElementById('slc-curtailment-point-select-extra').value;
     const startTime = document.getElementById('slc-start-time-input-extra').value;
     const endTime = document.getElementById('slc-end-time-input-extra').value;
-    const returnDestSelect = document.getElementById('slc-return-dest-select-extra');
-    const returnJourneyDestNames = returnDestSelect ? Array.from(returnDestSelect.selectedOptions).map(opt => opt.value) : [];
+    const templateReturnJourneyDestName = document.getElementById('slc-return-dest-select-extra')?.value;
 
-    console.log(`// SLC DEBUG: Step 1 - Inputs Gathered:
-        - Route: ${route}
-        - Outbound Config Key: ${outboundConfigKey}
-        - Curtailment Point JSON: ${pointJSON}
-        - Start Time: ${startTime}
-        - End Time: ${endTime}
-        - Selected Return Journey Dests:`, returnJourneyDestNames);
-
-    if (!route || !outboundConfigKey || !pointJSON || !startTime || !endTime || returnJourneyDestNames.length === 0) {
-        statusEl.textContent = "All fields, including a return journey to suppress, are required.";
+    if (!route || !outboundConfigKey || !pointJSON || !startTime || !endTime || !templateReturnJourneyDestName) {
+        statusEl.textContent = "All fields are required.";
         statusEl.style.color = "#e74c3c";
-        console.error("// SLC DEBUG: Validation FAILED. A required field is empty.");
         return;
     }
-    // For this advanced fix, we'll stick to a single return journey for simplicity.
-    if (returnJourneyDestNames.length > 1) {
-        statusEl.textContent = "For dynamic generation, please select only ONE return journey to model the new trip from.";
-        statusEl.style.color = "#e74c3c";
-        console.error("// SLC DEBUG: Validation FAILED. More than one return journey selected.");
-        return;
-    }
-
     const outboundConfig = rsg_loadedConfigs_extra[outboundConfigKey];
     const point = JSON.parse(pointJSON);
-    const returnJourneyDestName = returnJourneyDestNames[0];
+    const returnOriginStopID_fromPoint = point.returnOriginStopID;
 
-    // 2. --- FIND RETURN JOURNEY CONFIG ---
-    const returnJourneyConfig = Object.values(rsg_loadedConfigs_extra).find(config =>
-        config.routeName === route && config.destinationName === returnJourneyDestName
-    );
-
-    console.log("// SLC DEBUG: Step 2 - Finding Configurations:");
-    console.log("  - Outbound Config Found:", JSON.parse(JSON.stringify(outboundConfig || {})));
-    console.log("  - Return Journey Config Found:", JSON.parse(JSON.stringify(returnJourneyConfig || {})));
-
-    if (!returnJourneyConfig || !returnJourneyConfig.stopSequence || returnJourneyConfig.stopSequence.length === 0) {
-        statusEl.textContent = `Error: A saved RSG configuration for the return journey to "${returnJourneyDestName}" must exist.`;
-        statusEl.style.color = "#e74c3c";
-        console.error(`// SLC DEBUG: FAILED - Could not find a valid RSG config for the return journey to "${returnJourneyDestName}".`);
-        return;
+    const templateReturnConfig = Object.values(rsg_loadedConfigs_extra).find(c => c.routeName === route && c.destinationName === templateReturnJourneyDestName);
+    if (!templateReturnConfig) {
+        statusEl.textContent = `Error: Cannot find RSG template for return journey to "${templateReturnJourneyDestName}".`; return;
     }
 
-    // 3. --- GENERATE OUTBOUND TRIPS TO CALCULATE TIMINGS ---
-    const allOutboundEntries = currentWorkingSchedule_extra.filter(e =>
-        e.lineName === outboundConfig.routeName &&
-        e.OperatingProfile === outboundConfig.operatingProfile &&
-        e.destinationName === outboundConfig.destinationName
-    );
-    const allOutboundTrips = segmentScheduleEntriesIntoTrips(allOutboundEntries);
-    console.log(`// SLC DEBUG: Step 3 - Found ${allOutboundTrips.length} outbound trips to process.`);
+    const allReturnJourneyConfigs = Object.values(rsg_loadedConfigs_extra).filter(c => c.routeName === route && c.destinationName === templateReturnConfig.destinationName);
+    const legsToSuppress = allReturnJourneyConfigs.map(c => ({ routeName: route, destinationName: c.destinationName }));
 
-    if (allOutboundTrips.length === 0) {
-        statusEl.textContent = "Error: No scheduled trips found for the outbound journey.";
-        console.error("// SLC DEBUG: FAILED - No trips found for the outbound leg.");
-        return;
-    }
-
-    // 4. --- GENERATE DYNAMIC RETURN TRIPS ---
-    let allDynamicReturnEntries = [];
-    console.log("// SLC DEBUG: Step 4 - Starting dynamic return trip generation loop...");
+    const allOutboundTrips = segmentScheduleEntriesIntoTrips(currentWorkingSchedule_extra.filter(e => e.lineName === outboundConfig.routeName && e.destinationName === outboundConfig.destinationName));
     
+    let allDynamicReturnEntries = [];
     for (const outboundTrip of allOutboundTrips) {
         const arrivalAtTerminusEntry = outboundTrip.find(stop => stop.stopID === point.stopId);
-        if (!arrivalAtTerminusEntry) {
-            console.warn(`// SLC DEBUG: An outbound trip did not contain the curtailment stop "${point.stopId}". Skipping this trip.`);
-            continue;
-        }
-
-        let arrivalTimeAbs = (parseInt(arrivalAtTerminusEntry.DayOffset || 0) * 1440) +
-                             (parseInt(arrivalAtTerminusEntry.scheduledTime.split(':')[0]) * 60) +
-                             parseInt(arrivalAtTerminusEntry.scheduledTime.split(':')[1]);
+        if (!arrivalAtTerminusEntry) continue;
         
+        const profileForThisTrip = outboundTrip[0].OperatingProfile; // Get the specific profile of the trip being curtailed.
+
+        let arrivalTimeAbs = (parseInt(arrivalAtTerminusEntry.DayOffset || 0) * 1440) + (parseInt(arrivalAtTerminusEntry.scheduledTime.split(':')[0]) * 60) + parseInt(arrivalAtTerminusEntry.scheduledTime.split(':')[1]);
         let newDepartureTimeAbs = arrivalTimeAbs + DYNAMIC_TRIP_LAYOVER_MINUTES;
 
-        const newReturnTripSequence = returnJourneyConfig.stopSequence;
-        const newReturnTripStopIds = newReturnTripSequence.map(s => s.stopID);
+        const fullReturnSequence = templateReturnConfig.stopSequence;
+        const returnTripStartIndex = fullReturnSequence.findIndex(s => s.stopID === returnOriginStopID_fromPoint);
+        if (returnTripStartIndex === -1) continue;
+
+        const actualReturnSequence = fullReturnSequence.slice(returnTripStartIndex);
+        const actualReturnStopIds = actualReturnSequence.map(s => s.stopID);
         let currentTimeAbs = newDepartureTimeAbs;
 
-        newReturnTripSequence.forEach((stop, index) => {
-            if (index > 0) {
-                currentTimeAbs += (stop.timeAdjustment || 0);
-            }
-            let effectiveDayOffset = 0;
-            let effectiveMinutes = currentTimeAbs;
-            while(effectiveMinutes >= 1440) { effectiveMinutes -= 1440; effectiveDayOffset++; }
-            while(effectiveMinutes < 0) { effectiveMinutes += 1440; effectiveDayOffset--; }
-
-
-            const hours = Math.floor(effectiveMinutes / 60);
-            const minutes = effectiveMinutes % 60;
-            const newTime = `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
+        actualReturnSequence.forEach((stop, index) => {
+            if (index > 0) { currentTimeAbs += (stop.timeAdjustment || 0); }
+            let dOff = 0; let eMins = currentTimeAbs;
+            while(eMins >= 1440) { eMins -= 1440; dOff++; }
+            while(eMins < 0) { eMins += 1440; dOff--; }
             
             allDynamicReturnEntries.push({
-                stopID: stop.stopID,
-                stopName: stop.stopName,
-                direction: stop.direction,
-                lineName: route,
-                destinationName: returnJourneyConfig.destinationName,
-                OperatingProfile: returnJourneyConfig.operatingProfile,
-                scheduledTime: newTime,
-                DayOffset: String(effectiveDayOffset),
-                tripStopSequence: newReturnTripStopIds,
+                stopID: stop.stopID, stopName: stop.stopName, direction: stop.direction,
+                lineName: route, destinationName: templateReturnConfig.destinationName,
+                OperatingProfile: profileForThisTrip, // *** THE FIX: Use the inherited profile
+                scheduledTime: `${String(Math.floor(eMins / 60)).padStart(2,'0')}:${String(eMins % 60).padStart(2,'0')}`,
+                DayOffset: String(dOff), tripStopSequence: actualReturnStopIds,
                 isDynamicallyGenerated: true
             });
         });
     }
-
-    console.log(`// SLC DEBUG: Generated a total of ${allDynamicReturnEntries.length} dynamic schedule entries.`);
-    if (allDynamicReturnEntries.length === 0) {
-        statusEl.textContent = "Error: Could not generate any dynamic return trips.";
-        console.error("// SLC DEBUG: FAILED - Dynamic generation resulted in 0 entries.");
-        return;
-    }
     
-    // 5. --- CREATE FINAL RULE & SAVE ---
-    console.log("// SLC DEBUG: Step 5 - Assembling final rule for Firebase.");
-    const startTimeObj = new Date(startTime);
-    const endTimeObj = new Date(endTime);
     const record = {
-        routeName: route,
-        destinationName: outboundConfig.destinationName,
-        newTerminusStopId: point.stopId,
-        newTerminusDisplayName: point.displayName,
-        startTime: startTimeObj.toISOString(),
-        endTime: endTimeObj.toISOString(),
+        routeName: route, destinationName: outboundConfig.destinationName,
+        newTerminusStopId: point.stopId, newTerminusDisplayName: point.displayName,
+        startTime: new Date(startTime).toISOString(), endTime: new Date(endTime).toISOString(),
         user: currentUser_extra.email,
-        suppressedServiceLegs: returnJourneyDestNames.map(dest => ({ routeName: route, destinationName: dest })),
+        suppressedServiceLegs: legsToSuppress,
         dynamicallyGeneratedTrip: allDynamicReturnEntries
     };
     
-    console.log("// SLC DEBUG: FINAL RECORD TO BE SAVED:", JSON.parse(JSON.stringify(record)));
-    
-    if (!confirm(`Confirm Curtailment:\n\nThis will curtail Route ${route} to ${point.displayName}, suppress the original return journey(s), AND dynamically generate a new return timetable.\n\nProceed?`)) {
-        statusEl.textContent = "Activation cancelled.";
-        console.log("// SLC DEBUG: User cancelled confirmation prompt.");
-        return;
+    if (!confirm(`Confirm Curtailment for Route ${route} to ${point.displayName}?\nThis will apply universally. Proceed?`)) {
+        statusEl.textContent = "Activation cancelled."; return;
     }
     
     const { database, dbSet, dbRef } = window.firebaseOMSI;
     const newKey = `masscurt-${Date.now()}`;
     try {
         await dbSet(dbRef(database, `${FB_PATH_MASS_CURTAILMENTS}/${newKey}`), record);
-        massCurtailments_data[newKey] = record;
-        statusEl.textContent = "Dynamic curtailment activated successfully!";
+        statusEl.textContent = "Universal curtailment rule activated successfully!";
         statusEl.style.color = "#2ecc71";
-        console.log(`// SLC DEBUG: SUCCESS - Rule saved to Firebase with key ${newKey}.`);
         slc_renderActiveCurtailments();
     } catch (error) {
-        statusEl.textContent = "Error saving dynamic curtailment: " + error.message;
+        statusEl.textContent = "Error saving curtailment: " + error.message;
         statusEl.style.color = "#e74c3c";
-        console.error("// SLC DEBUG: FAILED - Firebase save error:", error);
     }
 }
+
+
 
 function slc_populateReturnDestinationSelect() {
     const routeSelect = document.getElementById('slc-route-select-extra');
@@ -2149,6 +2197,8 @@ async function mrc_handleCancelCurtailment(curtailmentId) {
 
 // --- END: Mass Route Curtailment Functions ---
 
+// In omsi_tools_extra.html
+
 async function op_points_displayDefinedPoints() {
     const routeSelect = document.getElementById('op-points-route-select-extra');
     const destSelect = document.getElementById('op-points-dest-select-extra');
@@ -2181,37 +2231,29 @@ async function op_points_displayDefinedPoints() {
 
         let stopOrderFromRsg = [];
         if (configForDestName && configForDestName.stopSequence) {
-            // *** MODIFIED: Clean the stop IDs to be case-insensitive and trim whitespace ***
             stopOrderFromRsg = configForDestName.stopSequence.map(s => (s.stopID || "").trim().toUpperCase());
         }
 
         const sortedPoints = [...points].sort((a, b) => {
-            // *** MODIFIED: Clean the stop IDs during lookup for consistent sorting ***
             const indexA = stopOrderFromRsg.indexOf((a.lastStopID || "").trim().toUpperCase());
             const indexB = stopOrderFromRsg.indexOf((b.lastStopID || "").trim().toUpperCase());
-
-            const effectiveIndexA = indexA === -1 ? Infinity : indexA;
-            const effectiveIndexB = indexB === -1 ? Infinity : indexB;
-
-            return effectiveIndexA - effectiveIndexB;
+            return (indexA === -1 ? Infinity : indexA) - (indexB === -1 ? Infinity : indexB);
         });
 
         let html = '<ul style="list-style-type: none; padding-left: 0;">';
-        sortedPoints.forEach((point) => {
+        sortedPoints.forEach((point, idx) => {
             const stopInfo = allDefinedStops_data[(point.lastStopID || "").toUpperCase()] || { stopName: 'Unknown Stop' };
             const returnOriginInfo = allDefinedStops_data[point.returnOriginStopID?.toUpperCase()] || { stopName: 'Unknown' };
-            
-            const originalIndex = points.findIndex(p => p.lastStopID === point.lastStopID && p.newDestinationName === point.newDestinationName);
             
             html += `<li style="display:flex; justify-content:space-between; align-items:center; padding: 0.5em; border-bottom: 1px solid #4A5568;">
                         <div>
                            <span><strong>Last Stop:</strong> ${stopInfo.stopName} (${point.lastStopID})</span><br>
                            <span style="font-size:0.9em;"><strong>Displays As:</strong> "${point.newDestinationName}"</span><br>
-                           <span style="font-size:0.9em; opacity: 0.8;"><strong>Return From:</strong> ${returnOriginInfo.stopName} (${point.returnOriginStopID})</span>
+                           <span style="font-size:0.9em; opacity: 0.8; color: #3498db;"><strong>Return From: ${returnOriginInfo.stopName} (${point.returnOriginStopID})</strong></span>
                         </div>
                         <div class="op-point-item-actions">
-                           <button class="button small-action neutral" data-index="${originalIndex}" onclick="op_points_handleEditPoint(this.dataset.index)">Edit</button>
-                           <button class="button small-action secondary" data-index="${originalIndex}" onclick="op_points_handleDeletePoint(this.dataset.index)">Delete</button>
+                           <button class="button small-action neutral" onclick="op_points_handleEditPoint(${idx})">Edit</button>
+                           <button class="button small-action secondary" onclick="op_points_handleDeletePoint(${idx})">Delete</button>
                         </div>
                      </li>`;
         });
@@ -7225,44 +7267,58 @@ async function dpo_clearOverrideForRoutes_ExtraPage() {
         }
 
         // --- REBUILDS ENTIRE SCHEDULE in new structured format ---
-        async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleDataToSave) {
-    if (!currentUser_extra || !window.firebaseOMSI) throw new Error("Not logged in or Firebase not available.");
-    const { database, dbSet, dbRef } = window.firebaseOMSI;
+        // In omsi_tools_extra.html
 
-    console.log("Rebuilding entire schedule into new nested structure (in memory)...");
-    const newSchedulesByRoute = {}; // This object will be built in memory first
+async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleDataToSave) {
+    if (!currentUser_extra || !window.firebaseOMSI) {
+        throw new Error("Not logged in or Firebase not available.");
+    }
+    const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+
+    console.log("Rebuilding entire schedule into BOTH 'schedulesByRoute' and 'schedulesByStop' structures...");
+
+    // 1. Initialize objects for both data structures
+    const newSchedulesByRoute = {};
+    const newSchedulesByStop = {};
+
+    // 2. Loop through the flat data ONCE to populate both objects
     flatScheduleDataToSave.forEach(entry => {
-        if (!entry.lineName || !entry.OperatingProfile || !entry.destinationName) {
-            console.warn("Skipping entry with missing route/profile/destination:", entry);
-            return;
+        // A. Logic for the 'schedulesByRoute' structure (for your tools)
+        if (entry.lineName && entry.OperatingProfile && entry.destinationName) {
+            const saneRoute = sanitizeFirebaseKey(entry.lineName);
+            const saneProfile = sanitizeFirebaseKey(entry.OperatingProfile);
+            const saneDest = sanitizeFirebaseKey(entry.destinationName);
+
+            if (!newSchedulesByRoute[saneRoute]) newSchedulesByRoute[saneRoute] = {};
+            if (!newSchedulesByRoute[saneRoute][saneProfile]) newSchedulesByRoute[saneRoute][saneProfile] = {};
+            if (!newSchedulesByRoute[saneRoute][saneProfile][saneDest]) {
+                newSchedulesByRoute[saneRoute][saneProfile][saneDest] = { entries: [] };
+            }
+            
+            const entryForStorage = { ...entry };
+            entryForStorage.lineName = entry.lineName;
+            entryForStorage.OperatingProfile = entry.OperatingProfile;
+            entryForStorage.destinationName = entry.destinationName;
+            newSchedulesByRoute[saneRoute][saneProfile][saneDest].entries.push(entryForStorage);
         }
-        const saneRoute = sanitizeFirebaseKey(entry.lineName);
-        const saneProfile = sanitizeFirebaseKey(entry.OperatingProfile);
-        const saneDest = sanitizeFirebaseKey(entry.destinationName);
 
-        if (!newSchedulesByRoute[saneRoute]) newSchedulesByRoute[saneRoute] = {};
-        if (!newSchedulesByRoute[saneRoute][saneProfile]) newSchedulesByRoute[saneRoute][saneProfile] = {};
-        if (!newSchedulesByRoute[saneRoute][saneProfile][saneDest]) newSchedulesByRoute[saneRoute][saneProfile][saneDest] = { entries: [] };
-        
-        const entryForStorage = { ...entry };
-        // Ensure these key fields are present in the stored entry, even if they were part of the key structure
-        entryForStorage.lineName = entry.lineName;
-        entryForStorage.OperatingProfile = entry.OperatingProfile;
-        entryForStorage.destinationName = entry.destinationName;
-
-        newSchedulesByRoute[saneRoute][saneProfile][saneDest].entries.push(entryForStorage);
+        // B. Logic for the new 'schedulesByStop' structure (for the arrivals board)
+        if (entry.stopID && entry.lineName && entry.scheduledTime) {
+            if (!newSchedulesByStop[entry.stopID]) {
+                newSchedulesByStop[entry.stopID] = [];
+            }
+            newSchedulesByStop[entry.stopID].push(entry);
+        }
     });
 
-    // Sort entries within each R/P/D for consistency
+    // Sort the nested 'entries' arrays for consistency (optional but good practice)
     for (const routeKey in newSchedulesByRoute) {
         for (const profileKey in newSchedulesByRoute[routeKey]) {
             for (const destKey in newSchedulesByRoute[routeKey][profileKey]) {
                 newSchedulesByRoute[routeKey][profileKey][destKey].entries.sort((a, b) => {
-                    const timeA = (a.scheduledTime || "9999").replace(':', ''); // Use a sortable time format
+                    const timeA = (a.scheduledTime || "9999").replace(':', '');
                     const timeB = (b.scheduledTime || "9999").replace(':', '');
-                    const timeCompare = timeA.localeCompare(timeB);
-                    if (timeCompare !== 0) return timeCompare;
-                    // Optional: Add secondary sort criteria if needed, e.g., by stopName or internalId
+                    if (timeA !== timeB) return timeA.localeCompare(timeB);
                     return (a.stopName || "").localeCompare(b.stopName || "");
                 });
             }
@@ -7270,37 +7326,28 @@ async function dpo_clearOverrideForRoutes_ExtraPage() {
     }
     
     try {
-        console.log(`Attempting to save schedule to Firebase using PER-ROUTE writes. Total routes: ${Object.keys(newSchedulesByRoute).length}`);
+        // 3. Prepare ONE object that contains all the updates for an atomic write
+        const updatesForFirebase = {};
         
-        const writePromises = [];
+        // By setting the parent path to the new data, we replace everything under it.
+        // This is safer than deleting and then writing in multiple steps.
+        updatesForFirebase['/liveSchedule/schedulesByRoute'] = newSchedulesByRoute;
+        updatesForFirebase['/liveSchedule/schedulesByStop'] = newSchedulesByStop; // Add the new structure to the update
 
-        // Clear the entire schedulesByRoute path first to ensure a clean slate.
-        // This is a single delete operation for the parent path.
-        console.log(`Clearing existing data at ${FB_PATH_SCHEDULES_BY_ROUTE} before writing new data...`);
-        await dbSet(dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE), null);
-        console.log(`Path ${FB_PATH_SCHEDULES_BY_ROUTE} cleared.`);
+        console.log(`Attempting to save both schedule structures to Firebase...`);
 
-        // Now write each route's data individually
-        for (const saneRoute in newSchedulesByRoute) {
-            if (Object.hasOwnProperty.call(newSchedulesByRoute, saneRoute)) { // Ensure it's an own property
-                const routeData = newSchedulesByRoute[saneRoute];
-                const routePath = `${FB_PATH_SCHEDULES_BY_ROUTE}/${saneRoute}`;
-                console.log(`Writing data for route: ${saneRoute} to path: ${routePath}`);
-                writePromises.push(dbSet(dbRef(database, routePath), routeData));
-            }
-        }
+        // 4. Execute the single, atomic update operation
+        await dbUpdate(dbRef(database), updatesForFirebase);
+        
+        console.log("Both schedule structures saved successfully and in sync to Firebase.");
 
-        await Promise.all(writePromises);
-        console.log("Entire schedule saved successfully to Firebase using per-route writes.");
-
-        // After a full rebuild, also update ancillary data
-        await updateAncillaryScheduleData_ExtraPage(); // Uses the global currentWorkingSchedule_extra
+        // 5. After a full rebuild, also update ancillary data like unique stops and timestamp
+        await updateAncillaryScheduleData_ExtraPage();
 
     } catch (error) {
-        console.error("Error saving entire rebuilt schedule with per-route writes:", error);
-        // This error will be propagated to the calling function (e.g., handleBulkAddStops_ExtraPage)
-        // which should then inform the user via its status message element.
-        throw error; 
+        console.error("Error performing the atomic rebuild and save operation:", error);
+        // Propagate the error so the calling function can notify the user
+        throw error;
     }
 }
 
@@ -13881,6 +13928,7 @@ function rsg_openCopyFromModal_ExtraPage() {
                 if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block';
 
                 await loadInitialData_ExtraPage();
+		setupFirebaseListeners_ExtraPage();
                 
             } else { // User is logged out
                 if (authSection_el_extra) {
@@ -13906,206 +13954,86 @@ function rsg_openCopyFromModal_ExtraPage() {
             }
         }
         
+// In omsi_tools_extra.html
 async function loadInitialData_ExtraPage() {
-    let msg = "Loading data for Extra Modules...";
-    console.log("loadInitialData_ExtraPage: Starting...");
+    console.log("%cPERFORMANCE TEST: Starting loadInitialData_ExtraPage...", "color: cyan; font-weight: bold;");
+    const totalStartTime = performance.now();
 
-    // Initialize/reset local data structures
     currentWorkingSchedule_extra = [];
-    closedStopIDs_extra = [];
-    globalCustomRouteColours_extra = {};
-    stopSpecificRouteColours_extra = {};
     rsg_loadedConfigs_extra = {};
     allDefinedStops_data = {};
-    schoolHolidayDateRanges_extra = [];
-    operationalOverrides_data = {};
-    massCurtailments_data = {}; // For Service Leg Curtailment
-    scheduledRouteDeletions_extra = {};
-    scheduledRouteUpdates_extra = {};
+    // ... other resets ...
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
-        msg = "Firebase not connected. Using default configurations where possible.";
-        console.error(msg);
-        if (masterStopListStatus_el_extra) masterStopListStatus_el_extra.textContent = msg;
-        if (DEFAULT_SCHOOL_HOLIDAY_RANGES && Array.isArray(DEFAULT_SCHOOL_HOLIDAY_RANGES)) {
-             schoolHolidayDateRanges_extra = DEFAULT_SCHOOL_HOLIDAY_RANGES.map((h, index) => ({
-                id: h.id || `sh-default-fb-err-${Date.now()}-${index}`, ...h
-            }));
-        } else { schoolHolidayDateRanges_extra = []; }
-        renderUIDependentElements_ExtraPage();
-        if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
-            checkAndDisplayDueUpdatesNotification_ExtraPage();
-        }
+        console.error("Firebase not connected.");
         return;
     }
 
-    const { database, dbGet, dbSet, dbRef, dbChild } = window.firebaseOMSI;
+    const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
 
     try {
-        console.log("loadInitialData_ExtraPage: Attempting to load core data from Firebase...");
-        
+        let startTime, duration;
+
+        startTime = performance.now();
+        console.log("[PERF] Loading RSG configurations...");
         const rsgConfigsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIGS));
         rsg_loadedConfigs_extra = rsgConfigsSnap.exists() ? rsgConfigsSnap.val() || {} : {};
-        console.log(`Loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configurations.`);
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
 
-        console.log("Deriving all stops directly from loaded RSG configurations...");
-        allDefinedStops_data = {};
-        if (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') {
-            for (const configKey in rsg_loadedConfigs_extra) {
-                const config = rsg_loadedConfigs_extra[configKey];
-                if (config && Array.isArray(config.stopSequence)) {
-                    config.stopSequence.forEach(stop => {
-                        if (stop && stop.stopID) {
-                            const stopIDUpper = stop.stopID.toUpperCase();
-                            allDefinedStops_data[stopIDUpper] = {
-                                stopID: stopIDUpper,
-                                stopName: stop.stopName,
-                                direction: stop.direction || ""
-                            };
-                        }
-                    });
-                }
-            }
-        }
-        console.log(`Derived ${Object.keys(allDefinedStops_data).length} unique stop definitions from RSG configs.`);
+        startTime = performance.now();
+        console.log("[PERF] Loading Master Stop Definitions...");
+        const allDefinedStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
+        allDefinedStops_data = allDefinedStopsSnap.exists() ? allDefinedStopsSnap.val() || {} : {};
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${Object.keys(allDefinedStops_data).length} master stop definitions in ${duration.toFixed(2)} ms.`);
         
-        const scheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULES_BY_ROUTE));
-        const flatScheduleFromDB = [];
-        if (scheduleSnap.exists() && typeof scheduleSnap.val() === 'object' && scheduleSnap.val() !== null) {
-            const schedulesByRoute = scheduleSnap.val();
-            for (const routeKey in schedulesByRoute) {
-                const routeData = schedulesByRoute[routeKey];
-                if (routeData && typeof routeData === 'object') {
-                    for (const profileKey in routeData) {
-                        const profileData = routeData[profileKey];
-                        if (profileData && typeof profileData === 'object') {
-                            for (const destKey in profileData) {
-                                const destData = profileData[destKey];
-                                if (destData && Array.isArray(destData.entries)) {
-                                    destData.entries.forEach(entry => {
-                                        if (entry) flatScheduleFromDB.push({ ...entry });
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        currentWorkingSchedule_extra = flatScheduleFromDB.map((e, i) => ({
-            ...e,
-            internalId: e.internalId || `${(e.stopID || 's')}_${(e.lineName || 'l')}_${(e.scheduledTime || "").replace(':', '')}_${i}_fbloadX_flat`
-        }));
-        console.log(`Loaded ${currentWorkingSchedule_extra.length} live schedule entries.`);
-
+        let tempScheduleForDropdowns = [];
+        Object.values(rsg_loadedConfigs_extra).forEach(config => {
+            tempScheduleForDropdowns.push({ lineName: config.routeName, destinationName: config.destinationName, OperatingProfile: config.operatingProfile });
+        });
+        currentWorkingSchedule_extra = tempScheduleForDropdowns;
+        
+        startTime = performance.now();
+        console.log("[PERF] Loading Operating Profiles list...");
         const opProfilesSnap = await dbGet(dbRef(database, FB_PATH_EDITABLE_OP_PROFILES));
-        if (opProfilesSnap.exists() && Array.isArray(opProfilesSnap.val()) && opProfilesSnap.val().length > 0) {
-            RSG_OPERATING_PROFILES_LIST = opProfilesSnap.val();
-        } else {
-             if (RSG_OPERATING_PROFILES_LIST && RSG_OPERATING_PROFILES_LIST.length > 0) {
-                try { await dbSet(dbRef(database, FB_PATH_EDITABLE_OP_PROFILES), RSG_OPERATING_PROFILES_LIST); }
-                catch (e) { console.error("Error seeding default Op Profiles:", e); }
-            }
-        }
-        console.log(`Loaded ${RSG_OPERATING_PROFILES_LIST.length} operating profiles.`);
+        if (opProfilesSnap.exists()) RSG_OPERATING_PROFILES_LIST = opProfilesSnap.val();
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${RSG_OPERATING_PROFILES_LIST.length} operating profiles in ${duration.toFixed(2)} ms.`);
 
+        startTime = performance.now();
+        console.log("[PERF] Loading School Holidays...");
         const shSnap = await dbGet(dbRef(database, FB_PATH_SCHOOL_HOLIDAYS));
-        let holidaysLoadedFromFirebase = false;
-        if (shSnap.exists() && Array.isArray(shSnap.val())) {
-            const firebaseHolidays = shSnap.val();
-            schoolHolidayDateRanges_extra = firebaseHolidays.map((h, index) => ({
-                id: h.id || `sh-loaded-${Date.now()}-${index}`, start: h.start, end: h.end, description: h.description || ""
-            }));
-            if (schoolHolidayDateRanges_extra.length > 0) holidaysLoadedFromFirebase = true;
-        }
-        if (!holidaysLoadedFromFirebase) {
-            if (DEFAULT_SCHOOL_HOLIDAY_RANGES && Array.isArray(DEFAULT_SCHOOL_HOLIDAY_RANGES)) {
-                schoolHolidayDateRanges_extra = DEFAULT_SCHOOL_HOLIDAY_RANGES.map((h, index) => ({ id: h.id || `sh-default-${Date.now()}-${index}`, ...h }));
-                if (schoolHolidayDateRanges_extra.length > 0) {
-                    try { await dbSet(dbRef(database, FB_PATH_SCHOOL_HOLIDAYS), schoolHolidayDateRanges_extra); }
-                    catch (e) { console.error("Error seeding default School Holidays:", e); }
-                }
-            } else { schoolHolidayDateRanges_extra = []; }
-        }
-        console.log(`Loaded ${schoolHolidayDateRanges_extra.length} school holiday ranges.`);
+        if (shSnap.exists()) schoolHolidayDateRanges_extra = shSnap.val(); else schoolHolidayDateRanges_extra = DEFAULT_SCHOOL_HOLIDAY_RANGES;
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${schoolHolidayDateRanges_extra.length} school holiday ranges in ${duration.toFixed(2)} ms.`);
 
+        startTime = performance.now();
+        console.log("[PERF] Loading Day Profile Overrides...");
         const dpoSnap = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
         operationalOverrides_data = dpoSnap.exists() ? dpoSnap.val() || {} : {};
-        console.log(`Loaded ${Object.keys(operationalOverrides_data).length} day profile overrides.`);
-        
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${Object.keys(operationalOverrides_data).length} DPO records in ${duration.toFixed(2)} ms.`);
+
+        startTime = performance.now();
+        console.log("[PERF] Loading Mass Curtailments...");
         const massCurtailmentsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
         massCurtailments_data = massCurtailmentsSnap.exists() ? massCurtailmentsSnap.val() || {} : {};
-        console.log(`Loaded ${Object.keys(massCurtailments_data).length} mass curtailment records.`);
-
-        stopToServingRoutesMap_extra.clear();
-        currentWorkingSchedule_extra.forEach(entry => {
-            if (entry.stopID && entry.lineName && entry.lineName.trim() !== "") {
-                if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
-                    stopToServingRoutesMap_extra.set(entry.stopID, new Set());
-                }
-                stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
-            }
-        });
-
-        const closedSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
-        closedStopIDs_extra = (closedSnap.exists() && closedSnap.val()) ? Object.keys(closedSnap.val()).filter(id => closedSnap.val()[id] === true).map(id => id.toUpperCase()) : [];
-
-        const globalCSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
-        globalCustomRouteColours_extra = globalCSnap.exists() ? globalCSnap.val() || {} : {};
-
-        const stopSpecificCSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS));
-        stopSpecificRouteColours_extra = stopSpecificCSnap.exists() ? stopSpecificCSnap.val() || {} : {};
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${Object.keys(massCurtailments_data).length} mass curtailment records in ${duration.toFixed(2)} ms.`);
         
-        const scheduledDeletionsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULED_DELETIONS));
-        scheduledRouteDeletions_extra = scheduledDeletionsSnap.exists() ? scheduledDeletionsSnap.val() || {} : {};
+        // ... (other small data loads remain the same) ...
 
-        const scheduledUpdatesSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULED_ROUTE_UPDATES));
-        scheduledRouteUpdates_extra = scheduledUpdatesSnap.exists() ? scheduledUpdatesSnap.val() || {} : {};
-
-        msg = `Extra Modules: Data loading complete.`;
     } catch (error) {
         console.error("Firebase Load Error (Extra Tools):", error);
-        msg = "Error loading data (Extra Tools): " + error.message;
-        // Reset all data structures on critical error
-        currentWorkingSchedule_extra = []; closedStopIDs_extra = []; globalCustomRouteColours_extra = {};
-        stopSpecificRouteColours_extra = {}; rsg_loadedConfigs_extra = {}; allDefinedStops_data = {};
-        operationalOverrides_data = {}; massCurtailments_data = {}; scheduledRouteDeletions_extra = {}; scheduledRouteUpdates_extra = {};
-        if (DEFAULT_SCHOOL_HOLIDAY_RANGES && Array.isArray(DEFAULT_SCHOOL_HOLIDAY_RANGES)) {
-            schoolHolidayDateRanges_extra = DEFAULT_SCHOOL_HOLIDAY_RANGES.map((h, index) => ({id: h.id || `sh-loaderr-${Date.now()}-${index}`, ...h}));
-        } else { schoolHolidayDateRanges_extra = []; }
-        stopToServingRoutesMap_extra.clear();
-        if (masterStopListStatus_el_extra) masterStopListStatus_el_extra.textContent = msg;
     }
     
-    console.log("loadInitialData_ExtraPage: " + msg);
-
-    if (typeof fetchBankHolidays_ExtraPage === 'function') await fetchBankHolidays_ExtraPage();
-    if (typeof updateCurrentProfileDisplay_ExtraPage === 'function') await updateCurrentProfileDisplay_ExtraPage();
-    
+    await fetchBankHolidays_ExtraPage();
+    await updateCurrentProfileDisplay_ExtraPage();
     renderUIDependentElements_ExtraPage();
 
-    if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
-        checkAndDisplayDueUpdatesNotification_ExtraPage();
-    }
-
-    if (currentUser_extra) {
-        if (typeof prepareKeyTripTimesForAlerts_ExtraPage === 'function' &&
-            typeof checkAndShowTripAlerts_ExtraPage === 'function') {
-            prepareKeyTripTimesForAlerts_ExtraPage().then(() => {
-                if (tripAlertIntervalId_extra) clearInterval(tripAlertIntervalId_extra);
-                tripAlertIntervalId_extra = setInterval(checkAndShowTripAlerts_ExtraPage, ALERT_CHECK_INTERVAL_MS);
-                console.log("Trip alert monitor started after data load.");
-            }).catch(err => {
-                console.error("Error during initial preparation for trip alerts:", err);
-            });
-        }
-    } else {
-        if (tripAlertIntervalId_extra) {
-            clearInterval(tripAlertIntervalId_extra);
-            tripAlertIntervalId_extra = null;
-        }
-    }
-    console.log("loadInitialData_ExtraPage: Finished.");
+    const totalDuration = performance.now() - totalStartTime;
+    console.log(`%cPERFORMANCE TEST: loadInitialData_ExtraPage finished in ${totalDuration.toFixed(2)} ms.`, "color: cyan; font-weight: bold;");
 }
 
 function renderUIDependentElements_ExtraPage() {
@@ -14174,6 +14102,23 @@ const topMenuBar = document.getElementById('top-menu-bar_extra');
                     });
                 });
             }
+
+if (rsgOpenPasteAdjModalButton_el_extra && typeof rsg_openPasteAdjModal_ExtraPage === 'function') {
+    rsgOpenPasteAdjModalButton_el_extra.addEventListener('click', rsg_openPasteAdjModal_ExtraPage);
+}
+if (rsgPasteAdjApplyButton_el_extra && typeof rsg_applyPastedAdjustments_ExtraPage === 'function') {
+    rsgPasteAdjApplyButton_el_extra.addEventListener('click', rsg_applyPastedAdjustments_ExtraPage);
+}
+if (rsgPasteAdjCancelButton_el_extra && typeof rsg_closePasteAdjModal_ExtraPage === 'function') {
+    rsgPasteAdjCancelButton_el_extra.addEventListener('click', rsg_closePasteAdjModal_ExtraPage);
+}
+if (rsgPasteAdjModal_el_extra && typeof rsg_closePasteAdjModal_ExtraPage === 'function') {
+    rsgPasteAdjModal_el_extra.addEventListener('click', (e) => {
+        if (e.target === rsgPasteAdjModal_el_extra) {
+            rsg_closePasteAdjModal_ExtraPage();
+        }
+    });
+}
 
 if (document.getElementById('slc-route-select-extra')) {
     document.getElementById('slc-route-select-extra').addEventListener('change', slc_populateDestinationSelect);

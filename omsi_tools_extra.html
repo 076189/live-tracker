@@ -462,7 +462,7 @@
                 <button class="menu-button" data-section="config-data-section_extra">View/Edit Config Data</button>
                 <button class="menu-button" data-section="key-departures-section_extra">Key Departures</button> 
                 <button class="menu-button" data-section="calendar-view-section_extra">Events Calendar</button>
-                <button class="menu-button" data-section="curtailment-config-section_extra">Curtailment Points</button>
+                <button class="menu-button" data-section="curtailment-config-section_extra">Operational Points</button>
                 <button class="menu-button" data-section="trip-curtailment-section_extra">Live Trip Intervention</button>
                 <button class="menu-button" data-section="route-curtailment-section_extra">Service Leg Curtailment</button>
             </div>
@@ -484,8 +484,12 @@
                             <select id="slc-route-select-extra" class="schedule-generator-input"></select>
                         </div>
                         <div>
-                            <label for="slc-destination-select-extra">Direction/Destination:</label>
+                            <label for="slc-destination-select-extra">Direction/Destination to Curtail:</label>
                             <select id="slc-destination-select-extra" class="schedule-generator-input" disabled></select>
+                        </div>
+                        <div>
+                            <label for="slc-return-dest-select-extra">And Suppress Return Journey to:</label>
+                            <select id="slc-return-dest-select-extra" class="schedule-generator-input" disabled></select>
                         </div>
                         <div>
                             <label for="slc-curtailment-point-select-extra">New Temporary Terminus:</label>
@@ -868,10 +872,14 @@
                             <select id="op-points-dest-select-extra" class="schedule-generator-input"></select>
                         </div>
                     </div>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr auto; align-items: end; margin-top: 1rem;">
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr auto; align-items: end; margin-top: 1rem;">
                         <div>
                             <label for="op-points-last-stop-select-extra">Select Last Stop (Curtailment Point):</label>
                             <select id="op-points-last-stop-select-extra" class="schedule-generator-input"></select>
+                        </div>
+                        <div>
+                            <label for="op-points-return-origin-select-extra">Return Journey Origin Stop:</label>
+                            <select id="op-points-return-origin-select-extra" class="schedule-generator-input"></select>
                         </div>
                         <div>
                             <label for="op-points-dest-name-input-extra">New Destination Name Display:</label>
@@ -1085,7 +1093,6 @@
       };
       document.dispatchEvent(new CustomEvent('firebaseReady', { detail: window.firebaseOMSI }));
     </script>
-
 <script>
 // --- Global State Variables ---
         let rsg_configKeyToRename_extra = null;
@@ -1365,6 +1372,23 @@ const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03m
 
 // Ensure VAPID_PUBLIC_KEY is defined globally at the top of your script block
 // const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; 
+
+function op_points_populateReturnOriginSelect() {
+    const selectEl = document.getElementById('op-points-return-origin-select-extra');
+    if (!selectEl) return;
+
+    selectEl.innerHTML = '<option value="">-- Select Return Start Stop --</option>';
+    if (!allDefinedStops_data || Object.keys(allDefinedStops_data).length === 0) {
+        selectEl.innerHTML = '<option value="">No Stops Defined</option>';
+        return;
+    }
+
+    const sortedStops = Object.values(allDefinedStops_data).sort((a,b) => (a.stopName || "").localeCompare(b.stopName));
+
+    sortedStops.forEach(stop => {
+        selectEl.add(new Option(`${stop.stopName} (${stop.stopID})`, stop.stopID));
+    });
+}
 
 async function getFCMTokenAndStore(serviceWorkerRegistration) {
     console.log("FCM DEBUG: Entering getFCMTokenAndStore. Attempting subscription with provided SW registration.");
@@ -1829,7 +1853,6 @@ async function slc_handleActivateCurtailment() {
         return;
     }
     const destinationNameForRule = rsgConfig.destinationName;
-
     const point = JSON.parse(pointJSON);
     const startTimeObj = new Date(startTime);
     const endTimeObj = new Date(endTime);
@@ -1840,13 +1863,13 @@ async function slc_handleActivateCurtailment() {
         return;
     }
 
-    // *** MODIFIED: Ensure cancelled stop IDs are cleaned (trimmed and uppercased) ***
     let cancelledStopIDs = [];
     if (rsgConfig && rsgConfig.stopSequence) {
+        // Find the index of the new terminus
         const terminusIndex = rsgConfig.stopSequence.findIndex(s => s.stopID === point.stopId);
         if (terminusIndex !== -1) {
-            const unservedPortion = rsgConfig.stopSequence.slice(terminusIndex + 1);
-            // Clean the data before saving
+            // Unserved stops are the new terminus itself and everything after it
+            const unservedPortion = rsgConfig.stopSequence.slice(terminusIndex);
             cancelledStopIDs = unservedPortion.map(s => (s.stopID || "").trim().toUpperCase());
         }
     }
@@ -1859,10 +1882,10 @@ async function slc_handleActivateCurtailment() {
         startTime: startTimeObj.toISOString(),
         endTime: endTimeObj.toISOString(),
         user: currentUser_extra.email,
-        cancelledStopIDs: cancelledStopIDs 
+        cancelledStopIDs: cancelledStopIDs
     };
 
-    if (!confirm(`Confirm Curtailment:\n\nRoute: ${route}\nDirection: ${destinationNameForRule}\nNew Terminus: ${point.displayName}\nActive From: ${startTimeObj.toLocaleString()}\nActive Until: ${endTimeObj.toLocaleString()}`)) {
+    if (!confirm(`Confirm Curtailment:\n\nRoute: ${route}\nDirection: ${destinationNameForRule}\nNew Terminus: ${point.displayName}\n\nActive From: ${startTimeObj.toLocaleString()}\nActive Until: ${endTimeObj.toLocaleString()}`)) {
         statusEl.textContent = "Activation cancelled.";
         return;
     }
@@ -2075,33 +2098,36 @@ async function op_points_displayDefinedPoints() {
 async function op_points_handleAddPoint() {
     const statusMsg = document.getElementById('op-points-status-message-extra');
     const route = document.getElementById('op-points-route-select-extra').value;
-    const destConfigKey = document.getElementById('op-points-dest-select-extra').value; // This is the config key
+    const destConfigKey = document.getElementById('op-points-dest-select-extra').value;
     const lastStopID = document.getElementById('op-points-last-stop-select-extra').value;
     const newDestName = document.getElementById('op-points-dest-name-input-extra').value.trim();
+    // *** NEW: Get the return journey's origin stop ***
+    const returnOriginStopID = document.getElementById('op-points-return-origin-select-extra').value;
 
-    // --- START: CORRECTED LOGIC ---
-    // First, validate that a destination config is actually selected.
-    if (!route || !destConfigKey || !lastStopID || !newDestName) {
-        statusMsg.textContent = 'All fields (Route, Destination, Last Stop, Display Name) are required.';
+    // *** MODIFIED: Add returnOriginStopID to validation ***
+    if (!route || !destConfigKey || !lastStopID || !newDestName || !returnOriginStopID) {
+        statusMsg.textContent = 'All fields (Route, Destination, Last Stop, Return Origin, Display Name) are required.';
         statusMsg.style.color = '#f1c40f';
         return;
     }
 
-    // Now, get the actual destination name from the loaded RSG configuration using the key.
     const configData = rsg_loadedConfigs_extra[destConfigKey];
     if (!configData || !configData.destinationName) {
         statusMsg.textContent = 'Error: Could not find configuration details for the selected destination.';
         statusMsg.style.color = '#e74c3c';
         return;
     }
-    const destinationName = configData.destinationName; // This is the correct name to use for the path.
-    // --- END: CORRECTED LOGIC ---
+    const destinationName = configData.destinationName;
 
-    const newPoint = { lastStopID, newDestinationName: newDestName };
-    // Use the correct `destinationName` variable to build the path
+    // *** MODIFIED: Add the new property to the point's data structure ***
+    const newPoint = { 
+        lastStopID, 
+        newDestinationName: newDestName,
+        returnOriginStopID: returnOriginStopID
+    };
+    
     const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(destinationName)}`;
     
-    // The rest of the function remains the same
     let currentPoints = definedCurtailmentPoints[path] || [];
     if (currentPoints.some(p => p.lastStopID === newPoint.lastStopID)) {
          statusMsg.textContent = 'This stop is already defined as a curtailment point.';
@@ -2114,7 +2140,6 @@ async function op_points_handleAddPoint() {
         await dbSet(dbRef(database, path), currentPoints);
         statusMsg.textContent = 'Curtailment point added successfully.';
         statusMsg.style.color = '#2ecc71';
-        // Calling the display function will now find the point at the correct path
         op_points_displayDefinedPoints(); 
     } catch (error) {
         statusMsg.textContent = 'Error saving point: ' + error.message;
@@ -13661,6 +13686,7 @@ function rsg_openCopyFromModal_ExtraPage() {
              }
         } else if (sectionId === 'curtailment-config-section_extra') {
             if (typeof op_points_populateRouteSelect === 'function') op_points_populateRouteSelect();
+            if (typeof op_points_populateReturnOriginSelect === 'function') op_points_populateReturnOriginSelect();
         } else if (sectionId === 'trip-curtailment-section_extra') {
             if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
         } else if (sectionId === 'route-curtailment-section_extra') {

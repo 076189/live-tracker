@@ -1014,6 +1014,7 @@ let closedStopIDs = [];
 let globalCustomRouteColours = {};
 let stopSpecificRouteColours = {};
 let autoApplyIntervalId = null;
+let uniqueStops = [];
 
 // --- Constants ---
 const LOCAL_STORAGE_ACTIVE_SECTION_KEY = 'omsiToolsActiveSection';
@@ -2259,47 +2260,126 @@ function displayRoutesForBulkEditing() {
     });
 }
 
-function handleBulkUpdateRouteDestination() {
+// In omsi_tools.html
+
+async function handleBulkUpdateRouteDestination() {
     if (!currentUser) { alert("Please log in to perform bulk updates."); return; }
 
     const selectedLineNamesElements = bulkEditRouteTilesContainer.querySelectorAll('.specific-colour-route-tile.selected-for-color-edit');
-    const selectedLineNames = Array.from(selectedLineNamesElements).map(tile => tile.dataset.lineName.trim().toUpperCase());
+    const selectedLineNames = Array.from(selectedLineNamesElements).map(tile => tile.dataset.lineName);
 
     const oldDestination = bulkEditOldDestinationInput.value.trim();
     const newDestination = bulkEditNewDestinationInput.value.trim();
 
     if (selectedLineNames.length === 0) {
         alert("Please select at least one Route tile.");
-        if (bulkEditRouteTilesPlaceholder) bulkEditRouteTilesPlaceholder.textContent = 'Please select routes to update.';
         return;
     }
-    if (!newDestination) { alert("New Destination Name is required."); bulkEditNewDestinationInput.focus(); return; }
+    if (!newDestination) {
+        alert("New Destination Name is required.");
+        bulkEditNewDestinationInput.focus();
+        return;
+    }
+    if (newDestination === oldDestination) {
+        alert("New Destination is the same as the Old Destination. No changes made.");
+        return;
+    }
 
-    let updatedCount = 0;
+    // --- Confirmation and Initial Update ---
+    let confirmMessage = `This will update the destination for Route(s): ${selectedLineNames.join(', ')}.`;
+    if (oldDestination) {
+        confirmMessage += `\nFrom: "${oldDestination}"\nTo: "${newDestination}"`;
+    } else {
+        confirmMessage += `\nFor ALL destinations\nTo: "${newDestination}"`;
+    }
+    confirmMessage += `\n\nThis will also attempt to update any saved RSG configurations matching these criteria. Proceed?`;
+
+    if (!confirm(confirmMessage)) {
+        alert("Update cancelled.");
+        return;
+    }
+
+    let updatedScheduleCount = 0;
     currentWorkingSchedule.forEach(entry => {
-        if (entry.lineName && selectedLineNames.includes(entry.lineName.toUpperCase())) { // Check if the entry's lineName is among the selected
+        if (entry.lineName && selectedLineNames.includes(entry.lineName)) {
             if (oldDestination) {
                 if (entry.destinationName && entry.destinationName.toLowerCase() === oldDestination.toLowerCase()) {
                     entry.destinationName = newDestination;
-                    updatedCount++;
+                    updatedScheduleCount++;
                 }
-            } else { // If oldDestination is blank, update all entries for the selected routes
+            } else {
                 entry.destinationName = newDestination;
-                updatedCount++;
+                updatedScheduleCount++;
             }
         }
     });
 
-    if (updatedCount > 0) {
-        renderUIDependentElements(); // Re-render UI elements that might show schedule data
-        updateStagingStatusDisplay();
-        alert(`${updatedCount} entries for selected Route(s) had their destination updated to "${newDestination}".`);
-        // Deselect tiles after update
-        selectedLineNamesElements.forEach(tile => tile.classList.remove('selected-for-color-edit'));
-        if (bulkEditRouteTilesPlaceholder) bulkEditRouteTilesPlaceholder.textContent = 'Routes updated. Select new routes if needed.';
+    // --- NEW: Update RSG Configurations ---
+    let updatedRsgConfigCount = 0;
+    const rsgUpdatesForFirebase = {};
+    if (typeof rsg_loadedConfigs_extra === 'object' && rsg_loadedConfigs_extra !== null) {
+        for (const configKey in rsg_loadedConfigs_extra) {
+            const config = rsg_loadedConfigs_extra[configKey];
+            if (config && selectedLineNames.includes(config.routeName)) {
+                let configMatches = false;
+                if (oldDestination) {
+                    if (config.destinationName && config.destinationName.toLowerCase() === oldDestination.toLowerCase()) {
+                        configMatches = true;
+                    }
+                } else {
+                    configMatches = true; // Match if old destination is blank
+                }
 
-    } else {
-        alert(`No entries found for the selected route(s)` + (oldDestination ? ` with Old Destination "${oldDestination}"` : "") + " to update.");
+                if (configMatches) {
+                    const newConfig = { ...config };
+                    // Also update the user-facing display name to reflect the change
+                    if (newConfig.userDisplayName && oldDestination) {
+                         newConfig.userDisplayName = newConfig.userDisplayName.replace(new RegExp(oldDestination, 'gi'), newDestination);
+                    }
+                    newConfig.destinationName = newDestination;
+                    newConfig.lastSaved = new Date().toISOString();
+                    
+                    // Add the path and the new data to our updates object
+                    rsgUpdatesForFirebase[`${FB_PATH_RSG_CONFIGS}/${configKey}`] = newConfig;
+                    updatedRsgConfigCount++;
+                }
+            }
+        }
+    }
+
+    if (updatedScheduleCount === 0 && updatedRsgConfigCount === 0) {
+         alert("No schedule entries or RSG configurations found matching the criteria. No changes made.");
+        return;
+    }
+
+    // --- Save Everything Back to Firebase ---
+    try {
+        if (updatedScheduleCount > 0) {
+            // Rebuild and save the entire schedule as its structure is modified
+            await rebuildAndSaveEntireScheduleToFirebase_ExtraPage(currentWorkingSchedule);
+        }
+        if (updatedRsgConfigCount > 0) {
+            const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+            // Use a single update operation for all RSG config changes
+            await dbUpdate(dbRef(database), rsgUpdatesForFirebase);
+            // Refresh the local cache of RSG configs
+            Object.assign(rsg_loadedConfigs_extra, rsgUpdatesForFirebase);
+        }
+
+        renderUIDependentElements();
+        updateStagingStatusDisplay();
+        alert(`${updatedScheduleCount} schedule entries and ${updatedRsgConfigCount} RSG configurations updated successfully.`);
+
+        // Clear inputs after successful update
+        selectedLineNamesElements.forEach(tile => tile.classList.remove('selected-for-color-edit'));
+        bulkEditOldDestinationInput.value = '';
+        bulkEditNewDestinationInput.value = '';
+
+    } catch (error) {
+        alert(`An error occurred while saving updates to Firebase: ${error.message}`);
+        console.error("Error during bulk destination update:", error);
+        // It might be wise to reload data from Firebase here to ensure consistency
+        loadInitialData();
     }
 }
 

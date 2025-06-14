@@ -904,41 +904,78 @@ function extractDestinationNameFromRule(ruleDestination) {
         return ruleDestination;
     }
 
-    function updateAndDisplayLiveArrivals() {
+    // In omsi_arrivals.html
+// In omsi_arrivals.html
+
+function updateAndDisplayLiveArrivals() {
     if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
-    if (!currentSelectedStopID || !allScheduledData || allScheduledData.length === 0) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">${(!allScheduledData || allScheduledData.length === 0) ? 'No schedule data. <a href="setup.html" style="color:#90cdf4;">Setup</a>.' : 'Select a stop.'}</li>`;} previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
-    if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`; } previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); return; }
+    if (!currentSelectedStopID || (!allScheduledData && !activeMassCurtailments)) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`;} return; }
+    if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.</li>`; } return; }
 
     const nowForProcessing = new Date();
+    
+    // *** NEW: MERGE STATIC AND DYNAMIC SCHEDULES ***
+    let combinedScheduleData = [...(allScheduledData || [])];
+    if (Object.keys(activeMassCurtailments).length > 0) {
+        for (const key in activeMassCurtailments) {
+            const rule = activeMassCurtailments[key];
+            if (rule && rule.dynamicallyGeneratedTrip && Array.isArray(rule.dynamicallyGeneratedTrip)) {
+                const startTime = new Date(rule.startTime);
+                const endTime = new Date(rule.endTime);
+                if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
+                    combinedScheduleData.push(...rule.dynamicallyGeneratedTrip);
+                }
+            }
+        }
+    }
+    // *** END OF MERGE LOGIC ***
+
     const messageActive = isCustomMessageActive();
     const busDisplaySlotsCount = messageActive ? MAX_DISPLAY_ROWS - 1 : MAX_DISPLAY_ROWS;
     const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
 
-    const processedBuses = allScheduledData
+    const processedBuses = combinedScheduleData // *** USE THE COMBINED DATA ***
         .filter(bus => bus.stopID === currentSelectedStopID)
         .map((bus, mapIndex) => {
             
-            // *** FINAL: Check if trip originates from a cancelled stop due to a curtailment ***
-            const originStopId = (bus.tripStopSequence && bus.tripStopSequence.length > 0) ? (bus.tripStopSequence[0] || "").trim().toUpperCase() : null;
-            
-            if (originStopId && Object.keys(activeMassCurtailments).length > 0) {
+            // This suppression logic now correctly hides the ORIGINAL return trip
+            if (!bus.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
                 for (const key in activeMassCurtailments) {
                     const rule = activeMassCurtailments[key];
-                    
-                    if (rule && rule.cancelledStopIDs && Array.isArray(rule.cancelledStopIDs) && rule.startTime && rule.endTime) {
+                    if (rule && rule.suppressedServiceLegs && Array.isArray(rule.suppressedServiceLegs) && rule.startTime && rule.endTime) {
                         const startTime = new Date(rule.startTime);
                         const endTime = new Date(rule.endTime);
-
-                        // If the rule is active and the bus's origin is in the cancelled list
-                        if (nowForProcessing >= startTime && nowForProcessing <= endTime && rule.cancelledStopIDs.includes(originStopId)) {
-                            // This trip is impossible, suppress it.
-                            return null;
+                        if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
+                            const isSuppressed = rule.suppressedServiceLegs.some(leg => 
+                                leg.routeName === bus.lineName && leg.destinationName === bus.destinationName
+                            );
+                            if (isSuppressed) return null;
                         }
                     }
                 }
             }
-            // *** END OF FINAL BLOCK ***
-
+            
+            // This curtailment logic correctly shortens the OUTBOUND trip
+            if (!bus.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
+                for (const key in activeMassCurtailments) {
+                    const rule = activeMassCurtailments[key];
+                     if (rule && rule.startTime && rule.endTime && rule.routeName === bus.lineName && rule.destinationName === bus.destinationName) {
+                        const startTime = new Date(rule.startTime);
+                        const endTime = new Date(rule.endTime);
+                        if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
+                            const stopSequence = bus.tripStopSequence || [];
+                            const currentStopIndex = stopSequence.indexOf(bus.stopID);
+                            const curtailStopIndex = stopSequence.indexOf(rule.newTerminusStopId);
+                            if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
+                                return null; // This stop is past the new terminus
+                            }
+                            bus.destinationName = rule.newTerminusDisplayName; // Change destination display
+                        }
+                    }
+                }
+            }
+            
+            // ... (The rest of the time calculation and processing logic remains the same) ...
             if (!bus || !bus.OperatingProfile || typeof bus.OperatingProfile !== 'string' || bus.OperatingProfile.trim() === "") return null;
             let tempTimeStr = String(bus.scheduledTime).trim();
             const tempNumTime = parseFloat(tempTimeStr);
@@ -976,51 +1013,17 @@ function extractDestinationNameFromRule(ruleDestination) {
                 adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
             }
 
-            let busDataForProcessing = { ...bus };
-
-            if (!busDataForProcessing.curtailment && Object.keys(activeMassCurtailments).length > 0) {
-                for (const key in activeMassCurtailments) {
-                    const rule = activeMassCurtailments[key];
-                    if (rule && rule.startTime && rule.endTime && rule.routeName && rule.destinationName) {
-                        const startTime = new Date(rule.startTime);
-                        const endTime = new Date(rule.endTime);
-                        const ruleSimpleDestination = extractDestinationNameFromRule(rule.destinationName);
-                        if (nowForProcessing >= startTime && nowForProcessing <= endTime &&
-                            rule.routeName === busDataForProcessing.lineName &&
-                            ruleSimpleDestination === extractDestinationNameFromRule(busDataForProcessing.destinationName))
-                        {
-                            busDataForProcessing.curtailment = {
-                                curtailAtStopID: rule.newTerminusStopId,
-                                newDestinationName: rule.newTerminusDisplayName,
-                                appliedAt: rule.startTime 
-                            };
-                            break; 
-                        }
-                    }
-                }
-            }
-
-            if (busDataForProcessing.curtailment) {
-                const curtailmentInfo = busDataForProcessing.curtailment;
-                const stopSequence = busDataForProcessing.tripStopSequence || [];
-                const currentStopIndex = stopSequence.indexOf(busDataForProcessing.stopID);
-                const curtailStopIndex = stopSequence.indexOf(curtailmentInfo.curtailAtStopID);
-                if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
-                    return null;
-                }
-                busDataForProcessing.destinationName = curtailmentInfo.newDestinationName;
-            }
-
             const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
             const arrTxt = generateArrivalText(diffSecs);
             if (arrTxt === null) return null;
 
-            const internalId = busDataForProcessing.internalId || `${busDataForProcessing.stopID}_${busDataForProcessing.lineName}_${busDataForProcessing.OperatingProfile}_${(busDataForProcessing.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
-            return { ...busDataForProcessing, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1, resolvedScheduledTime: adjustedSchedTime.toISOString() };
+            const internalId = bus.internalId || `${bus.stopID}_${bus.lineName}_${bus.OperatingProfile}_${(bus.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
+            return { ...bus, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1, resolvedScheduledTime: adjustedSchedTime.toISOString() };
         })
         .filter(b => b !== null && b.timeToStationInSeconds <= MAX_TIME_TO_STATION_SECONDS && b.timeToStationInSeconds >= -59)
         .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0, MAX_DEPARTURES_OVERALL).map((bus, index) => ({ ...bus, originalMasterIndex: index }));
 
+        // ... (The rest of the function for displaying rows is identical to before) ...
         const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
         const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
         if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0;

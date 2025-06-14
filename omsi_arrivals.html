@@ -918,29 +918,26 @@ function extractDestinationNameFromRule(ruleDestination) {
         .filter(bus => bus.stopID === currentSelectedStopID)
         .map((bus, mapIndex) => {
             
-            // *** MODIFIED: More robust check for suppressing impossible return trips ***
-            const originStopId = (bus.tripStopSequence && bus.tripStopSequence.length > 0) ? bus.tripStopSequence[0] : null;
+            // *** FINAL: Check if trip originates from a cancelled stop due to a curtailment ***
+            const originStopId = (bus.tripStopSequence && bus.tripStopSequence.length > 0) ? (bus.tripStopSequence[0] || "").trim().toUpperCase() : null;
+            
             if (originStopId && Object.keys(activeMassCurtailments).length > 0) {
                 for (const key in activeMassCurtailments) {
                     const rule = activeMassCurtailments[key];
-                    if (rule && rule.cancelledStopIDs && Array.isArray(rule.cancelledStopIDs) && rule.cancelledStopIDs.length > 0 && rule.startTime && rule.endTime) {
+                    
+                    if (rule && rule.cancelledStopIDs && Array.isArray(rule.cancelledStopIDs) && rule.startTime && rule.endTime) {
                         const startTime = new Date(rule.startTime);
                         const endTime = new Date(rule.endTime);
 
-                        if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
-                            const originStopIdUpper = originStopId.trim().toUpperCase();
-                            const isOriginCancelled = rule.cancelledStopIDs.includes(originStopIdUpper);
-                            
-                            // This console log is for debugging. It will only show if an origin matches a cancelled stop ID.
-                            if (isOriginCancelled) {
-                                console.log(`[Curtailment Check] Trip ${bus.lineName} to ${bus.destinationName} originates from ${originStopId}, which is in a cancelled zone from an active rule. Suppressing trip.`);
-                                return null;
-                            }
+                        // If the rule is active and the bus's origin is in the cancelled list
+                        if (nowForProcessing >= startTime && nowForProcessing <= endTime && rule.cancelledStopIDs.includes(originStopId)) {
+                            // This trip is impossible, suppress it.
+                            return null;
                         }
                     }
                 }
             }
-            // *** END OF MODIFIED BLOCK ***
+            // *** END OF FINAL BLOCK ***
 
             if (!bus || !bus.OperatingProfile || typeof bus.OperatingProfile !== 'string' || bus.OperatingProfile.trim() === "") return null;
             let tempTimeStr = String(bus.scheduledTime).trim();

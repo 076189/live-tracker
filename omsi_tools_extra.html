@@ -1811,7 +1811,7 @@ async function slc_populateCurtailmentPointsSelect() {
 async function slc_handleActivateCurtailment() {
     const statusEl = document.getElementById('slc-status-message-extra');
     const route = document.getElementById('slc-route-select-extra').value;
-    const selectedConfigKey = document.getElementById('slc-destination-select-extra').value; // This is the RSG config key
+    const selectedConfigKey = document.getElementById('slc-destination-select-extra').value;
     const pointJSON = document.getElementById('slc-curtailment-point-select-extra').value;
     const startTime = document.getElementById('slc-start-time-input-extra').value;
     const endTime = document.getElementById('slc-end-time-input-extra').value;
@@ -1840,17 +1840,16 @@ async function slc_handleActivateCurtailment() {
         return;
     }
 
-    // *** NEW: Determine the list of stop IDs that are no longer served ***
+    // *** MODIFIED: Ensure cancelled stop IDs are cleaned (trimmed and uppercased) ***
     let cancelledStopIDs = [];
     if (rsgConfig && rsgConfig.stopSequence) {
         const terminusIndex = rsgConfig.stopSequence.findIndex(s => s.stopID === point.stopId);
         if (terminusIndex !== -1) {
-            // Get all stops *after* the new terminus. These are the stops the bus no longer serves.
             const unservedPortion = rsgConfig.stopSequence.slice(terminusIndex + 1);
-            cancelledStopIDs = unservedPortion.map(s => s.stopID);
+            // Clean the data before saving
+            cancelledStopIDs = unservedPortion.map(s => (s.stopID || "").trim().toUpperCase());
         }
     }
-    // *** END OF NEW LOGIC ***
 
     const record = {
         routeName: route,
@@ -1860,7 +1859,7 @@ async function slc_handleActivateCurtailment() {
         startTime: startTimeObj.toISOString(),
         endTime: endTimeObj.toISOString(),
         user: currentUser_extra.email,
-        cancelledStopIDs: cancelledStopIDs // Add the new array of unserved stop IDs
+        cancelledStopIDs: cancelledStopIDs 
     };
 
     if (!confirm(`Confirm Curtailment:\n\nRoute: ${route}\nDirection: ${destinationNameForRule}\nNew Terminus: ${point.displayName}\nActive From: ${startTimeObj.toLocaleString()}\nActive Until: ${endTimeObj.toLocaleString()}`)) {

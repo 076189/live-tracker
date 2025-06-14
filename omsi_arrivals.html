@@ -918,29 +918,30 @@ function extractDestinationNameFromRule(ruleDestination) {
         .filter(bus => bus.stopID === currentSelectedStopID)
         .map((bus, mapIndex) => {
             
-            // *** NEW: Check if trip originates from a cancelled stop due to a curtailment ***
+            // *** MODIFIED: More robust check for suppressing impossible return trips ***
             const originStopId = (bus.tripStopSequence && bus.tripStopSequence.length > 0) ? bus.tripStopSequence[0] : null;
             if (originStopId && Object.keys(activeMassCurtailments).length > 0) {
                 for (const key in activeMassCurtailments) {
                     const rule = activeMassCurtailments[key];
-                    // Use nowForProcessing which is defined at the start of the parent function
-                    if (rule && rule.cancelledStopIDs && Array.isArray(rule.cancelledStopIDs) && rule.startTime && rule.endTime) {
+                    if (rule && rule.cancelledStopIDs && Array.isArray(rule.cancelledStopIDs) && rule.cancelledStopIDs.length > 0 && rule.startTime && rule.endTime) {
                         const startTime = new Date(rule.startTime);
                         const endTime = new Date(rule.endTime);
 
-                        // If the rule is active and the bus's origin is in the cancelled list for that rule
-                        if (nowForProcessing >= startTime && nowForProcessing <= endTime && rule.cancelledStopIDs.includes(originStopId)) {
-                            // And to be safe, make sure it's for the same route name
-                            if (rule.routeName === bus.lineName) {
-                                return null; // Suppress this entire trip as it's impossible to run
+                        if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
+                            const originStopIdUpper = originStopId.trim().toUpperCase();
+                            const isOriginCancelled = rule.cancelledStopIDs.includes(originStopIdUpper);
+                            
+                            // This console log is for debugging. It will only show if an origin matches a cancelled stop ID.
+                            if (isOriginCancelled) {
+                                console.log(`[Curtailment Check] Trip ${bus.lineName} to ${bus.destinationName} originates from ${originStopId}, which is in a cancelled zone from an active rule. Suppressing trip.`);
+                                return null;
                             }
                         }
                     }
                 }
             }
-            // *** END OF NEW BLOCK ***
+            // *** END OF MODIFIED BLOCK ***
 
-            // --- Start of existing robust time and profile logic ---
             if (!bus || !bus.OperatingProfile || typeof bus.OperatingProfile !== 'string' || bus.OperatingProfile.trim() === "") return null;
             let tempTimeStr = String(bus.scheduledTime).trim();
             const tempNumTime = parseFloat(tempTimeStr);
@@ -977,23 +978,19 @@ function extractDestinationNameFromRule(ruleDestination) {
             } else if (dayOffsetFromFile > 0) {
                 adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
             }
-            // --- End of existing robust time and profile logic ---
 
             let busDataForProcessing = { ...bus };
 
-            // --- NEW LOGIC TO APPLY SERVICE-WIDE CURTAILMENTS DYNAMICALLY ---
             if (!busDataForProcessing.curtailment && Object.keys(activeMassCurtailments).length > 0) {
                 for (const key in activeMassCurtailments) {
                     const rule = activeMassCurtailments[key];
                     if (rule && rule.startTime && rule.endTime && rule.routeName && rule.destinationName) {
                         const startTime = new Date(rule.startTime);
                         const endTime = new Date(rule.endTime);
-
                         const ruleSimpleDestination = extractDestinationNameFromRule(rule.destinationName);
-
                         if (nowForProcessing >= startTime && nowForProcessing <= endTime &&
                             rule.routeName === busDataForProcessing.lineName &&
-                            ruleSimpleDestination === extractDestinationNameFromRule(busDataForProcessing.destinationName)) // *** CORRECTED LINE ***
+                            ruleSimpleDestination === extractDestinationNameFromRule(busDataForProcessing.destinationName))
                         {
                             busDataForProcessing.curtailment = {
                                 curtailAtStopID: rule.newTerminusStopId,
@@ -1005,21 +1002,17 @@ function extractDestinationNameFromRule(ruleDestination) {
                     }
                 }
             }
-            // --- END OF NEW LOGIC ---
 
-            // --- EXISTING CURTAILMENT LOGIC (Now works with both single-trip and service-wide curtailments) ---
             if (busDataForProcessing.curtailment) {
                 const curtailmentInfo = busDataForProcessing.curtailment;
                 const stopSequence = busDataForProcessing.tripStopSequence || [];
                 const currentStopIndex = stopSequence.indexOf(busDataForProcessing.stopID);
                 const curtailStopIndex = stopSequence.indexOf(curtailmentInfo.curtailAtStopID);
-
                 if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
                     return null;
                 }
                 busDataForProcessing.destinationName = curtailmentInfo.newDestinationName;
             }
-            // --- END OF EXISTING CURTAILMENT LOGIC ---
 
             const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
             const arrTxt = generateArrivalText(diffSecs);
@@ -1031,7 +1024,6 @@ function extractDestinationNameFromRule(ruleDestination) {
         .filter(b => b !== null && b.timeToStationInSeconds <= MAX_TIME_TO_STATION_SECONDS && b.timeToStationInSeconds >= -59)
         .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0, MAX_DEPARTURES_OVERALL).map((bus, index) => ({ ...bus, originalMasterIndex: index }));
 
-        // --- The rest of the function (rendering logic) remains identical ---
         const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
         const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
         if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0;

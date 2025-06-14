@@ -3602,28 +3602,28 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
                 continue;
             }
             
-            // --- RESTORED LOGIC BLOCK ---
-            // This block correctly skips non-N routes colored blue (24h services) from this list.
             if (!isNRoute) {
-                const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
-                if (routeColorFor24HCheck === (globalCustomRouteColours_extra["NIGHT_DEFAULT"] || NIGHT_BUS_BLUE_COLOR_extra).toUpperCase()) {
-                    let allowThis24HourService = false;
+                const routeColor = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
+                const nightBusColor = (globalCustomRouteColours_extra["NIGHT_DEFAULT"] || NIGHT_BUS_BLUE_COLOR_extra).toUpperCase();
+                
+                if (routeColor === nightBusColor) {
+                    let allowThisService = false;
                     const configIsForChristmasEve = (rsgConfig.operatingProfile || "").includes("Christmas Eve");
                     const opDayIsEffectivelyChristmasEve = effectiveProfilesForThisRouteOnThisDate.includes("Christmas Eve");
                     if (configIsForChristmasEve && opDayIsEffectivelyChristmasEve) {
-                        allowThis24HourService = true;
+                        allowThisService = true;
                     }
                     const configIsForBoxingDay = (rsgConfig.operatingProfile || "").includes("Boxing Day");
                     const opDayIsEffectivelyBoxingDay = effectiveProfilesForThisRouteOnThisDate.includes("Boxing Day");
-                    if (!allowThis24HourService && configIsForBoxingDay && opDayIsEffectivelyBoxingDay) {
-                        allowThis24HourService = true;
+                    if (!allowThisService && configIsForBoxingDay && opDayIsEffectivelyBoxingDay) {
+                        allowThisService = true;
                     }
-                    if (!allowThis24HourService) {
-                        continue; // This skips the route as intended.
+
+                    if (!allowThisService) {
+                        continue; 
                     }
                 }
             }
-            // --- END OF RESTORED LOGIC BLOCK ---
 
             if (!rsgConfig.firstStopTimes || rsgConfig.firstStopTimes.trim() === "" ||
                 !rsgConfig.stopSequence || rsgConfig.stopSequence.length === 0) {
@@ -3693,7 +3693,7 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
     const todayDateStrForFilter = todayForAlerts.toDateString();
     const tomorrowDateStrForFilter = tomorrowForAlerts.toDateString();
     
-    todayKeyTripEvents_extra = allPotentialEvents.filter(event => {
+    let filteredEventsForDisplay = allPotentialEvents.filter(event => {
         if (!event.departureTimeObj) {
             return false;
         }
@@ -3701,7 +3701,7 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         return eventCalendarDateStr === todayDateStrForFilter || eventCalendarDateStr === tomorrowDateStrForFilter;
     });
 
-    todayKeyTripEvents_extra.sort((a,b) => {
+    filteredEventsForDisplay.sort((a,b) => {
         if (!a.departureTimeObj && !b.departureTimeObj) return 0;
         if (!a.departureTimeObj) return 1;
         if (!b.departureTimeObj) return -1;
@@ -3710,16 +3710,29 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         return a.type.localeCompare(b.type);
     });
 
+    // --- START: NUANCED DE-DUPLICATION LOGIC ---
     const uniqueEvents = [];
     const seenEventSignaturesForAlert = new Set();
-    for (const event of todayKeyTripEvents_extra) {
-        let signatureBase = `${event.type}|${event.configKey || 'no-key'}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.originStopName}|${event.departureTimeObj.toDateString()}`;
+    for (const event of filteredEventsForDisplay) {
+        
+        let signatureBase;
+        const isFirstTrip = event.type === 'n-bus-first-trip' || event.type === 'rsg-first-trip';
+
+        if (isFirstTrip) {
+            // For FIRST trips, use a SPECIFIC signature that includes the date, allowing one for each operational night.
+            signatureBase = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}|${event.departureTimeObj.toDateString()}`;
+        } else {
+            // For LAST trips, use a GENERAL signature, so only one true "last bus" is ever shown.
+            signatureBase = `${event.type}|${event.lineName}|${event.headsignDestinationName}|${event.departureTime}`;
+        }
+
         if (!seenEventSignaturesForAlert.has(signatureBase)) {
             uniqueEvents.push(event);
             seenEventSignaturesForAlert.add(signatureBase);
         }
     }
     todayKeyTripEvents_extra = uniqueEvents;
+    // --- END: NUANCED DE-DUPLICATION LOGIC ---
 }
 
 function checkAndShowTripAlerts_ExtraPage() {
@@ -13962,7 +13975,7 @@ async function loadInitialData_ExtraPage() {
     currentWorkingSchedule_extra = [];
     rsg_loadedConfigs_extra = {};
     allDefinedStops_data = {};
-    // ... other resets ...
+    globalCustomRouteColours_extra = {}; // Reset before loading
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         console.error("Firebase not connected.");
@@ -13982,17 +13995,50 @@ async function loadInitialData_ExtraPage() {
         console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
 
         startTime = performance.now();
+        console.log("[PERF] Flattening RSG configs into a full schedule...");
+        let flatScheduleFromConfigs = [];
+        Object.values(rsg_loadedConfigs_extra).forEach(config => {
+            if (config && config.stopSequence && config.firstStopTimes) {
+                const trips = generateScheduleTripsFromConfig(config);
+                trips.forEach(tripEntries => {
+                    flatScheduleFromConfigs.push(...tripEntries);
+                });
+            }
+        });
+        currentWorkingSchedule_extra = flatScheduleFromConfigs;
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...flattened configs into ${currentWorkingSchedule_extra.length} schedule entries in ${duration.toFixed(2)} ms.`);
+
+        // --- START: THIS IS THE CRITICAL FIX ---
+        // This block was missing, causing custom colors not to be loaded.
+        startTime = performance.now();
+        console.log("[PERF] Loading Global Custom Route Colours...");
+        const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
+        globalCustomRouteColours_extra = globalColoursSnap.exists() ? globalColoursSnap.val() || {} : {};
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${Object.keys(globalCustomRouteColours_extra).length} global color rules in ${duration.toFixed(2)} ms.`);
+        // --- END: CRITICAL FIX ---
+
+        startTime = performance.now();
         console.log("[PERF] Loading Master Stop Definitions...");
         const allDefinedStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
         allDefinedStops_data = allDefinedStopsSnap.exists() ? allDefinedStopsSnap.val() || {} : {};
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(allDefinedStops_data).length} master stop definitions in ${duration.toFixed(2)} ms.`);
         
-        let tempScheduleForDropdowns = [];
-        Object.values(rsg_loadedConfigs_extra).forEach(config => {
-            tempScheduleForDropdowns.push({ lineName: config.routeName, destinationName: config.destinationName, OperatingProfile: config.operatingProfile });
+        startTime = performance.now();
+        console.log("[PERF] Building Stop-to-Route Map...");
+        stopToServingRoutesMap_extra.clear();
+        currentWorkingSchedule_extra.forEach(entry => {
+            if (entry.stopID && entry.lineName) {
+                if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
+                    stopToServingRoutesMap_extra.set(entry.stopID, new Set());
+                }
+                stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
+            }
         });
-        currentWorkingSchedule_extra = tempScheduleForDropdowns;
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...built stop-to-route map in ${duration.toFixed(2)} ms.`);
         
         startTime = performance.now();
         console.log("[PERF] Loading Operating Profiles list...");
@@ -14022,8 +14068,6 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(massCurtailments_data).length} mass curtailment records in ${duration.toFixed(2)} ms.`);
         
-        // ... (other small data loads remain the same) ...
-
     } catch (error) {
         console.error("Firebase Load Error (Extra Tools):", error);
     }

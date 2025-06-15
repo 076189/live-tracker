@@ -11,7 +11,6 @@ const urlsToCache = [
   // Add ONE OR TWO essential assets you are SURE exist.
   // For example, if your main page uses a specific CSS or a critical image:
   // '/live-tracker/css/main.css',
-  '/live-tracker/assets/icons/icon-192x192.png', // One of your icons
   '/live-tracker/fonts/NJFont-Medium.ttf' // The font file
 ];
 

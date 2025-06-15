@@ -8,8 +8,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <script>eruda.init();</script>
+   <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+   <script>eruda.init();</script>
    <link rel="manifest" href="/live-tracker/manifest-omsitoolsextra.json">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,6 +24,16 @@
             flex-wrap: wrap; /* Allows buttons to wrap to the next line on small screens */
             gap: 0.5rem;     /* Creates consistent spacing between buttons */
             margin-top: 1em; /* Adds some space above the button group */
+        }
+
+        .colour-preview-box {
+            width: 20px;
+            height: 20px;
+            border: 1px solid #ecf0f1; /* A light border for visibility on any background */
+            margin-right: 10px; /* Space between the box and the text */
+            display: inline-block; /* Essential to give it dimensions */
+            vertical-align: middle; /* Aligns it nicely with text */
+            flex-shrink: 0; /* Prevents it from shrinking in flex containers */
         }
 
         .sru-batch-actions .button {
@@ -481,11 +491,144 @@
                 <button class="menu-button" data-section="curtailment-config-section_extra">Operational Points</button>
                 <button class="menu-button" data-section="trip-curtailment-section_extra">Live Trip Intervention</button>
                 <button class="menu-button" data-section="route-curtailment-section_extra">Service Leg Curtailment</button>
+		<button class="menu-button" data-section="enhanced-bulk-update-section_extra">Enhanced Destination Update</button>
+		<button class="menu-button" data-section="global-route-colour-management-section-extra">Global Route Colours</button>
+		<button class="menu-button" data-section="stop-specific-route-colour-management-section-extra">Stop-Specific Colours</button>
             </div>
         </div>
 
         <div id="tool-sections-wrapper_extra">
 
+            <div id="enhanced-bulk-update-section_extra" class="tool-content-section section" style="display:none;">
+                <h2>Enhanced Bulk Destination Update</h2>
+                <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
+                    This tool updates a destination name across the entire system, including the live schedule, all saved RSG configurations (both internal data and display names), and any matching curtailment point display names.
+                </p>
+                <div class="subsection">
+                    <h3 class="subsection-title">1. Select Routes to Target (Optional)</h3>
+                    <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">Leave blank to search and replace across ALL routes.</p>
+                    <div id="ebu-route-selection-container-extra" class="selectable-route-tile-container">
+                        <p id="ebu-routes-placeholder-extra" style="opacity:0.7;">Loading routes...</p>
+                    </div>
+                </div>
+                <div class="subsection" style="margin-top:1.5rem;">
+                    <h3 class="subsection-title">2. Define and Execute Update</h3>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr auto; align-items:end; gap: 0.75rem;">
+                        <div>
+                            <label for="ebu-old-destination-extra">Old Destination Name (Exact Match)</label>
+                            <select id="ebu-old-destination-extra" class="schedule-generator-input">
+                                <option value="">-- Select Existing Destination --</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="ebu-new-destination-extra">New Destination Name</label>
+                            <input type="text" id="ebu-new-destination-extra" placeholder="e.g., Gallagher Park, Tesco" autocomplete="off">
+                        </div>
+                        <div style="padding-bottom:0.05rem;">
+                            <button id="ebu-execute-update-button-extra" class="button secondary">Execute Full System Update</button>
+                        </div>
+                    </div>
+                    <p id="ebu-status-message-extra" style="min-height:1.2em; margin-top:0.75rem;"></p>
+                </div>
+            </div>
+
+            <div id="global-route-colour-management-section-extra" class="tool-content-section section" style="display:none;">
+		
+                <h2>Global Route Tile Colour Management</h2>
+                <p style="font-size:0.9em; margin-bottom:1em; opacity: 0.8;">
+                    Define global custom colours for routes. These apply unless a stop-specific colour is set.
+                </p>
+                <div class="subsection route-colour-management-subsection">
+                    <h3 class="subsection-title">Define/Update Global Colours</h3>
+                    <div class="flex flex-wrap items-end gap-x-3 gap-y-3 mb-4">
+                        <div class="w-full sm:w-auto sm:min-w-[150px] md:flex-grow lg:flex-grow-0 lg:w-auto">
+                            <label for="selectRouteNameColour_extra">Route Name</label>
+                            <select id="selectRouteNameColour_extra" class="w-full schedule-generator-input">
+                                <option value="">-- Select Route --</option>
+                            </select>
+                        </div>
+                        <div class="w-full sm:w-auto sm:min-w-[120px] md:flex-grow-0 lg:w-auto">
+                            <label for="inputRouteColour_extra">Select Colour</label>
+                            <input type="color" id="inputRouteColour_extra" value="#73809C" class="w-full h-11">
+                        </div>
+
+                        <div><button id="setGlobalDayBusColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #73809C; color: #FFFFFF;">Day Bus</button></div>
+                        <div><button id="setGlobalNightBusColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #4CDBE6; color: #000000;">24 Hr / Night Bus</button></div>
+                        <div><button id="setGlobalSchoolBusColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #AC5099; color: #FFFFFF;">School Bus</button></div>
+                        <div><button id="setGlobalRailReplacementColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #CBC51A; color: #000000;">Rail Replacement</button></div>
+
+                        <div class="w-full sm:w-auto mt-2 sm:mt-0">
+                            <button id="saveGlobalRouteColourButton_extra" class="button w-full sm:w-auto tertiary">Save Global Colour</button>
+                        </div>
+                    </div>
+                    <div id="currentGlobalRouteColoursListContainer_extra">
+                        <h3 class="subsection-title" style="font-size: 1.1rem; margin-bottom: 0.5rem; border-bottom: none;">Current Global Custom Colours</h3>
+                        <ul id="currentGlobalRouteColoursList_extra" style="list-style-type: none; padding-left: 0;"></ul>
+                        <p id="noGlobalCustomColoursMessage_extra" style="text-align: center; opacity:0.7; padding:0.5rem;">No global custom colours set.</p>
+                    </div>
+                    <p id="globalRouteColourStatusMessage_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+                </div>
+            </div>
+
+<div id="stop-specific-route-colour-management-section-extra" class="tool-content-section section" style="display:none;">
+                <h2>Stop-Specific Route Tile Colours</h2>
+                <p style="font-size:0.9em; margin-bottom:1em; opacity: 0.8;">
+                    Override global route colours for specific stops.
+                </p>
+                <div class="subsection stop-specific-route-colour-subsection">
+                    <h3 class="subsection-title">1. Select Stop</h3>
+                    <div>
+                        <label for="selectStopForSpecificRouteColour_extra">Select Stop:</label>
+                        <select id="selectStopForSpecificRouteColour_extra" class="schedule-generator-input">
+                            <option value="">-- Select Stop --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="subsection stop-specific-route-colour-subsection" style="margin-top:1.5rem;">
+                    <h3 class="subsection-title">2. Manage Colours for Selected Stop</h3>
+                    <div>
+                        <label>Select Route(s) at this stop to colour (click one to enable delete option below):</label>
+                        <div id="specificRouteColourTilesContainer_extra" class="selectable-route-tile-container" style="min-height: 40px; padding: 0.75rem; border: 1px solid #4A5568; border-radius: 0.25rem; background-color: rgba(0,0,0,0.05);">
+                            <p id="specificRouteColourTilesPlaceholder_extra" style="width: 100%; text-align: center; opacity: 0.7; padding: 0.5rem;">Select a stop to see its routes.</p>
+                        </div>
+                    </div>
+                    <div style="margin-top: 0.5rem; margin-bottom: 1rem;">
+                        <button id="deleteRouteFromStopButton_extra" class="button secondary" style="display: none;">Delete Selected Route from This Stop</button>
+                        <p id="deleteRouteFromStopStatusMessage_extra" style="min-height:1.2em; margin-top:0.5rem; font-size:0.85em;"></p>
+                    </div>
+
+                    <div class="form-grid" style="grid-template-columns: 1fr auto auto auto auto auto; align-items:end; gap:0.75rem; margin-top:0.5rem;">
+                        <div>
+                            <label for="inputStopSpecificRouteColour_extra">3. Select Colour:</label>
+                            <input type="color" id="inputStopSpecificRouteColour_extra" value="#73809C">
+                        </div>
+                        <div>
+                            <button id="setStopSpecificDayBusColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #73809C; color: #FFFFFF;">Day Bus</button>
+                        </div>
+                        <div>
+                            <button id="setStopSpecificNightBusColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #4CDBE6; color: #000000;">24 Hr / Night Bus</button>
+                        </div>
+                        <div>
+                            <button id="setStopSpecificSchoolBusColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #AC5099; color: #FFFFFF;">School Bus</button>
+                        </div>
+                        <div>
+                            <button id="setStopSpecificRailReplacementColor_extra" class="button" style="padding: 0.5rem 0.8rem; background-color: #CBC51A; color: #000000;">Rail Replacement</button>
+                        </div>
+                        <div style="padding-bottom:0.05rem;">
+                            <button id="saveStopSpecificRouteColourButton_extra" class="button tertiary">Save Colour for Selected Route(s) at this Stop</button>
+                        </div>
+                    </div>
+                    <p id="stopSpecificRouteColourStatusMessage_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+
+                    <div id="currentStopSpecificColoursListContainer_extra">
+                        <h3 class="subsection-title" style="font-size: 1.1rem; margin-bottom: 0.5rem; border-bottom: none;">Current Stop-Specific Colour Overrides</h3>
+                        <div id="currentStopSpecificColoursList_extra">
+                            <p id="noStopSpecificColoursMessage_extra" style="text-align: center; opacity:0.7; padding:0.5rem;">No stop-specific colours are currently set.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <div id="route-curtailment-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>Service Leg Curtailment</h2>
                 <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
@@ -641,82 +784,84 @@
             </div>
 
             <div id="route-schedule-generator-section_extra" class="tool-content-section section" style="display:none;">
-                <h2>Route Schedule Generator</h2>
-                <p style="font-size:0.9em; margin-bottom:1em; opacity: 0.8;">Create, modify, and manage timetables for specific route, destination, and operating profile combinations.</p>
-                <div class="subsection">
-                    <h3 class="subsection-title">1. Define/Load Configuration</h3>
-                    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
-                        <div>
-                            <label>Route Name:</label>
-                            <input type="text" id="rsg-routeName-input-extra" style="display:none;">
-                            <div id="rsg-route-selection-container-extra" class="selectable-route-tile-container">
-                                <p id="rsg-routes-placeholder-extra" style="opacity:0.7;">Loading routes...</p>
-                            </div>
-                            <p style="font-size:0.8em; opacity:0.8; margin-top:0.4rem;">Selected: <strong id="rsg-selected-route-display-extra">(None selected)</strong> <button id="rsg-clear-route-selection-button-extra" class="button small-action neutral" style="margin-left:5px;">Clear</button></p>
-                        </div>
-                        <div>
-                            <label for="rsg-destinationName-select-extra">Destination Name:</label>
-                            <select id="rsg-destinationName-select-extra" class="schedule-generator-input"></select>
-                            <input type="text" id="rsg-destinationName-input-extra" class="schedule-generator-input" style="margin-top:0.5rem;" placeholder="Or type a new destination...">
-                        </div>
-                        <div>
-                            <label>Operating Profile(s):</label>
-                            <div id="rsg-selectable-profiles-container-extra">
-                                <p id="rsg-profiles-placeholder-extra" style="opacity:0.7;">Loading profiles...</p>
-                            </div>
-                             <p style="font-size:0.8em; opacity:0.8; margin-top:0.4rem;">Selected: <strong id="rsg-selected-profiles-display-extra">(None selected)</strong> <button id="rsg-clear-profile-checkboxes-button-extra" class="button small-action neutral" style="margin-left:5px;">Clear</button></p>
-                        </div>
-                    </div>
-                     <div class="form-field-group" style="margin-top:1rem;">
-                        <button id="rsg-open-copy-modal-button-extra" class="button neutral">Copy Sequence/Times From...</button>
-                        <button id="rsg-open-paste-adj-modal-button-extra" class="button neutral">Paste Adjustments...</button>
-                     </div>
+    <h2>Route Schedule Generator</h2>
+    <p style="font-size:0.9em; margin-bottom:1em; opacity: 0.8;">Create, modify, and manage timetables for specific route, destination, and operating profile combinations.</p>
+    <div class="subsection">
+        <h3 class="subsection-title">1. Define/Load Configuration</h3>
+        <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
+            
+		<div>
+                <label>Route Name:</label>
+                <input type="text" id="rsg-routeName-input-extra" style="display:none;">
+                <div id="rsg-route-selection-container-extra" class="selectable-route-tile-container">
+                    <p id="rsg-routes-placeholder-extra" style="opacity:0.7;">Loading routes...</p>
                 </div>
-                <div class="subsection">
-                    <h3 class="subsection-title">2. Build Stop Sequence</h3>
-                    <input type="text" id="rsg-stop-search-input-extra" class="schedule-generator-input" placeholder="Search for stop by name or ID...">
-                    <div id="rsg-stop-search-results-extra"></div>
-                    <ul id="rsg-stop-sequence-list-extra" style="margin-top:1rem; list-style:none; padding:0;"></ul>
-                    <p id="rsg-stop-sequence-placeholder-extra" style="text-align:center; opacity:0.7; padding:1rem;">Search and add stops to build the sequence.</p>
-                </div>
-                <div class="subsection" id="rsg-first-stop-times-container-extra" style="display:none;">
-                    <h3 class="subsection-title">3. Set First Stop Departure Times</h3>
-                    <label for="rsg-first-stop-times-input-extra">Enter times (HH:MM), separated by Tab, comma, or semicolon:</label>
-                    <textarea id="rsg-first-stop-times-input-extra" class="schedule-generator-input" rows="3"></textarea>
-                    <button id="rsg-pull-first-stop-times-button-extra" class="button neutral" style="margin-top:0.5rem;">Pull Existing Times for First Stop</button>
-                </div>
-                <div class="subsection">
-                     <h3 class="subsection-title">4. Generate & Apply</h3>
-                     <div class="form-field-group" style="display: flex; justify-content: space-between; align-items: center;">
-                         <button id="rsg-generate-schedule-button-extra" class="button">Generate Preview</button>
-                         <button id="rsg-add-to-working-schedule-button-extra" class="button save neutral" disabled>Add Preview to Live Schedule</button>
-                         <button id="rsg-save-configuration-button-extra" class="button tertiary" disabled>Save This Configuration</button>
-                         <button id="rsg-schedule-this-config-button-extra" class="button" style="background-color: #8e44ad;">Schedule This for Later...</button>
-                    </div>
-                    <p id="rsg-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
-                    <div id="rsg-schedule-preview-container-extra" style="display:none; margin-top:1rem;">
-                        <h4>Preview</h4>
-                        <div>
-                            <table id="rsg-preview-table-extra" style="width:100%; font-size:0.85em; border-collapse:collapse;">
-                                <thead><tr style="background-color:rgba(0,0,0,0.3);"><th style="padding:0.4em;">Stop ID</th><th>Stop Name</th><th>Time</th><th>Route</th><th>Destination</th><th>Profile</th><th>Day Offset</th></tr></thead>
-                                <tbody></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="subsection">
-                    <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap:wrap;">
-                        <h3 class="subsection-title" style="margin-bottom:0; border-bottom:none;">Saved Configurations</h3>
-                        <div style="display:flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" id="rsg-select-all-configs-checkbox-extra" style="margin-right:4px; vertical-align:middle;">
-                            <label for="rsg-select-all-configs-checkbox-extra" style="font-size:0.9em;">Select All</label>
-                            <button id="rsg-schedule-selected-configs-button-extra" class="button" style="background-color: #16a085;">Schedule Selected...</button>
-                        </div>
-                    </div>
-                    <p id="rsg-load-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
-                    <div id="rsg-saved-configs-list-extra"></div>
-                </div>
+                <p style="font-size:0.8em; opacity:0.8; margin-top:0.4rem;">Selected: <strong id="rsg-selected-route-display-extra">(None selected)</strong> <button id="rsg-clear-route-selection-button-extra" class="button small-action neutral" style="margin-left:5px;">Clear</button></p>
+                <input type="text" id="rsg-new-route-name-input-extra" class="schedule-generator-input" style="margin-top:0.5rem;" placeholder="Or type a new route name...">
             </div>
+            <div>
+                <label for="rsg-destinationName-select-extra">Destination Name:</label>
+                <select id="rsg-destinationName-select-extra" class="schedule-generator-input"></select>
+                <input type="text" id="rsg-destinationName-input-extra" class="schedule-generator-input" style="margin-top:0.5rem;" placeholder="Or type a new destination...">
+            </div>
+            <div>
+                <label>Operating Profile(s):</label>
+                <div id="rsg-selectable-profiles-container-extra">
+                    <p id="rsg-profiles-placeholder-extra" style="opacity:0.7;">Loading profiles...</p>
+                </div>
+                 <p style="font-size:0.8em; opacity:0.8; margin-top:0.4rem;">Selected: <strong id="rsg-selected-profiles-display-extra">(None selected)</strong> <button id="rsg-clear-profile-checkboxes-button-extra" class="button small-action neutral" style="margin-left:5px;">Clear</button></p>
+            </div>
+        </div>
+         <div class="form-field-group" style="margin-top:1rem;">
+            <button id="rsg-open-copy-modal-button-extra" class="button neutral">Copy Sequence/Times From...</button>
+            <button id="rsg-open-paste-adj-modal-button-extra" class="button neutral">Paste Adjustments...</button>
+         </div>
+    </div>
+    <div class="subsection">
+        <h3 class="subsection-title">2. Build Stop Sequence</h3>
+        <p id="rsg-stop-count-display" style="font-size:0.9em; margin-bottom:0.75em; opacity: 0.8;">Total Stops: 0</p> <input type="text" id="rsg-stop-search-input-extra" class="schedule-generator-input" placeholder="Search for stop by name or ID...">
+        <div id="rsg-stop-search-results-extra"></div>
+        <ul id="rsg-stop-sequence-list-extra" style="margin-top:1rem; list-style:none; padding:0;"></ul>
+        <p id="rsg-stop-sequence-placeholder-extra" style="text-align:center; opacity:0.7; padding:1rem;">Search and add stops to build the sequence.</p>
+    </div>
+    <div class="subsection" id="rsg-first-stop-times-container-extra" style="display:none;">
+        <h3 class="subsection-title">3. Set First Stop Departure Times</h3>
+        <label for="rsg-first-stop-times-input-extra">Enter times (HH:MM), separated by Tab, comma, or semicolon:</label>
+        <textarea id="rsg-first-stop-times-input-extra" class="schedule-generator-input" rows="3"></textarea>
+        <button id="rsg-pull-first-stop-times-button-extra" class="button neutral" style="margin-top:0.5rem;">Pull Existing Times for First Stop</button>
+    </div>
+    <div class="subsection">
+         <h3 class="subsection-title">4. Generate & Apply</h3>
+         <div class="form-field-group" style="display: flex; justify-content: space-between; align-items: center;">
+             <button id="rsg-generate-schedule-button-extra" class="button">Generate Preview</button>
+             <button id="rsg-add-to-working-schedule-button-extra" class="button save neutral" disabled>Add Preview to Live Schedule</button>
+             <button id="rsg-save-configuration-button-extra" class="button tertiary" disabled>Save This Configuration</button>
+             <button id="rsg-schedule-this-config-button-extra" class="button" style="background-color: #8e44ad;">Schedule This for Later...</button>
+        </div>
+        <p id="rsg-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+        <div id="rsg-schedule-preview-container-extra" style="display:none; margin-top:1rem;">
+            <h4>Preview</h4>
+            <div>
+                <table id="rsg-preview-table-extra" style="width:100%; font-size:0.85em; border-collapse:collapse;">
+                    <thead><tr style="background-color:rgba(0,0,0,0.3);"><th style="padding:0.4em;">Stop ID</th><th>Stop Name</th><th>Time</th><th>Route</th><th>Destination</th><th>Profile</th><th>Day Offset</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="subsection">
+        <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap:wrap;">
+            <h3 class="subsection-title" style="margin-bottom:0; border-bottom:none;">Saved Configurations</h3>
+            <div style="display:flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="rsg-select-all-configs-checkbox-extra" style="margin-right:4px; vertical-align:middle;">
+                <label for="rsg-select-all-configs-checkbox-extra" style="font-size:0.9em;">Select All</label>
+                <button id="rsg-schedule-selected-configs-button-extra" class="button" style="background-color: #16a085;">Schedule Selected...</button>
+            </div>
+        </div>
+        <p id="rsg-load-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+        <div id="rsg-saved-configs-list-extra"></div>
+    </div>
+</div>
             
             <div id="route-profile-deletion-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>Route Profile Deletion</h2>
@@ -1128,6 +1273,7 @@
 // --- Global State Variables ---
         let rsg_configKeyToRename_extra = null;
         let currentUser_extra = null;
+	let liveScheduleForToolsDisplay = []; // NEW: Stores flattened data from FB_PATH_SCHEDULES_BY_ROUTE for display purposes
         let pageSpecificSettings = {};
         let rsg_currentlyEditingConfigKey_extra = null;
         let rsg_currentlyEditingConfigDisplayName_extra = null;
@@ -1137,6 +1283,7 @@
         let rsg_batchScheduleItems = [];
 	let massCurtailments_data = {};
         let allDefinedStops_data = {};
+	let op_points_currentlyEditingOriginalData = null;
 	let dpo_selectedRoutes_extra = []; // New: Stores routes selected for DPO override
         let dpo_currentOverridesForSelectedDate = {}; // New: Stores the route-specific overrides for the currently selected date.
         let rsg_indexOfStopToReplace_extra = -1;
@@ -1227,8 +1374,41 @@
 	const dpoSelectAllRoutesButton_el_extra = document.getElementById('dpo-select-all-routes-button-extra');
         const tteDownloadTimetableButton_el_extra = document.getElementById('tte-downloadTimetable-button-extra');
         const tteStatusMessage_el_extra = document.getElementById('tte-status-message-extra');
+	const rsgNewRouteNameInput_el_extra = document.getElementById('rsg-new-route-name-input-extra'); // NEW: For typing a new route name
 	const selectStopForDeparturesView_extra = document.getElementById('selectStopForDeparturesView_extra');
         const rsgSelectAllConfigsCheckbox_el_extra = document.getElementById('rsg-select-all-configs-checkbox-extra');
+	// New: Stop-Specific Route Colour Management
+const stopSpecificRouteColourManagementSection_el_extra = document.getElementById('stop-specific-route-colour-management-section-extra');
+const selectStopForSpecificRouteColour_el_extra = document.getElementById('selectStopForSpecificRouteColour_extra');
+const specificRouteColourTilesContainer_el_extra = document.getElementById('specificRouteColourTilesContainer_extra');
+const specificRouteColourTilesPlaceholder_el_extra = document.getElementById('specificRouteColourTilesPlaceholder_extra');
+const inputStopSpecificRouteColour_el_extra = document.getElementById('inputStopSpecificRouteColour_extra');
+const saveStopSpecificRouteColourButton_el_extra = document.getElementById('saveStopSpecificRouteColourButton_extra');
+const stopSpecificRouteColourStatusMessage_el_extra = document.getElementById('stopSpecificRouteColourStatusMessage_extra');
+const currentStopSpecificColoursListContainer_el_extra = document.getElementById('currentStopSpecificColoursListContainer_extra');
+const currentStopSpecificColoursList_el_extra = document.getElementById('currentStopSpecificColoursList_extra');
+const noStopSpecificColoursMessage_el_extra = document.getElementById('noStopSpecificColoursMessage_extra');
+const deleteRouteFromStopButton_el_extra = document.getElementById('deleteRouteFromStopButton_extra');
+const deleteRouteFromStopStatusMessage_el_extra = document.getElementById('deleteRouteFromStopStatusMessage_extra');
+
+// New: Stop-Specific Color Preset Buttons
+const setStopSpecificDayBusColor_el_extra = document.getElementById('setStopSpecificDayBusColor_extra');
+const setStopSpecificNightBusColor_el_extra = document.getElementById('setStopSpecificNightBusColor_extra');
+const setStopSpecificSchoolBusColor_el_extra = document.getElementById('setStopSpecificSchoolBusColor_extra');
+const setStopSpecificRailReplacementColor_el_extra = document.getElementById('setStopSpecificRailReplacementColor_extra');
+	const globalRouteColourManagementSection_el_extra = document.getElementById('global-route-colour-management-section-extra');
+const selectRouteNameColour_el_extra = document.getElementById('selectRouteNameColour_extra');
+const inputRouteColour_el_extra = document.getElementById('inputRouteColour_extra');
+const saveGlobalRouteColourButton_el_extra = document.getElementById('saveGlobalRouteColourButton_extra');
+const currentGlobalRouteColoursList_el_extra = document.getElementById('currentGlobalRouteColoursList_extra');
+const noGlobalCustomColoursMessage_el_extra = document.getElementById('noGlobalCustomColoursMessage_extra');
+const globalRouteColourStatusMessage_el_extra = document.getElementById('globalRouteColourStatusMessage_extra');
+
+const setGlobalDayBusColor_el_extra = document.getElementById('setGlobalDayBusColor_extra');
+const setGlobalNightBusColor_el_extra = document.getElementById('setGlobalNightBusColor_extra');
+const setGlobalSchoolBusColor_el_extra = document.getElementById('setGlobalSchoolBusColor_extra');
+const setGlobalRailReplacementColor_el_extra = document.getElementById('setGlobalRailReplacementColor_extra');
+	const rsgStopCountDisplay_el_extra = document.getElementById('rsg-stop-count-display');
 	const rsgOpenPasteAdjModalButton_el_extra = document.getElementById('rsg-open-paste-adj-modal-button-extra');
 const rsgPasteAdjModal_el_extra = document.getElementById('rsg-paste-adjustments-modal-extra');
 const rsgPasteAdjTextarea_el_extra = document.getElementById('rsg-paste-adj-textarea-extra');
@@ -1427,8 +1607,6 @@ function op_points_populateReturnOriginSelect() {
     });
 }
 
-// In omsi_tools_extra.html
-
 function setupFirebaseListeners_ExtraPage() {
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         console.error("Firebase not ready, cannot set up listeners on Extra Tools page.");
@@ -1436,26 +1614,127 @@ function setupFirebaseListeners_ExtraPage() {
     }
     const { database, dbOnValue, dbRef } = window.firebaseOMSI;
 
-    // Listener for Mass Service Leg Curtailments
+    // 1. Listener for Mass Service Leg Curtailments (FB_PATH_MASS_CURTAILMENTS)
+    // This updates `massCurtailments_data`.
     const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
     dbOnValue(massCurtailmentsRef, (snapshot) => {
         console.log("[SLC Listener] Mass curtailment data updated from Firebase.");
         massCurtailments_data = snapshot.exists() ? snapshot.val() || {} : {};
-        
-        // Whenever the data changes, re-render the list of active curtailments
         if (typeof slc_renderActiveCurtailments === 'function') {
             slc_renderActiveCurtailments();
+        }
+    });
+
+    // 2. Listener for the LIVE SCHEDULE data (FB_PATH_SCHEDULES_BY_ROUTE)
+    // This updates `liveScheduleForToolsDisplay` and the `stopToServingRoutesMap_extra` used by Master Stop List.
+    const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+    dbOnValue(liveScheduleRefForTools, (snapshot) => {
+        console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
+        let flatLiveSchedule = [];
+        if (snapshot.exists()) {
+            const schedulesByRoute = snapshot.val();
+            if (schedulesByRoute && typeof schedulesByRoute === 'object') {
+                for (const routeKey in schedulesByRoute) {
+                    if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
+                        const routeData = schedulesByRoute[routeKey];
+                        if (routeData && typeof routeData === 'object') {
+                            for (const profileKey in routeData) {
+                                if (Object.hasOwnProperty.call(routeData, profileKey)) {
+                                    const profileData = routeData[profileKey];
+                                    if (profileData && typeof profileData === 'object') {
+                                        for (const destKey in profileData) {
+                                            if (Object.hasOwnProperty.call(profileData, destKey)) {
+                                                const destData = profileData[destKey];
+                                                if (destData && Array.isArray(destData.entries)) {
+                                                    destData.entries.forEach(entry => {
+                                                        if (entry) flatLiveSchedule.push({ ...entry });
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        liveScheduleForToolsDisplay = flatLiveSchedule; // Update the new variable
+
+        // Rebuild the stop-to-serving-routes map based on this updated LIVE data
+        stopToServingRoutesMap_extra.clear();
+        liveScheduleForToolsDisplay.forEach(entry => {
+            if (entry.stopID && entry.lineName) {
+                if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
+                    stopToServingRoutesMap_extra.set(entry.stopID, new Set());
+                }
+                stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
+            }
+        });
+        console.log("[Master Stop List LIVE Data Listener] Rebuilt stop-to-route map from live schedule data.");
+
+        // If the Master Stop List section is currently visible, force a re-render
+        if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
+            populateMasterStopList_ExtraPage();
+        }
+    });
+
+    // 3. Listener for RSG Configurations (FB_PATH_RSG_CONFIGS)
+    // This updates `rsg_loadedConfigs_extra` and `currentWorkingSchedule_extra` (for RSG and EBU).
+    const rsgConfigsRef = dbRef(database, FB_PATH_RSG_CONFIGS);
+    dbOnValue(rsgConfigsRef, (snapshot) => {
+        console.log("[RSG Configs Listener] RSG configurations data updated.");
+        rsg_loadedConfigs_extra = snapshot.exists() ? snapshot.val() || {} : {};
+
+        // Re-flatten the RSG configurations into currentWorkingSchedule_extra (for RSG and EBU)
+        let flatScheduleFromConfigs = [];
+        if (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') {
+            Object.values(rsg_loadedConfigs_extra).forEach(config => {
+                if (config && config.stopSequence && config.firstStopTimes) {
+                    const trips = generateScheduleTripsFromConfig(config);
+                    trips.forEach(tripEntries => {
+                        flatScheduleFromConfigs.push(...tripEntries);
+                    });
+                }
+            });
+        }
+        currentWorkingSchedule_extra = flatScheduleFromConfigs; // This ensures RSG-related features have all data
+
+        // Trigger population of RSG route tiles and EBU dropdown if active
+        if (typeof rsg_populateRouteTiles_ExtraPage === 'function') rsg_populateRouteTiles_ExtraPage();
+        if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') ebu_populateOldDestinationSelect_ExtraPage();
+        if (typeof ebu_populateRouteTiles_ExtraPage === 'function') ebu_populateRouteTiles_ExtraPage();
+        if (typeof rsg_renderSavedConfigsList_ExtraPage === 'function') rsg_renderSavedConfigsList_ExtraPage();
+        if (typeof populateGlobalRouteToDeleteList_ExtraPage === 'function') populateGlobalRouteToDeleteList_ExtraPage(); // Global deletion uses all routes
+        if (typeof populateTimetableExporterRouteSelect_ExtraPage === 'function') populateTimetableExporterRouteSelect_ExtraPage();
+        if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') populateStopSelectorForDeparturesView_ExtraPage();
+        if (typeof srd_populateRouteSelect_ExtraPage === 'function') srd_populateRouteSelect_ExtraPage();
+        if (typeof rpd_populateRouteSelect_ExtraPage === 'function') rpd_populateRouteSelect_ExtraPage(); // RPD also needs all routes from configs
+        // You might need to add more UI update calls here depending on what directly consumes `currentWorkingSchedule_extra`
+    });
+
+
+    // 4. Listener for Defined Curtailment Points (FB_PATH_CURTAILMENT_POINTS)
+    // This updates `definedCurtailmentPoints` (used by EBU and Curtailment tools).
+    const curtailmentPointsRef = dbRef(database, FB_PATH_CURTAILMENT_POINTS);
+    dbOnValue(curtailmentPointsRef, (snapshot) => {
+        console.log("[CurtailmentPoints Listener] CurtailmentPoints data updated via listener.");
+        definedCurtailmentPoints = snapshot.exists() ? snapshot.val() || {} : {};
+
+        // Trigger population of the Old Destination dropdown (for EBU) and Curtailment tool selectors
+        if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') {
+            console.log("EBU Debug: Triggering ebu_populateOldDestinationSelect_ExtraPage from CurtailmentPoints listener.");
+            ebu_populateOldDestinationSelect_ExtraPage();
+        }
+        if (document.getElementById('curtailment-config-section_extra').style.display !== 'none' && typeof op_points_displayDefinedPoints === 'function') {
+            op_points_displayDefinedPoints();
         }
     });
 
     console.log("Real-time Firebase listeners set up for Extra Tools page.");
 }
 
-// --- Functions for the Paste Adjustments Modal ---
-
-/**
- * @description Opens the modal for pasting time adjustments. Validates that there's a sequence to apply to.
- */
 function rsg_openPasteAdjModal_ExtraPage() {
     if (!rsg_selectedStops_extra || rsg_selectedStops_extra.length < 2) {
         if(rsgStatusMessage_el_extra) {
@@ -1626,6 +1905,27 @@ async function getFCMTokenAndStore(serviceWorkerRegistration) {
 
 let definedCurtailmentPoints = {};
 let activeTripsForCurtailment = [];
+
+function op_points_getSortedPoints(points, stopOrderFromRsg) {
+    if (!points || !Array.isArray(points)) return [];
+    
+    // Create a copy to avoid mutating the original array
+    const pointsToSort = [...points];
+
+    pointsToSort.sort((a, b) => {
+        // Find the index of each point's stop ID within the canonical RSG stop sequence
+        const indexA = stopOrderFromRsg.indexOf((a.lastStopID || "").trim().toUpperCase());
+        const indexB = stopOrderFromRsg.indexOf((b.lastStopID || "").trim().toUpperCase());
+
+        // If a stop isn't found in the sequence, treat its index as Infinity to push it to the end
+        const effectiveIndexA = (indexA === -1) ? Infinity : indexA;
+        const effectiveIndexB = (indexB === -1) ? Infinity : indexB;
+
+        return effectiveIndexA - effectiveIndexB;
+    });
+
+    return pointsToSort;
+}
 
 function op_points_populateRouteSelect() {
     const select = document.getElementById('op-points-route-select-extra');
@@ -1885,7 +2185,471 @@ function slc_populateDestinationSelect() {
     destSelect.dispatchEvent(new Event('change'));
 }
 
-// REPLACE your existing slc_populateCurtailmentPointsSelect function with this one.
+function updateRsgStopCountDisplay() {
+    if (rsgStopCountDisplay_el_extra) {
+        const count = rsg_selectedStops_extra ? rsg_selectedStops_extra.length : 0;
+        rsgStopCountDisplay_el_extra.textContent = `Total Stops: ${count}`;
+    }
+}
+
+// --- Global Route Colour Management Functions (NEW) ---
+
+function populateRouteSelectorForGlobalColours_ExtraPage() {
+    if (!selectRouteNameColour_el_extra || !currentWorkingSchedule_extra) return;
+
+    const currentVal = selectRouteNameColour_el_extra.value;
+    selectRouteNameColour_el_extra.innerHTML = '<option value="">-- Select Route --</option>';
+
+    const lines = [...new Set(currentWorkingSchedule_extra.map(e => e.lineName))]
+                  .filter(Boolean)
+                  .sort(compareLineNames_ExtraPage); // Reusing existing helper
+
+    lines.forEach(ln => {
+        const opt = document.createElement('option');
+        opt.value = ln;
+        opt.textContent = ln;
+        selectRouteNameColour_el_extra.appendChild(opt);
+    });
+
+    if (lines.includes(currentVal)) {
+        selectRouteNameColour_el_extra.value = currentVal;
+    }
+    // Trigger change to update color picker based on selection
+    selectRouteNameColour_el_extra.dispatchEvent(new Event('change'));
+}
+
+function renderGlobalCustomRouteColours_ExtraPage() {
+    if (!currentGlobalRouteColoursList_el_extra || !noGlobalCustomColoursMessage_el_extra) return;
+
+    currentGlobalRouteColoursList_el_extra.innerHTML = '';
+    const routes = Object.keys(globalCustomRouteColours_extra).sort(compareLineNames_ExtraPage);
+
+    if (routes.length === 0) {
+        noGlobalCustomColoursMessage_el_extra.textContent = 'No global custom colours. Using system defaults.';
+        noGlobalCustomColoursMessage_el_extra.style.display = 'block';
+    } else {
+        noGlobalCustomColoursMessage_el_extra.style.display = 'none';
+        routes.forEach(rName => {
+            let color = globalCustomRouteColours_extra[rName];
+            // Ensure color is a valid hex string, fallback to default if not.
+            if (typeof color !== 'string' || !color.startsWith('#') || (color.length !== 4 && color.length !== 7)) {
+                console.warn(`Invalid color value for route "${rName}" in globalCustomRouteColours_extra: "${color}". Defaulting.`);
+                color = DEFAULT_ROUTE_COLOUR_TOOLS_extra; 
+            }
+            color = color.toUpperCase(); // Ensure uppercase for consistency in display
+
+            const li = document.createElement('li');
+            li.style.display = 'flex';
+            li.style.alignItems = 'center';
+            li.style.justifyContent = 'space-between'; /* Keeps the delete button aligned right */
+            li.style.padding = '0.5rem';
+            li.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+
+            const box = document.createElement('span');
+            box.className = 'colour-preview-box'; // This class already gives it a square shape and border
+            box.style.backgroundColor = color;
+            li.appendChild(box);
+
+            // Create the information span for "Route: X - Colour: #HEX"
+            const info = document.createElement('span');
+            info.style.flexGrow = '1'; // Allows it to take up available space
+            info.style.marginLeft = '10px'; // Add some space between the color box and text
+            info.textContent = `Route: ${rName} - Colour: ${color}`;
+            li.appendChild(info);
+
+            // Add action buttons (Rename/Delete)
+            const actions = document.createElement('div');
+            const btn = document.createElement('button');
+            btn.textContent = 'Remove'; // Changed from '✕' to 'Remove' for clarity, if you prefer '✕' keep it.
+            btn.classList.add('button', 'small-action', 'secondary');
+            btn.addEventListener('click', () => handleRemoveGlobalRouteColour_ExtraPage(rName));
+            actions.appendChild(btn);
+            li.appendChild(actions);
+
+            currentGlobalRouteColoursList_el_extra.appendChild(li);
+        });
+    }
+}
+
+// --- Stop-Specific Route Colour Functions (NEW) ---
+
+function populateStopSelectorForSpecificColours_ExtraPage() {
+    if (!selectStopForSpecificRouteColour_el_extra) return;
+    const currentVal = selectStopForSpecificRouteColour_el_extra.value;
+    selectStopForSpecificRouteColour_el_extra.innerHTML = '<option value="">-- Select Stop --</option>';
+    const uniqueStops = getUniqueStopsFromSchedule_ExtraPage(); // Reusing existing helper
+    
+    if (uniqueStops.length === 0) {
+        selectStopForSpecificRouteColour_el_extra.innerHTML = '<option value="">-- No Stops in Schedule --</option>';
+        displayRoutesForSpecificColouring_ExtraPage(); // Clear dependent section
+        return;
+    }
+    uniqueStops.forEach(stop => {
+        const opt=document.createElement('option');
+        opt.value=stop.stopID;
+        opt.textContent=`${stop.stopName} (${stop.stopID})`;
+        selectStopForSpecificRouteColour_el_extra.appendChild(opt);
+    });
+    if (uniqueStops.find(s => s.stopID === currentVal)) {
+        selectStopForSpecificRouteColour_el_extra.value = currentVal;
+    }
+    displayRoutesForSpecificColouring_ExtraPage(); // Update displayed routes for the selected stop
+}
+
+function displayRoutesForSpecificColouring_ExtraPage() {
+    if (!specificRouteColourTilesContainer_el_extra || !specificRouteColourTilesPlaceholder_el_extra) return;
+    if (deleteRouteFromStopButton_el_extra) deleteRouteFromStopButton_el_extra.style.display = 'none';
+    if (deleteRouteFromStopStatusMessage_el_extra) deleteRouteFromStopStatusMessage_el_extra.textContent = '';
+
+    const selectedStopID = selectStopForSpecificRouteColour_el_extra.value;
+    specificRouteColourTilesContainer_el_extra.innerHTML = '';
+
+    if (!selectedStopID) {
+        specificRouteColourTilesPlaceholder_el_extra.textContent = 'Select a stop to see its routes.';
+        specificRouteColourTilesPlaceholder_el_extra.style.display = 'block';
+        return;
+    }
+
+    const servingRoutes = new Set();
+    currentWorkingSchedule_extra.forEach(e => {
+        if (e.stopID === selectedStopID && e.lineName) servingRoutes.add(e.lineName);
+    });
+    const sortedRoutes = Array.from(servingRoutes).sort(compareLineNames_ExtraPage);
+
+    if (sortedRoutes.length === 0) {
+        specificRouteColourTilesPlaceholder_el_extra.textContent = `No routes found serving stop ${selectedStopID}.`;
+        specificRouteColourTilesPlaceholder_el_extra.style.display = 'block';
+    } else {
+        specificRouteColourTilesPlaceholder_el_extra.style.display = 'none';
+        sortedRoutes.forEach(lineName => {
+            const tile = document.createElement('span');
+            // Keep both classes. 'route-tile-tools-list' for general style, 'selectable-route-tile' for the selection effect.
+            tile.classList.add('route-tile-tools-list', 'selectable-route-tile'); 
+            tile.textContent = lineName;
+            tile.dataset.lineName = lineName;
+            const bgColor = getRouteTileColour_ExtraPage(lineName, selectedStopID);
+            tile.style.backgroundColor = bgColor;
+            tile.style.color = getTextColourForBackground_ExtraPage(bgColor);
+            tile.setAttribute('role','checkbox');
+            tile.setAttribute('aria-checked','false');
+            tile.setAttribute('tabindex','0'); // Make it focusable
+
+            // Check if this route already has a specific color defined for this stop.
+            // If it does, mark it as "selected" initially, to show it's configured.
+            if (stopSpecificRouteColours_extra[selectedStopID] && stopSpecificRouteColours_extra[selectedStopID][lineName.toUpperCase()]) {
+                tile.classList.add('selected'); // Apply the 'selected' class
+                tile.setAttribute('aria-checked', 'true');
+            }
+
+
+            tile.addEventListener('click', () => {
+                // IMPORTANT: This part needs to manage SELECTION VISUALS and delete button logic.
+                // It should allow MULTIPLE selections if you plan to save multiple at once.
+                // If you intend only ONE selected route for coloring at a time, you'd unselect others first.
+                // For "looking exactly like tools", tools allows multiple selections.
+
+                const isSelected = tile.classList.toggle('selected'); // Toggle the 'selected' class
+                tile.setAttribute('aria-checked', isSelected.toString());
+
+                // Update the delete button visibility based on selection count
+                const selTiles = specificRouteColourTilesContainer_el_extra.querySelectorAll('.selectable-route-tile.selected');
+                if (deleteRouteFromStopButton_el_extra) {
+                    if(selTiles.length === 1){ // Only show delete button if exactly one route is selected
+                        deleteRouteFromStopButton_el_extra.style.display='inline-block';
+                        deleteRouteFromStopButton_el_extra.dataset.selectedRouteName=selTiles[0].dataset.lineName;
+                    } else {
+                        deleteRouteFromStopButton_el_extra.style.display='none';
+                        delete deleteRouteFromStopButton_el_extra.dataset.selectedRouteName; // Clear data when hidden
+                    }
+                }
+                if (deleteRouteFromStopStatusMessage_el_extra) deleteRouteFromStopStatusMessage_el_extra.textContent = ''; // Clear status message
+            });
+            // Keyboard navigation
+            tile.addEventListener('keydown', (event) => {
+                if (event.key===' '||event.key==='Enter'){
+                    event.preventDefault(); // Prevent scrolling with spacebar
+                    tile.click(); // Simulate click to trigger functionality
+                }
+            });
+            specificRouteColourTilesContainer_el_extra.appendChild(tile);
+        });
+    }
+}
+
+async function saveStopSpecificRouteColours_ExtraPage() {
+    if (!currentUser_extra || !window.firebaseOMSI) {
+        if(stopSpecificRouteColourStatusMessage_el_extra) {
+            stopSpecificRouteColourStatusMessage_el_extra.textContent="Not logged in. Cannot save.";
+            stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';
+        }
+        return;
+    }
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    try {
+        await dbSet(dbRef(database, FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS), stopSpecificRouteColours_extra);
+        if(stopSpecificRouteColourStatusMessage_el_extra){
+            stopSpecificRouteColourStatusMessage_el_extra.textContent='Stop-specific colours saved successfully.';
+            stopSpecificRouteColourStatusMessage_el_extra.style.color='#2ecc71';
+            setTimeout(()=>{if(stopSpecificRouteColourStatusMessage_el_extra)stopSpecificRouteColourStatusMessage_el_extra.textContent='';},3000);
+        }
+        renderStopSpecificRouteColours_ExtraPage(); // Re-render the list of saved specific colors
+        // Re-render any UI elements that rely on colors, e.g., master stop list, departures list
+        renderUIDependentElements_ExtraPage(); 
+    } catch (error) {
+        if(stopSpecificRouteColourStatusMessage_el_extra){
+            stopSpecificRouteColourStatusMessage_el_extra.textContent='Error saving stop-specific colours: ' + error.message;
+            stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';
+        }
+    }
+}
+
+function handleSaveStopSpecificRouteColour_ExtraPage() {
+    if (!currentUser_extra) {
+        if(stopSpecificRouteColourStatusMessage_el_extra) {stopSpecificRouteColourStatusMessage_el_extra.textContent="Not logged in. Cannot save."; stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';}
+        return;
+    }
+    const selectedStopID = selectStopForSpecificRouteColour_el_extra.value;
+    if (!selectedStopID) {
+        if(stopSpecificRouteColourStatusMessage_el_extra) {stopSpecificRouteColourStatusMessage_el_extra.textContent="Select stop.";stopSpecificRouteColourStatusMessage_el_extra.style.color='#f1c40f';}
+        return;
+    }
+
+    const selectedTiles = specificRouteColourTilesContainer_el_extra.querySelectorAll('.specific-colour-route-tile.selected-for-color-edit');
+    if (selectedTiles.length === 0) {
+        if(stopSpecificRouteColourStatusMessage_el_extra) {stopSpecificRouteColourStatusMessage_el_extra.textContent="Select route tile(s) to apply colour.";stopSpecificRouteColourStatusMessage_el_extra.style.color='#f1c40f';}
+        return;
+    }
+
+    const newColour = inputStopSpecificRouteColour_el_extra.value;
+    if (!newColour.match(/^#[0-9a-fA-F]{6}$/)) {
+        if(stopSpecificRouteColourStatusMessage_el_extra) {stopSpecificRouteColourStatusMessage_el_extra.textContent='Invalid hex colour (e.g., #RRGGBB).';stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';}
+        return;
+    }
+
+    if (!stopSpecificRouteColours_extra[selectedStopID]) {
+        stopSpecificRouteColours_extra[selectedStopID] = {};
+    }
+
+    let routesUpdated = [];
+    selectedTiles.forEach(tile => {
+        const lineName = tile.dataset.lineName;
+        if(lineName){
+            stopSpecificRouteColours_extra[selectedStopID][lineName.toUpperCase()]=newColour.toUpperCase();
+            routesUpdated.push(lineName);
+        }
+    });
+
+    if (routesUpdated.length > 0) {
+        saveStopSpecificRouteColours_ExtraPage();
+        selectedTiles.forEach(tile => tile.classList.remove('selected-for-color-edit')); // Deselect after saving
+
+        // Update state of delete button after saving
+        const stillSelectedTiles = specificRouteColourTilesContainer_el_extra.querySelectorAll('.specific-colour-route-tile.selected-for-color-edit');
+        if(deleteRouteFromStopButton_el_extra){
+            if(stillSelectedTiles.length===1){
+                deleteRouteFromStopButton_el_extra.style.display='inline-block';
+                deleteRouteFromStopButton_el_extra.dataset.selectedRouteName=stillSelectedTiles[0].dataset.lineName;
+            } else {
+                deleteRouteFromStopButton_el_extra.style.display='none';
+                delete deleteRouteFromStopButton_el_extra.dataset.selectedRouteName;
+            }
+        }
+         if(stopSpecificRouteColourStatusMessage_el_extra) {
+            stopSpecificRouteColourStatusMessage_el_extra.textContent = `Colour ${newColour} applied to ${routesUpdated.join(', ')} at stop ${selectedStopID}.`;
+            stopSpecificRouteColourStatusMessage_el_extra.style.color = '#2ecc71';
+        }
+    } else {
+        if(stopSpecificRouteColourStatusMessage_el_extra) {stopSpecificRouteColourStatusMessage_el_extra.textContent="No routes were selected or updated.";stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';}
+    }
+}
+
+function handleDeleteRouteFromSpecificStop_ExtraPage() {
+    if (!currentUser_extra) { alert("Log in."); if(deleteRouteFromStopStatusMessage_el_extra) deleteRouteFromStopStatusMessage_el_extra.textContent="Not logged in."; return; }
+    const selectedStopID = selectStopForSpecificRouteColour_el_extra.value;
+    const lineNameToDelete = deleteRouteFromStopButton_el_extra.dataset.selectedRouteName;
+
+    if (!selectedStopID || !lineNameToDelete) {
+        if(deleteRouteFromStopStatusMessage_el_extra){
+            deleteRouteFromStopStatusMessage_el_extra.textContent="No stop/route selected (ensure exactly one route tile is selected for deletion).";
+            deleteRouteFromStopStatusMessage_el_extra.style.color='#f1c40f';
+        }
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ALL schedule entries for route "${lineNameToDelete}" ONLY from stop "${selectedStopID}"?\nThis will also remove any specific colour override for this route at this stop.\nThis action CANNOT BE UNDONE easily.`)) {
+        if(deleteRouteFromStopStatusMessage_el_extra){ deleteRouteFromStopStatusMessage_el_extra.textContent="Deletion cancelled."; deleteRouteFromStopStatusMessage_el_extra.style.color='#7f8c8d'; }
+        return;
+    }
+
+    let originalScheduleLength = currentWorkingSchedule_extra.length;
+    currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(e => !(e.stopID === selectedStopID && e.lineName && e.lineName.toUpperCase() === lineNameToDelete.toUpperCase()));
+    let scheduleEntriesRemovedCount = originalScheduleLength - currentWorkingSchedule_extra.length;
+    let colourOverrideRemoved = false;
+
+    if (stopSpecificRouteColours_extra[selectedStopID] && stopSpecificRouteColours_extra[selectedStopID][lineNameToDelete.toUpperCase()]) {
+        delete stopSpecificRouteColours_extra[selectedStopID][lineNameToDelete.toUpperCase()];
+        colourOverrideRemoved = true;
+        if (Object.keys(stopSpecificRouteColours_extra[selectedStopID]).length === 0) {
+            delete stopSpecificRouteColours_extra[selectedStopID];
+        }
+        saveStopSpecificRouteColours_ExtraPage(); // Save to Firebase immediately after local modification
+    }
+
+    if (deleteRouteFromStopStatusMessage_el_extra) {
+        deleteRouteFromStopStatusMessage_el_extra.textContent = `Route "${lineNameToDelete}" deleted from stop "${selectedStopID}". ${scheduleEntriesRemovedCount} schedule entries removed. ${colourOverrideRemoved?'Specific colour override also removed.':''}`;
+        deleteRouteFromStopStatusMessage_el_extra.style.color = '#2ecc71';
+    }
+
+    if(deleteRouteFromStopButton_el_extra) {
+        deleteRouteFromStopButton_el_extra.style.display = 'none';
+        delete deleteRouteFromStopButton_el_extra.dataset.selectedRouteName;
+    }
+    // Re-render the UI elements that are affected
+    displayRoutesForSpecificColouring_ExtraPage(); // Re-display route tiles for the selected stop
+    renderUIDependentElements_ExtraPage(); // General UI refresh, including potentially master stop list
+    // You might also need to explicitly trigger a re-save of the main schedule if it's considered 'dirty'
+    // This is handled by rebuildAndSaveEntireScheduleToFirebase_ExtraPage if needed elsewhere.
+}
+
+function renderStopSpecificRouteColours_ExtraPage() {
+    if (!currentStopSpecificColoursList_el_extra || !noStopSpecificColoursMessage_el_extra) return;
+    currentStopSpecificColoursList_el_extra.innerHTML = '';
+    const stopIDsWithOverrides = Object.keys(stopSpecificRouteColours_extra).filter(stopID => stopSpecificRouteColours_extra[stopID] && Object.keys(stopSpecificRouteColours_extra[stopID]).length > 0)
+        .sort((a,b)=>{
+            const stopA=getUniqueStopsFromSchedule_ExtraPage().find(s=>s.stopID===a);
+            const stopB=getUniqueStopsFromSchedule_ExtraPage().find(s=>s.stopID===b);
+            const nameA=stopA?stopA.stopName.toLowerCase():a.toLowerCase();
+            const nameB=stopB?stopB.stopName.toLowerCase():b.toLowerCase();
+            if(nameA<nameB)return -1; if(nameA>nameB)return 1; return 0;
+        });
+
+    if (stopIDsWithOverrides.length === 0) {
+        noStopSpecificColoursMessage_el_extra.textContent = 'No stop-specific colour overrides are currently set.';
+        noStopSpecificColoursMessage_el_extra.style.display = 'block'; return;
+    }
+    noStopSpecificColoursMessage_el_extra.style.display = 'none';
+
+    stopIDsWithOverrides.forEach(stopID => {
+        const stopDetails = allDefinedStops_data[stopID] || getUniqueStopsFromSchedule_ExtraPage().find(s => s.stopID === stopID); // Try from `allDefinedStops_data` first
+        const stopDisplayName = stopDetails ? `${stopDetails.stopName} (${stopID})` : stopID;
+
+        const stopGroupTitle = document.createElement('h4');
+        stopGroupTitle.className='stop-group-title'; // Assumed to exist in your CSS
+        stopGroupTitle.textContent=`Stop: ${stopDisplayName}`;
+        currentStopSpecificColoursList_el_extra.appendChild(stopGroupTitle);
+
+        const routesListUl = document.createElement('ul');
+        routesListUl.style.listStyleType = 'none';
+        routesListUl.style.paddingLeft = '1rem'; // Indent for routes under stop
+        routesListUl.style.margin='0'; // Reset margin
+
+        const routesForThisStop = stopSpecificRouteColours_extra[stopID];
+        Object.keys(routesForThisStop).sort(compareLineNames_ExtraPage).forEach(lineName => {
+            const color = routesForThisStop[lineName];
+            const li = document.createElement('li');
+            li.style.display='flex'; li.style.alignItems='center'; li.style.justifyContent='space-between';
+            li.style.padding = '0.4rem 0'; // Smaller padding for nested list
+            li.style.borderBottom = '1px dashed rgba(255,255,255,0.05)'; // Dashed border for nested items
+
+            const box = document.createElement('span');
+            box.className='colour-preview-box';
+            box.style.backgroundColor=color;
+            li.appendChild(box);
+
+            const info = document.createElement('span');
+            info.className='route-info'; // Reusing this for text styling
+            info.textContent=`Route: ${lineName} - Colour: ${color.toUpperCase()}`;
+            li.appendChild(info);
+
+            const actions = document.createElement('div');
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent='Remove'; // Changed from '✕'
+            removeBtn.classList.add('button','small-action','secondary');
+            removeBtn.addEventListener('click', () => handleRemoveStopSpecificRouteColour_ExtraPage(stopID, lineName));
+            actions.appendChild(removeBtn);
+
+            li.appendChild(actions);
+            routesListUl.appendChild(li);
+        });
+        currentStopSpecificColoursList_el_extra.appendChild(routesListUl);
+    });
+}
+
+function handleRemoveStopSpecificRouteColour_ExtraPage(stopID, lineName) {
+    if (!currentUser_extra) return;
+    if (stopSpecificRouteColours_extra[stopID] && stopSpecificRouteColours_extra[stopID][lineName]) {
+        if (confirm(`Remove specific colour override for route ${lineName} at stop ${stopID}?`)) {
+            delete stopSpecificRouteColours_extra[stopID][lineName];
+            if (Object.keys(stopSpecificRouteColours_extra[stopID]).length === 0) {
+                delete stopSpecificRouteColours_extra[stopID]; // Remove the stop entry if no routes are left
+            }
+            saveStopSpecificRouteColours_ExtraPage();
+        }
+    }
+}
+
+async function saveGlobalCustomRouteColours_ExtraPage() {
+    if (!currentUser_extra || !window.firebaseOMSI) {
+        if(globalRouteColourStatusMessage_el_extra) {
+            globalRouteColourStatusMessage_el_extra.textContent = "Not logged in or Firebase not available.";
+            globalRouteColourStatusMessage_el_extra.style.color = '#e74c3c';
+        }
+        return;
+    }
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    try {
+        await dbSet(dbRef(database, FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS), globalCustomRouteColours_extra);
+        if(globalRouteColourStatusMessage_el_extra) {
+            globalRouteColourStatusMessage_el_extra.textContent = 'Global custom colours saved successfully.';
+            globalRouteColourStatusMessage_el_extra.style.color = '#2ecc71';
+            setTimeout(() => { if(globalRouteColourStatusMessage_el_extra) globalRouteColourStatusMessage_el_extra.textContent = ''; }, 3000);
+        }
+        renderGlobalCustomRouteColours_ExtraPage();
+        // Trigger re-render of any component relying on colours, e.g., RSG route tiles, etc.
+        renderUIDependentElements_ExtraPage(); 
+    } catch (error) {
+        if(globalRouteColourStatusMessage_el_extra) {
+            globalRouteColourStatusMessage_el_extra.textContent = 'Error saving global colours: ' + error.message;
+            globalRouteColourStatusMessage_el_extra.style.color = '#e74c3c';
+        }
+    }
+}
+
+function handleSaveGlobalRouteColour_ExtraPage() {
+    if (!currentUser_extra) return;
+    if (!selectRouteNameColour_el_extra || !inputRouteColour_el_extra || !globalRouteColourStatusMessage_el_extra) return;
+
+    const routeName = selectRouteNameColour_el_extra.value;
+    const color = inputRouteColour_el_extra.value;
+
+    if (!routeName) {
+        globalRouteColourStatusMessage_el_extra.textContent = 'Please select a route name.';
+        globalRouteColourStatusMessage_el_extra.style.color = '#f1c40f';
+        return;
+    }
+    if (!color.match(/^#[0-9a-fA-F]{6}$/)) {
+        globalRouteColourStatusMessage_el_extra.textContent = 'Invalid hex colour (e.g., #RRGGBB).';
+        globalRouteColourStatusMessage_el_extra.style.color = '#e74c3c';
+        return;
+    }
+
+    globalCustomRouteColours_extra[routeName.toUpperCase()] = color.toUpperCase();
+    saveGlobalCustomRouteColours_ExtraPage();
+}
+
+function handleRemoveGlobalRouteColour_ExtraPage(routeName) {
+    if (!currentUser_extra) return;
+    if (globalCustomRouteColours_extra.hasOwnProperty(routeName.toUpperCase()) && 
+        confirm(`Are you sure you want to remove the global custom colour for route "${routeName}"? It will revert to default.`)) {
+        delete globalCustomRouteColours_extra[routeName.toUpperCase()];
+        saveGlobalCustomRouteColours_ExtraPage();
+        // If the removed route is currently selected in the dropdown, reset the color picker
+        if (selectRouteNameColour_el_extra && selectRouteNameColour_el_extra.value.toUpperCase() === routeName.toUpperCase()) {
+            inputRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra;
+        }
+    }
+}
+
 async function slc_populateCurtailmentPointsSelect() {
     const routeSelect = document.getElementById('slc-route-select-extra');
     const destSelect = document.getElementById('slc-destination-select-extra');
@@ -1942,7 +2706,6 @@ async function slc_populateCurtailmentPointsSelect() {
     }
 }
 
-// In omsi_tools_extra.html
 async function slc_handleActivateCurtailment() {
     const statusEl = document.getElementById('slc-status-message-extra');
     const DYNAMIC_TRIP_LAYOVER_MINUTES = 5;
@@ -2197,7 +2960,23 @@ async function mrc_handleCancelCurtailment(curtailmentId) {
 
 // --- END: Mass Route Curtailment Functions ---
 
-// In omsi_tools_extra.html
+function op_points_clearEditState() {
+    op_points_currentlyEditingOriginalData = null;
+    const addButton = document.getElementById('op-points-add-btn-extra');
+    if (addButton) {
+        addButton.textContent = 'Add Point';
+        addButton.classList.remove('tertiary');
+        addButton.classList.add('save');
+    }
+    
+    const lastStopSelect = document.getElementById('op-points-last-stop-select-extra');
+    const destNameInput = document.getElementById('op-points-dest-name-input-extra');
+    const returnOriginSelect = document.getElementById('op-points-return-origin-select-extra');
+
+    if (lastStopSelect) lastStopSelect.value = '';
+    if (destNameInput) destNameInput.value = '';
+    if (returnOriginSelect) returnOriginSelect.value = '';
+}
 
 async function op_points_displayDefinedPoints() {
     const routeSelect = document.getElementById('op-points-route-select-extra');
@@ -2224,21 +3003,17 @@ async function op_points_displayDefinedPoints() {
         const points = snapshot.exists() ? snapshot.val() : [];
         definedCurtailmentPoints[path] = points; 
 
-        if (points.length === 0) {
-            listDiv.innerHTML = '<p>No official curtailment points defined for this service.</p>';
-            return;
-        }
-
         let stopOrderFromRsg = [];
         if (configForDestName && configForDestName.stopSequence) {
             stopOrderFromRsg = configForDestName.stopSequence.map(s => (s.stopID || "").trim().toUpperCase());
         }
 
-        const sortedPoints = [...points].sort((a, b) => {
-            const indexA = stopOrderFromRsg.indexOf((a.lastStopID || "").trim().toUpperCase());
-            const indexB = stopOrderFromRsg.indexOf((b.lastStopID || "").trim().toUpperCase());
-            return (indexA === -1 ? Infinity : indexA) - (indexB === -1 ? Infinity : indexB);
-        });
+        const sortedPoints = op_points_getSortedPoints(points, stopOrderFromRsg);
+
+        if (sortedPoints.length === 0) {
+            listDiv.innerHTML = '<p>No official curtailment points defined for this service.</p>';
+            return;
+        }
 
         let html = '<ul style="list-style-type: none; padding-left: 0;">';
         sortedPoints.forEach((point, idx) => {
@@ -2262,8 +3037,7 @@ async function op_points_displayDefinedPoints() {
     }
 }
 
-// Add this new function anywhere alongside your other op_points_ functions.
-async function op_points_handleEditPoint(index) {
+async function op_points_handleEditPoint(sortedIndex) {
     const statusMsg = document.getElementById('op-points-status-message-extra');
     const route = document.getElementById('op-points-route-select-extra').value;
     const destConfigKey = document.getElementById('op-points-dest-select-extra').value;
@@ -2275,36 +3049,46 @@ async function op_points_handleEditPoint(index) {
 
     const configData = rsg_loadedConfigs_extra[destConfigKey];
     if (!configData || !configData.destinationName) {
-        alert("Error: Could not find configuration details for the selected destination to perform edit.");
+        alert("Error: Could not find configuration details for the selected destination.");
         return;
     }
     const destinationName = configData.destinationName;
     const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(destinationName)}`;
 
-    let currentPoints = definedCurtailmentPoints[path] || [];
-    if (index < 0 || index >= currentPoints.length) {
-        alert("Error: Invalid index for edit. The list may have changed.");
+    let stopOrderFromRsg = [];
+    if (configData.stopSequence) {
+        stopOrderFromRsg = configData.stopSequence.map(s => (s.stopID || "").trim().toUpperCase());
+    }
+
+    let originalPoints = definedCurtailmentPoints[path] || [];
+    const sortedPoints = op_points_getSortedPoints(originalPoints, stopOrderFromRsg);
+
+    if (sortedIndex < 0 || sortedIndex >= sortedPoints.length) {
+        alert("Error: Invalid index for edit. The list may have refreshed.");
         return;
     }
     
-    const pointToEdit = currentPoints[index];
+    const pointDataTheUserClickedOn = sortedPoints[sortedIndex];
+    
+    op_points_currentlyEditingOriginalData = { ...pointDataTheUserClickedOn };
 
-    // Populate the form fields
-    document.getElementById('op-points-last-stop-select-extra').value = pointToEdit.lastStopID;
-    document.getElementById('op-points-dest-name-input-extra').value = pointToEdit.newDestinationName;
-    document.getElementById('op-points-return-origin-select-extra').value = pointToEdit.returnOriginStopID;
+    document.getElementById('op-points-last-stop-select-extra').value = pointDataTheUserClickedOn.lastStopID;
+    document.getElementById('op-points-dest-name-input-extra').value = pointDataTheUserClickedOn.newDestinationName;
+    document.getElementById('op-points-return-origin-select-extra').value = pointDataTheUserClickedOn.returnOriginStopID;
 
-    // Scroll to the top of the section and focus the first form field
+    const addButton = document.getElementById('op-points-add-btn-extra');
+    if (addButton) {
+        addButton.textContent = 'Update Point';
+        addButton.classList.remove('save');
+        addButton.classList.add('tertiary'); 
+    }
+
     const formSection = document.getElementById('curtailment-config-section_extra');
     if (formSection) formSection.scrollIntoView({ behavior: 'smooth' });
     document.getElementById('op-points-last-stop-select-extra').focus();
 
-    // Now, remove the old entry by calling the delete handler internally
-    // We pass 'true' to suppress the confirmation prompt for a smoother UX
-    await op_points_handleDeletePoint(index, true);
-
     if (statusMsg) {
-        statusMsg.textContent = `Editing point "${pointToEdit.newDestinationName}". Make your changes above and click 'Add Point' to save.`;
+        statusMsg.textContent = `Editing point "${pointDataTheUserClickedOn.newDestinationName}". Make your changes and click 'Update Point'.`;
         statusMsg.style.color = "#3498db";
     }
 }
@@ -2315,10 +3099,8 @@ async function op_points_handleAddPoint() {
     const destConfigKey = document.getElementById('op-points-dest-select-extra').value;
     const lastStopID = document.getElementById('op-points-last-stop-select-extra').value;
     const newDestName = document.getElementById('op-points-dest-name-input-extra').value.trim();
-    // *** NEW: Get the return journey's origin stop ***
     const returnOriginStopID = document.getElementById('op-points-return-origin-select-extra').value;
 
-    // *** MODIFIED: Add returnOriginStopID to validation ***
     if (!route || !destConfigKey || !lastStopID || !newDestName || !returnOriginStopID) {
         statusMsg.textContent = 'All fields (Route, Destination, Last Stop, Return Origin, Display Name) are required.';
         statusMsg.style.color = '#f1c40f';
@@ -2333,36 +3115,59 @@ async function op_points_handleAddPoint() {
     }
     const destinationName = configData.destinationName;
 
-    // *** MODIFIED: Add the new property to the point's data structure ***
-    const newPoint = { 
+    const newPointData = { 
         lastStopID, 
         newDestinationName: newDestName,
         returnOriginStopID: returnOriginStopID
     };
     
     const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(destinationName)}`;
-    
     let currentPoints = definedCurtailmentPoints[path] || [];
-    if (currentPoints.some(p => p.lastStopID === newPoint.lastStopID)) {
-         statusMsg.textContent = 'This stop is already defined as a curtailment point.';
-         statusMsg.style.color = '#f1c40f';
-         return;
+
+    if (op_points_currentlyEditingOriginalData) {
+        const indexToReplace = currentPoints.findIndex(p =>
+            p.lastStopID === op_points_currentlyEditingOriginalData.lastStopID &&
+            p.newDestinationName === op_points_currentlyEditingOriginalData.newDestinationName &&
+            p.returnOriginStopID === op_points_currentlyEditingOriginalData.returnOriginStopID
+        );
+
+        if (indexToReplace !== -1) {
+            const isConflict = currentPoints.some((p, idx) => 
+                idx !== indexToReplace && p.lastStopID === newPointData.lastStopID
+            );
+            if (isConflict) {
+                 statusMsg.textContent = 'Update failed: This stop is already defined as another curtailment point.';
+                 statusMsg.style.color = '#f1c40f';
+                 return;
+            }
+            currentPoints[indexToReplace] = newPointData;
+        } else {
+            currentPoints.push(newPointData);
+        }
+    } else {
+        if (currentPoints.some(p => p.lastStopID === newPointData.lastStopID)) {
+             statusMsg.textContent = 'This stop is already defined as a curtailment point.';
+             statusMsg.style.color = '#f1c40f';
+             return;
+        }
+        currentPoints.push(newPointData);
     }
-    currentPoints.push(newPoint);
+
     const { database, dbSet, dbRef } = window.firebaseOMSI;
     try {
         await dbSet(dbRef(database, path), currentPoints);
-        statusMsg.textContent = 'Curtailment point added successfully.';
+        statusMsg.textContent = `Curtailment point ${op_points_currentlyEditingOriginalData ? 'updated' : 'added'} successfully.`;
         statusMsg.style.color = '#2ecc71';
-        op_points_displayDefinedPoints(); 
+        
+        op_points_clearEditState();
+        op_points_displayDefinedPoints();
     } catch (error) {
         statusMsg.textContent = 'Error saving point: ' + error.message;
         statusMsg.style.color = '#e74c3c';
     }
 }
 
-// REPLACE your existing op_points_handleDeletePoint function with this one.
-async function op_points_handleDeletePoint(index, suppressConfirmation = false) {
+async function op_points_handleDeletePoint(sortedIndex, suppressConfirmation = false) {
     const statusMsg = document.getElementById('op-points-status-message-extra');
     if (!statusMsg) return;
 
@@ -2384,30 +3189,52 @@ async function op_points_handleDeletePoint(index, suppressConfirmation = false) 
 
     const destinationName = configData.destinationName;
     const path = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(route)}/${sanitizeFirebaseKey(destinationName)}`;
+
+    // Re-create the sorting context to identify the clicked item
+    let stopOrderFromRsg = [];
+    if (configData.stopSequence) {
+        stopOrderFromRsg = configData.stopSequence.map(s => (s.stopID || "").trim().toUpperCase());
+    }
     
-    let currentPoints = definedCurtailmentPoints[path] || [];
+    let originalPoints = definedCurtailmentPoints[path] || [];
+    const sortedPoints = op_points_getSortedPoints(originalPoints, stopOrderFromRsg);
     
-    if (index < 0 || index >= currentPoints.length) {
+    if (sortedIndex < 0 || sortedIndex >= sortedPoints.length) {
         statusMsg.textContent = 'Error: Invalid index for deletion. The list may have changed.';
         statusMsg.style.color = '#e74c3c';
         return;
     }
     
-    // Check the suppressConfirmation flag before showing the prompt
+    // Identify the correct point object the user clicked on
+    const pointDataTheUserClickedOn = sortedPoints[sortedIndex];
+
+    // Find its true index in the original, unsorted array
+    const actualIndexInOriginalArray = originalPoints.findIndex(p =>
+        p.lastStopID === pointDataTheUserClickedOn.lastStopID &&
+        p.newDestinationName === pointDataTheUserClickedOn.newDestinationName &&
+        p.returnOriginStopID === pointDataTheUserClickedOn.returnOriginStopID
+    );
+
+    if (actualIndexInOriginalArray === -1) {
+        alert("Error: Could not find the selected point in the data source to delete. Please refresh.");
+        return;
+    }
+    
     if (!suppressConfirmation) {
-        if (!confirm(`Are you sure you want to delete this curtailment point: "${currentPoints[index].newDestinationName}"?`)) {
+        if (!confirm(`Are you sure you want to delete this curtailment point: "${originalPoints[actualIndexInOriginalArray].newDestinationName}"?`)) {
             statusMsg.textContent = 'Deletion cancelled.';
             statusMsg.style.color = '';
             return;
         }
     }
 
-    currentPoints.splice(index, 1);
+    // Perform the splice on the original array using the correct index
+    originalPoints.splice(actualIndexInOriginalArray, 1);
     
     const { database, dbSet, dbRef } = window.firebaseOMSI;
     try {
-        await dbSet(dbRef(database, path), currentPoints);
-        if (!suppressConfirmation) { // Only show this message on a manual delete
+        await dbSet(dbRef(database, path), originalPoints);
+        if (!suppressConfirmation) {
             statusMsg.textContent = 'Point deleted successfully.';
             statusMsg.style.color = "#2ecc71";
         }
@@ -2415,6 +3242,7 @@ async function op_points_handleDeletePoint(index, suppressConfirmation = false) 
     } catch (error) {
         statusMsg.textContent = 'Error deleting point: ' + error.message;
         statusMsg.style.color = '#e74c3c';
+        // It's good practice to refresh from source on error to prevent desync
         op_points_displayDefinedPoints();
     }
 }
@@ -2831,9 +3659,8 @@ function op_points_populateCopyModalDestSelect() {
 async function op_points_findAndDisplayEligiblePoints() {
     const container = document.getElementById('op-copy-eligible-points-container-extra');
     const sourceRoute = document.getElementById('op-copy-source-route-select-extra').value;
-    const sourceDestKey = document.getElementById('op-copy-source-dest-select-extra').value; // This is the source config key
-    const targetRoute = document.getElementById('op-points-route-select-extra').value;
-    const targetDestKey = document.getElementById('op-points-dest-select-extra').value; // This is the target config key
+    const sourceDestKey = document.getElementById('op-copy-source-dest-select-extra').value;
+    const targetDestKey = document.getElementById('op-points-dest-select-extra').value;
 
     container.innerHTML = '<p style="opacity:0.7;">Loading...</p>';
 
@@ -2842,45 +3669,38 @@ async function op_points_findAndDisplayEligiblePoints() {
         return;
     }
 
-    // --- START: CORRECTED LOGIC ---
-    // 1. Get the stop sequence for the TARGET route directly using its config key.
     let targetStopIds = new Set();
-    const targetConfig = rsg_loadedConfigs_extra[targetDestKey]; // The 'value' of the dest select is the key
-
+    const targetConfig = rsg_loadedConfigs_extra[targetDestKey];
     if (targetConfig && targetConfig.stopSequence) {
         targetConfig.stopSequence.forEach(s => targetStopIds.add(s.stopID));
     }
-    // --- END: CORRECTED LOGIC ---
 
     if (targetStopIds.size === 0) {
-        // This is the error message you were seeing. It will now only trigger if the looked-up config truly has no stops.
-        container.innerHTML = '<p style="color:#f1c40f;">Target route has no defined stop sequence in RSG. Cannot determine eligibility.</p>';
+        container.innerHTML = '<p style="color:#f1c40f;">Target route has no defined stop sequence. Cannot determine eligibility.</p>';
         return;
     }
 
-    // 2. Get the defined curtailment points for the SOURCE route
-    // Note: The source destination dropdown also uses the config key as its value. We need the actual destinationName from the config.
     const sourceConfig = rsg_loadedConfigs_extra[sourceDestKey];
-    if (!sourceConfig) {
+    if (!sourceConfig || !sourceConfig.destinationName) {
         container.innerHTML = '<p style="color:#e74c3c;">Could not load source configuration data.</p>';
         return;
     }
-    const sourceDestName = sourceConfig.destinationName; // Get the actual destination name for the Firebase path
+    const sourceDestName = sourceConfig.destinationName;
     
     const { database, dbGet, dbRef } = window.firebaseOMSI;
     const sourcePath = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(sourceRoute)}/${sanitizeFirebaseKey(sourceDestName)}`;
     const snapshot = await dbGet(dbRef(database, sourcePath));
     const sourcePoints = snapshot.exists() ? snapshot.val() : [];
     
-    // 3. Find which source points are eligible
-    const eligiblePoints = sourcePoints.filter(sourcePoint => targetStopIds.has(sourcePoint.lastStopID));
+    const eligiblePoints = sourcePoints.filter(sourcePoint => 
+        targetStopIds.has(sourcePoint.lastStopID) && sourcePoint.returnOriginStopID
+    );
 
     if (eligiblePoints.length === 0) {
-        container.innerHTML = '<p style="opacity:0.8;">No compatible curtailment points found on the source route that exist on the target route.</p>';
+        container.innerHTML = '<p style="opacity:0.8;">No compatible curtailment points (with a return stop defined) found on the source route.</p>';
         return;
     }
 
-    // 4. Render checkboxes for eligible points (this part remains the same)
     container.innerHTML = '';
     eligiblePoints.forEach((point, index) => {
         const stopInfo = allDefinedStops_data[point.lastStopID.toUpperCase()] || { stopName: 'Unknown Stop' };
@@ -2893,6 +3713,9 @@ async function op_points_findAndDisplayEligiblePoints() {
         checkbox.id = checkboxId;
         checkbox.value = point.lastStopID;
         checkbox.dataset.newDestName = point.newDestinationName;
+        // --- THIS IS THE FIX ---
+        checkbox.dataset.returnOriginStopId = point.returnOriginStopID;
+        // -----------------------
         checkbox.style.marginRight = '8px';
 
         const label = document.createElement('label');
@@ -2905,9 +3728,350 @@ async function op_points_findAndDisplayEligiblePoints() {
     });
 }
 
+function ebu_populateOldDestinationSelect_ExtraPage() {
+    const selectElement = document.getElementById('ebu-old-destination-extra');
+    if (!selectElement) {
+        console.error("EBU: Old Destination select element not found.");
+        return;
+    }
+
+    selectElement.innerHTML = '<option value="">-- Select Existing Destination --</option>';
+
+    if (!currentWorkingSchedule_extra || currentWorkingSchedule_extra.length === 0) {
+        console.warn("EBU Debug: currentWorkingSchedule_extra is empty or not loaded. Cannot populate regular destinations.");
+        selectElement.innerHTML += '<option value="">No Destinations Loaded</option>';
+        selectElement.disabled = true;
+        return;
+    }
+
+    const selectedRouteTiles = document.querySelectorAll('#ebu-route-selection-container-extra .selectable-route-tile.selected');
+    const selectedRoutes = Array.from(selectedRouteTiles).map(tile => tile.dataset.routeName);
+
+    console.log("EBU Debug: Selected Routes from UI (Original Names):", selectedRoutes);
+
+    const sanitizedSelectedRoutesSet = new Set(selectedRoutes.map(routeName => sanitizeFirebaseKey(routeName)));
+    console.log("EBU Debug: Sanitized Selected Routes for Curtailment Filter:", Array.from(sanitizedSelectedRoutesSet));
+
+    const uniqueDestinations = new Set();
+
+    // TEMPORARY SET to collect all possible destinations initially, before filtering by selected routes
+    const allPossibleDestinations = new Set();
+
+    // --- Phase 1: Collect ALL regular destinations ---
+    currentWorkingSchedule_extra.forEach(entry => {
+        if (entry.destinationName && entry.destinationName.trim() !== '') {
+            allPossibleDestinations.add(entry.destinationName.trim());
+        }
+    });
+
+    // --- Phase 2: Collect ALL curtailment destinations ---
+    if (typeof definedCurtailmentPoints === 'object' && definedCurtailmentPoints !== null) {
+        console.log(`EBU Debug: definedCurtailmentPoints object exists. Number of top-level routeKeys: ${Object.keys(definedCurtailmentPoints).length}`);
+        for (const routeKey in definedCurtailmentPoints) {
+            for (const destKey in definedCurtailmentPoints[routeKey]) {
+                const pointsArray = definedCurtailmentPoints[routeKey][destKey];
+                if (Array.isArray(pointsArray)) {
+                    pointsArray.forEach(point => {
+                        if (point.newDestinationName && point.newDestinationName.trim() !== '') {
+                            allPossibleDestinations.add(point.newDestinationName.trim());
+                        }
+                    });
+                }
+            }
+        }
+    } else {
+        console.log("EBU Debug: definedCurtailmentPoints is not an object or is null/undefined. No curtailment destinations will be added from here.");
+    }
+    console.log(`EBU Debug: All possible destinations (before route filter): ${allPossibleDestinations.size} unique items.`, Array.from(allPossibleDestinations));
+
+
+    // --- Phase 3: Apply Filtering based on selectedRoutes ---
+    // If no routes are selected, use allPossibleDestinations directly.
+    if (selectedRoutes.length === 0) {
+        allPossibleDestinations.forEach(dest => uniqueDestinations.add(dest));
+        console.log("EBU Debug: No routes selected. Added ALL possible destinations to uniqueDestinations.");
+    } else {
+        // If routes ARE selected, filter based on those selections
+        let regularDestinationsFilteredCount = 0;
+        let curtailmentDestinationsFilteredCount = 0;
+
+        // Filter regular destinations
+        currentWorkingSchedule_extra.forEach(entry => {
+            if (entry.destinationName && entry.destinationName.trim() !== '') {
+                if (selectedRoutes.includes(entry.lineName)) {
+                    if (!uniqueDestinations.has(entry.destinationName.trim())) {
+                        uniqueDestinations.add(entry.destinationName.trim());
+                        regularDestinationsFilteredCount++;
+                    }
+                }
+            }
+        });
+        console.log(`EBU Debug: Filtered Regular Destinations. Added ${regularDestinationsFilteredCount} unique destinations matching selected routes.`);
+
+        // Filter curtailment destinations
+        if (definedCurtailmentPoints) {
+            for (const routeKey in definedCurtailmentPoints) {
+                if (sanitizedSelectedRoutesSet.has(routeKey)) { // Check if the sanitized route key matches a selected route
+                    for (const destKey in definedCurtailmentPoints[routeKey]) {
+                        const pointsArray = definedCurtailmentPoints[routeKey][destKey];
+                        if (Array.isArray(pointsArray)) {
+                            pointsArray.forEach(point => {
+                                if (point.newDestinationName && point.newDestinationName.trim() !== '') {
+                                    const dest = point.newDestinationName.trim();
+                                    if (!uniqueDestinations.has(dest)) {
+                                        uniqueDestinations.add(dest);
+                                        curtailmentDestinationsFilteredCount++;
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        console.log(`EBU Debug: Filtered Curtailment Destinations. Added ${curtailmentDestinationsFilteredCount} unique destinations matching selected routes.`);
+    }
+
+
+    const sortedDestinations = Array.from(uniqueDestinations).sort((a, b) => a.localeCompare(b));
+    console.log("EBU Debug: Final Sorted Unique Destinations for Dropdown:", sortedDestinations);
+
+
+    if (sortedDestinations.length > 0) {
+        sortedDestinations.forEach(dest => {
+            const option = document.createElement('option');
+            option.value = dest;
+            option.textContent = dest;
+            selectElement.appendChild(option);
+        });
+        selectElement.disabled = false;
+        console.log("EBU Debug: Dropdown populated successfully and enabled.");
+    } else {
+        selectElement.innerHTML += '<option value="">No Destinations Found for Selected Route(s)</option>';
+        selectElement.disabled = true;
+        console.log("EBU Debug: No destinations found, dropdown disabled.");
+    }
+}
+
+function ebu_populateRouteTiles_ExtraPage() {
+    const container = document.getElementById('ebu-route-selection-container-extra');
+    const placeholder = document.getElementById('ebu-routes-placeholder-extra');
+    if (!container || !placeholder) return;
+
+    container.innerHTML = '';
+    const uniqueRoutes = [...new Set(currentWorkingSchedule_extra.map(e => e.lineName))].filter(Boolean).sort(compareLineNames_ExtraPage);
+
+    if (uniqueRoutes.length === 0) {
+        placeholder.textContent = 'No routes found in schedule.';
+        placeholder.style.display = 'block';
+        return;
+    }
+    
+    placeholder.style.display = 'none';
+    uniqueRoutes.forEach(routeName => {
+        const tile = document.createElement('span');
+        tile.className = 'selectable-route-tile';
+        tile.textContent = routeName;
+        tile.dataset.routeName = routeName;
+        const bgColor = getRouteTileColour_ExtraPage(routeName);
+        tile.style.backgroundColor = bgColor;
+        tile.style.color = getTextColourForBackground_ExtraPage(bgColor);
+        tile.addEventListener('click', () => {
+            tile.classList.toggle('selected');
+            // Add this line to re-populate the destination dropdown when a route tile is clicked
+            if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') {
+                ebu_populateOldDestinationSelect_ExtraPage();
+            }
+        });
+        container.appendChild(tile);
+    });
+}
+
+async function handleEnhancedBulkUpdateDestination() {
+    const statusEl = document.getElementById('ebu-status-message-extra');
+    if (!currentUser_extra || !statusEl) {
+        if(statusEl) statusEl.textContent = "Not logged in or UI element missing.";
+        return;
+    }
+
+    const oldDestSelect = document.getElementById('ebu-old-destination-extra');
+    const oldDest = oldDestSelect.value.trim(); // Value from the dropdown
+    const newDest = document.getElementById('ebu-new-destination-extra').value.trim(); // Value from the input field
+    
+    console.log(`EBU Update Debug: Initiating update.`);
+    console.log(`EBU Update Debug: Selected Old Destination (from dropdown value): '${oldDest}'`);
+    console.log(`EBU Update Debug: New Destination (from input field): '${newDest}'`);
+
+    const selectedRouteTiles = document.querySelectorAll('#ebu-route-selection-container-extra .selectable-route-tile.selected');
+    const targetRoutes = Array.from(selectedRouteTiles).map(tile => tile.dataset.routeName);
+
+    console.log(`EBU Update Debug: Target Routes (from selected tiles):`, targetRoutes);
+    
+    if (!oldDest) {
+        statusEl.textContent = "Please select an 'Old Destination Name'.";
+        statusEl.style.color = '#f1c40f';
+        return;
+    }
+    if (!newDest) {
+        statusEl.textContent = "New Destination Name is required.";
+        statusEl.style.color = '#f1c40f';
+        return;
+    }
+    if (oldDest === newDest) {
+        statusEl.textContent = "Old and New names are the same. No changes needed.";
+        statusEl.style.color = '#7f8c8d';
+        return;
+    }
+
+    statusEl.textContent = "Analyzing data for updates...";
+    statusEl.style.color = '#3498db';
+
+    let scheduleUpdateCount = 0;
+    const affectedScheduleRoutes = new Set(); // Track routes affected in schedule entries
+
+    console.log(`EBU Update Debug: --- Searching currentWorkingSchedule_extra (Total: ${currentWorkingSchedule_extra.length}) ---`);
+    currentWorkingSchedule_extra.forEach(entry => {
+        const routeScopeMatch = targetRoutes.length === 0 || targetRoutes.includes(entry.lineName);
+        
+        if (routeScopeMatch && entry.destinationName === oldDest) { // Exact string comparison
+            entry.destinationName = newDest;
+            scheduleUpdateCount++;
+            affectedScheduleRoutes.add(entry.lineName); // Add route to the set
+            console.log(`EBU Update Debug:     - MATCH! Schedule entry for Route '${entry.lineName}' updated.`);
+        }
+    });
+    console.log(`EBU Update Debug: Found and updated ${scheduleUpdateCount} schedule entries.`);
+
+
+    let rsgConfigUpdateCount = 0;
+    const rsgUpdatesForFirebase = {};
+    console.log(`EBU Update Debug: --- Searching rsg_loadedConfigs_extra (Total: ${Object.keys(rsg_loadedConfigs_extra).length}) ---`);
+    const oldDestRegex = new RegExp(oldDest.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'); // Create global, case-insensitive regex
+
+    for (const configKey in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[configKey];
+        const routeScopeMatch = targetRoutes.length === 0 || targetRoutes.includes(config.routeName);
+        
+        // This condition checks if the core `destinationName` matches the `oldDest`.
+        // This ensures we are only processing relevant RSG configurations.
+        if (routeScopeMatch && config.destinationName === oldDest) { 
+            const updatedConfig = { ...config };
+            updatedConfig.destinationName = newDest; // Update core destinationName
+
+            // Robustly update userDisplayName using regex for global, case-insensitive replacement
+            // This checks if the old destination string exists ANYWHERE in the display name
+            if (updatedConfig.userDisplayName && oldDestRegex.test(updatedConfig.userDisplayName)) {
+                 updatedConfig.userDisplayName = updatedConfig.userDisplayName.replace(oldDestRegex, newDest);
+                 console.log(`EBU Update Debug:     - RSG Config UserDisplayName '${config.userDisplayName}' updated to '${updatedConfig.userDisplayName}'.`);
+            } else {
+                 console.log(`EBU Update Debug:     - RSG Config UserDisplayName '${config.userDisplayName}' does not contain '${oldDest}' or is null. No change to display name.`);
+            }
+
+            rsgUpdatesForFirebase[`${FB_PATH_RSG_CONFIGS}/${configKey}`] = updatedConfig;
+            rsgConfigUpdateCount++;
+            console.log(`EBU Update Debug:     - MATCH! RSG config '${config.userDisplayName}' updated.`);
+        }
+    }
+    console.log(`EBU Update Debug: Found and updated ${rsgConfigUpdateCount} RSG configurations.`);
+
+
+    let curtailmentUpdateCount = 0;
+    const curtailmentUpdatesForFirebase = {}; // These will be committed via dbUpdate
+    const tempCurtailmentPoints = JSON.parse(JSON.stringify(definedCurtailmentPoints));
+    
+    console.log(`EBU Update Debug: --- Searching definedCurtailmentPoints (Total: ${Object.keys(definedCurtailmentPoints).length} top-level routeKeys) ---`);
+    const sanitizedTargetRoutesSet = new Set(targetRoutes.map(routeName => sanitizeFirebaseKey(routeName)));
+
+    for (const routeKey in tempCurtailmentPoints) {
+        const routeScopeMatch = targetRoutes.length === 0 || sanitizedTargetRoutesSet.has(routeKey);
+        
+        if (routeScopeMatch) {
+            for (const destKey in tempCurtailmentPoints[routeKey]) {
+                const pointsArray = tempCurtailmentPoints[routeKey][destKey];
+                let pointsWereUpdatedInThisDestKey = false;
+
+                if (Array.isArray(pointsArray)) {
+                    pointsArray.forEach(point => {
+                        if (point.newDestinationName === oldDest) { // Exact string comparison
+                            point.newDestinationName = newDest;
+                            curtailmentUpdateCount++;
+                            pointsWereUpdatedInThisDestKey = true;
+                            console.log(`EBU Update Debug:     - MATCH! Curtailment point for RouteKey '${routeKey}' updated.`);
+                        }
+                    });
+                }
+                if (pointsWereUpdatedInThisDestKey) {
+                    const firebasePath = `${FB_PATH_CURTAILMENT_POINTS}/${routeKey}/${destKey}`;
+                    curtailmentUpdatesForFirebase[firebasePath] = pointsArray; // Add updated array to batch
+                }
+            }
+        }
+    }
+    console.log(`EBU Update Debug: Found and updated ${curtailmentUpdateCount} curtailment point display names.`);
+
+
+    if (scheduleUpdateCount === 0 && rsgConfigUpdateCount === 0 && curtailmentUpdateCount === 0) {
+        statusEl.textContent = "No instances of the old destination name were found in the selected scope.";
+        statusEl.style.color = '#7f8c8d';
+        console.warn("EBU Update Debug: No updates detected across all data sources. Check your 'oldDest' value and data content.");
+        return;
+    }
+
+    const confirmMsg = `This will perform the following updates across the ENTIRE system:\n\n` +
+        `  - Live Schedule Entries: ${scheduleUpdateCount} updated\n` +
+        `  - Saved RSG Configurations: ${rsgConfigUpdateCount} updated\n` +
+        `  - Curtailment Point Names: ${curtailmentUpdateCount} updated\n\n` +
+        `Proceed with these changes?`;
+
+    if (!confirm(confirmMsg)) {
+        statusEl.textContent = "Update cancelled by user.";
+        statusEl.style.color = "";
+        console.log("EBU Update Debug: User cancelled the confirmation.");
+        return;
+    }
+
+    statusEl.textContent = "Applying updates to Firebase... This may take a moment.";
+    const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+
+    try {
+        if (Object.keys(rsgUpdatesForFirebase).length > 0) {
+            console.log("EBU Update Debug: Committing RSG config updates to Firebase:", rsgUpdatesForFirebase);
+            await dbUpdate(dbRef(database), rsgUpdatesForFirebase);
+            Object.assign(rsg_loadedConfigs_extra, rsgUpdatesForFirebase); // Update local cache
+        }
+        if (Object.keys(curtailmentUpdatesForFirebase).length > 0) {
+            console.log("EBU Update Debug: Committing Curtailment Point updates to Firebase:", curtailmentUpdatesForFirebase);
+            await dbUpdate(dbRef(database), curtailmentUpdatesForFirebase);
+            Object.assign(definedCurtailmentPoints, tempCurtailmentPoints); // Update local cache
+        }
+        
+        // Loop through affected routes and save them individually
+        console.log(`EBU Update Debug: Committing changes to ${affectedScheduleRoutes.size} affected schedule routes.`);
+        const saveSchedulePromises = [];
+        for (const routeName of affectedScheduleRoutes) {
+            saveSchedulePromises.push(saveSpecificRouteDataToFirebase_ExtraPage(routeName));
+        }
+        await Promise.all(saveSchedulePromises); // Wait for all route saves to complete
+
+
+        statusEl.textContent = "Full system update complete! All destination names have been changed.";
+        statusEl.style.color = '#2ecc71';
+        console.log("EBU Update Debug: Update completed successfully.");
+
+        // IMPORTANT: Refreshing the UI after successful update
+        renderUIDependentElements_ExtraPage();
+
+    } catch (error) {
+        console.error("EBU Update Debug: An error occurred during the update process:", error);
+        statusEl.textContent = "An error occurred during the update: " + error.message;
+        statusEl.style.color = '#e74c3c';
+        // Reload data on error to ensure local cache is consistent with Firebase
+        loadInitialData_ExtraPage(); 
+    }
+}
+
 async function op_points_performCopy() {
     const targetRoute = document.getElementById('op-points-route-select-extra').value;
-    // The value of the destination dropdown is the unique key of the RSG config
     const targetDestKey = document.getElementById('op-points-dest-select-extra').value;
     const statusMsg = document.getElementById('op-copy-modal-status-extra');
     const selectedCheckboxes = document.querySelectorAll('#op-copy-eligible-points-container-extra input[type="checkbox"]:checked');
@@ -2918,7 +4082,6 @@ async function op_points_performCopy() {
         return;
     }
 
-    // First, we must get the actual destination name from the target's config key
     const targetConfig = rsg_loadedConfigs_extra[targetDestKey];
     if (!targetConfig || !targetConfig.destinationName) {
         statusMsg.textContent = "Error: Could not determine target destination name from selection.";
@@ -2933,28 +4096,32 @@ async function op_points_performCopy() {
     const { database, dbGet, dbSet, dbRef } = window.firebaseOMSI;
     const targetPath = `${FB_PATH_CURTAILMENT_POINTS}/${sanitizeFirebaseKey(targetRoute)}/${sanitizeFirebaseKey(targetDestinationName)}`;
     
-    // Get current points for the target to avoid duplicates
     const snapshot = await dbGet(dbRef(database, targetPath));
     let targetPoints = snapshot.exists() ? snapshot.val() : [];
-
     let pointsAddedCount = 0;
+
     selectedCheckboxes.forEach(cb => {
+        // --- THIS IS THE FIX ---
         const newPoint = {
             lastStopID: cb.value,
-            newDestinationName: cb.dataset.newDestName
+            newDestinationName: cb.dataset.newDestName,
+            returnOriginStopID: cb.dataset.returnOriginStopId
         };
+        // -----------------------
 
-        // --- START: CORRECTED DUPLICATE CHECK ---
-        // The check now verifies that BOTH the stopID and the newDestinationName do not already exist together.
+        // Skip if the return stop ID was missing for any reason
+        if (!newPoint.returnOriginStopID) {
+            console.warn("Skipping a point to copy because its returnOriginStopId was missing from the checkbox data.", newPoint);
+            return; // 'continue' equivalent for forEach loop
+        }
+
         if (!targetPoints.some(p => p.lastStopID === newPoint.lastStopID && p.newDestinationName === newPoint.newDestinationName)) {
             targetPoints.push(newPoint);
             pointsAddedCount++;
         }
-        // --- END: CORRECTED DUPLICATE CHECK ---
     });
 
     if (pointsAddedCount === 0) {
-        // This message will now only appear if all selected points are true duplicates (same stop AND same display name).
         statusMsg.textContent = "All selected points already exist on the target.";
         statusMsg.style.color = "#7f8c8d";
         return;
@@ -2965,7 +4132,6 @@ async function op_points_performCopy() {
         statusMsg.textContent = `Successfully copied ${pointsAddedCount} point(s)!`;
         statusMsg.style.color = "#2ecc71";
 
-        // Refresh the main display and close the modal
         op_points_displayDefinedPoints();
         setTimeout(op_points_closeCopyModal, 1500);
 
@@ -4008,19 +5174,24 @@ function rsg_populateRouteTiles_ExtraPage() {
         }
 
         tile.addEventListener('click', () => {
-            rsgRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile.selected').forEach(selectedTile => {
-                selectedTile.classList.remove('selected');
+                rsgRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile.selected').forEach(selectedTile => {
+                    selectedTile.classList.remove('selected');
+                });
+
+                tile.classList.add('selected');
+                rsg_selectedRoute_extra = routeName;
+                rsgRouteNameInput_el_extra.value = routeName;
+                rsgSelectedRouteDisplay_el_extra.textContent = routeName;
+
+                // NEW: Clear the text input when a tile is selected
+                if (rsgNewRouteNameInput_el_extra) {
+                    rsgNewRouteNameInput_el_extra.value = '';
+                }
+
+                rsg_populateDestinationSelect_ExtraPage();
+                rsg_loadOrPullConfiguration_ExtraPage();
+                rsg_updateRsgActionButtonsState();
             });
-
-            tile.classList.add('selected');
-            rsg_selectedRoute_extra = routeName;
-            rsgRouteNameInput_el_extra.value = routeName;
-            rsgSelectedRouteDisplay_el_extra.textContent = routeName;
-
-            rsg_populateDestinationSelect_ExtraPage();
-            rsg_loadOrPullConfiguration_ExtraPage();
-            rsg_updateRsgActionButtonsState();
-        });
         rsgRouteSelectionContainer_el_extra.appendChild(tile);
         // console.log(`[DEBUG RSG_ROUTES] Appended tile for route: ${routeName}`); // Uncomment for very verbose append debug
     });
@@ -4091,6 +5262,10 @@ function rsg_populateRouteTiles_ExtraPage() {
             rsg_selectedRoute_extra = null;
             rsgRouteNameInput_el_extra.value = '';
             rsgSelectedRouteDisplay_el_extra.textContent = '(None selected)';
+            // NEW: Clear the new route name input as well
+            if (rsgNewRouteNameInput_el_extra) {
+                rsgNewRouteNameInput_el_extra.value = '';
+            }
             rsg_populateDestinationSelect_ExtraPage(); // Clear destinations too
             rsg_loadOrPullConfiguration_ExtraPage(); // Reset config loading context
             rsg_updateRsgActionButtonsState();
@@ -4469,7 +5644,6 @@ async function renderCalendarView_ExtraPage() {
             dpo_updateActionButtonsState();
         }
 
-// In omsi_tools_extra.html, after dpo_clearRouteSelections_ExtraPage function
 function dpo_selectAllRoutes_ExtraPage() {
     dpo_selectedRoutes_extra = []; // Clear current selections first
     const allTiles = dpoRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile');
@@ -5163,12 +6337,8 @@ async function handleToggleStopStatusFromMasterList_ExtraPage(stopIDToToggle) {
     }
 }
 
-// Place this function in your <script> tag in omsi_tools_extra.html
-// where other helper functions are defined.
-
 function getTextColourForBackground_ExtraPage(hexColour) {
     if (!hexColour || typeof hexColour !== 'string' || !hexColour.startsWith('#')) {
-        // console.warn("getTextColourForBackground_ExtraPage: Invalid hexColour provided:", hexColour, "Defaulting to white text.");
         return '#FFFFFF'; // Default to white text on error or if invalid
     }
 
@@ -5182,12 +6352,10 @@ function getTextColourForBackground_ExtraPage(hexColour) {
         g = parseInt(hexColour.slice(3, 5), 16);
         b = parseInt(hexColour.slice(5, 7), 16);
     } else {
-        // console.warn("getTextColourForBackground_ExtraPage: Hex length invalid:", hexColour, "Defaulting to white text.");
         return '#FFFFFF'; // Invalid length
     }
 
     if (isNaN(r) || isNaN(g) || isNaN(b)) {
-        // console.warn("getTextColourForBackground_ExtraPage: Failed to parse hex:", hexColour, "Defaulting to white text.");
         return '#FFFFFF';
     }
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
@@ -5432,9 +6600,6 @@ function rsg_confirmStopReplacement_ExtraPage(newStopData) {
     }
 }
 
-// In omsi_tools_extra.html
-
-// This function should be called to save the master list of all defined stops
 async function saveAllDefinedStopsToFirebase_ExtraPage() {
     if (!currentUser_extra || !window.firebaseOMSI) {
         console.error("saveAllDefinedStopsToFirebase_ExtraPage: Not logged in or Firebase not available.");
@@ -7035,7 +8200,6 @@ async function updateCurrentProfileDisplay_ExtraPage() {
             }
         }
 
-        // In omsi_tools_extra.html, inside loadAndDisplayOverrides_ExtraPage
 async function loadAndDisplayOverrides_ExtraPage() {
     const activeOverridesListElement = document.getElementById('activeOverridesList_extra');
     const overridesHeadingElement = document.getElementById('dpo-active-overrides-title'); 
@@ -7278,9 +8442,6 @@ async function dpo_clearOverrideForRoutes_ExtraPage() {
                 throw error; // Propagate for now
             }
         }
-
-        // --- REBUILDS ENTIRE SCHEDULE in new structured format ---
-        // In omsi_tools_extra.html
 
 async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleDataToSave) {
     if (!currentUser_extra || !window.firebaseOMSI) {
@@ -10627,8 +11788,9 @@ function rsg_clearProfileSelections_ExtraPage() {
         return;
     }
 
-    // Now get the route name directly from rsg_selectedRoute_extra (or its hidden input for safety)
-    const routeNameFromForm = rsg_selectedRoute_extra || rsgRouteNameInput_el_extra.value.trim();
+    const routeNameFromForm = (rsgNewRouteNameInput_el_extra && rsgNewRouteNameInput_el_extra.value.trim() !== '') ?
+                              rsgNewRouteNameInput_el_extra.value.trim() :
+                              (rsg_selectedRoute_extra || rsgRouteNameInput_el_extra.value.trim());
     const opProfileFromForm = rsg_getSelectedOpProfilesString_ExtraPage();
     const destNameFromForm = rsgDestinationNameInput_el_extra.value.trim();
     const loadStatusMsg = document.getElementById('rsg-load-status-message-extra');
@@ -10642,14 +11804,13 @@ function rsg_clearProfileSelections_ExtraPage() {
             rsg_currentlyEditingConfigKey_extra = configKeyToLoad;
             rsg_currentlyEditingConfigDisplayName_extra = loadedConfig.userDisplayName || configKeyToLoad;
 
-            // Update the global selected route and the hidden input
             rsg_selectedRoute_extra = loadedConfig.routeName || ""; 
             rsgRouteNameInput_el_extra.value = rsg_selectedRoute_extra;
             // Update the display for the route tile selection
             if (rsgSelectedRouteDisplay_el_extra) {
                 rsgSelectedRouteDisplay_el_extra.textContent = rsg_selectedRoute_extra || '(None selected)';
             }
-            // Visually select the tile
+            // Visually select the tile AND clear the text input
             rsgRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile').forEach(tile => {
                 if (tile.dataset.routeName && tile.dataset.routeName.toUpperCase() === rsg_selectedRoute_extra.toUpperCase()) {
                     tile.classList.add('selected');
@@ -10657,6 +11818,21 @@ function rsg_clearProfileSelections_ExtraPage() {
                     tile.classList.remove('selected');
                 }
             });
+            // NEW: Set the new route name input from the loaded config, and clear selection if a tile is chosen
+            if (rsgNewRouteNameInput_el_extra) {
+                // If the loaded route name is among the selectable tiles, clear the input.
+                // Otherwise, put the loaded route name into the input and deselect all tiles.
+                const isRouteInTiles = Array.from(rsgRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile')).some(tile => tile.dataset.routeName.toUpperCase() === rsg_selectedRoute_extra.toUpperCase());
+                if (isRouteInTiles) {
+                    rsgNewRouteNameInput_el_extra.value = '';
+                } else {
+                    rsgNewRouteNameInput_el_extra.value = rsg_selectedRoute_extra;
+                    // Deselect all tiles if a route not in tiles is loaded
+                    rsgRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile').forEach(tile => {
+                        tile.classList.remove('selected');
+                    });
+                }
+            }
 
 
             rsgDestinationNameInput_el_extra.value = loadedConfig.destinationName || "";
@@ -10716,38 +11892,29 @@ function rsg_clearProfileSelections_ExtraPage() {
             rsg_resetPreviewState("Failed to load saved configuration. Review inputs or continue.", "error");
         }
     } else { 
-        // --- START: NEW LOGIC ---
-        // This block handles cases where the user changes the route/dest/profile in the form,
-        // which means they are no longer editing the previously loaded config.
-        
-        // If no route is selected via the tiles, it's a completely fresh start.
-        if (!routeNameFromForm) {
-            // Clear all related form fields to prevent carrying over old data.
+        // No specific configKeyToLoad: This means the RSG section is being displayed/refreshed,
+        // or form parameters (route/dest/profile) changed.
+
+        // First, check if the currently selected route (from tiles) is still valid in rsg_selectedRoute_extra.
+        // If not, clear the form to ensure a fresh start for a new config.
+        if (!rsg_selectedRoute_extra) { // If no route is selected via tiles, clear other related fields
             rsgDestinationNameInput_el_extra.value = '';
-            rsg_setCheckedProfiles_ExtraPage(''); // This function clears profile checkboxes
-            if (rsgFirstStopTimesInput_el_extra) rsgFirstStopTimesInput_el_extra.value = '';
-            rsg_selectedStops_extra = []; // CRITICAL: Clear the stop sequence array
-            
-            // Reset the state variables
+            rsg_setCheckedProfiles_ExtraPage(''); // Clear profiles
+            rsgFirstStopTimesInput_el_extra.value = '';
+            rsg_selectedStops_extra = []; // Clear stop sequence
             rsg_currentlyEditingConfigKey_extra = null;
             rsg_currentlyEditingConfigDisplayName_extra = null;
-            rsg_isDirty = false; // It's a clean slate, not a dirty state from a previous config
-            
-            // Update the UI to reflect the cleared state
-            rsg_renderStopSequence_ExtraPage(); // This will now show the "add stops" placeholder
+            rsg_isDirty = false;
+            rsg_renderStopSequence_ExtraPage(); // Re-render sequence to show empty
             rsg_resetPreviewState("Please select a route to begin a new configuration or load a saved one.", "info");
-
-            // Clear the "last loaded" context
+            // No need to proceed further if no route is selected, as other parameters are cleared.
             rsg_lastLoadedRouteName_extra = "";
             rsg_lastLoadedDestName_extra = "";
             rsg_lastLoadedOpProfile_extra = "";
-            
-            // Refresh dependent dropdowns and exit this function
-            rsg_populateDestinationSelect_ExtraPage(); 
-            rsg_updateRsgActionButtonsState();
-            return; // IMPORTANT: Exit here to avoid running the logic below on a cleared form
+            rsg_populateDestinationSelect_ExtraPage(); // Refresh destinations based on empty route
+            updateRsgStopCountDisplay(); // Update stop count for empty sequence
+            return; // Exit here to prevent running the logic below on a cleared form
         }
-        // --- END: NEW LOGIC ---
 
         // Refresh the current rsg_selectedStops_extra with latest master definitions.
         let namesOrDirectionsUpdatedInCurrentSequence = false;
@@ -10814,15 +11981,21 @@ function rsg_clearProfileSelections_ExtraPage() {
         if (isInitialLoadForSection && rsg_selectedStops_extra.length === 0 && rsgFirstStopTimesInput_el_extra && rsgFirstStopTimesInput_el_extra.value === '') {
             rsg_resetPreviewState("Build a sequence or load a saved configuration.", "info");
         } else if (!rsg_isDirty && rsgStatusMessage_el_extra && rsgStatusMessage_el_extra.textContent === "Configuration changed. Please (re)generate preview or add short workings.") {
+            // If it was already set to "Configuration changed" and now is clean, keep the status if it's info/success.
+            // But if it was an error, clear it.
             if (rsgStatusMessage_el_extra.style.color !== 'rgb(231, 76, 60)' && rsgStatusMessage_el_extra.style.color !== '#e74c3c') {
                 rsg_resetPreviewState(`Ready for generation. Current status: ${rsg_isDirty ? 'Dirty' : 'Clean'}.`, "info");
             }
         }
         else if (rsg_isDirty && !isInitialLoadForSection && rsgStatusMessage_el_extra && !rsgStatusMessage_el_extra.textContent.includes("parameters changed")) {
+            // Only set if not initial load, is dirty, and not already showing a more specific "parameters changed" message.
              rsg_resetPreviewState("Changes detected. Regenerate preview or save.", "info");
         }
+        // If an error message is already displayed, don't overwrite it here.
     }
+
     rsg_updateRsgActionButtonsState(); // Update button states based on final form/selection state
+    updateRsgStopCountDisplay(); // Update stop count after any load/pull operation
 }
 
         function rsg_handleSaveConfiguration_ExtraPage() {
@@ -11151,10 +12324,8 @@ function rsg_clearProfileSelections_ExtraPage() {
             }
         }
 
-        // In omsi_tools_extra.html
-
 function rsg_renderStopSequence_ExtraPage() {
-    if (!rsgStopSequenceList_el_extra || !rsgStopSequencePlaceholder_el_extra || !rsgFirstStopTimesContainer_el_extra) {
+    if (!rsgStopSequenceList_el_extra || !rsgStopSequencePlaceholder_el_extra || !rsgFirstStopTimesContainer_el_extra || !rsgStopCountDisplay_el_extra) {
         console.error("RSG Render: Critical elements for rendering stop sequence are missing.");
         return;
     }
@@ -11230,7 +12401,7 @@ function rsg_renderStopSequence_ExtraPage() {
                     warningIcon.style.color = '#f39c12'; 
                     warningIcon.style.fontSize = '1.1em';
                     warningIcon.style.marginLeft = '5px';
-                    warningIcon.title = otherAdjustmentsInfo.suggestionTitle || `Commonly +${otherAdjustmentsInfo.mostCommonValue} min on other routes. Click to apply.`;
+                    warningIcon.title = otherAdjustmentsInfo.suggestionTitle || `Commonly +${otherAdjustmentsInfo.mostCommonValue} min (on other routes). Click to apply.`;
 
                     warningIcon.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -11353,6 +12524,9 @@ function rsg_renderStopSequence_ExtraPage() {
         });
         // console.log("RSG Render: Sequence item rendering loop finished.");
     }
+
+    // Call the function to update the stop count display
+    updateRsgStopCountDisplay(); 
 }
 
 async function handleApplyMasterListStopIdChangesButton_ExtraPage() {
@@ -11694,7 +12868,6 @@ async function handleApplyMasterListStopIdChangesButton_ExtraPage() {
     rsg_updateRsgActionButtonsState(); // Added call
 }
 
-        // In omsi_tools_extra.html
 function rsg_handleGenerateSchedulePreview_ExtraPage(isPreCheck = false, configDataToProcess = null) {
     if (!rsgRouteNameInput_el_extra ||
         !rsgDestinationNameInput_el_extra ||
@@ -12223,10 +13396,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         }
     }
 
-    // --- SHARED LOGIC AFTER EITHER BATCH OR SINGLE SCHEDULING ---
-
-    // Invalidate the HTML cache and call the RENDER function directly
-    // instead of the LOAD function to avoid the race condition.
     isScheduledTasksCacheValid_extra = false; 
     if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
         renderScheduledUpdatesList_ExtraPage();
@@ -13582,7 +14751,9 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
 }
 
 function rsg_updateRsgActionButtonsState() {
-    const routeName = rsgRouteNameInput_el_extra.value.trim();
+   	 const routeName = (rsgNewRouteNameInput_el_extra && rsgNewRouteNameInput_el_extra.value.trim() !== '') ?
+                      rsgNewRouteNameInput_el_extra.value.trim() :
+                      (rsg_selectedRoute_extra || rsgRouteNameInput_el_extra.value.trim());
     const opProfiles = rsg_getSelectedOpProfilesString_ExtraPage();
     const destName = rsgDestinationNameInput_el_extra.value.trim();
     const firstStopTimes = rsgFirstStopTimesInput_el_extra.value.trim();
@@ -13860,13 +15031,11 @@ function rsg_openCopyFromModal_ExtraPage() {
         sectionToShow.style.display = "block";
         localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
         
-        // Clear any running intervals from other sections
         if (keyDeparturesIntervalId_extra) {
             clearInterval(keyDeparturesIntervalId_extra);
             keyDeparturesIntervalId_extra = null;
         }
 
-        // Run setup functions based on which section is being shown
         if (sectionId === "day-profile-override-section_extra") {
             if (typeof loadAndDisplayOverrides_ExtraPage === 'function') loadAndDisplayOverrides_ExtraPage();
             if (typeof dpo_populateProfileCheckboxes_ExtraPage === 'function') dpo_populateProfileCheckboxes_ExtraPage();
@@ -13922,6 +15091,30 @@ function rsg_openCopyFromModal_ExtraPage() {
         } else if (sectionId === 'route-curtailment-section_extra') {
             if (typeof slc_populateRouteSelect === 'function') slc_populateRouteSelect();
             if (typeof slc_renderActiveCurtailments === 'function') slc_renderActiveCurtailments();
+        } else if (sectionId === "enhanced-bulk-update-section_extra") {
+            if (typeof ebu_populateRouteTiles_ExtraPage === 'function') {
+                ebu_populateRouteTiles_ExtraPage();
+            }
+            if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') {
+                ebu_populateOldDestinationSelect_ExtraPage();
+            }
+        } else if (sectionId === "global-route-colour-management-section-extra") {
+            if (typeof populateRouteSelectorForGlobalColours_ExtraPage === 'function') {
+                populateRouteSelectorForGlobalColours_ExtraPage();
+            }
+            if (typeof renderGlobalCustomRouteColours_ExtraPage === 'function') {
+                renderGlobalCustomRouteColours_ExtraPage();
+            }
+        } else if (sectionId === "stop-specific-route-colour-management-section-extra") { // NEW: Add this block
+            if (typeof populateStopSelectorForSpecificColours_ExtraPage === 'function') {
+                populateStopSelectorForSpecificColours_ExtraPage();
+            }
+            if (typeof renderStopSpecificRouteColours_ExtraPage === 'function') {
+                renderStopSpecificRouteColours_ExtraPage();
+            }
+            if (selectStopForSpecificRouteColour_el_extra?.value && typeof displayRoutesForSpecificColouring_ExtraPage === 'function') {
+                displayRoutesForSpecificColouring_ExtraPage();
+            }
         }
     }
 }
@@ -13966,19 +15159,20 @@ function rsg_openCopyFromModal_ExtraPage() {
                 allDefinedStops_data = {};
             }
         }
-        
-// In omsi_tools_extra.html
+
 async function loadInitialData_ExtraPage() {
     console.log("%cPERFORMANCE TEST: Starting loadInitialData_ExtraPage...", "color: cyan; font-weight: bold;");
     const totalStartTime = performance.now();
 
-    currentWorkingSchedule_extra = [];
-    rsg_loadedConfigs_extra = {};
+    // Initialize all global state variables
+    currentWorkingSchedule_extra = []; // This will hold ALL RSG config data (flattened)
+    rsg_loadedConfigs_extra = {}; // Holds RSG configs as objects
     allDefinedStops_data = {};
-    globalCustomRouteColours_extra = {}; // Reset before loading
+    globalCustomRouteColours_extra = {};
+    liveScheduleForToolsDisplay = []; // NEW: This will specifically hold data from /liveSchedule/schedulesByRoute
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
-        console.error("Firebase not connected.");
+        console.error("Firebase not initialized. Cannot load data.");
         return;
     }
 
@@ -13987,15 +15181,17 @@ async function loadInitialData_ExtraPage() {
     try {
         let startTime, duration;
 
+        // 1. Load RSG configurations (from /rsgConfigs)
         startTime = performance.now();
-        console.log("[PERF] Loading RSG configurations...");
+        console.log("[PERF] Loading RSG configurations (from FB_PATH_RSG_CONFIGS)...");
         const rsgConfigsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIGS));
         rsg_loadedConfigs_extra = rsgConfigsSnap.exists() ? rsgConfigsSnap.val() || {} : {};
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
 
+        // 2. Flatten RSG configurations into currentWorkingSchedule_extra (for RSG tool's internal operations)
         startTime = performance.now();
-        console.log("[PERF] Flattening RSG configs into a full schedule...");
+        console.log("[PERF] Flattening RSG configs into currentWorkingSchedule_extra...");
         let flatScheduleFromConfigs = [];
         Object.values(rsg_loadedConfigs_extra).forEach(config => {
             if (config && config.stopSequence && config.firstStopTimes) {
@@ -14005,20 +15201,57 @@ async function loadInitialData_ExtraPage() {
                 });
             }
         });
-        currentWorkingSchedule_extra = flatScheduleFromConfigs;
+        currentWorkingSchedule_extra = flatScheduleFromConfigs; // This variable now holds ALL RSG data
         duration = performance.now() - startTime;
-        console.log(`[PERF] ...flattened configs into ${currentWorkingSchedule_extra.length} schedule entries in ${duration.toFixed(2)} ms.`);
+        console.log(`[PERF] ...flattened configs into ${currentWorkingSchedule_extra.length} entries for RSG tool in ${duration.toFixed(2)} ms.`);
 
-        // --- START: THIS IS THE CRITICAL FIX ---
-        // This block was missing, causing custom colors not to be loaded.
+        // 3. Load the actual "live" schedule data (from /liveSchedule/schedulesByRoute)
+        startTime = performance.now();
+        console.log("[PERF] Loading LIVE schedule data (from FB_PATH_SCHEDULES_BY_ROUTE) for display purposes...");
+        const liveScheduleSnapForTools = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULES_BY_ROUTE));
+        const liveFlatScheduleFromDBForTools = [];
+        if (liveScheduleSnapForTools.exists()) {
+            const schedulesByRoute = liveScheduleSnapForTools.val();
+            if (schedulesByRoute && typeof schedulesByRoute === 'object') {
+                for (const routeKey in schedulesByRoute) {
+                    if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
+                        const routeData = schedulesByRoute[routeKey];
+                        if (routeData && typeof routeData === 'object') {
+                            for (const profileKey in routeData) {
+                                if (Object.hasOwnProperty.call(routeData, profileKey)) {
+                                    const profileData = routeData[profileKey];
+                                    if (profileData && typeof profileData === 'object') {
+                                        for (const destKey in profileData) {
+                                            if (Object.hasOwnProperty.call(profileData, destKey)) {
+                                                const destData = profileData[destKey];
+                                                if (destData && Array.isArray(destData.entries)) {
+                                                    destData.entries.forEach(entry => {
+                                                        if (entry) liveFlatScheduleFromDBForTools.push({ ...entry });
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        liveScheduleForToolsDisplay = liveFlatScheduleFromDBForTools; // Populate the new variable
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${liveScheduleForToolsDisplay.length} LIVE schedule entries for tools display in ${duration.toFixed(2)} ms.`);
+
+        // 4. Load Global Custom Route Colours
         startTime = performance.now();
         console.log("[PERF] Loading Global Custom Route Colours...");
         const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
         globalCustomRouteColours_extra = globalColoursSnap.exists() ? globalColoursSnap.val() || {} : {};
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(globalCustomRouteColours_extra).length} global color rules in ${duration.toFixed(2)} ms.`);
-        // --- END: CRITICAL FIX ---
 
+        // 5. Load Master Stop Definitions
         startTime = performance.now();
         console.log("[PERF] Loading Master Stop Definitions...");
         const allDefinedStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
@@ -14026,10 +15259,11 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(allDefinedStops_data).length} master stop definitions in ${duration.toFixed(2)} ms.`);
         
+        // 6. Build Stop-to-Route Map (for Master Stop List's "Serving Routes" based on LIVE data)
         startTime = performance.now();
-        console.log("[PERF] Building Stop-to-Route Map...");
+        console.log("[PERF] Building Stop-to-Route Map for LIVE schedule data for Master Stop List...");
         stopToServingRoutesMap_extra.clear();
-        currentWorkingSchedule_extra.forEach(entry => {
+        liveScheduleForToolsDisplay.forEach(entry => { // IMPORTANT: Uses liveScheduleForToolsDisplay
             if (entry.stopID && entry.lineName) {
                 if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
                     stopToServingRoutesMap_extra.set(entry.stopID, new Set());
@@ -14038,8 +15272,9 @@ async function loadInitialData_ExtraPage() {
             }
         });
         duration = performance.now() - startTime;
-        console.log(`[PERF] ...built stop-to-route map in ${duration.toFixed(2)} ms.`);
+        console.log(`[PERF] ...built stop-to-route map for LIVE schedule for Master Stop List in ${duration.toFixed(2)} ms.`);
         
+        // 7. Load Operating Profiles list
         startTime = performance.now();
         console.log("[PERF] Loading Operating Profiles list...");
         const opProfilesSnap = await dbGet(dbRef(database, FB_PATH_EDITABLE_OP_PROFILES));
@@ -14047,6 +15282,7 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${RSG_OPERATING_PROFILES_LIST.length} operating profiles in ${duration.toFixed(2)} ms.`);
 
+        // 8. Load School Holidays
         startTime = performance.now();
         console.log("[PERF] Loading School Holidays...");
         const shSnap = await dbGet(dbRef(database, FB_PATH_SCHOOL_HOLIDAYS));
@@ -14054,6 +15290,7 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${schoolHolidayDateRanges_extra.length} school holiday ranges in ${duration.toFixed(2)} ms.`);
 
+        // 9. Load Day Profile Overrides
         startTime = performance.now();
         console.log("[PERF] Loading Day Profile Overrides...");
         const dpoSnap = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
@@ -14061,12 +15298,21 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(operationalOverrides_data).length} DPO records in ${duration.toFixed(2)} ms.`);
 
+        // 10. Load Mass Curtailments
         startTime = performance.now();
         console.log("[PERF] Loading Mass Curtailments...");
         const massCurtailmentsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
         massCurtailments_data = massCurtailmentsSnap.exists() ? massCurtailmentsSnap.val() || {} : {};
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(massCurtailments_data).length} mass curtailment records in ${duration.toFixed(2)} ms.`);
+
+        // 11. Loading Defined Curtailment Points
+        startTime = performance.now();
+        console.log("[PERF] Loading Defined Curtailment Points...");
+        const curtailmentPointsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_CURTAILMENT_POINTS));
+        definedCurtailmentPoints = curtailmentPointsSnap.exists() ? curtailmentPointsSnap.val() || {} : {};
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${Object.keys(definedCurtailmentPoints).length} defined curtailment points in ${duration.toFixed(2)} ms.`);
         
     } catch (error) {
         console.error("Firebase Load Error (Extra Tools):", error);
@@ -14083,53 +15329,80 @@ async function loadInitialData_ExtraPage() {
 function renderUIDependentElements_ExtraPage() {
     const lastSectionFromStorage = localStorage.getItem('omsiExtraToolsActiveSection');
     let sectionIdToShow = null;
-    let calledShowSection = false; // Flag to ensure showExtraPageSection is called at most once initially by this function
+    let calledShowSection = false;
 
-    console.log(`[RenderUI] Attempting to determine initial section. Last from storage: ${lastSectionFromStorage}`);
-
-    // Priority 1: Try to show the section from localStorage if it's valid
     if (lastSectionFromStorage && document.getElementById(lastSectionFromStorage)) {
-        // Further check: Is it a real tool section linked to a menu button?
         const isKnownToolSection = topMenuBar_el_extra && Array.from(topMenuBar_el_extra.querySelectorAll('.menu-button')).some(b => b.dataset.section === lastSectionFromStorage);
         if (isKnownToolSection) {
             sectionIdToShow = lastSectionFromStorage;
-            console.log(`[RenderUI] Valid section found in localStorage: ${sectionIdToShow}`);
         } else {
-            // The stored section ID might be old or invalid (e.g., tool removed)
-            console.log(`[RenderUI] Section from localStorage ('${lastSectionFromStorage}') is not a known tool section. Clearing from storage.`);
             localStorage.removeItem('omsiExtraToolsActiveSection');
-            sectionIdToShow = null; // Ensure it's null so we try the default next
+            sectionIdToShow = null;
         }
     }
 
-    // Priority 2: If no valid section from localStorage, and user is logged in, try the first menu button
     if (!sectionIdToShow && currentUser_extra && topMenuBar_el_extra) {
         const firstButton = topMenuBar_el_extra.querySelector('.menu-button');
         if (firstButton && firstButton.dataset.section) {
             sectionIdToShow = firstButton.dataset.section;
-            console.log(`[RenderUI] No valid localStorage section. Defaulting to first menu button section: ${sectionIdToShow}`);
         }
     }
 
-    // Now, actually show the determined section (if any)
+    if (currentUser_extra && typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') {
+        ebu_populateOldDestinationSelect_ExtraPage();
+    }
+
     if (sectionIdToShow && typeof showExtraPageSection === 'function') {
         showExtraPageSection(sectionIdToShow);
         calledShowSection = true;
     } else if (currentUser_extra && !calledShowSection) {
-        // User is logged in, but no section could be determined (e.g., localStorage empty/invalid, and no menu buttons)
-        // This state would result in the "blue screen" if not handled.
-        console.warn("[RenderUI] User is logged in, but no default section could be determined to display. All tool sections will remain hidden.");
-        // Ensure all tool sections are indeed hidden if no specific one is chosen.
-        // `showExtraPageSection` normally handles hiding others, but if it's not called,
-        // we might want an explicit hide here, though `updateAuthUI_ExtraPage(null)` initial call usually does this.
         if (toolSectionsWrapper_el_extra) {
             toolSectionsWrapper_el_extra.querySelectorAll(".tool-content-section.section").forEach((s) => {
                 s.style.display = "none";
             });
         }
     }
-    // If not logged in (currentUser_extra is null), updateAuthUI_ExtraPage(null) would have hidden all sections
-    // and the top menu bar, so no specific section showing logic is needed here for that case.
+
+    // NEW: Always update relevant elements regardless of which section is visible
+    if (currentUser_extra) {
+        if (typeof populateRouteSelectorForGlobalColours_ExtraPage === 'function') {
+            populateRouteSelectorForGlobalColours_ExtraPage();
+        }
+        if (typeof renderGlobalCustomRouteColours_ExtraPage === 'function') {
+            renderGlobalCustomRouteColours_ExtraPage();
+        }
+        // Call for stop-specific colours
+        if (typeof populateStopSelectorForSpecificColours_ExtraPage === 'function') {
+            populateStopSelectorForSpecificColours_ExtraPage();
+        }
+        if (typeof renderStopSpecificRouteColours_ExtraPage === 'function') {
+            renderStopSpecificRouteColours_ExtraPage();
+        }
+
+
+        // Existing calls that might affect colors or route lists
+        if (typeof rsg_populateRouteTiles_ExtraPage === 'function') rsg_populateRouteTiles_ExtraPage();
+        if (typeof populateGlobalRouteToDeleteList_ExtraPage === 'function') populateGlobalRouteToDeleteList_ExtraPage();
+        if (typeof populateTimetableExporterRouteSelect_ExtraPage === 'function') populateTimetableExporterRouteSelect_ExtraPage();
+        if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') populateStopSelectorForDeparturesView_ExtraPage();
+        if (typeof srd_populateRouteSelect_ExtraPage === 'function') srd_populateRouteSelect_ExtraPage();
+    } else {
+        // Clear elements if logged out (important for data privacy and avoiding stale info)
+        if (selectRouteNameColour_el_extra) selectRouteNameColour_el_extra.innerHTML = '<option value="">-- Select Route --</option>';
+        if (currentGlobalRouteColoursList_el_extra) currentGlobalRouteColoursList_el_extra.innerHTML = '';
+        if (noGlobalCustomColoursMessage_el_extra) noGlobalCustomColoursMessage_el_extra.style.display = 'block';
+        if (globalRouteColourStatusMessage_el_extra) globalRouteColourStatusMessage_el_extra.textContent = '';
+
+        // Clear Stop-Specific UI elements on logout
+        if (selectStopForSpecificRouteColour_el_extra) selectStopForSpecificRouteColour_el_extra.innerHTML = '<option value="">-- Select Stop --</option>';
+        if (specificRouteColourTilesContainer_el_extra) specificRouteColourTilesContainer_el_extra.innerHTML = '<p id="specificRouteColourTilesPlaceholder_extra" style="width: 100%; text-align: center; opacity: 0.7; padding: 0.5rem;">Select a stop to see its routes.</p>';
+        if (inputStopSpecificRouteColour_el_extra) inputStopSpecificRouteColour_el_extra.value = '#73809C';
+        if (stopSpecificRouteColourStatusMessage_el_extra) stopSpecificRouteColourStatusMessage_el_extra.textContent = '';
+        if (currentStopSpecificColoursList_el_extra) currentStopSpecificColoursList_el_extra.innerHTML = '';
+        if (noStopSpecificColoursMessage_el_extra) noStopSpecificColoursMessage_el_extra.style.display = 'block';
+        if (deleteRouteFromStopButton_el_extra) deleteRouteFromStopButton_el_extra.style.display = 'none';
+        if (deleteRouteFromStopStatusMessage_el_extra) deleteRouteFromStopStatusMessage_el_extra.textContent = '';
+    }
 }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -14146,6 +15419,95 @@ const topMenuBar = document.getElementById('top-menu-bar_extra');
                     });
                 });
             }
+
+if (rsgNewRouteNameInput_el_extra) {
+        rsgNewRouteNameInput_el_extra.addEventListener('input', () => {
+            const typedRoute = rsgNewRouteNameInput_el_extra.value.trim();
+            if (typedRoute !== '') {
+                // If user types, deselect all route tiles and update display
+                rsgRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile.selected').forEach(selectedTile => {
+                    selectedTile.classList.remove('selected');
+                });
+                rsg_selectedRoute_extra = typedRoute;
+                rsgRouteNameInput_el_extra.value = typedRoute; // Keep the hidden input synced
+                rsgSelectedRouteDisplay_el_extra.textContent = typedRoute;
+            } else {
+                // If input cleared, revert to no selection state
+                rsg_selectedRoute_extra = null;
+                rsgRouteNameInput_el_extra.value = '';
+                rsgSelectedRouteDisplay_el_extra.textContent = '(None selected)';
+            }
+            rsg_populateDestinationSelect_ExtraPage(); // Update destinations based on new route
+            rsg_loadOrPullConfiguration_ExtraPage(); // Trigger a load/pull based on the new route
+            rsg_updateRsgActionButtonsState(); // Update button states
+        });
+    }
+
+// --- Stop-Specific Route Colour Management Section Listeners (NEW) ---
+    if (selectStopForSpecificRouteColour_el_extra && typeof populateStopSelectorForSpecificColours_ExtraPage === 'function') {
+        selectStopForSpecificRouteColour_el_extra.addEventListener('change', () => {
+            // This event listener updates the displayed routes for coloring when a stop is selected.
+            displayRoutesForSpecificColouring_ExtraPage();
+        });
+    }
+    if (saveStopSpecificRouteColourButton_el_extra && typeof handleSaveStopSpecificRouteColour_ExtraPage === 'function') {
+        saveStopSpecificRouteColourButton_el_extra.addEventListener('click', handleSaveStopSpecificRouteColour_ExtraPage);
+    }
+    if (deleteRouteFromStopButton_el_extra && typeof handleDeleteRouteFromSpecificStop_ExtraPage === 'function') {
+        deleteRouteFromStopButton_el_extra.addEventListener('click', handleDeleteRouteFromSpecificStop_ExtraPage);
+    }
+    // Listeners for stop-specific color preset buttons
+    if (setStopSpecificDayBusColor_el_extra && inputStopSpecificRouteColour_el_extra) {
+        setStopSpecificDayBusColor_el_extra.addEventListener('click', () => { inputStopSpecificRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra; });
+    }
+    if (setStopSpecificNightBusColor_el_extra && inputStopSpecificRouteColour_el_extra) {
+        setStopSpecificNightBusColor_el_extra.addEventListener('click', () => { inputStopSpecificRouteColour_el_extra.value = NIGHT_BUS_BLUE_COLOR_extra; });
+    }
+    if (setStopSpecificSchoolBusColor_el_extra && inputStopSpecificRouteColour_el_extra) {
+        setStopSpecificSchoolBusColor_el_extra.addEventListener('click', () => { inputStopSpecificRouteColour_el_extra.value = "#AC5099"; });
+    }
+    if (setStopSpecificRailReplacementColor_el_extra && inputStopSpecificRouteColour_el_extra) {
+        setStopSpecificRailReplacementColor_el_extra.addEventListener('click', () => { inputStopSpecificRouteColour_el_extra.value = "#CBC51A"; });
+    }
+
+// --- Global Route Colour Management Section Listeners (NEW) ---
+    if (selectRouteNameColour_el_extra && typeof populateRouteSelectorForGlobalColours_ExtraPage === 'function') {
+        // Initial population happens via renderUIDependentElements_ExtraPage
+        selectRouteNameColour_el_extra.addEventListener('change', () => {
+            const selectedRoute = selectRouteNameColour_el_extra.value;
+            const upperSelectedRoute = selectedRoute.toUpperCase();
+            if (inputRouteColour_el_extra) {
+                if (selectedRoute && globalCustomRouteColours_extra[upperSelectedRoute]) {
+                    inputRouteColour_el_extra.value = globalCustomRouteColours_extra[upperSelectedRoute];
+                } else {
+                    // Fallback to default if no custom color for selected route
+                    inputRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra;
+                }
+            }
+        });
+    }
+    if (saveGlobalRouteColourButton_el_extra && typeof handleSaveGlobalRouteColour_ExtraPage === 'function') {
+        saveGlobalRouteColourButton_el_extra.addEventListener('click', handleSaveGlobalRouteColour_ExtraPage);
+    }
+    // Preset buttons for global colors
+    if (setGlobalDayBusColor_el_extra && inputRouteColour_el_extra) {
+        setGlobalDayBusColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra; });
+    }
+    if (setGlobalNightBusColor_el_extra && inputRouteColour_el_extra) {
+        setGlobalNightBusColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = NIGHT_BUS_BLUE_COLOR_extra; });
+    }
+    if (setGlobalSchoolBusColor_el_extra && inputRouteColour_el_extra) {
+        setGlobalSchoolBusColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = "#AC5099"; }); // Hardcoded value from previous tools.html
+    }
+    if (setGlobalRailReplacementColor_el_extra && inputRouteColour_el_extra) {
+        setGlobalRailReplacementColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = "#CBC51A"; }); // Hardcoded value from previous tools.html
+    }
+
+// Listener for the new Enhanced Bulk Update button
+const ebuExecuteButton = document.getElementById('ebu-execute-update-button-extra');
+if (ebuExecuteButton) {
+    ebuExecuteButton.addEventListener('click', handleEnhancedBulkUpdateDestination);
+}
 
 if (rsgOpenPasteAdjModalButton_el_extra && typeof rsg_openPasteAdjModal_ExtraPage === 'function') {
     rsgOpenPasteAdjModalButton_el_extra.addEventListener('click', rsg_openPasteAdjModal_ExtraPage);

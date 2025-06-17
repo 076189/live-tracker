@@ -6,4 +6,4 @@ const urlsToCache = [
   '/live-tracker/fonts/NJFont-Medium.ttf',
   '/live-tracker/assets/icons/icon-192x192.png',
   '/live-tracker/assets/icons/icon-512x512.png'
-];
+]

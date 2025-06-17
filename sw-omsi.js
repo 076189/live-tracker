@@ -1,16 +1,35 @@
-// sw-omsi.js
-const CACHE_NAME = 'omsi-arrivals-cache-v4';
+const CACHE_NAME = 'omsi-arrivals-cache-v5'; // Increment this again for sure!
 const urlsToCache = [
-  // Paths are absolute from the domain root (076189.github.io)
-  // These should correctly map to your files within the 'live-tracker' directory.
-
   '/live-tracker/omsi_arrivals.html',
-  '/live-tracker/manifest-omsi.json', // Cache the manifest
-  '/live-tracker/offline.html',       // Your fallback offline page
-  '/live-tracker/fonts/NJFont-Medium.ttf', // The font file
+  '/live-tracker/manifest-omsi.json',
+  '/live-tracker/offline.html',
+  '/live-tracker/fonts/NJFont-Medium.ttf',
   '/live-tracker/assets/icons/icon-192x192.png',
   '/live-tracker/assets/icons/icon-512x512.png'
 ];
+
+// --- START: Firebase Messaging SDK Imports (ADD THIS BLOCK) ---
+importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js');
+// --- END: Firebase Messaging SDK Imports ---
+
+
+// --- START: Firebase Configuration for Service Worker (ADD THIS BLOCK) ---
+const firebaseConfig = {
+    apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
+    authDomain: "omsi-c5505.firebaseapp.com",
+    projectId: "omsi-c5505",
+    storageBucket: "omsi-c5505.appspot.com",
+    messagingSenderId: "503595375440", // CRITICAL for FCM
+    appId: "1:503595375440:web:356be6684b77ff5909ea55",
+    measurementId: "G-VN7X65V3F9"
+};
+
+// Initialize Firebase App within the service worker
+firebase.initializeApp(firebaseConfig);
+const messaging = firebase.messaging(); // This line helps with PWA installability signals
+// --- END: Firebase Configuration for Service Worker ---
+
 
 // Install event: cache the app shell
 self.addEventListener('install', event => {
@@ -25,28 +44,25 @@ self.addEventListener('install', event => {
           })
           .catch(error => {
             console.error(`[SW ${CACHE_NAME}] cache.addAll() FAILED:`, error);
-            // Log which specific URLs might have caused the failure by trying to fetch them individually.
-            // This is for diagnostics. The install will still fail because addAll failed.
             urlsToCache.forEach(url => {
-              fetch(new Request(url, { mode: 'no-cors' })) // Use no-cors for this diagnostic fetch for external resources too
+              fetch(new Request(url, { mode: 'no-cors' }))
                 .then(response => {
-                  if (!response.ok && response.type !== 'opaque') { // Opaque means cross-origin, no-cors, which is fine for just checking fetchability
-                     console.warn(`[SW ${CACHE_NAME}] Diagnostic fetch for ${url} failed with status: ${response.status}`);
+                  if (!response.ok && response.type !== 'opaque') {
+                      console.warn(`[SW ${CACHE_NAME}] Diagnostic fetch for ${url} failed with status: ${response.status}`);
                   }
                 })
                 .catch(() => {
                   console.error(`[SW ${CACHE_NAME}] Diagnostic fetch for ${url} FAILED entirely (network error or CORS if not no-cors).`);
                 });
             });
-            throw error; // IMPORTANT: Re-throw the error to ensure install fails if addAll fails.
+            throw error;
           });
       })
       .then(() => {
         console.log(`[SW ${CACHE_NAME}] Installation successful. Activating now (skipWaiting).`);
-        return self.skipWaiting(); // Activate the new SW immediately
+        return self.skipWaiting();
       })
       .catch(error => {
-        // This catch is for errors from caches.open or the skipWaiting promise
         console.error(`[SW ${CACHE_NAME}] Overall installation process FAILED:`, error);
       })
   );
@@ -67,7 +83,7 @@ self.addEventListener('activate', event => {
       );
     }).then(() => {
       console.log(`[SW ${CACHE_NAME}] Old caches cleared. Claiming clients.`);
-      return self.clients.claim(); // Take control of any open clients
+      return self.clients.claim();
     })
   );
 });
@@ -77,12 +93,12 @@ self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
 
   // Don't cache Firebase or other dynamic API calls, always go to network
-  // (Adjust hostnames if you use other third-party services)
   if (requestUrl.hostname.includes('firebaseio.com') ||
       requestUrl.hostname.includes('firestore.googleapis.com') ||
-      requestUrl.hostname.includes('fbsbx.com') || // For Firebase storage
-      requestUrl.hostname.includes('googleapis.com')) { // General Google APIs
-    // console.log(`[SW ${CACHE_NAME}] Network request for (external API): ${event.request.url}`);
+      requestUrl.hostname.includes('fbsbx.com') ||
+      requestUrl.hostname.includes('googleapis.com') ||
+      requestUrl.hostname.includes('gstatic.com') ||
+      requestUrl.hostname.includes('google.com')) {
     event.respondWith(fetch(event.request));
     return;
   }
@@ -91,31 +107,20 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request)
       .then(cachedResponse => {
-        // Cache hit - return response
         if (cachedResponse) {
-          // console.log(`[SW ${CACHE_NAME}] Serving from cache: ${event.request.url}`);
           return cachedResponse;
         }
 
-        // Not in cache - try to fetch from network
-        // console.log(`[SW ${CACHE_NAME}] Not in cache, fetching from network: ${event.request.url}`);
         return fetch(event.request)
           .then(networkResponse => {
-            // Optional: You could add logic here to dynamically cache certain new resources
-            // if they are same-origin and successful, but for a "scratch" version,
-            // relying on the pre-cached assets is simpler.
             return networkResponse;
           })
           .catch(() => {
-            // Network fetch failed (offline or error)
             console.warn(`[SW ${CACHE_NAME}] Network fetch failed for: ${event.request.url}. Mode: ${event.request.mode}`);
-            // If it's a navigation request (e.g., for an HTML page), serve the offline fallback.
             if (event.request.mode === 'navigate') {
               console.log(`[SW ${CACHE_NAME}] Serving offline fallback page.`);
-              return caches.match('/live-tracker/offline.html'); // Ensure this path is correct!
+              return caches.match('/live-tracker/offline.html');
             }
-            // For non-navigation requests (images, css etc.), just let the browser handle the failure.
-            // A specific image failing won't break the whole page like a failed navigation.
           });
       })
   );

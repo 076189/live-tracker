@@ -904,17 +904,13 @@ function extractDestinationNameFromRule(ruleDestination) {
         return ruleDestination;
     }
 
-    // In omsi_arrivals.html
-// In omsi_arrivals.html
-
-function updateAndDisplayLiveArrivals() {
+	function updateAndDisplayLiveArrivals() {
     if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
     if (!currentSelectedStopID || (!allScheduledData && !activeMassCurtailments)) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`;} return; }
     if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.</li>`; } return; }
 
     const nowForProcessing = new Date();
     
-    // *** NEW: MERGE STATIC AND DYNAMIC SCHEDULES ***
     let combinedScheduleData = [...(allScheduledData || [])];
     if (Object.keys(activeMassCurtailments).length > 0) {
         for (const key in activeMassCurtailments) {
@@ -928,18 +924,19 @@ function updateAndDisplayLiveArrivals() {
             }
         }
     }
-    // *** END OF MERGE LOGIC ***
 
     const messageActive = isCustomMessageActive();
     const busDisplaySlotsCount = messageActive ? MAX_DISPLAY_ROWS - 1 : MAX_DISPLAY_ROWS;
     const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
 
-    const processedBuses = combinedScheduleData // *** USE THE COMBINED DATA ***
+    const processedBuses = combinedScheduleData
         .filter(bus => bus.stopID === currentSelectedStopID)
         .map((bus, mapIndex) => {
             
-            // This suppression logic now correctly hides the ORIGINAL return trip
-            if (!bus.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
+            // --- FIX: Create a clone of the bus object to prevent modifying the original data ---
+            const busData = { ...bus };
+
+            if (!busData.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
                 for (const key in activeMassCurtailments) {
                     const rule = activeMassCurtailments[key];
                     if (rule && rule.suppressedServiceLegs && Array.isArray(rule.suppressedServiceLegs) && rule.startTime && rule.endTime) {
@@ -947,7 +944,7 @@ function updateAndDisplayLiveArrivals() {
                         const endTime = new Date(rule.endTime);
                         if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
                             const isSuppressed = rule.suppressedServiceLegs.some(leg => 
-                                leg.routeName === bus.lineName && leg.destinationName === bus.destinationName
+                                leg.routeName === busData.lineName && leg.destinationName === busData.destinationName
                             );
                             if (isSuppressed) return null;
                         }
@@ -955,29 +952,29 @@ function updateAndDisplayLiveArrivals() {
                 }
             }
             
-            // This curtailment logic correctly shortens the OUTBOUND trip
-            if (!bus.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
+            if (!busData.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
                 for (const key in activeMassCurtailments) {
                     const rule = activeMassCurtailments[key];
-                     if (rule && rule.startTime && rule.endTime && rule.routeName === bus.lineName && rule.destinationName === bus.destinationName) {
+                     if (rule && rule.startTime && rule.endTime && rule.routeName === busData.lineName && rule.destinationName === busData.destinationName) {
                         const startTime = new Date(rule.startTime);
                         const endTime = new Date(rule.endTime);
                         if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
-                            const stopSequence = bus.tripStopSequence || [];
-                            const currentStopIndex = stopSequence.indexOf(bus.stopID);
+                            const stopSequence = busData.tripStopSequence || [];
+                            const currentStopIndex = stopSequence.indexOf(busData.stopID);
                             const curtailStopIndex = stopSequence.indexOf(rule.newTerminusStopId);
                             if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
-                                return null; // This stop is past the new terminus
+                                return null;
                             }
-                            bus.destinationName = rule.newTerminusDisplayName; // Change destination display
+                            // --- FIX: Modify the destination on the cloned object ---
+                            busData.destinationName = rule.newTerminusDisplayName;
                         }
                     }
                 }
             }
             
-            // ... (The rest of the time calculation and processing logic remains the same) ...
-            if (!bus || !bus.OperatingProfile || typeof bus.OperatingProfile !== 'string' || bus.OperatingProfile.trim() === "") return null;
-            let tempTimeStr = String(bus.scheduledTime).trim();
+            // --- FIX: Use the cloned busData object for all subsequent processing ---
+            if (!busData || !busData.OperatingProfile || typeof busData.OperatingProfile !== 'string' || busData.OperatingProfile.trim() === "") return null;
+            let tempTimeStr = String(busData.scheduledTime).trim();
             const tempNumTime = parseFloat(tempTimeStr);
             if (!isNaN(tempNumTime) && tempNumTime >= 0 && tempNumTime < 1 && !tempTimeStr.includes(':')) {
                 const totalMins = Math.round(tempNumTime * 1440);
@@ -987,7 +984,7 @@ function updateAndDisplayLiveArrivals() {
             if (!tempParts) return null;
             const hrs = parseInt(tempParts[1], 10);
             const mins = parseInt(tempParts[2], 10);
-            const dayOffsetFromFile = parseInt(bus.DayOffset || "0") || 0;
+            const dayOffsetFromFile = parseInt(busData.DayOffset || "0") || 0;
             if (isNaN(hrs) || isNaN(mins) || hrs < 0 || hrs > 23 || mins < 0 || mins > 59) return null;
             let scheduleDate = new Date(nowForProcessing);
             if (nowForProcessing.getHours() < earlyMorningThresholdHours) {
@@ -999,11 +996,11 @@ function updateAndDisplayLiveArrivals() {
             }
             let dayCodesForThisBus = getCodesForCalendarDay(scheduleDate);
             const dateStringYYYYMMDD = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}`;
-            if (globalOperationalOverrides[dateStringYYYYMMDD] && typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' && globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName] && typeof globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName] === 'string') {
-                const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][bus.lineName];
+            if (globalOperationalOverrides[dateStringYYYYMMDD] && typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' && globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] && typeof globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] === 'string') {
+                const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName];
                 dayCodesForThisBus = routeSpecificOverride.split(',').map(p => p.trim()).filter(p => p);
             }
-            const busOpCodesLower = bus.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
+            const busOpCodesLower = busData.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
             const dayCodesLower = dayCodesForThisBus.map(c => c.toLowerCase());
             if (!busOpCodesLower.some(boc => dayCodesLower.includes(boc))) { return null; }
             let adjustedSchedTime = new Date(scheduleDate.getFullYear(), scheduleDate.getMonth(), scheduleDate.getDate(), hrs, mins, 0);
@@ -1017,100 +1014,100 @@ function updateAndDisplayLiveArrivals() {
             const arrTxt = generateArrivalText(diffSecs);
             if (arrTxt === null) return null;
 
-            const internalId = bus.internalId || `${bus.stopID}_${bus.lineName}_${bus.OperatingProfile}_${(bus.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
-            return { ...bus, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1, resolvedScheduledTime: adjustedSchedTime.toISOString() };
+            const internalId = busData.internalId || `${busData.stopID}_${busData.lineName}_${busData.OperatingProfile}_${(busData.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
+            return { ...busData, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1, resolvedScheduledTime: adjustedSchedTime.toISOString() };
         })
         .filter(b => b !== null && b.timeToStationInSeconds <= MAX_TIME_TO_STATION_SECONDS && b.timeToStationInSeconds >= -59)
         .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0, MAX_DEPARTURES_OVERALL).map((bus, index) => ({ ...bus, originalMasterIndex: index }));
 
-        // ... (The rest of the function for displaying rows is identical to before) ...
-        const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
-        const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
-        if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0;
-        allUpcomingBusesMasterList = processedBuses;
-        const finalItemsToDisplayInSlots = new Array(MAX_DISPLAY_ROWS).fill(null);
-        if (allUpcomingBusesMasterList.length > 0) {
-            finalItemsToDisplayInSlots[0] = { ...allUpcomingBusesMasterList[0], displayNumber: 1, type: 'bus' };
-            const cyclingCandidates = allUpcomingBusesMasterList.slice(1);
-            if (cyclingCandidates.length > 0) {
-                if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
-                const busesForThisCycle = cyclingCandidates.slice(currentDepartureCycleStartIndex, currentDepartureCycleStartIndex + effectiveCyclingRowsCount);
-                busesForThisCycle.forEach((bus, cycleIndex) => {
-                    const masterListIndex = allUpcomingBusesMasterList.findIndex(masterBus => masterBus.internalId === bus.internalId);
-                    const targetSlotIndex = 1 + cycleIndex;
-                    if (targetSlotIndex < busDisplaySlotsCount) finalItemsToDisplayInSlots[targetSlotIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex +1, type: 'bus'};
-                });
-                currentDepartureCycleStartIndex += effectiveCyclingRowsCount;
-                if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
-            }
+    // ... (The rest of the function for displaying rows remains identical) ...
+    const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
+    const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
+    if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0;
+    allUpcomingBusesMasterList = processedBuses;
+    const finalItemsToDisplayInSlots = new Array(MAX_DISPLAY_ROWS).fill(null);
+    if (allUpcomingBusesMasterList.length > 0) {
+        finalItemsToDisplayInSlots[0] = { ...allUpcomingBusesMasterList[0], displayNumber: 1, type: 'bus' };
+        const cyclingCandidates = allUpcomingBusesMasterList.slice(1);
+        if (cyclingCandidates.length > 0) {
+            if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
+            const busesForThisCycle = cyclingCandidates.slice(currentDepartureCycleStartIndex, currentDepartureCycleStartIndex + effectiveCyclingRowsCount);
+            busesForThisCycle.forEach((bus, cycleIndex) => {
+                const masterListIndex = allUpcomingBusesMasterList.findIndex(masterBus => masterBus.internalId === bus.internalId);
+                const targetSlotIndex = 1 + cycleIndex;
+                if (targetSlotIndex < busDisplaySlotsCount) finalItemsToDisplayInSlots[targetSlotIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex +1, type: 'bus'};
+            });
+            currentDepartureCycleStartIndex += effectiveCyclingRowsCount;
+            if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
         }
-        if (messageActive) {
-            let scrollDuration = "15s";
-            switch(customMessageSettings.scrollSpeed) {
-                case "slow": scrollDuration = "25s"; break;
-                case "fast": scrollDuration = "10s"; break;
-                case "very_fast": scrollDuration = "7s"; break;
-            }
-            finalItemsToDisplayInSlots[MAX_DISPLAY_ROWS - 1] = { type: 'message', text: customMessageSettings.text, scrollDuration: scrollDuration, internalId: 'custom_message_slot_' + customMessageSettings.text };
+    }
+    if (messageActive) {
+        let scrollDuration = "15s";
+        switch(customMessageSettings.scrollSpeed) {
+            case "slow": scrollDuration = "25s"; break;
+            case "fast": scrollDuration = "10s"; break;
+            case "very_fast": scrollDuration = "7s"; break;
         }
-        if (busListElement) busListElement.innerHTML = '';
-        const newSnapshotForThisUpdate = new Array(MAX_DISPLAY_ROWS).fill(null);
-        for (let i = 0; i < MAX_DISPLAY_ROWS; i++) {
-            const itemToDisplay = finalItemsToDisplayInSlots[i];
-            const prevSnapshotForThisSlot = previousArrivalsSnapshot[i];
-            if (itemToDisplay) {
-                const li = document.createElement('li');
-                if (itemToDisplay.type === 'bus') {
-                    const numberSpan = document.createElement('span');
-                    numberSpan.className = 'bus-item-number';
-                    numberSpan.textContent = itemToDisplay.displayNumber + ".";
-                    li.appendChild(numberSpan);
-                    const lineCodeSpan = document.createElement('span');
-                    lineCodeSpan.className = 'bus-item-linecode';
-                    lineCodeSpan.textContent = itemToDisplay.lineName;
-                    li.appendChild(lineCodeSpan);
-                    const destinationSpan = document.createElement('span');
-                    destinationSpan.className = 'bus-item-destination';
-                    destinationSpan.title = sanitize(itemToDisplay.destinationName);
-                    destinationSpan.textContent = itemToDisplay.destinationName;
-                    li.appendChild(destinationSpan);
-                    const timeSpan = document.createElement('span');
-                    timeSpan.className = 'bus-item-time';
-                    timeSpan.textContent = itemToDisplay.calculatedArrivalText;
-                    li.appendChild(timeSpan);
-                    let shouldAnimate = false;
-                    if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'bus') shouldAnimate = true;
-                    else if (itemToDisplay.internalId !== prevSnapshotForThisSlot.slot_internalId || itemToDisplay.calculatedArrivalText !== prevSnapshotForThisSlot.slot_calculatedArrivalText || itemToDisplay.displayNumber !== prevSnapshotForThisSlot.slot_displayNumber) shouldAnimate = true;
-                    if (shouldAnimate) {
-                        li.classList.remove('bus-item-animate');
-                        void li.offsetWidth;
-                        setTimeout(() => { li.classList.add('bus-item-animate'); }, 10);
-                    }
-                    newSnapshotForThisUpdate[i] = { slot_type: 'bus', slot_internalId: itemToDisplay.internalId, slot_calculatedArrivalText: itemToDisplay.calculatedArrivalText, slot_displayNumber: itemToDisplay.displayNumber };
-                } else if (itemToDisplay.type === 'message') {
-                    li.classList.add('custom-status-message-li');
-                    const marqueeSpan = document.createElement('span');
-                    marqueeSpan.className = 'custom-status-message-text';
-                    marqueeSpan.textContent = itemToDisplay.text;
-                    li.style.setProperty('--scroll-duration', itemToDisplay.scrollDuration);
-                    li.appendChild(marqueeSpan);
-                    let shouldAnimateMessage = false;
-                    if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'message' || prevSnapshotForThisSlot.slot_internalId !== itemToDisplay.internalId) shouldAnimateMessage = true;
-                    if (shouldAnimateMessage) {
-                        li.classList.remove('bus-item-animate');
-                        void li.offsetWidth;
-                        setTimeout(() => { li.classList.add('bus-item-animate'); }, 10);
-                    }
-                    newSnapshotForThisUpdate[i] = { slot_type: 'message', slot_internalId: itemToDisplay.internalId, };
+        finalItemsToDisplayInSlots[MAX_DISPLAY_ROWS - 1] = { type: 'message', text: customMessageSettings.text, scrollDuration: scrollDuration, internalId: 'custom_message_slot_' + customMessageSettings.text };
+    }
+    if (busListElement) busListElement.innerHTML = '';
+    const newSnapshotForThisUpdate = new Array(MAX_DISPLAY_ROWS).fill(null);
+    for (let i = 0; i < MAX_DISPLAY_ROWS; i++) {
+        const itemToDisplay = finalItemsToDisplayInSlots[i];
+        const prevSnapshotForThisSlot = previousArrivalsSnapshot[i];
+        if (itemToDisplay) {
+            const li = document.createElement('li');
+            if (itemToDisplay.type === 'bus') {
+                const numberSpan = document.createElement('span');
+                numberSpan.className = 'bus-item-number';
+                numberSpan.textContent = itemToDisplay.displayNumber + ".";
+                li.appendChild(numberSpan);
+                const lineCodeSpan = document.createElement('span');
+                lineCodeSpan.className = 'bus-item-linecode';
+                lineCodeSpan.textContent = itemToDisplay.lineName;
+                li.appendChild(lineCodeSpan);
+                const destinationSpan = document.createElement('span');
+                destinationSpan.className = 'bus-item-destination';
+                destinationSpan.title = sanitize(itemToDisplay.destinationName);
+                destinationSpan.textContent = itemToDisplay.destinationName;
+                li.appendChild(destinationSpan);
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'bus-item-time';
+                timeSpan.textContent = itemToDisplay.calculatedArrivalText;
+                li.appendChild(timeSpan);
+                let shouldAnimate = false;
+                if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'bus') shouldAnimate = true;
+                else if (itemToDisplay.internalId !== prevSnapshotForThisSlot.slot_internalId || itemToDisplay.calculatedArrivalText !== prevSnapshotForThisSlot.slot_calculatedArrivalText || itemToDisplay.displayNumber !== prevSnapshotForThisSlot.slot_displayNumber) shouldAnimate = true;
+                if (shouldAnimate) {
+                    li.classList.remove('bus-item-animate');
+                    void li.offsetWidth;
+                    setTimeout(() => { li.classList.add('bus-item-animate'); }, 10);
                 }
-                busListElement.appendChild(li);
-            } else newSnapshotForThisUpdate[i] = null;
-        }
-        previousArrivalsSnapshot = newSnapshotForThisUpdate;
-        const actualBusesShownCount = finalItemsToDisplayInSlots.filter(item => item && item.type === 'bus').length;
-        if (actualBusesShownCount === 0 && !messageActive && currentSelectedStopID && !closedStopIDsGlobal.includes(currentSelectedStopID)) {
-            if (busListElement) busListElement.innerHTML = `<li class="no-buses-message">Live bus arrivals are not available at this time.</li>`;
-        }
+                newSnapshotForThisUpdate[i] = { slot_type: 'bus', slot_internalId: itemToDisplay.internalId, slot_calculatedArrivalText: itemToDisplay.calculatedArrivalText, slot_displayNumber: itemToDisplay.displayNumber };
+            } else if (itemToDisplay.type === 'message') {
+                li.classList.add('custom-status-message-li');
+                const marqueeSpan = document.createElement('span');
+                marqueeSpan.className = 'custom-status-message-text';
+                marqueeSpan.textContent = itemToDisplay.text;
+                li.style.setProperty('--scroll-duration', itemToDisplay.scrollDuration);
+                li.appendChild(marqueeSpan);
+                let shouldAnimateMessage = false;
+                if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'message' || prevSnapshotForThisSlot.slot_internalId !== itemToDisplay.internalId) shouldAnimateMessage = true;
+                if (shouldAnimateMessage) {
+                    li.classList.remove('bus-item-animate');
+                    void li.offsetWidth;
+                    setTimeout(() => { li.classList.add('bus-item-animate'); }, 10);
+                }
+                newSnapshotForThisUpdate[i] = { slot_type: 'message', slot_internalId: itemToDisplay.internalId, };
+            }
+            busListElement.appendChild(li);
+        } else newSnapshotForThisUpdate[i] = null;
+    }
+    previousArrivalsSnapshot = newSnapshotForThisUpdate;
+    const actualBusesShownCount = finalItemsToDisplayInSlots.filter(item => item && item.type === 'bus').length;
+    if (actualBusesShownCount === 0 && !messageActive && currentSelectedStopID && !closedStopIDsGlobal.includes(currentSelectedStopID)) {
+        if (busListElement) busListElement.innerHTML = `<li class="no-buses-message">Live bus arrivals are not available at this time.</li>`;
+    }
 }
 
 function segmentScheduleEntriesIntoTrips(scheduleEntriesForServiceLeg) {

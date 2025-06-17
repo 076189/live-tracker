@@ -1,5 +1,5 @@
 // sw-omsi.js
-const CACHE_NAME = 'omsi-arrivals-cache-v1-scratch'; // NEW cache name
+const CACHE_NAME = 'omsi-arrivals-cache-v4';
 const urlsToCache = [
   // Paths are absolute from the domain root (076189.github.io)
   // These should correctly map to your files within the 'live-tracker' directory.

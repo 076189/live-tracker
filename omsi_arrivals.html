@@ -919,7 +919,11 @@ function extractDestinationNameFromRule(ruleDestination) {
                 const startTime = new Date(rule.startTime);
                 const endTime = new Date(rule.endTime);
                 if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
-                    combinedScheduleData.push(...rule.dynamicallyGeneratedTrip);
+                    rule.dynamicallyGeneratedTrip.forEach(dynamicEntry => {
+                         if (dynamicEntry.stopID === currentSelectedStopID) {
+                            combinedScheduleData.push({ ...dynamicEntry, isDynamicallyGenerated: true });
+                        }
+                    });
                 }
             }
         }
@@ -932,8 +936,6 @@ function extractDestinationNameFromRule(ruleDestination) {
     const processedBuses = combinedScheduleData
         .filter(bus => bus.stopID === currentSelectedStopID)
         .map((bus, mapIndex) => {
-            
-            // --- FIX: Create a clone of the bus object to prevent modifying the original data ---
             const busData = { ...bus };
 
             if (!busData.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
@@ -965,14 +967,23 @@ function extractDestinationNameFromRule(ruleDestination) {
                             if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
                                 return null;
                             }
-                            // --- FIX: Modify the destination on the cloned object ---
                             busData.destinationName = rule.newTerminusDisplayName;
                         }
                     }
                 }
             }
+
+            if (busData.curtailment) {
+                const stopSequence = busData.tripStopSequence || [];
+                const currentStopIndex = stopSequence.indexOf(busData.stopID);
+                const curtailStopIndex = stopSequence.indexOf(busData.curtailment.curtailAtStopID);
+
+                if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
+                    return null;
+                }
+                busData.destinationName = busData.curtailment.newDestinationName;
+            }
             
-            // --- FIX: Use the cloned busData object for all subsequent processing ---
             if (!busData || !busData.OperatingProfile || typeof busData.OperatingProfile !== 'string' || busData.OperatingProfile.trim() === "") return null;
             let tempTimeStr = String(busData.scheduledTime).trim();
             const tempNumTime = parseFloat(tempTimeStr);
@@ -1020,7 +1031,6 @@ function extractDestinationNameFromRule(ruleDestination) {
         .filter(b => b !== null && b.timeToStationInSeconds <= MAX_TIME_TO_STATION_SECONDS && b.timeToStationInSeconds >= -59)
         .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0, MAX_DEPARTURES_OVERALL).map((bus, index) => ({ ...bus, originalMasterIndex: index }));
 
-    // ... (The rest of the function for displaying rows remains identical) ...
     const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
     const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
     if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0;

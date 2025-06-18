@@ -1896,77 +1896,91 @@ function rsg_applyPastedAdjustments_ExtraPage() {
 }
 
 async function getFCMTokenAndStore(serviceWorkerRegistration) {
-    console.log("FCM DEBUG: Entering getFCMTokenAndStore. Attempting subscription with provided SW registration.");
+    console.log("FCM DEBUG: Entering getFCMTokenAndStore. Attempting subscription.");
 
-    // This block is for robustness in case serviceWorkerRegistration is somehow invalid initially.
-    // It's already good practice to ensure it's a valid object.
-    if (!serviceWorkerRegistration || !(serviceWorkerRegistration instanceof ServiceWorkerRegistration)) {
-        console.warn("FCM DEBUG: Invalid Service Worker Registration provided initially. Attempting recovery with navigator.serviceWorker.ready.");
+    if (!window.firebaseOMSI || !window.firebaseOMSI.messaging || !window.firebaseOMSI.fcmGetToken) {
+        console.error("FCM DEBUG: Firebase Messaging or getToken function not available. Cannot proceed with token acquisition.");
+        return;
+    }
+
+    const messaging = window.firebaseOMSI.messaging;
+    const fcmGetToken = window.firebaseOMSI.fcmGetToken;
+
+    let effectiveRegistration = serviceWorkerRegistration;
+
+    if (!effectiveRegistration || !(effectiveRegistration instanceof ServiceWorkerRegistration)) {
+        console.warn("FCM DEBUG: Invalid or no Service Worker Registration provided. Attempting to acquire a ready one.");
         try {
-            serviceWorkerRegistration = await navigator.serviceWorker.ready;
-            if (!serviceWorkerRegistration) {
-                console.error("FCM DEBUG: Recovery failed. navigator.serviceWorker.ready did not return a registration. Cannot proceed with token acquisition.");
+            effectiveRegistration = await navigator.serviceWorker.ready;
+            if (!effectiveRegistration) {
+                console.error("FCM DEBUG: navigator.serviceWorker.ready did not return a registration. Cannot proceed with token acquisition.");
                 return;
             }
-            console.log("FCM DEBUG: Recovered Service Worker Registration successfully via navigator.serviceWorker.ready.");
+            console.log("FCM DEBUG: Acquired Service Worker Registration successfully via navigator.serviceWorker.ready.");
         } catch (err) {
-            console.error("FCM DEBUG: Recovery attempt for Service Worker Registration failed:", err);
+            console.error("FCM DEBUG: Error acquiring Service Worker Registration:", err);
             return;
         }
     }
-
-    // Now, ensure that the page itself is controlled by a service worker.
-    // This is often the missing link causing the "no active service worker" error.
+    
     if (!navigator.serviceWorker.controller) {
-        console.warn("FCM DEBUG: Page not yet controlled by a Service Worker. Forcing reload to establish control.");
-        // Reloading the page forces it to be controlled by the newly active SW.
-        // This is disruptive, but often necessary for Push API to work immediately after activation.
-        location.reload(); // This will cause the page to reload. The next load will have a controller.
-        return; // Exit, as the page will reload and retry token acquisition on next load.
+        console.log("FCM DEBUG: Page not yet controlled by a Service Worker. Waiting for controller...");
+        let controllerReady = false;
+        for (let i = 0; i < 10; i++) {
+            if (navigator.serviceWorker.controller) {
+                controllerReady = true;
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        if (!controllerReady) {
+            console.warn("FCM DEBUG: Page still not controlled by a Service Worker after waiting. Cannot proceed with token acquisition this round. Reloading may help.");
+            return;
+        }
+        console.log("FCM DEBUG: Page is now controlled by a Service Worker.");
     }
 
 
     try {
-        const messaging = window.firebaseOMSI.messaging;
-        const fcmGetToken = window.firebaseOMSI.fcmGetToken;
-
-        console.log("FCM DEBUG: Attempting fcmGetToken call.");
-
-        // Introduce a small delay before attempting getToken().
-        // This gives the browser's internal PushManager a moment to truly settle.
-        // The AbortError often happens when the environment isn't *fully* ready, even if promises resolve.
-        await new Promise(resolve => setTimeout(resolve, 500)); // Wait for 500ms
+        console.log("FCM DEBUG: Attempting fcmGetToken call with VAPID_PUBLIC_KEY:", VAPID_PUBLIC_KEY);
 
         const currentToken = await fcmGetToken(messaging, {
-            serviceWorkerRegistration: serviceWorkerRegistration,
+            serviceWorkerRegistration: effectiveRegistration,
             vapidKey: VAPID_PUBLIC_KEY
         });
 
         if (currentToken) {
             console.log('FCM Registration Token:', currentToken);
-            const { database, dbSet, dbRef } = window.firebaseOMSI;
-            await dbSet(dbRef(database, `fcmTokens/${currentUser_extra.uid}/${currentToken}`), true);
-            console.log('FCM token stored in Firebase for user:', currentUser_extra.uid);
+            if (currentUser_extra && window.firebaseOMSI.database) {
+                const { database, dbSet, dbRef } = window.firebaseOMSI;
+                await dbSet(dbRef(database, `fcmTokens/${currentUser_extra.uid}/${currentToken}`), true);
+                console.log('FCM token stored in Firebase for user:', currentUser_extra.uid);
+            } else {
+                console.warn('FCM DEBUG: Not storing FCM token in Firebase: User not logged in or Firebase database not available.');
+            }
 
-            if (window.firebaseOMSI.fcmOnMessage) {
+            if (window.firebaseOMSI.fcmOnMessage && !messaging._onMessageListenerSet) {
                 window.firebaseOMSI.fcmOnMessage(messaging, (payload) => {
                     console.log('FCM DEBUG: *** FOREGROUND MESSAGE RECEIVED BY onMessage LISTENER *** ', payload);
-                    const notificationTitle = payload.notification.title;
-                    const notificationBody = payload.notification.body;
-                    const notificationIcon = payload.notification.icon || '/live-tracker/assets/icons/icon-192x192.png';
+                    const notificationTitle = payload.notification?.title || 'Notification';
+                    const notificationBody = payload.notification?.body || '';
+                    const notificationIcon = payload.notification?.icon || '/live-tracker/assets/icons/icon-192x192.png';
+                    
                     if (typeof showTripAlertPopup_ExtraPage === 'function') {
                         showTripAlertPopup_ExtraPage(`${notificationTitle}: ${notificationBody}`, 'info');
                     } else {
                         console.warn("FCM DEBUG: showTripAlertPopup_ExtraPage function not found for foreground handling.");
                     }
+                    
                     if (typeof showNativeNotification === 'function') {
                         showNativeNotification(notificationTitle, notificationBody, notificationIcon);
                     } else {
                         console.warn("FCM DEBUG: showNativeNotification function not found for foreground handling.");
                     }
                 });
-            } else {
-                console.warn("FCM DEBUG: window.firebaseOMSI.fcmOnMessage is not defined.");
+                messaging._onMessageListenerSet = true;
+                console.log("FCM DEBUG: Foreground onMessage listener attached.");
             }
 
         } else {
@@ -1982,6 +1996,7 @@ async function getFCMTokenAndStore(serviceWorkerRegistration) {
     }
     console.log("FCM DEBUG: Exiting getFCMTokenAndStore.");
 }
+// ---END---
 
 let definedCurtailmentPoints = {};
 let activeTripsForCurtailment = [];
@@ -3577,14 +3592,15 @@ async function curtail_handleInterveneClick(tripIndex) {
     });
 }
 
- async function curtail_confirmCurtailment(tripIndex, curtailmentPoint) {
+async function curtail_confirmCurtailment(tripIndex, curtailmentPoint) {
     const tripObject = activeTripsForCurtailment[tripIndex];
-    if (!tripObject || !tripObject.stops || tripObject.stops.length === 0) {
-        alert("Error: Could not find trip data for curtailment.");
+    if (!tripObject || !tripObject.stops || tripObject.stops.length === 0 || !tripObject.stops[0].tripId) {
+        alert("Error: Could not find trip data or unique Trip ID for curtailment.");
         return;
     }
 
     const tripStops = tripObject.stops;
+    const tripIdToCurtain = tripStops[0].tripId;
     const statusMsg = document.getElementById('curtail-status-message-extra');
     const modal = document.getElementById('curtail-intervention-modal-extra');
 
@@ -3595,25 +3611,16 @@ async function curtail_handleInterveneClick(tripIndex) {
         }
 
         const routeName = tripStops[0].lineName;
-        const opProfile = tripStops[0].OperatingProfile;
-        const destName = tripStops[0].destinationName;
-
         const curtailmentData = {
             curtailAtStopID: curtailmentPoint.lastStopID,
             newDestinationName: curtailmentPoint.newDestinationName,
-            appliedAt: new Date().toISOString()
+            appliedAt: new Date().toISOString(),
+            tripId: tripIdToCurtain
         };
 
         let entriesUpdatedCount = 0;
-        const tripTimesByStopId = new Map(tripStops.map(entry => [entry.stopID, entry.scheduledTime]));
-
         currentWorkingSchedule_extra.forEach(entry => {
-            if (
-                entry.lineName === routeName &&
-                entry.destinationName === destName &&
-                entry.OperatingProfile === opProfile &&
-                tripTimesByStopId.get(entry.stopID) === entry.scheduledTime
-            ) {
+            if (entry.tripId === tripIdToCurtain) {
                 entry.curtailment = curtailmentData;
                 entriesUpdatedCount++;
             }
@@ -3622,7 +3629,6 @@ async function curtail_handleInterveneClick(tripIndex) {
         if (entriesUpdatedCount > 0) {
             await saveSpecificRouteDataToFirebase_ExtraPage(routeName);
             
-            // Update local state for immediate re-render
             tripObject.isCurtailed = true;
             tripObject.stops.forEach(stop => stop.curtailment = curtailmentData);
 
@@ -3633,7 +3639,7 @@ async function curtail_handleInterveneClick(tripIndex) {
             if (statusMsg) statusMsg.textContent = `Successfully curtailed trip for Route ${routeName}.`;
 
         } else {
-            throw new Error("Could not find matching schedule entries to apply curtailment to.");
+            throw new Error("Could not find matching schedule entries for the specific trip ID to apply curtailment to. Data might be out of sync.");
         }
 
     } catch (error) {
@@ -3645,27 +3651,18 @@ async function curtail_handleInterveneClick(tripIndex) {
 
 async function curtail_revertCurtailment(tripIndex) {
     const tripObject = activeTripsForCurtailment[tripIndex];
-    if (!tripObject || !tripObject.stops || tripObject.stops.length === 0) {
-        alert("Error: Could not find trip data to revert.");
+    if (!tripObject || !tripObject.stops || tripObject.stops.length === 0 || !tripObject.stops[0].tripId) {
+        alert("Error: Could not find trip data or unique Trip ID to revert.");
         return;
     }
 
-    const tripStops = tripObject.stops;
-    const routeName = tripStops[0].lineName;
-    const opProfile = tripStops[0].OperatingProfile;
-    const destName = tripStops[0].destinationName;
-    
-    const tripTimesByStopId = new Map(tripStops.map(entry => [entry.stopID, entry.scheduledTime]));
+    const tripIdToRevert = tripObject.stops[0].tripId;
+    const routeName = tripObject.stops[0].lineName;
+
     let entriesUpdatedCount = 0;
 
     currentWorkingSchedule_extra.forEach(entry => {
-        if (
-            entry.lineName === routeName &&
-            entry.destinationName === destName &&
-            entry.OperatingProfile === opProfile &&
-            tripTimesByStopId.get(entry.stopID) === entry.scheduledTime &&
-            entry.curtailment
-        ) {
+        if (entry.tripId === tripIdToRevert && entry.curtailment) {
             delete entry.curtailment;
             entriesUpdatedCount++;
         }
@@ -3675,24 +3672,21 @@ async function curtail_revertCurtailment(tripIndex) {
         try {
             await saveSpecificRouteDataToFirebase_ExtraPage(routeName);
             
-            // Update local state for immediate re-render
             tripObject.isCurtailed = false;
             tripObject.stops.forEach(stop => delete stop.curtailment);
 
             curtail_renderTripCards();
 
-            alert(`Reverted curtailment for the ${tripStops[0].scheduledTime} trip. The arrivals board will now update.`);
+            alert(`Reverted curtailment for the ${tripObject.stops[0].scheduledTime} trip. The arrivals board will now update.`);
 
         } catch (error) {
             console.error("Error saving reversion to Firebase:", error);
             alert('Error saving reversion: ' + error.message);
         }
     } else {
-        alert("Error: Could not find the active curtailment record in the live schedule data. The list may be out of sync.");
+        alert("Error: Could not find the active curtailment record for this trip ID in the live schedule data. The list may be out of sync.");
     }
 }
-
-// --- START: Functions for Copying Curtailment Points ---
 
 function op_points_openCopyModal() {
     const targetRoute = document.getElementById('op-points-route-select-extra').value;
@@ -4581,12 +4575,6 @@ function rsg_handleDestinationNameSelectChange_ExtraPage() {
     rsgDestinationNameInput_el_extra.dispatchEvent(blurEvent);
 }
 
-/**
- * Generates an array of trips based on a single RSG configuration object.
- * Each trip is an array of stop entries with calculated times.
- * @param {object} config - A single configuration object from rsg_loadedConfigs_extra.
- * @returns {Array<Array<object>>} An array of trips.
- */
 function generateScheduleTripsFromConfig(config) {
     if (!config || !config.stopSequence || !config.firstStopTimes) {
         return [];
@@ -4595,11 +4583,15 @@ function generateScheduleTripsFromConfig(config) {
     const trips = [];
     const firstStopTimes = (config.firstStopTimes || "").split(/\t|,|;/).map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
 
+    const tripStopSequenceIds = config.stopSequence.map(s => s.stopID);
+
     firstStopTimes.forEach(startTimeHHMM => {
         const singleTrip = [];
         const startParts = startTimeHHMM.split(':');
         let currentMinutesFromMidnight = parseInt(startParts[0], 10) * 60 + parseInt(startParts[1], 10);
         let currentDayOffset = 0;
+
+        const tripId = `${config.routeName}_${config.destinationName}_${config.operatingProfile}_${startTimeHHMM}_${Date.now()}`;
 
         config.stopSequence.forEach((stop, index) => {
             if (!stop || typeof stop.stopID === 'undefined') return;
@@ -4609,7 +4601,6 @@ function generateScheduleTripsFromConfig(config) {
                 currentMinutesFromMidnight += adjustment;
             }
 
-            // Normalize time to handle passing midnight
             let effectiveMinutes = currentMinutesFromMidnight;
             let effectiveDayOffset = currentDayOffset;
             while (effectiveMinutes >= 1440) {
@@ -4633,7 +4624,9 @@ function generateScheduleTripsFromConfig(config) {
                 destinationName: config.destinationName,
                 OperatingProfile: config.operatingProfile,
                 scheduledTime: scheduledTimeOutput,
-                DayOffset: String(effectiveDayOffset)
+                DayOffset: String(effectiveDayOffset),
+                tripId: tripId,
+                tripStopSequence: tripStopSequenceIds
             });
         });
         if(singleTrip.length > 0) {
@@ -16605,7 +16598,6 @@ function displayDeparturesForSelectedStop_ExtraPage() {
         });
     }
 }
-
 </script>
 </body>
 </html>

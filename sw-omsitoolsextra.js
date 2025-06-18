@@ -197,20 +197,17 @@ self.addEventListener('message', event => {
 // Handle notification clicks
 self.addEventListener('notificationclick', function(event) {
     console.log('[sw-omsitoolsextra.js] Notification click received.', event);
-    event.notification.close(); // Close the notification after click
+    event.notification.close();
 
-    // Check if a URL is provided in the notification's data payload
-    // event.notification.data is where custom data attached to the notification would be
-    const click_redirect_url = event.notification.data?.url || '/live-tracker/omsi_tools_extra.html'; // Default to the tools page
+    // FIXED: Look for 'click_action' to match what the cloud function sends.
+    const click_redirect_url = event.notification.data?.click_action || '/live-tracker/omsi_tools_extra.html';
 
     event.waitUntil(
         clients.openWindow(click_redirect_url).then(windowClient => {
-            // Optional: focus the window if it was already open
             if (windowClient) {
                 windowClient.focus();
             }
         })
     );
 });
-
 // --- END: Firebase Cloud Messaging (FCM) Push Event Handlers ---

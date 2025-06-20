@@ -4576,65 +4576,66 @@ function rsg_handleDestinationNameSelectChange_ExtraPage() {
 }
 
 function generateScheduleTripsFromConfig(config) {
-    if (!config || !config.stopSequence || !config.firstStopTimes) {
-        return [];
-    }
-    
-    const trips = [];
-    const firstStopTimes = (config.firstStopTimes || "").split(/\t|,|;/).map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
-
-    const tripStopSequenceIds = config.stopSequence.map(s => s.stopID);
-
-    firstStopTimes.forEach(startTimeHHMM => {
-        const singleTrip = [];
-        const startParts = startTimeHHMM.split(':');
-        let currentMinutesFromMidnight = parseInt(startParts[0], 10) * 60 + parseInt(startParts[1], 10);
-        let currentDayOffset = 0;
-
-        const tripId = `${config.routeName}_${config.destinationName}_${config.operatingProfile}_${startTimeHHMM}_${Date.now()}`;
-
-        config.stopSequence.forEach((stop, index) => {
-            if (!stop || typeof stop.stopID === 'undefined') return;
-
-            if (index > 0) {
-                const adjustment = (typeof stop.timeAdjustment === 'number' && !isNaN(stop.timeAdjustment)) ? stop.timeAdjustment : 0;
-                currentMinutesFromMidnight += adjustment;
+            if (!config || !config.stopSequence || !config.firstStopTimes) {
+                return [];
             }
-
-            let effectiveMinutes = currentMinutesFromMidnight;
-            let effectiveDayOffset = currentDayOffset;
-            while (effectiveMinutes >= 1440) {
-                effectiveMinutes -= 1440;
-                effectiveDayOffset++;
-            }
-            while (effectiveMinutes < 0) {
-                effectiveMinutes += 1440;
-                effectiveDayOffset--;
-            }
-
-            const hours = Math.floor(effectiveMinutes / 60);
-            const minutes = effectiveMinutes % 60;
-            const scheduledTimeOutput = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
             
-            singleTrip.push({
-                stopID: stop.stopID,
-                stopName: stop.stopName,
-                direction: stop.direction,
-                lineName: config.routeName,
-                destinationName: config.destinationName,
-                OperatingProfile: config.operatingProfile,
-                scheduledTime: scheduledTimeOutput,
-                DayOffset: String(effectiveDayOffset),
-                tripId: tripId,
-                tripStopSequence: tripStopSequenceIds
+            const trips = [];
+            const firstStopTimes = (config.firstStopTimes || "").split(/\t|,|;/).map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
+
+            const tripStopSequenceIds = config.stopSequence.map(s => s.stopID);
+
+            firstStopTimes.forEach(startTimeHHMM => {
+                const singleTrip = [];
+                const startParts = startTimeHHMM.split(':');
+                let currentMinutesFromMidnight = parseInt(startParts[0], 10) * 60 + parseInt(startParts[1], 10);
+                let currentDayOffset = 0;
+
+                // --- THIS IS THE CORRECTED LINE ---
+                const tripId = `${config.routeName}_${config.destinationName}_${config.operatingProfile}_${startTimeHHMM}`;
+
+                config.stopSequence.forEach((stop, index) => {
+                    if (!stop || typeof stop.stopID === 'undefined') return;
+
+                    if (index > 0) {
+                        const adjustment = (typeof stop.timeAdjustment === 'number' && !isNaN(stop.timeAdjustment)) ? stop.timeAdjustment : 0;
+                        currentMinutesFromMidnight += adjustment;
+                    }
+
+                    let effectiveMinutes = currentMinutesFromMidnight;
+                    let effectiveDayOffset = currentDayOffset;
+                    while (effectiveMinutes >= 1440) {
+                        effectiveMinutes -= 1440;
+                        effectiveDayOffset++;
+                    }
+                    while (effectiveMinutes < 0) {
+                        effectiveMinutes += 1440;
+                        effectiveDayOffset--;
+                    }
+
+                    const hours = Math.floor(effectiveMinutes / 60);
+                    const minutes = effectiveMinutes % 60;
+                    const scheduledTimeOutput = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                    
+                    singleTrip.push({
+                        stopID: stop.stopID,
+                        stopName: stop.stopName,
+                        direction: stop.direction,
+                        lineName: config.routeName,
+                        destinationName: config.destinationName,
+                        OperatingProfile: config.operatingProfile,
+                        scheduledTime: scheduledTimeOutput,
+                        DayOffset: String(effectiveDayOffset),
+                        tripId: tripId,
+                        tripStopSequence: tripStopSequenceIds
+                    });
+                });
+                if(singleTrip.length > 0) {
+                    trips.push(singleTrip);
+                }
             });
-        });
-        if(singleTrip.length > 0) {
-            trips.push(singleTrip);
+            return trips;
         }
-    });
-    return trips;
-}
 
 function showTripAlertPopup_ExtraPage(message, type = 'info') { // Added type for styling
     const banner = document.getElementById('global-notification-banner');
@@ -16598,6 +16599,7 @@ function displayDeparturesForSelectedStop_ExtraPage() {
         });
     }
 }
+
 </script>
 </body>
 </html>

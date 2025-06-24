@@ -518,10 +518,32 @@ align-items: center;
 		<button class="menu-button" data-section="enhanced-bulk-update-section_extra">Enhanced Destination Update</button>
 		<button class="menu-button" data-section="global-route-colour-management-section-extra">Global Route Colours</button>
 		<button class="menu-button" data-section="stop-specific-route-colour-management-section-extra">Stop-Specific Colours</button>
+		<button class="menu-button" data-section="settings-section_extra">App Settings</button>
             </div>
         </div>
 
         <div id="tool-sections-wrapper_extra">
+
+<div id="settings-section_extra" class="tool-content-section section" style="display:none;">
+                <h2>App Settings</h2>
+                <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
+                    Configure application-wide settings such as automatic logout timers.
+                </p>
+                <div class="subsection">
+                    <h3 class="subsection-title">General Settings</h3>
+                    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); align-items: end;">
+                        <div>
+                            <label for="app-setting-autologout-minutes-extra">Auto-Logout After (minutes)</label>
+                            <input type="number" id="app-setting-autologout-minutes-extra" class="schedule-generator-input" min="0">
+                            <p style="font-size:0.8em; opacity:0.8; margin-top:0.4rem;">Set to 0 to disable automatic logout.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="subsection" style="margin-top:1.5rem;">
+                    <button id="save-app-settings-button-extra" class="button save">Save Settings</button>
+                    <p id="app-settings-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+                </div>
+            </div>
 
             <div id="enhanced-bulk-update-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>Enhanced Bulk Destination Update</h2>
@@ -1349,6 +1371,8 @@ align-items: center;
         let rsg_configKeyToRename_extra = null;
         let currentUser_extra = null;
 	let liveScheduleForToolsDisplay = []; // NEW: Stores flattened data from FB_PATH_SCHEDULES_BY_ROUTE for display purposes
+	let appSettings_extra = { autoLogoutMinutes: 30 }; // For new settings section
+	let logoutTimerId = null; // For new settings section
         let pageSpecificSettings = {};
         let rsg_currentlyEditingConfigKey_extra = null;
         let rsg_currentlyEditingConfigDisplayName_extra = null;
@@ -1407,6 +1431,7 @@ align-items: center;
         const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides';
 	const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
         const FB_PATH_SCHEDULED_DELETIONS = '/scheduledRouteDeletions';
+	const FB_PATH_APP_SETTINGS = '/settings/appSettings'; // For new settings section
         const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute'; // New path for structured schedule data
 	const FB_PATH_CURTAILMENT_POINTS = '/operationalSettings/curtailmentPoints';
 	const FB_PATH_LIVE_INTERVENTIONS = '/liveServiceInterventions/curtailments';
@@ -2496,6 +2521,95 @@ function displayRoutesForSpecificColouring_ExtraPage() {
                 }
             });
             specificRouteColourTilesContainer_el_extra.appendChild(tile);
+        });
+    }
+}
+
+// --- App Settings & Auto-Logout Functions ---
+function populateSettingsForm_ExtraPage() {
+    // This function is called when the settings section becomes visible
+    const logoutInput = document.getElementById('app-setting-autologout-minutes-extra');
+    if (logoutInput && appSettings_extra) {
+        logoutInput.value = appSettings_extra.autoLogoutMinutes || 30;
+    }
+}
+
+async function saveAppSettings_ExtraPage() {
+    const statusEl = document.getElementById('app-settings-status-message-extra');
+    if (!currentUser_extra || !window.firebaseOMSI || !statusEl) {
+        if(statusEl) statusEl.textContent = 'Not logged in or system error.';
+        return;
+    }
+
+    const logoutInput = document.getElementById('app-setting-autologout-minutes-extra');
+    const newLogoutMinutes = parseInt(logoutInput.value, 10);
+
+    if (isNaN(newLogoutMinutes) || newLogoutMinutes < 0) {
+        statusEl.textContent = 'Invalid value for logout minutes. Please enter a non-negative number.';
+        statusEl.style.color = '#f1c40f';
+        return;
+    }
+
+    const newSettings = {
+        autoLogoutMinutes: newLogoutMinutes
+    };
+
+    statusEl.textContent = 'Saving settings...';
+    statusEl.style.color = '#3498db';
+
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    try {
+        await dbSet(dbRef(database, FB_PATH_APP_SETTINGS), newSettings);
+        appSettings_extra = newSettings; // Update local state
+        
+        statusEl.textContent = 'Settings saved successfully!';
+        statusEl.style.color = '#2ecc71';
+        
+        // Re-initialize the timer with the new duration
+        initializeAutoLogoutTimer_ExtraPage();
+
+    } catch (error) {
+        statusEl.textContent = 'Error saving settings: ' + error.message;
+        statusEl.style.color = '#e74c3c';
+        console.error("Error saving app settings:", error);
+    }
+}
+
+function logoutUserDueToInactivity() {
+    console.log("User inactive. Logging out.");
+    alert("You have been logged out due to inactivity.");
+    if (window.firebaseOMSI && window.firebaseOMSI.auth) {
+        const logoutButton = document.getElementById('logoutButton_extra');
+        if(logoutButton) logoutButton.click(); // Programmatically click the logout button
+    }
+}
+
+function resetLogoutTimer() {
+    if (logoutTimerId) {
+        clearTimeout(logoutTimerId);
+    }
+    const logoutMinutes = parseInt(appSettings_extra.autoLogoutMinutes, 10);
+    if (currentUser_extra && logoutMinutes > 0 && !isNaN(logoutMinutes)) {
+        logoutTimerId = setTimeout(logoutUserDueToInactivity, logoutMinutes * 60 * 1000);
+    }
+}
+
+function initializeAutoLogoutTimer_ExtraPage() {
+    if (currentUser_extra) { // Only run if a user is logged in
+        resetLogoutTimer(); // Set the initial timer
+        // Add event listeners to reset the timer on activity
+        ['click', 'mousemove', 'keydown', 'scroll', 'touchstart'].forEach(eventName => {
+            document.removeEventListener(eventName, resetLogoutTimer, false); // Remove old listener first
+            document.addEventListener(eventName, resetLogoutTimer, false);
+        });
+        console.log(`Auto-logout timer initialized for ${appSettings_extra.autoLogoutMinutes} minutes.`);
+    } else {
+         if (logoutTimerId) {
+            clearTimeout(logoutTimerId);
+            logoutTimerId = null;
+        }
+        ['click', 'mousemove', 'keydown', 'scroll', 'touchstart'].forEach(eventName => {
+            document.removeEventListener(eventName, resetLogoutTimer, false);
         });
     }
 }
@@ -15264,6 +15378,8 @@ function rsg_openCopyFromModal_ExtraPage() {
         } else if (sectionId === 'config-data-section_extra') {
             if (typeof displaySchoolHolidays_ExtraPage === 'function') displaySchoolHolidays_ExtraPage();
             if (typeof renderEditableOpProfiles_ExtraPage === 'function') renderEditableOpProfiles_ExtraPage();
+        } else if (sectionId === 'settings-section_extra') { // New Section Handler
+            if (typeof populateSettingsForm_ExtraPage === 'function') populateSettingsForm_ExtraPage();
         } else if (sectionId === 'key-departures-section_extra') {
             if (typeof displayKeyDepartures_ExtraPage === 'function') {
                 displayKeyDepartures_ExtraPage();
@@ -15289,12 +15405,10 @@ function rsg_openCopyFromModal_ExtraPage() {
                 slc_list_updater_interval = setInterval(slc_renderActiveCurtailments, 15000);
             }
         } 
-        // --- NEWLY ADDED BLOCK ---
         else if (sectionId === 'enhanced-bulk-update-section_extra') {
             if (typeof ebu_populateRouteTiles_ExtraPage === 'function') ebu_populateRouteTiles_ExtraPage();
             if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') ebu_populateOldDestinationSelect_ExtraPage();
         } 
-        // --- END NEWLY ADDED BLOCK ---
         else if (sectionId === 'global-route-colour-management-section-extra' || sectionId === 'stop-specific-route-colour-management-section-extra') {
              if (typeof renderUIDependentElements_ExtraPage === 'function') renderUIDependentElements_ExtraPage();
         }
@@ -15374,6 +15488,7 @@ async function loadInitialData_ExtraPage() {
     globalCustomRouteColours_extra = {};
     liveScheduleForToolsDisplay = [];
     closedStopIDs_extra = [];
+    appSettings_extra = { autoLogoutMinutes: 30 }; // Reset to default
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         console.error("Firebase not initialized. Cannot load data.");
@@ -15384,6 +15499,12 @@ async function loadInitialData_ExtraPage() {
 
     try {
         let startTime, duration;
+
+        // --- Load App Settings ---
+        const appSettingsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APP_SETTINGS));
+        if (appSettingsSnap.exists()) {
+            appSettings_extra = appSettingsSnap.val();
+        }
 
         // --- Load App State (Status, Closed Stops) ---
         startTime = performance.now();
@@ -15402,9 +15523,7 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded app state and ${closedStopIDs_extra.length} closed stop IDs in ${duration.toFixed(2)} ms.`);
 
-        // --- START: CORRECTED DATA LOADING ORDER ---
-
-        // 1. Load the LIVE schedule from Firebase. This is now the source of truth for the app's current state.
+        // --- Load the LIVE schedule from Firebase ---
         startTime = performance.now();
         console.log("[PERF] Loading LIVE schedule data (from FB_PATH_SCHEDULES_BY_ROUTE)...");
         const liveScheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULES_BY_ROUTE));
@@ -15432,13 +15551,12 @@ async function loadInitialData_ExtraPage() {
                 }
             }
         }
-        // Assign the loaded LIVE data, which contains curtailment info, to the main working variable.
         currentWorkingSchedule_extra = liveFlatScheduleFromDB;
-        liveScheduleForToolsDisplay = liveFlatScheduleFromDB; // Keep this synced as well.
+        liveScheduleForToolsDisplay = liveFlatScheduleFromDB;
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded and assigned ${currentWorkingSchedule_extra.length} LIVE schedule entries as the primary data source in ${duration.toFixed(2)} ms.`);
 
-        // 2. Load RSG configurations separately. This data is now only for the Route Schedule Generator tool's editing purposes.
+        // --- Load RSG configurations separately ---
         startTime = performance.now();
         console.log("[PERF] Loading RSG configurations (for editing)...");
         const rsgConfigsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIGS));
@@ -15446,9 +15564,7 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
 
-        // --- END: CORRECTED DATA LOADING ORDER ---
-
-        // 3. Load other ancillary data as before
+        // --- Load other ancillary data ---
         const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
         globalCustomRouteColours_extra = globalColoursSnap.exists() ? globalColoursSnap.val() || {} : {};
         
@@ -15486,6 +15602,8 @@ async function loadInitialData_ExtraPage() {
     
     await fetchBankHolidays_ExtraPage();
     await updateCurrentProfileDisplay_ExtraPage();
+    
+    initializeAutoLogoutTimer_ExtraPage(); // Initialize timer after data load
     renderUIDependentElements_ExtraPage();
 
     const totalDuration = performance.now() - totalStartTime;
@@ -15573,6 +15691,11 @@ function renderUIDependentElements_ExtraPage() {
 
         document.addEventListener('DOMContentLoaded', () => {
     console.log("OMSI Tools Extra DOMContentLoaded");
+
+const saveSettingsButton = document.getElementById('save-app-settings-button-extra');
+    if (saveSettingsButton && typeof saveAppSettings_ExtraPage === 'function') {
+        saveSettingsButton.addEventListener('click', saveAppSettings_ExtraPage);
+    }
 
 const topMenuBar = document.getElementById('top-menu-bar_extra');
             if (topMenuBar) {

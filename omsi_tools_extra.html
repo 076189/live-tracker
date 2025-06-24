@@ -519,10 +519,57 @@ align-items: center;
 		<button class="menu-button" data-section="global-route-colour-management-section-extra">Global Route Colours</button>
 		<button class="menu-button" data-section="stop-specific-route-colour-management-section-extra">Stop-Specific Colours</button>
 		<button class="menu-button" data-section="settings-section_extra">App Settings</button>
+		<button class="menu-button" data-section="user-management-section_extra">User Management</button>
             </div>
         </div>
 
         <div id="tool-sections-wrapper_extra">
+
+<div id="user-management-section_extra" class="tool-content-section section" style="display:none;">
+    <h2>User Management</h2>
+    <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
+        Add, remove, or edit users and their access levels. User roles determine which tools and actions are available to them.
+    </p>
+
+    <div class="subsection">
+        <h3 class="subsection-title" id="um-form-title_extra">Add New User</h3>
+        <form id="userManagementForm_extra">
+            <input type="hidden" id="um-user-id-input_extra">
+            <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end;">
+                <div>
+                    <label for="um-email-input_extra">User Email</label>
+                    <input type="email" id="um-email-input_extra" required autocomplete="off">
+                </div>
+                <div>
+                    <label for="um-password-input_extra">Password (leave blank if not changing)</label>
+                    <input type="password" id="um-password-input_extra" autocomplete="new-password">
+                </div>
+                <div>
+                    <label for="um-role-select_extra">Role</label>
+                    <select id="um-role-select_extra" required>
+                        <option value="Standard User">Standard User</option>
+                        <option value="Controller">Controller</option>
+                        <option value="Moderator">Moderator</option>
+                        <option value="Admin">Admin</option>
+                    </select>
+                </div>
+                <div>
+                    <button id="um-submit-button_extra" type="submit" class="button save">Add User</button>
+                    <button id="um-clear-form-button_extra" type="button" class="button neutral" style="display:none;">Cancel Edit</button>
+                </div>
+            </div>
+        </form>
+        <p id="um-form-status_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+    </div>
+
+    <div class="subsection" style="margin-top: 2rem;">
+        <h3 class="subsection-title">Existing Users</h3>
+        <div id="user-list-container_extra" style="max-height: 400px; overflow-y: auto;">
+            <p>Loading users...</p>
+        </div>
+        <p id="um-list-status_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+    </div>
+</div>
 
 <div id="settings-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>App Settings</h2>
@@ -1427,6 +1474,7 @@ align-items: center;
 
 
         // --- Firebase Path Constants ---
+	const FB_PATH_USERS = '/users';
         const FB_PATH_PAGE_EXTRA_SETTINGS = '/settings/extraModulesPageSettings';
         const FB_PATH_OPERATIONAL_OVERRIDES = '/operationalOverrides';
 	const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
@@ -1470,6 +1518,18 @@ align-items: center;
 
 
         // --- DOM Elements ---
+	const umSection_el = document.getElementById('user-management-section_extra');
+const umFormTitle_el = document.getElementById('um-form-title_extra');
+const umForm_el = document.getElementById('userManagementForm_extra');
+const umUserIdInput_el = document.getElementById('um-user-id-input_extra');
+const umEmailInput_el = document.getElementById('um-email-input_extra');
+const umPasswordInput_el = document.getElementById('um-password-input_extra');
+const umRoleSelect_el = document.getElementById('um-role-select_extra');
+const umSubmitButton_el = document.getElementById('um-submit-button_extra');
+const umClearFormButton_el = document.getElementById('um-clear-form-button_extra');
+const umFormStatus_el = document.getElementById('um-form-status_extra');
+const umUserListContainer_el = document.getElementById('user-list-container_extra');
+const umListStatus_el = document.getElementById('um-list-status_extra');
         const tteRouteNameSelect_el_extra = document.getElementById('tte-routeName-select-extra');
         const tteRouteNameInput_el_extra = document.getElementById('tte-routeName-input-extra');
 	const dpoSelectAllRoutesButton_el_extra = document.getElementById('dpo-select-all-routes-button-extra');
@@ -15420,18 +15480,40 @@ function rsg_openCopyFromModal_ExtraPage() {
     const authHeading = authSection_el_extra ? authSection_el_extra.querySelector('h2') : null;
 
     if (user) { // User is logged in
+        // --- This is the new logic to fetch the user's role ---
+        let userRole = 'Standard User'; // Default role if not found
+        const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
+        try {
+            const userRoleRef = dbChild(dbRef(database), `${FB_PATH_USERS}/${user.uid}/role`);
+            const snapshot = await dbGet(userRoleRef);
+            if (snapshot.exists()) {
+                userRole = snapshot.val();
+            } else {
+                console.warn(`User with UID ${user.uid} does not have a role defined in the database. Defaulting to 'Standard User'.`);
+            }
+        } catch (error) {
+            console.error("Error fetching user role:", error);
+            // In case of an error fetching the role, it's safest to default to the most restrictive role.
+            userRole = 'Standard User';
+        }
+        // --- End of new role-fetching logic ---
+
+
         if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none';
         if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'flex';
         if (authHeading) authHeading.style.display = 'none';
         if (authSection_el_extra) authSection_el_extra.classList.add('auth-section-compact');
-        
+
         if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block';
         if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email;
         if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block';
 
+        // --- Call the access control function with the fetched role ---
+        applyRoleBasedAccessControl(userRole);
+
         await loadInitialData_ExtraPage();
         setupFirebaseListeners_ExtraPage();
-        
+
     } else { // User is logged out
         // Stop all timers on logout
         if (slc_list_updater_interval) {
@@ -15459,9 +15541,9 @@ function rsg_openCopyFromModal_ExtraPage() {
         if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block';
         if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none';
         if (authHeading) authHeading.style.display = 'block';
-        
+
         if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none';
-        
+
         if (authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.';
         if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = '';
         if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none';
@@ -16042,6 +16124,166 @@ dbOnValue(liveInterventionsRef, (snapshot) => {
             renderCalendarView_ExtraPage();
         });
     }
+
+// Function to apply UI restrictions based on user role
+function applyRoleBasedAccessControl(userRole) {
+    const allMenuButtons = document.querySelectorAll('#main-menu-buttons_extra .menu-button');
+    
+    // Define which sections are visible to each role
+    const rolePermissions = {
+        'Admin': ['all'],
+        'Moderator': [
+            'day-profile-override-section_extra', 'stop-manager-tool-section_extra',
+            'global-route-deletion-section_extra', 'route-profile-deletion-section_extra',
+            'view-departures-section_extra', 'timetable-exporter-section_extra',
+            'scheduled-route-updates-section_extra', 'scheduled-route-deletion-section_extra',
+            'config-data-section_extra', 'key-departures-section_extra',
+            'calendar-view-section_extra', 'curtailment-config-section_extra',
+            'enhanced-bulk-update-section_extra', 'global-route-colour-management-section-extra',
+            'stop-specific-route-colour-management-section-extra', 'settings-section_extra'
+        ],
+        'Controller': [
+            'stop-manager-tool-section_extra', 'view-departures-section_extra',
+            'timetable-exporter-section_extra', 'key-departures-section_extra',
+            'calendar-view-section_extra', 'trip-curtailment-section_extra',
+            'service-leg-curtailment-section_extra', 'enhanced-bulk-update-section_extra',
+            'settings-section_extra'
+        ],
+        'Standard User': [
+            'stop-manager-tool-section_extra', 'view-departures-section_extra',
+            'timetable-exporter-section_extra', 'settings-section_extra'
+        ]
+    };
+
+    const allowedSections = rolePermissions[userRole] || [];
+
+    allMenuButtons.forEach(button => {
+        const sectionId = button.dataset.section;
+        if (allowedSections[0] === 'all' || allowedSections.includes(sectionId)) {
+            button.style.display = '';
+        } else {
+            button.style.display = 'none';
+        }
+    });
+
+    // Here you would add more detailed logic to disable specific controls inside each tool
+    // For example, for a "Controller" in the "Master Stop Viewer":
+    if (userRole === 'Controller' || userRole === 'Standard User') {
+        // Hide elements for adding/editing stops
+        const addStopSection = document.querySelector('#stop-manager-tool-section_extra .subsection:first-of-type');
+        if(addStopSection) addStopSection.style.display = 'none';
+        
+        // Hide edit/delete/close buttons in the stop list (this requires modifying the list rendering)
+    }
+}
+
+// Function to render the list of users
+function um_renderUserList(usersData) {
+    if (!umUserListContainer_el) return;
+    umUserListContainer_el.innerHTML = ''; // Clear previous list
+
+    if (!usersData || Object.keys(usersData).length === 0) {
+        umUserListContainer_el.innerHTML = '<p>No users found.</p>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.innerHTML = `
+        <thead style="text-align: left; border-bottom: 1px solid #7f8c8d;">
+            <tr>
+                <th style="padding: 0.5rem;">Email</th>
+                <th style="padding: 0.5rem;">Role</th>
+                <th style="padding: 0.5rem;">Actions</th>
+            </tr>
+        </thead>
+        <tbody></tbody>`;
+    const tbody = table.querySelector('tbody');
+
+    for (const uid in usersData) {
+        const userData = usersData[uid];
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #4a5568';
+        tr.innerHTML = `
+            <td style="padding: 0.5rem;">${userData.email || 'N/A'}</td>
+            <td style="padding: 0.5rem;">${userData.role || 'N/A'}</td>
+            <td style="padding: 0.5rem;">
+                <button class="button small-action neutral um-edit-btn" data-uid="${uid}">Edit</button>
+                <button class="button small-action secondary um-delete-btn" data-uid="${uid}">Delete</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    }
+    umUserListContainer_el.appendChild(table);
+}
+
+// Function to handle form submission (Add/Update)
+async function um_handleFormSubmit(event) {
+    event.preventDefault();
+    if (!currentUser_extra || !umEmailInput_el.value || !umRoleSelect_el.value) {
+        umFormStatus_el.textContent = 'Email and Role are required.';
+        umFormStatus_el.style.color = '#f1c40f';
+        return;
+    }
+
+    const email = umEmailInput_el.value.trim();
+    const password = umPasswordInput_el.value;
+    const role = umRoleSelect_el.value;
+    const userIdToEdit = umUserIdInput_el.value;
+
+    umSubmitButton_el.disabled = true;
+    umFormStatus_el.textContent = userIdToEdit ? 'Updating user...' : 'Creating user...';
+    umFormStatus_el.style.color = '#3498db';
+
+    // This is a placeholder for a more complex user creation flow.
+    // In a real app, you would use a Firebase Function to create the user in Auth
+    // and simultaneously create their role in the Realtime Database.
+    umFormStatus_el.textContent = 'This is a conceptual demonstration. User creation requires server-side logic (Firebase Functions). This tool manages roles for existing users.';
+    umFormStatus_el.style.color = '#f1c40f';
+    umSubmitButton_el.disabled = false;
+}
+
+// Function to clear the form
+function um_clearForm() {
+    umFormTitle_el.textContent = 'Add New User';
+    umSubmitButton_el.textContent = 'Add User';
+    umUserIdInput_el.value = '';
+    umEmailInput_el.value = '';
+    umPasswordInput_el.value = '';
+    umRoleSelect_el.value = 'Standard User';
+    umClearFormButton_el.style.display = 'none';
+    umEmailInput_el.disabled = false;
+    umFormStatus_el.textContent = '';
+}
+
+// Add event listeners when the DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    if (umForm_el) {
+        umForm_el.addEventListener('submit', um_handleFormSubmit);
+    }
+    if (umClearFormButton_el) {
+        umClearFormButton_el.addEventListener('click', um_clearForm);
+    }
+
+    // Delegated event listener for edit/delete buttons
+    if (umUserListContainer_el) {
+        umUserListContainer_el.addEventListener('click', (event) => {
+            if (event.target.classList.contains('um-edit-btn')) {
+                const uid = event.target.dataset.uid;
+                // Placeholder for edit functionality
+                umFormStatus_el.textContent = `Editing user ${uid}. (Functionality to be fully implemented)`;
+            }
+            if (event.target.classList.contains('um-delete-btn')) {
+                const uid = event.target.dataset.uid;
+                // Placeholder for delete functionality
+                if (confirm(`Are you sure you want to delete user ${uid}? This is conceptual.`)) {
+                    umFormStatus_el.textContent = `Deleted user ${uid}. (Conceptual)`;
+                }
+            }
+        });
+    }
+});
 
     // --- Firebase Auth Initialization ---
     function initializeExtraAppLogic() {

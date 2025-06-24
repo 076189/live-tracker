@@ -1344,6 +1344,8 @@ align-items: center;
 <script>
 // --- Global State Variables ---
 	let slc_list_updater_interval = null;
+	let curtail_trip_list_updater_interval = null;
+	const earlyMorningThresholdHours = 4;
         let rsg_configKeyToRename_extra = null;
         let currentUser_extra = null;
 	let liveScheduleForToolsDisplay = []; // NEW: Stores flattened data from FB_PATH_SCHEDULES_BY_ROUTE for display purposes
@@ -3417,7 +3419,7 @@ function curtail_fetchTodaysTrips() {
     const dest = document.getElementById('curtail-dest-select-extra').value;
     const statusMsg = document.getElementById('curtail-status-message-extra');
     const container = document.getElementById('curtail-trip-list-container-extra');
-    const now = new Date(); // Get the current time for filtering
+    const now = new Date(); 
 
     if (!route || !dest) {
         statusMsg.textContent = 'Please select a route and destination.';
@@ -3431,7 +3433,7 @@ function curtail_fetchTodaysTrips() {
     statusMsg.style.color = '#3498db';
 
     const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
-    let allTripsForTheDay = []; // Temporary holder for all trips
+    let allTripsForTheDay = [];
 
     if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
         statusMsg.textContent = 'Error: Route Schedule Generator configurations are not loaded.';
@@ -3452,13 +3454,13 @@ function curtail_fetchTodaysTrips() {
         if (isActiveToday) {
             const tripsFromThisConfig = generateScheduleTripsFromConfig(config);
             
-            // --- NEW: Calculate duration and create trip objects ---
             const tripDurationMinutes = (config.stopSequence || []).reduce((acc, stop, index) => {
                 return index > 0 ? acc + (stop.timeAdjustment || 0) : acc;
             }, 0);
 
             tripsFromThisConfig.forEach(tripStops => {
                 if (tripStops.length > 0) {
+                    // We still need to calculate the end time for filtering later
                     const startTimeObj = createEventTimeObjForAlert(tripStops[0].scheduledTime, new Date());
                     const endTimeObj = new Date(startTimeObj.getTime() + tripDurationMinutes * 60000);
 
@@ -3470,42 +3472,100 @@ function curtail_fetchTodaysTrips() {
                     });
                 }
             });
-            // --- END NEW ---
         }
     }
 
-    // --- NEW: Filter for trips that have not finished yet ---
-    activeTripsForCurtailment = allTripsForTheDay.filter(trip => trip.endTimeObj >= now);
+    // --- MODIFICATION START ---
+    // Remove the filter that hides past trips. The renderer will handle this dynamically.
+    activeTripsForCurtailment = allTripsForTheDay;
 
-    // Sort the filtered trips by their start time
+    // Sort the trips by start time once, right after fetching.
     activeTripsForCurtailment.sort((a, b) => {
         return a.startTime.localeCompare(b.startTime);
     });
 
-    curtail_renderTripCards();
-    statusMsg.textContent = `Found ${activeTripsForCurtailment.length} upcoming or in-service trips.`;
+    statusMsg.textContent = `Found ${activeTripsForCurtailment.length} total trips for today. Displaying active trips.`;
     statusMsg.style.color = '#2ecc71';
+    
+    // Immediately render the list. The interval will take over from here.
+    curtail_renderTripCards();
+    // --- MODIFICATION END ---
 }
 
 function curtail_renderTripCards() {
     const container = document.getElementById('curtail-trip-list-container-extra');
-    container.innerHTML = '';
-    if (activeTripsForCurtailment.length === 0) {
-        container.innerHTML = '<p>No upcoming or in-service trips found for the selected service today.</p>';
+    if (!container) return; // Exit if the container isn't on the page
+
+    // If the tool section is not visible, do nothing.
+    const section = document.getElementById('trip-curtailment-section_extra');
+    if (section && section.style.display === 'none') {
         return;
     }
 
-    activeTripsForCurtailment.forEach((tripObject, tripIndex) => {
-        const tripStops = tripObject.stops; // Get the stops from the object
-        if (tripStops.length === 0) return;
+    container.innerHTML = ''; // Clear previous render
+    if (!activeTripsForCurtailment || activeTripsForCurtailment.length === 0) {
+        container.innerHTML = '<p>Please select a service above and fetch trips, or no trips were found for today\'s profile.</p>';
+        return;
+    }
 
+    const now = new Date();
+    let tripsRendered = 0; // Counter for rendered cards
+
+    activeTripsForCurtailment.forEach((tripObject, tripIndex) => {
+        // First, check if the entire trip has finished. Skip if it's over.
+        if (tripObject.endTimeObj < now) {
+            return;
+        }
+
+        let originalTripStops = tripObject.stops;
+        if (originalTripStops.length === 0) return;
+
+        const firstStop = originalTripStops[0];
+        const isCurtailed = tripObject.isCurtailed;
+
+        // --- Main Filtering Logic ---
+        let stopsToDisplay = [...originalTripStops];
+
+        // 1. Handle curtailment (truncates the list based on the intervention)
+        if (isCurtailed) {
+            const curtailStopIndex = stopsToDisplay.findIndex(s => s.stopID === firstStop.curtailment.curtailAtStopID);
+            if (curtailStopIndex !== -1) {
+                stopsToDisplay = stopsToDisplay.slice(0, curtailStopIndex + 1);
+            }
+        }
+        
+        // 2. Filter by time to only show upcoming stops
+        const upcomingStops = stopsToDisplay.filter(stop => {
+            if (!stop.scheduledTime) return false;
+            
+            // This logic calculates the absolute date and time for each stop, handling overnight services.
+            const [hours, minutes] = stop.scheduledTime.split(':').map(Number);
+            const dayOffset = parseInt(stop.DayOffset || '0', 10);
+            
+            let serviceDate = new Date();
+            if (serviceDate.getHours() < earlyMorningThresholdHours) {
+                serviceDate.setDate(serviceDate.getDate() - 1);
+            }
+
+            let absoluteStopTime = new Date(serviceDate.getFullYear(), serviceDate.getMonth(), serviceDate.getDate(), hours, minutes, 0);
+            if (dayOffset > 0) {
+                absoluteStopTime.setDate(absoluteStopTime.getDate() + dayOffset);
+            }
+
+            return absoluteStopTime >= now;
+        });
+
+        // If after filtering there are no upcoming stops for this trip, don't render its card.
+        if (upcomingStops.length === 0) {
+            return;
+        }
+        // --- End of Filtering Logic ---
+
+        tripsRendered++;
         const card = document.createElement('div');
         card.className = 'subsection';
         card.style.marginBottom = '1rem';
         
-        const firstStop = tripStops[0];
-        const isCurtailed = tripObject.isCurtailed;
-
         const cardHeader = document.createElement('h4');
         cardHeader.style.marginTop = 0;
         
@@ -3525,20 +3585,19 @@ function curtail_renderTripCards() {
         stopList.style.paddingLeft = '1rem';
         stopList.style.fontSize = '0.9em';
         
-        const curtailStopIndex = isCurtailed ? tripStops.findIndex(s => s.stopID === firstStop.curtailment.curtailAtStopID) : -1;
-
-        tripStops.forEach((stop, stopIndex) => {
+        upcomingStops.forEach((stop) => {
             const li = document.createElement('li');
             li.textContent = `${stop.scheduledTime} - ${stop.stopName}`;
-            if (isCurtailed && curtailStopIndex !== -1 && stopIndex > curtailStopIndex) {
-                li.style.textDecoration = 'line-through';
-                li.style.opacity = '0.5';
-            }
             stopList.appendChild(li);
         });
+
         card.appendChild(stopList);
         container.appendChild(card);
     });
+
+    if (tripsRendered === 0) {
+        container.innerHTML = '<p>No currently active or upcoming trips found. All scheduled services may have finished for the day.</p>';
+    }
 
     container.querySelectorAll('button[data-trip-index]').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -15085,153 +15144,76 @@ function rsg_openCopyFromModal_ExtraPage() {
     if(typeof rsg_updateRsgActionButtonsState === 'function') rsg_updateRsgActionButtonsState();
 }
 
-        function showExtraPageSection(sectionId) {
+    function showExtraPageSection(sectionId) {
 
     if (slc_list_updater_interval) {
         clearInterval(slc_list_updater_interval);
         slc_list_updater_interval = null;
     }
+    // --- ADDITION START ---
+    // Clear the trip intervention updater whenever we switch sections
+    if (curtail_trip_list_updater_interval) {
+        clearInterval(curtail_trip_list_updater_interval);
+        curtail_trip_list_updater_interval = null;
+    }
+    // --- ADDITION END ---
 
-            if (!toolSectionsWrapper_el_extra) {
-                return;
-            }
-            const allSections = toolSectionsWrapper_el_extra.querySelectorAll(".tool-content-section");
-            allSections.forEach((s) => {
-                s.style.display = "none";
-            });
-            const sectionToShow = document.getElementById(sectionId);
-            if (sectionToShow) {
-                sectionToShow.style.display = "block";
-                localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
+    if (!toolSectionsWrapper_el_extra) {
+        return;
+    }
+    const allSections = toolSectionsWrapper_el_extra.querySelectorAll(".tool-content-section");
+    allSections.forEach((s) => {
+        s.style.display = "none";
+    });
+    const sectionToShow = document.getElementById(sectionId);
+    if (sectionToShow) {
+        sectionToShow.style.display = "block";
+        localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
 
-                if (keyDeparturesIntervalId_extra) {
-                    clearInterval(keyDeparturesIntervalId_extra);
-                    keyDeparturesIntervalId_extra = null;
-                }
-
-                // Based on the section being shown, call the necessary function to populate it
-                if (sectionId === "day-profile-override-section_extra") {
-                    if (typeof loadAndDisplayOverrides_ExtraPage === 'function') loadAndDisplayOverrides_ExtraPage();
-                    if (typeof dpo_populateProfileCheckboxes_ExtraPage === 'function') dpo_populateProfileCheckboxes_ExtraPage();
-                    if (typeof dpo_populateRouteSelection_ExtraPage === 'function') dpo_populateRouteSelection_ExtraPage();
-                    if (typeof updateSelectedDateInfo_ExtraPage === 'function') updateSelectedDateInfo_ExtraPage();
-                    if (typeof dpo_updateActionButtonsState === 'function') dpo_updateActionButtonsState();
-                } else if (sectionId === "key-departures-section_extra") {
-                    if (typeof displayKeyDepartures_ExtraPage === 'function') {
-                        displayKeyDepartures_ExtraPage();
-                        keyDeparturesIntervalId_extra = setInterval(displayKeyDepartures_ExtraPage, KEY_DEPARTURES_REFRESH_INTERVAL_MS);
-                    }
-                } else if (sectionId === "stop-manager-tool-section_extra") {
-                    if (typeof populateMasterStopList_ExtraPage === 'function') populateMasterStopList_ExtraPage();
-                } else if (sectionId === "global-route-deletion-section_extra") {
-                    if (typeof populateGlobalRouteToDeleteList_ExtraPage === 'function') populateGlobalRouteToDeleteList_ExtraPage();
-                } else if (sectionId === "route-schedule-generator-section_extra") {
-                    if (typeof rsg_populateRouteTiles_ExtraPage === 'function') rsg_populateRouteTiles_ExtraPage();
-                    if (typeof rsg_populateProfileCheckboxes_ExtraPage === 'function') rsg_populateProfileCheckboxes_ExtraPage();
-                    if (typeof rsg_renderSavedConfigsList_ExtraPage === 'function') rsg_renderSavedConfigsList_ExtraPage();
-                    if (typeof rsg_loadOrPullConfiguration_ExtraPage === 'function') rsg_loadOrPullConfiguration_ExtraPage(null, true);
-                } else if (sectionId === "route-profile-deletion-section_extra") {
-                    if (typeof rpd_populateRouteSelect_ExtraPage === 'function') rpd_populateRouteSelect_ExtraPage();
-                } else if (sectionId === "view-departures-section_extra") {
-                    if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') populateStopSelectorForDeparturesView_ExtraPage();
-                    if (typeof displayDeparturesForSelectedStop_ExtraPage === 'function') displayDeparturesForSelectedStop_ExtraPage();
-                } else if (sectionId === "timetable-exporter-section_extra") {
-                    if (typeof populateTimetableExporterRouteSelect_ExtraPage === 'function') populateTimetableExporterRouteSelect_ExtraPage();
-                } else if (sectionId === "scheduled-route-updates-section_extra") {
-                    // Now that it's dynamic, we just call the render function which uses the live data.
-                    if (typeof loadAndDisplayScheduledUpdates_ExtraPage === 'function') {
-                        loadAndDisplayScheduledUpdates_ExtraPage();
-                    }
-                } else if (sectionId === "scheduled-route-deletion-section_extra") {
-                    if (typeof srd_populateRouteSelect_ExtraPage === 'function') srd_populateRouteSelect_ExtraPage();
-                } else if (sectionId === 'config-data-section_extra') {
-                    if (typeof displaySchoolHolidays_ExtraPage === 'function') displaySchoolHolidays_ExtraPage();
-                    if (typeof renderEditableOpProfiles_ExtraPage === 'function') renderEditableOpProfiles_ExtraPage();
-                } else if (sectionId === 'calendar-view-section_extra') {
-                    if (typeof renderCalendarView_ExtraPage === 'function') {
-                        cv_currentDisplayDate_extra = new Date();
-                        renderCalendarView_ExtraPage();
-                    }
-                } else if (sectionId === 'curtailment-config-section_extra') {
-                    if (typeof op_points_populateRouteSelect === 'function') op_points_populateRouteSelect();
-                    if (typeof op_points_populateReturnOriginSelect === 'function') op_points_populateReturnOriginSelect();
-                } else if (sectionId === 'trip-curtailment-section_extra') {
-                    if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
-                } else if (sectionId === 'route-curtailment-section_extra') {
-                    if (typeof slc_populateRouteSelect === 'function') slc_populateRouteSelect();
-                    if (typeof slc_renderActiveCurtailments === 'function') slc_renderActiveCurtailments();
-                } else if (sectionId === "enhanced-bulk-update-section_extra") {
-                    if (typeof ebu_populateRouteTiles_ExtraPage === 'function') {
-                        ebu_populateRouteTiles_ExtraPage();
-                    }
-                    if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') {
-                        ebu_populateOldDestinationSelect_ExtraPage();
-                    }
-                } else if (sectionId === "global-route-colour-management-section-extra") {
-                    if (typeof populateRouteSelectorForGlobalColours_ExtraPage === 'function') {
-                        populateRouteSelectorForGlobalColours_ExtraPage();
-                    }
-                    if (typeof renderGlobalCustomRouteColours_ExtraPage === 'function') {
-                        renderGlobalCustomRouteColours_ExtraPage();
-                    }
-                } else if (sectionId === "stop-specific-route-colour-management-section-extra") {
-                    if (typeof populateStopSelectorForSpecificColours_ExtraPage === 'function') {
-                        populateStopSelectorForSpecificColours_ExtraPage();
-                    }
-                    if (typeof renderStopSpecificRouteColours_ExtraPage === 'function') {
-                        renderStopSpecificRouteColours_ExtraPage();
-                    }
-                    if (selectStopForSpecificRouteColour_el_extra?.value && typeof displayRoutesForSpecificColouring_ExtraPage === 'function') {
-                        displayRoutesForSpecificColouring_ExtraPage();
-                    }
-                }
-            }
+        if (keyDeparturesIntervalId_extra) {
+            clearInterval(keyDeparturesIntervalId_extra);
+            keyDeparturesIntervalId_extra = null;
         }
+
+        // ... (your existing if/else if blocks for other sections)
+        // ...
+        
+        // --- MODIFICATION START ---
+        // Find the existing `else if` block for trip-curtailment-section_extra and modify it
+        else if (sectionId === 'trip-curtailment-section_extra') {
+            if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
+            
+            // This section now starts an interval that calls the renderer repeatedly.
+            if (typeof curtail_renderTripCards === 'function') {
+                curtail_renderTripCards(); // Initial render
+                curtail_trip_list_updater_interval = setInterval(curtail_renderTripCards, 10000); // Refresh every 10 seconds
+            }
+        } 
+        // ... (the rest of your else if blocks)
+        // ...
+    }
+}
 
         async function updateAuthUI_ExtraPage(user) {
     currentUser_extra = user;
     const authHeading = authSection_el_extra ? authSection_el_extra.querySelector('h2') : null;
 
-    if (user) { // User is logged in
-        if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none';
-        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'flex';
-        if (authHeading) authHeading.style.display = 'none';
-        if (authSection_el_extra) authSection_el_extra.classList.add('auth-section-compact');
-        
-        if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'block';
-        if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = user.email;
-        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'block';
-
-        await loadInitialData_ExtraPage();
-        setupFirebaseListeners_ExtraPage();
-        
+    if (user) { 
+        // ... (existing code for logged-in user)
     } else { // User is logged out
-        // --- ADDED: Stop the timer on logout ---
+        // --- ADDITION START ---
+        // Stop all timers on logout
         if (slc_list_updater_interval) {
             clearInterval(slc_list_updater_interval);
             slc_list_updater_interval = null;
         }
-        // --- END ADDITION ---
-
-        if (authSection_el_extra) {
-            authSection_el_extra.style.display = 'block';
-            authSection_el_extra.classList.remove('auth-section-compact');
+        if (curtail_trip_list_updater_interval) {
+            clearInterval(curtail_trip_list_updater_interval);
+            curtail_trip_list_updater_interval = null;
         }
-        if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block';
-        if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none';
-        if (authHeading) authHeading.style.display = 'block';
-        
-        if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none';
-        
-        if (authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.';
-        if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = '';
-        if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none';
-        if (toolSectionsWrapper_el_extra) {
-            toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none');
-        }
+        // --- ADDITION END ---
 
-        currentWorkingSchedule_extra = [];
-        allDefinedStops_data = {};
+        // ... (rest of existing code for logged-out user)
     }
 }
 

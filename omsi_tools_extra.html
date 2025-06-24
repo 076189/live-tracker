@@ -15475,6 +15475,68 @@ function rsg_openCopyFromModal_ExtraPage() {
     }
 }
 
+// Function to apply UI restrictions based on user role
+function applyRoleBasedAccessControl(userRole) {
+    const allMenuButtons = document.querySelectorAll('#main-menu-buttons_extra .menu-button');
+    
+    // Define which sections are visible to each role
+    const rolePermissions = {
+        'Admin': ['all'],
+        'Moderator': [
+            'day-profile-override-section_extra', 'stop-manager-tool-section_extra',
+            'global-route-deletion-section_extra', 'route-profile-deletion-section_extra',
+            'view-departures-section_extra', 'timetable-exporter-section_extra',
+            'scheduled-route-updates-section_extra', 'scheduled-route-deletion-section_extra',
+            'config-data-section_extra', 'key-departures-section_extra',
+            'calendar-view-section_extra', 'curtailment-config-section_extra',
+            'enhanced-bulk-update-section_extra', 'global-route-colour-management-section-extra',
+            'stop-specific-route-colour-management-section-extra', 'settings-section_extra',
+            'user-management-section_extra' // Ensure Admin can see user management
+        ],
+        'Controller': [
+            'stop-manager-tool-section_extra', 'view-departures-section_extra',
+            'timetable-exporter-section_extra', 'key-departures-section_extra',
+            'calendar-view-section_extra', 'trip-curtailment-section_extra',
+            'route-curtailment-section_extra', // Corrected from service-leg-curtailment
+            'enhanced-bulk-update-section_extra', 'settings-section_extra'
+        ],
+        'Standard User': [
+            'stop-manager-tool-section_extra', 'view-departures-section_extra',
+            'timetable-exporter-section_extra', 'settings-section_extra'
+        ]
+    };
+
+    const allowedSections = rolePermissions[userRole] || [];
+
+    allMenuButtons.forEach(button => {
+        const sectionId = button.dataset.section;
+        if (allowedSections[0] === 'all' || allowedSections.includes(sectionId)) {
+            button.style.display = '';
+        } else {
+            button.style.display = 'none';
+        }
+    });
+
+    // --- Detailed UI element restrictions based on role ---
+
+    const isController = userRole === 'Controller';
+    const isStandard = userRole === 'Standard User';
+
+    if (isController || isStandard) {
+        // Hide elements for adding/editing stops in Master Stop Viewer
+        const addStopSection = document.querySelector('#stop-manager-tool-section_extra .subsection:first-of-type');
+        if(addStopSection) addStopSection.style.display = 'none';
+        
+        // Hide bulk replace section
+        const bulkReplaceSection = document.querySelector('#stop-manager-tool-section_extra .subsection:nth-of-type(2)');
+        if(bulkReplaceSection) bulkReplaceSection.style.display = 'none';
+
+        // Hide "Find Duplicates" button
+        const findDuplicatesBtn = document.getElementById('findDuplicateStopsByNameDirButton_extra');
+        if(findDuplicatesBtn) findDuplicatesBtn.style.display = 'none';
+    }
+}
+
         async function updateAuthUI_ExtraPage(user) {
     currentUser_extra = user;
     const authHeading = authSection_el_extra ? authSection_el_extra.querySelector('h2') : null;

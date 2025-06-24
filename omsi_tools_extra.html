@@ -3612,7 +3612,7 @@ function curtail_renderTripCards() {
 }
 
 async function curtail_handleInterveneClick(tripIndex) {
-    const tripObject = activeTripsForCurtailment[tripIndex]; // Get the trip object
+    const tripObject = activeTripsForCurtailment[tripIndex];
     if (!tripObject || !tripObject.stops || tripObject.stops.length === 0) return;
 
     const tripStops = tripObject.stops;
@@ -3622,8 +3622,11 @@ async function curtail_handleInterveneClick(tripIndex) {
     const title = document.getElementById('curtail-modal-title-extra');
     const optionsContainer = document.getElementById('curtail-modal-options-container-extra');
 
+    // --- Start of New/Modified Logic ---
+    const now = new Date();
+
     title.textContent = `Intervene on ${tripStops[0].scheduledTime} trip to ${dest}`;
-    optionsContainer.innerHTML = '<p>Loading valid curtailment points...</p>';
+    optionsContainer.innerHTML = '<p>Loading and filtering valid curtailment points...</p>';
     modal.style.display = 'flex';
 
     const { database, dbGet, dbRef } = window.firebaseOMSI;
@@ -3636,10 +3639,35 @@ async function curtail_handleInterveneClick(tripIndex) {
         return;
     }
 
-    optionsContainer.innerHTML = '';
+    optionsContainer.innerHTML = ''; // Clear "Loading..."
+    let validOptionsFound = 0; // Counter for valid, future options
+
     officialPoints.forEach(point => {
+        // Find this curtailment point within the specific trip's stop list
         const pointStopInTrip = tripStops.find(s => s.stopID === point.lastStopID);
-        if (pointStopInTrip) {
+        
+        // If the curtailment point isn't part of this trip's sequence, skip it.
+        if (!pointStopInTrip || !pointStopInTrip.scheduledTime) {
+            return; 
+        }
+
+        // Calculate the absolute time for this specific stop in this specific trip
+        const [hours, minutes] = pointStopInTrip.scheduledTime.split(':').map(Number);
+        const dayOffset = parseInt(pointStopInTrip.DayOffset || '0', 10);
+        
+        let serviceDate = new Date();
+        if (serviceDate.getHours() < earlyMorningThresholdHours) {
+            serviceDate.setDate(serviceDate.getDate() - 1);
+        }
+        
+        let absoluteStopTime = new Date(serviceDate.getFullYear(), serviceDate.getMonth(), serviceDate.getDate(), hours, minutes, 0);
+        if (dayOffset > 0) {
+            absoluteStopTime.setDate(absoluteStopTime.getDate() + dayOffset);
+        }
+
+        // Check if the time for this curtailment point is in the future
+        if (absoluteStopTime > now) {
+            validOptionsFound++;
             const btn = document.createElement('button');
             btn.className = 'button';
             btn.style.width = '100%';
@@ -3649,6 +3677,12 @@ async function curtail_handleInterveneClick(tripIndex) {
             optionsContainer.appendChild(btn);
         }
     });
+
+    // If no future options were found after filtering, display a message.
+    if (validOptionsFound === 0) {
+        optionsContainer.innerHTML = '<p>No future curtailment points available for this trip. It may have passed all of them.</p>';
+    }
+    // --- End of New/Modified Logic ---
 }
 
 async function curtail_confirmCurtailment(tripIndex, curtailmentPoint) {
@@ -15266,6 +15300,7 @@ async function loadInitialData_ExtraPage() {
     allDefinedStops_data = {};
     globalCustomRouteColours_extra = {};
     liveScheduleForToolsDisplay = [];
+    closedStopIDs_extra = [];
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         console.error("Firebase not initialized. Cannot load data.");
@@ -15277,72 +15312,45 @@ async function loadInitialData_ExtraPage() {
     try {
         let startTime, duration;
 
-        // *** START: THIS IS THE NEW, CRUCIAL BLOCK TO FIX THE ISSUE ***
+        // --- Load App State (Status, Closed Stops) ---
         startTime = performance.now();
-        console.log("[PERF] Loading Closed Stop IDs...");
-        const closedStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
-        if (closedStopsSnap.exists()) {
-            const fbClosedStops = closedStopsSnap.val() || {};
-            // The data is stored as {"LE72": true}. We need to get the keys.
-            closedStopIDs_extra = Object.keys(fbClosedStops).filter(key => fbClosedStops[key] === true);
-        } else {
-            // If the node doesn't exist in Firebase, ensure our local list is empty.
-            closedStopIDs_extra = [];
+        const appStateSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE));
+        const appState = appStateSnapshot.exists() ? appStateSnapshot.val() : {};
+        currentScheduleStatus = appState?.scheduleStatus || 'idle';
+        if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
+            displaySystemUpdateMessage();
+        }
+        const fbClosedStops = appState?.closedStopIDs || {};
+        for (const stopID in fbClosedStops) {
+            if (Object.hasOwnProperty.call(fbClosedStops, stopID) && fbClosedStops[stopID] === true) {
+                closedStopIDs_extra.push(stopID.toUpperCase());
+            }
         }
         duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${closedStopIDs_extra.length} closed stop IDs in ${duration.toFixed(2)} ms.`);
-        // *** END: NEW BLOCK ***
+        console.log(`[PERF] ...loaded app state and ${closedStopIDs_extra.length} closed stop IDs in ${duration.toFixed(2)} ms.`);
 
-        // 1. Load RSG configurations (from /rsgConfigs)
-        startTime = performance.now();
-        console.log("[PERF] Loading RSG configurations (from FB_PATH_RSG_CONFIGS)...");
-        const rsgConfigsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIGS));
-        rsg_loadedConfigs_extra = rsgConfigsSnap.exists() ? rsgConfigsSnap.val() || {} : {};
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
+        // --- START: CORRECTED DATA LOADING ORDER ---
 
-        // 2. Flatten RSG configurations into currentWorkingSchedule_extra
-        startTime = performance.now();
-        console.log("[PERF] Flattening RSG configs into currentWorkingSchedule_extra...");
-        let flatScheduleFromConfigs = [];
-        Object.values(rsg_loadedConfigs_extra).forEach(config => {
-            if (config && config.stopSequence && config.firstStopTimes) {
-                const trips = generateScheduleTripsFromConfig(config);
-                trips.forEach(tripEntries => {
-                    flatScheduleFromConfigs.push(...tripEntries);
-                });
-            }
-        });
-        currentWorkingSchedule_extra = flatScheduleFromConfigs;
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...flattened configs into ${currentWorkingSchedule_extra.length} entries in ${duration.toFixed(2)} ms.`);
-
-        // 3. Load the actual "live" schedule data
+        // 1. Load the LIVE schedule from Firebase. This is now the source of truth for the app's current state.
         startTime = performance.now();
         console.log("[PERF] Loading LIVE schedule data (from FB_PATH_SCHEDULES_BY_ROUTE)...");
-        const liveScheduleSnapForTools = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULES_BY_ROUTE));
-        const liveFlatScheduleFromDBForTools = [];
-        if (liveScheduleSnapForTools.exists()) {
-            const schedulesByRoute = liveScheduleSnapForTools.val();
+        const liveScheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
+        const liveFlatScheduleFromDB = [];
+        if (liveScheduleSnap.exists()) {
+            const schedulesByRoute = liveScheduleSnap.val();
             if (schedulesByRoute && typeof schedulesByRoute === 'object') {
                 for (const routeKey in schedulesByRoute) {
-                    if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
-                        const routeData = schedulesByRoute[routeKey];
-                        if (routeData && typeof routeData === 'object') {
-                            for (const profileKey in routeData) {
-                                if (Object.hasOwnProperty.call(routeData, profileKey)) {
-                                    const profileData = routeData[profileKey];
-                                    if (profileData && typeof profileData === 'object') {
-                                        for (const destKey in profileData) {
-                                            if (Object.hasOwnProperty.call(profileData, destKey)) {
-                                                const destData = profileData[destKey];
-                                                if (destData && Array.isArray(destData.entries)) {
-                                                    destData.entries.forEach(entry => {
-                                                        if (entry) liveFlatScheduleFromDBForTools.push({ ...entry });
-                                                    });
-                                                }
-                                            }
-                                        }
+                    const routeData = schedulesByRoute[routeKey];
+                    if (routeData && typeof routeData === 'object') {
+                        for (const profileKey in routeData) {
+                            const profileData = routeData[profileKey];
+                            if (profileData && typeof profileData === 'object') {
+                                for (const destKey in profileData) {
+                                    const destData = profileData[destKey];
+                                    if (destData && Array.isArray(destData.entries)) {
+                                        destData.entries.forEach(entry => {
+                                            if (entry) liveFlatScheduleFromDB.push({ ...entry });
+                                        });
                                     }
                                 }
                             }
@@ -15351,29 +15359,29 @@ async function loadInitialData_ExtraPage() {
                 }
             }
         }
-        liveScheduleForToolsDisplay = liveFlatScheduleFromDBForTools;
+        // Assign the loaded LIVE data, which contains curtailment info, to the main working variable.
+        currentWorkingSchedule_extra = liveFlatScheduleFromDB;
+        liveScheduleForToolsDisplay = liveFlatScheduleFromDB; // Keep this synced as well.
         duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${liveScheduleForToolsDisplay.length} LIVE schedule entries in ${duration.toFixed(2)} ms.`);
+        console.log(`[PERF] ...loaded and assigned ${currentWorkingSchedule_extra.length} LIVE schedule entries as the primary data source in ${duration.toFixed(2)} ms.`);
 
-        // 4. Load Global Custom Route Colours
+        // 2. Load RSG configurations separately. This data is now only for the Route Schedule Generator tool's editing purposes.
         startTime = performance.now();
-        console.log("[PERF] Loading Global Custom Route Colours...");
+        console.log("[PERF] Loading RSG configurations (for editing)...");
+        const rsgConfigsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIGS));
+        rsg_loadedConfigs_extra = rsgConfigsSnap.exists() ? rsgConfigsSnap.val() || {} : {};
+        duration = performance.now() - startTime;
+        console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
+
+        // --- END: CORRECTED DATA LOADING ORDER ---
+
+        // 3. Load other ancillary data as before
         const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
         globalCustomRouteColours_extra = globalColoursSnap.exists() ? globalColoursSnap.val() || {} : {};
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${Object.keys(globalCustomRouteColours_extra).length} global color rules in ${duration.toFixed(2)} ms.`);
-
-        // 5. Load Master Stop Definitions
-        startTime = performance.now();
-        console.log("[PERF] Loading Master Stop Definitions...");
+        
         const allDefinedStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
         allDefinedStops_data = allDefinedStopsSnap.exists() ? allDefinedStopsSnap.val() || {} : {};
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${Object.keys(allDefinedStops_data).length} master stop definitions in ${duration.toFixed(2)} ms.`);
         
-        // 6. Build Stop-to-Route Map
-        startTime = performance.now();
-        console.log("[PERF] Building Stop-to-Route Map for LIVE schedule data...");
         stopToServingRoutesMap_extra.clear();
         liveScheduleForToolsDisplay.forEach(entry => {
             if (entry.stopID && entry.lineName) {
@@ -15383,48 +15391,21 @@ async function loadInitialData_ExtraPage() {
                 stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
             }
         });
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...built stop-to-route map for LIVE schedule in ${duration.toFixed(2)} ms.`);
         
-        // 7. Load Operating Profiles list
-        startTime = performance.now();
-        console.log("[PERF] Loading Operating Profiles list...");
         const opProfilesSnap = await dbGet(dbRef(database, FB_PATH_EDITABLE_OP_PROFILES));
         if (opProfilesSnap.exists()) RSG_OPERATING_PROFILES_LIST = opProfilesSnap.val();
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${RSG_OPERATING_PROFILES_LIST.length} operating profiles in ${duration.toFixed(2)} ms.`);
 
-        // 8. Load School Holidays
-        startTime = performance.now();
-        console.log("[PERF] Loading School Holidays...");
         const shSnap = await dbGet(dbRef(database, FB_PATH_SCHOOL_HOLIDAYS));
         if (shSnap.exists()) schoolHolidayDateRanges_extra = shSnap.val(); else schoolHolidayDateRanges_extra = DEFAULT_SCHOOL_HOLIDAY_RANGES;
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${schoolHolidayDateRanges_extra.length} school holiday ranges in ${duration.toFixed(2)} ms.`);
 
-        // 9. Load Day Profile Overrides
-        startTime = performance.now();
-        console.log("[PERF] Loading Day Profile Overrides...");
         const dpoSnap = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
         operationalOverrides_data = dpoSnap.exists() ? dpoSnap.val() || {} : {};
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${Object.keys(operationalOverrides_data).length} DPO records in ${duration.toFixed(2)} ms.`);
 
-        // 10. Load Mass Curtailments
-        startTime = performance.now();
-        console.log("[PERF] Loading Mass Curtailments...");
         const massCurtailmentsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
         massCurtailments_data = massCurtailmentsSnap.exists() ? massCurtailmentsSnap.val() || {} : {};
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${Object.keys(massCurtailments_data).length} mass curtailment records in ${duration.toFixed(2)} ms.`);
 
-        // 11. Loading Defined Curtailment Points
-        startTime = performance.now();
-        console.log("[PERF] Loading Defined Curtailment Points...");
         const curtailmentPointsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_CURTAILMENT_POINTS));
         definedCurtailmentPoints = curtailmentPointsSnap.exists() ? curtailmentPointsSnap.val() || {} : {};
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded ${Object.keys(definedCurtailmentPoints).length} defined curtailment points in ${duration.toFixed(2)} ms.`);
         
     } catch (error) {
         console.error("Firebase Load Error (Extra Tools):", error);

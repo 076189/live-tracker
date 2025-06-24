@@ -2241,44 +2241,70 @@ function slc_populateRouteSelect() {
 function slc_populateDestinationSelect() {
     const routeSelect = document.getElementById('slc-route-select-extra');
     const destSelect = document.getElementById('slc-destination-select-extra');
-    if (!routeSelect || !destSelect) return;
-
-    const selectedRoute = routeSelect.value;
-    destSelect.innerHTML = '<option value="">-- Select Journey Variant --</option>';
-    destSelect.disabled = true;
-    
-    // This will clear the terminus points dropdown when the route changes.
-    slc_populateCurtailmentPointsSelect(); 
-
-    if (!selectedRoute) return;
-
-    // This logic finds all saved RSG configurations for the selected route.
-    const matchingConfigs = [];
-    const futureDatePattern = /\(from\s*\d{6}\)/;
-    for (const key in rsg_loadedConfigs_extra) {
-        const config = rsg_loadedConfigs_extra[key];
-        if (config.routeName === selectedRoute && !futureDatePattern.test(config.userDisplayName || key)) {
-            matchingConfigs.push({ key, ...config });
-        }
+    if (!routeSelect || !destSelect) {
+        console.error("SLC FATAL: Dropdown elements `slc-route-select-extra` or `slc-destination-select-extra` are missing.");
+        return;
     }
 
-    // Sort the configurations alphabetically by their display name
+    const selectedRoute = routeSelect.value;
+    
+    // --- Reset dependent dropdowns ---
+    destSelect.innerHTML = '<option value="">-- Select Journey Variant --</option>';
+    destSelect.disabled = true;
+
+    // Trigger updates down the chain to clear them as well
+    if (typeof slc_populateReturnDestinationSelect === 'function') slc_populateReturnDestinationSelect();
+    if (typeof slc_populateCurtailmentPointsSelect === 'function') slc_populateCurtailmentPointsSelect();
+    
+    // If no route is selected, we are done.
+    if (!selectedRoute) {
+        return;
+    }
+
+    const matchingConfigs = [];
+    const futureDatePattern = /\(from\s*\d{6}\)/;
+
+    // --- ROBUST FILTERING LOGIC ---
+    for (const key in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[key];
+
+        // DEFENSIVE CHECK 1: Ensure the config object and its routeName property exist.
+        if (!config || !config.routeName) {
+            continue; // Skip malformed or incomplete config objects.
+        }
+
+        // DEFENSIVE CHECK 2: Use case-insensitive comparison for the route name.
+        const routeNameMatch = config.routeName.toUpperCase() === selectedRoute.toUpperCase();
+
+        if (routeNameMatch) {
+            // DEFENSIVE CHECK 3: Check for future-date pattern only on userDisplayName if it exists.
+            let isFutureDated = false;
+            if (config.userDisplayName && typeof config.userDisplayName === 'string') {
+                isFutureDated = futureDatePattern.test(config.userDisplayName);
+            }
+            
+            if (!isFutureDated) {
+                matchingConfigs.push({ key, ...config });
+            }
+        }
+    }
+    
+    // Sort the valid, current configurations alphabetically by their display name
     matchingConfigs.sort((a, b) => (a.userDisplayName || a.key).localeCompare(b.userDisplayName || b.key));
 
-    // Populate the dropdown with the descriptive name and unique key
+    // Populate the dropdown if we found any matching journey variants (configs)
     if (matchingConfigs.length > 0) {
         matchingConfigs.forEach(config => {
             const option = document.createElement('option');
-            // The VALUE is now the unique key of the saved config
-            option.value = config.key; 
-            // The TEXT is the user-friendly display name
-            option.textContent = config.userDisplayName || config.key; 
+            option.value = config.key; // The VALUE is the unique RSG config key
+            option.textContent = config.userDisplayName || config.key; // The TEXT is the user-friendly name
             destSelect.appendChild(option);
         });
         destSelect.disabled = false;
     }
     
-    // Trigger the next function in the chain
+    // CRITICAL: Manually trigger the 'change' event on this dropdown.
+    // This ensures that the functions for populating the next dropdowns in the chain are called.
     destSelect.dispatchEvent(new Event('change'));
 }
 
@@ -15183,17 +15209,16 @@ function rsg_openCopyFromModal_ExtraPage() {
 
     function showExtraPageSection(sectionId) {
 
+    // Clear the interval for SLC when switching away from it.
     if (slc_list_updater_interval) {
         clearInterval(slc_list_updater_interval);
         slc_list_updater_interval = null;
     }
-    // --- ADDITION START ---
-    // Clear the trip intervention updater whenever we switch sections
+    // Clear the interval for the Live Intervention tool when switching away.
     if (curtail_trip_list_updater_interval) {
         clearInterval(curtail_trip_list_updater_interval);
         curtail_trip_list_updater_interval = null;
     }
-    // --- ADDITION END ---
 
     if (!toolSectionsWrapper_el_extra) {
         return;
@@ -15207,27 +15232,40 @@ function rsg_openCopyFromModal_ExtraPage() {
         sectionToShow.style.display = "block";
         localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
 
+        // Stop the Key Departures timer if we navigate away from it
         if (keyDeparturesIntervalId_extra) {
             clearInterval(keyDeparturesIntervalId_extra);
             keyDeparturesIntervalId_extra = null;
         }
 
-        // ... (your existing if/else if blocks for other sections)
-        // ...
-        
-        // --- MODIFICATION START ---
-        // Find the existing `else if` block for trip-curtailment-section_extra and modify it
-        else if (sectionId === 'trip-curtailment-section_extra') {
-            if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
-            
-            // This section now starts an interval that calls the renderer repeatedly.
-            if (typeof curtail_renderTripCards === 'function') {
-                curtail_renderTripCards(); // Initial render
-                curtail_trip_list_updater_interval = setInterval(curtail_renderTripCards, 10000); // Refresh every 10 seconds
+        // --- NEW OR MODIFIED `if/else if` BLOCKS ---
+
+        // CORRECTED `if` block for Service Leg Curtailment
+        if (sectionId === 'route-curtailment-section_extra') { // <-- THIS IS THE CORRECTED ID
+            if (typeof slc_populateRouteSelect === 'function') slc_populateRouteSelect();
+            if (typeof slc_renderActiveCurtailments === 'function') {
+                slc_renderActiveCurtailments(); // Initial render
+                // Start the interval timer specifically for this section
+                slc_list_updater_interval = setInterval(slc_renderActiveCurtailments, 15000); // refresh every 15s
             }
         } 
-        // ... (the rest of your else if blocks)
-        // ...
+        
+        // Existing block for Live Trip Intervention (no changes needed here, just for context)
+        else if (sectionId === 'trip-curtailment-section_extra') {
+            if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
+            if (typeof curtail_renderTripCards === 'function') {
+                curtail_renderTripCards(); // Initial render
+                curtail_trip_list_updater_interval = setInterval(curtail_renderTripCards, 10000); 
+            }
+        } 
+        
+        // Existing block for Key Departures (no changes needed here, just for context)
+        else if (sectionId === 'key-departures-section_extra') {
+            if (typeof displayKeyDepartures_ExtraPage === 'function') {
+                displayKeyDepartures_ExtraPage(); // Initial display
+                keyDeparturesIntervalId_extra = setInterval(displayKeyDepartures_ExtraPage, KEY_DEPARTURES_REFRESH_INTERVAL_MS);
+            }
+        }
     }
 }
 

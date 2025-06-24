@@ -3492,124 +3492,127 @@ function curtail_fetchTodaysTrips() {
     // --- MODIFICATION END ---
 }
 
-function curtail_renderTripCards() {
-    const container = document.getElementById('curtail-trip-list-container-extra');
-    if (!container) return; // Exit if the container isn't on the page
+    function curtail_renderTripCards() {
+        const container = document.getElementById('curtail-trip-list-container-extra');
+        if (!container) return; // Exit if the container isn't on the page
 
-    // If the tool section is not visible, do nothing.
-    const section = document.getElementById('trip-curtailment-section_extra');
-    if (section && section.style.display === 'none') {
-        return;
-    }
-
-    container.innerHTML = ''; // Clear previous render
-    if (!activeTripsForCurtailment || activeTripsForCurtailment.length === 0) {
-        container.innerHTML = '<p>Please select a service above and fetch trips, or no trips were found for today\'s profile.</p>';
-        return;
-    }
-
-    const now = new Date();
-    let tripsRendered = 0; // Counter for rendered cards
-
-    activeTripsForCurtailment.forEach((tripObject, tripIndex) => {
-        // First, check if the entire trip has finished. Skip if it's over.
-        if (tripObject.endTimeObj < now) {
+        const section = document.getElementById('trip-curtailment-section_extra');
+        if (section && section.style.display === 'none') {
             return;
         }
 
-        let originalTripStops = tripObject.stops;
-        if (originalTripStops.length === 0) return;
-
-        const firstStop = originalTripStops[0];
-        const isCurtailed = tripObject.isCurtailed;
-
-        // --- Main Filtering Logic ---
-        let stopsToDisplay = [...originalTripStops];
-
-        // 1. Handle curtailment (truncates the list based on the intervention)
-        if (isCurtailed) {
-            const curtailStopIndex = stopsToDisplay.findIndex(s => s.stopID === firstStop.curtailment.curtailAtStopID);
-            if (curtailStopIndex !== -1) {
-                stopsToDisplay = stopsToDisplay.slice(0, curtailStopIndex + 1);
-            }
-        }
-        
-        // 2. Filter by time to only show upcoming stops
-        const upcomingStops = stopsToDisplay.filter(stop => {
-            if (!stop.scheduledTime) return false;
-            
-            // This logic calculates the absolute date and time for each stop, handling overnight services.
-            const [hours, minutes] = stop.scheduledTime.split(':').map(Number);
-            const dayOffset = parseInt(stop.DayOffset || '0', 10);
-            
-            let serviceDate = new Date();
-            if (serviceDate.getHours() < earlyMorningThresholdHours) {
-                serviceDate.setDate(serviceDate.getDate() - 1);
-            }
-
-            let absoluteStopTime = new Date(serviceDate.getFullYear(), serviceDate.getMonth(), serviceDate.getDate(), hours, minutes, 0);
-            if (dayOffset > 0) {
-                absoluteStopTime.setDate(absoluteStopTime.getDate() + dayOffset);
-            }
-
-            return absoluteStopTime >= now;
-        });
-
-        // If after filtering there are no upcoming stops for this trip, don't render its card.
-        if (upcomingStops.length === 0) {
+        container.innerHTML = ''; // Clear previous render
+        if (!activeTripsForCurtailment || activeTripsForCurtailment.length === 0) {
+            container.innerHTML = '<p>Please select a service above and fetch trips, or no trips were found for today\'s profile.</p>';
             return;
         }
-        // --- End of Filtering Logic ---
 
-        tripsRendered++;
-        const card = document.createElement('div');
-        card.className = 'subsection';
-        card.style.marginBottom = '1rem';
-        
-        const cardHeader = document.createElement('h4');
-        cardHeader.style.marginTop = 0;
-        
-        let headerHTML = `Trip: ${firstStop.scheduledTime} from ${firstStop.stopName} `;
-        if (isCurtailed) {
-            headerHTML += `<span style="color: #f39c12; font-weight: bold;">(CURTAILED at ${firstStop.curtailment.newDestinationName})</span>
-                         <button class="button small-action" style="float: right;" data-trip-index="${tripIndex}">Revert</button>`;
-        } else {
-            headerHTML += `<button class="button small-action tertiary" style="float: right;" data-trip-index="${tripIndex}">Intervene...</button>`;
-        }
-        
-        cardHeader.innerHTML = headerHTML;
-        card.appendChild(cardHeader);
+        const now = new Date();
+        let tripsRendered = 0;
 
-        const stopList = document.createElement('ul');
-        stopList.style.listStyle = 'none';
-        stopList.style.paddingLeft = '1rem';
-        stopList.style.fontSize = '0.9em';
-        
-        upcomingStops.forEach((stop) => {
-            const li = document.createElement('li');
-            li.textContent = `${stop.scheduledTime} - ${stop.stopName}`;
-            stopList.appendChild(li);
-        });
+        activeTripsForCurtailment.forEach((tripObject, tripIndex) => {
+            if (tripObject.endTimeObj < now) {
+                return; // Skip trips that have fully completed
+            }
 
-        card.appendChild(stopList);
-        container.appendChild(card);
-    });
+            let originalTripStops = tripObject.stops;
+            if (originalTripStops.length === 0) return;
 
-    if (tripsRendered === 0) {
-        container.innerHTML = '<p>No currently active or upcoming trips found. All scheduled services may have finished for the day.</p>';
-    }
+            const firstStop = originalTripStops[0];
+            const isCurtailed = tripObject.isCurtailed;
 
-    container.querySelectorAll('button[data-trip-index]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const tripIndex = e.target.dataset.tripIndex;
-            if (e.target.textContent === 'Revert') {
-                curtail_revertCurtailment(tripIndex);
+            // --- MODIFICATION 1: Find the curtailment index, but do not slice the array. ---
+            let curtailStopIndex = -1;
+            if (isCurtailed && firstStop.curtailment) {
+                curtailStopIndex = originalTripStops.findIndex(s => s.stopID === firstStop.curtailment.curtailAtStopID);
+            }
+            // The line that sliced the array has been removed.
+
+            // Filter by time to only show upcoming stops from the *entire* original sequence.
+            const upcomingStops = originalTripStops.filter(stop => {
+                if (!stop.scheduledTime) return false;
+                const [hours, minutes] = stop.scheduledTime.split(':').map(Number);
+                const dayOffset = parseInt(stop.DayOffset || '0', 10);
+                
+                let serviceDate = new Date();
+                if (serviceDate.getHours() < earlyMorningThresholdHours) {
+                    serviceDate.setDate(serviceDate.getDate() - 1);
+                }
+                
+                let absoluteStopTime = new Date(serviceDate.getFullYear(), serviceDate.getMonth(), serviceDate.getDate(), hours, minutes, 0);
+                if (dayOffset > 0) {
+                    absoluteStopTime.setDate(absoluteStopTime.getDate() + dayOffset);
+                }
+                return absoluteStopTime >= now;
+            });
+
+            if (upcomingStops.length === 0) {
+                return; // Don't render a card if the trip has no more upcoming stops.
+            }
+            
+            tripsRendered++;
+            const card = document.createElement('div');
+            card.className = 'subsection';
+            card.style.marginBottom = '1rem';
+            
+            const cardHeader = document.createElement('h4');
+            cardHeader.style.marginTop = 0;
+            
+            let headerHTML = `Trip: ${firstStop.scheduledTime} from ${firstStop.stopName} `;
+            if (isCurtailed) {
+                headerHTML += `<span style="color: #f39c12; font-weight: bold;">(CURTAILED at ${firstStop.curtailment.newDestinationName})</span>
+                             <button class="button small-action" style="float: right;" data-trip-index="${tripIndex}">Revert</button>`;
             } else {
-                curtail_handleInterveneClick(tripIndex);
+                headerHTML += `<button class="button small-action tertiary" style="float: right;" data-trip-index="${tripIndex}">Intervene...</button>`;
             }
+            
+            cardHeader.innerHTML = headerHTML;
+            card.appendChild(cardHeader);
+
+            const stopList = document.createElement('ul');
+            stopList.style.listStyle = 'none';
+            stopList.style.paddingLeft = '1rem';
+            stopList.style.fontSize = '0.9em';
+            
+            // --- MODIFICATION 2: Apply styling conditionally inside the loop. ---
+            upcomingStops.forEach((stop) => {
+                const li = document.createElement('li');
+
+                // Find the original index of this upcoming stop in the full trip sequence.
+                const originalIndexOfThisStop = originalTripStops.indexOf(stop);
+
+                // Determine if this stop should be struck through.
+                const isAfterCurtailment = isCurtailed && curtailStopIndex !== -1 && originalIndexOfThisStop > curtailStopIndex;
+
+                if (isAfterCurtailment) {
+                    li.style.textDecoration = 'line-through';
+                    li.style.opacity = '0.5';
+                    li.title = 'This stop is omitted due to the active curtailment.';
+                }
+
+                li.textContent = `${stop.scheduledTime} - ${stop.stopName}`;
+                stopList.appendChild(li);
+            });
+
+            card.appendChild(stopList);
+            container.appendChild(card);
         });
-    });
-}
+
+        if (tripsRendered === 0) {
+            container.innerHTML = '<p>No currently active or upcoming trips found. All scheduled services may have finished for the day.</p>';
+        }
+
+        container.querySelectorAll('button[data-trip-index]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tripIndex = e.target.dataset.tripIndex;
+                if (e.target.textContent === 'Revert') {
+                    curtail_revertCurtailment(tripIndex);
+                } else {
+                    curtail_handleInterveneClick(tripIndex);
+                }
+            });
+        });
+    }
 
 async function curtail_handleInterveneClick(tripIndex) {
     const tripObject = activeTripsForCurtailment[tripIndex];

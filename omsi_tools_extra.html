@@ -1413,6 +1413,7 @@ align-items: center;
 	const FB_PATH_SERVICE_TERMINUS_MAPPINGS = '/settings/serviceTerminusMappings';
         const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
         const FB_PATH_APPSTATE_LAST_UPDATED = '/appState/scheduleLastUpdated';
+	const FB_PATH_APPSTATE = '/appState';
         const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
         const FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS = '/settings/customRouteColours';
         const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
@@ -15208,63 +15209,94 @@ function rsg_openCopyFromModal_ExtraPage() {
 }
 
     function showExtraPageSection(sectionId) {
-
-    // Clear the interval for SLC when switching away from it.
+    // Clear any active interval timers when switching sections
     if (slc_list_updater_interval) {
         clearInterval(slc_list_updater_interval);
         slc_list_updater_interval = null;
     }
-    // Clear the interval for the Live Intervention tool when switching away.
     if (curtail_trip_list_updater_interval) {
         clearInterval(curtail_trip_list_updater_interval);
         curtail_trip_list_updater_interval = null;
+    }
+    if (keyDeparturesIntervalId_extra) {
+        clearInterval(keyDeparturesIntervalId_extra);
+        keyDeparturesIntervalId_extra = null;
     }
 
     if (!toolSectionsWrapper_el_extra) {
         return;
     }
-    const allSections = toolSectionsWrapper_el_extra.querySelectorAll(".tool-content-section");
+
+    // Hide all tool sections first
+    const allSections = toolSectionsWrapper_el_extra.querySelectorAll(".tool-content-section.section");
     allSections.forEach((s) => {
         s.style.display = "none";
     });
+
     const sectionToShow = document.getElementById(sectionId);
     if (sectionToShow) {
         sectionToShow.style.display = "block";
         localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
 
-        // Stop the Key Departures timer if we navigate away from it
-        if (keyDeparturesIntervalId_extra) {
-            clearInterval(keyDeparturesIntervalId_extra);
-            keyDeparturesIntervalId_extra = null;
-        }
-
-        // --- NEW OR MODIFIED `if/else if` BLOCKS ---
-
-        // CORRECTED `if` block for Service Leg Curtailment
-        if (sectionId === 'route-curtailment-section_extra') { // <-- THIS IS THE CORRECTED ID
-            if (typeof slc_populateRouteSelect === 'function') slc_populateRouteSelect();
-            if (typeof slc_renderActiveCurtailments === 'function') {
-                slc_renderActiveCurtailments(); // Initial render
-                // Start the interval timer specifically for this section
-                slc_list_updater_interval = setInterval(slc_renderActiveCurtailments, 15000); // refresh every 15s
-            }
-        } 
-        
-        // Existing block for Live Trip Intervention (no changes needed here, just for context)
-        else if (sectionId === 'trip-curtailment-section_extra') {
-            if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
-            if (typeof curtail_renderTripCards === 'function') {
-                curtail_renderTripCards(); // Initial render
-                curtail_trip_list_updater_interval = setInterval(curtail_renderTripCards, 10000); 
-            }
-        } 
-        
-        // Existing block for Key Departures (no changes needed here, just for context)
-        else if (sectionId === 'key-departures-section_extra') {
+        // This is a complete 'if/else if' block to handle specific logic for each section
+        if (sectionId === 'day-profile-override-section_extra') {
+            if (typeof dpo_populateProfileCheckboxes_ExtraPage === 'function') dpo_populateProfileCheckboxes_ExtraPage();
+            if (typeof dpo_populateRouteSelection_ExtraPage === 'function') dpo_populateRouteSelection_ExtraPage();
+            if (typeof loadAndDisplayOverrides_ExtraPage === 'function') loadAndDisplayOverrides_ExtraPage();
+        } else if (sectionId === 'stop-manager-tool-section_extra') {
+            if (typeof populateMasterStopList_ExtraPage === 'function') populateMasterStopList_ExtraPage();
+        } else if (sectionId === 'global-route-deletion-section_extra') {
+            if (typeof populateGlobalRouteToDeleteList_ExtraPage === 'function') populateGlobalRouteToDeleteList_ExtraPage();
+        } else if (sectionId === 'route-schedule-generator-section_extra') {
+            if (typeof rsg_populateProfileCheckboxes_ExtraPage === 'function') rsg_populateProfileCheckboxes_ExtraPage();
+            if (typeof rsg_renderSavedConfigsList_ExtraPage === 'function') rsg_renderSavedConfigsList_ExtraPage();
+        } else if (sectionId === 'route-profile-deletion-section_extra') {
+            if (typeof rpd_populateRouteSelect_ExtraPage === 'function') rpd_populateRouteSelect_ExtraPage();
+        } else if (sectionId === 'view-departures-section_extra') {
+            if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') populateStopSelectorForDeparturesView_ExtraPage();
+            if (typeof displayDeparturesForSelectedStop_ExtraPage === 'function') displayDeparturesForSelectedStop_ExtraPage();
+        } else if (sectionId === 'timetable-exporter-section_extra') {
+            if (typeof populateTimetableExporterRouteSelect_ExtraPage === 'function') populateTimetableExporterRouteSelect_ExtraPage();
+        } else if (sectionId === 'scheduled-route-updates-section_extra') {
+            if (typeof loadAndDisplayScheduledUpdates_ExtraPage === 'function') loadAndDisplayScheduledUpdates_ExtraPage();
+        } else if (sectionId === 'scheduled-route-deletion-section_extra') {
+            if (typeof srd_populateRouteSelect_ExtraPage === 'function') srd_populateRouteSelect_ExtraPage();
+        } else if (sectionId === 'config-data-section_extra') {
+            if (typeof displaySchoolHolidays_ExtraPage === 'function') displaySchoolHolidays_ExtraPage();
+            if (typeof renderEditableOpProfiles_ExtraPage === 'function') renderEditableOpProfiles_ExtraPage();
+        } else if (sectionId === 'key-departures-section_extra') {
             if (typeof displayKeyDepartures_ExtraPage === 'function') {
-                displayKeyDepartures_ExtraPage(); // Initial display
+                displayKeyDepartures_ExtraPage();
                 keyDeparturesIntervalId_extra = setInterval(displayKeyDepartures_ExtraPage, KEY_DEPARTURES_REFRESH_INTERVAL_MS);
             }
+        } else if (sectionId === 'calendar-view-section_extra') {
+            if (typeof renderCalendarView_ExtraPage === 'function') {
+                renderCalendarView_ExtraPage();
+            }
+        } else if (sectionId === 'curtailment-config-section_extra') {
+             if (typeof op_points_populateRouteSelect === 'function') op_points_populateRouteSelect();
+             if (typeof op_points_populateReturnOriginSelect === 'function') op_points_populateReturnOriginSelect();
+        } else if (sectionId === 'trip-curtailment-section_extra') {
+            if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
+            if (typeof curtail_renderTripCards === 'function') {
+                curtail_renderTripCards();
+                curtail_trip_list_updater_interval = setInterval(curtail_renderTripCards, 10000); 
+            }
+        } else if (sectionId === 'route-curtailment-section_extra') {
+            if (typeof slc_populateRouteSelect === 'function') slc_populateRouteSelect();
+            if (typeof slc_renderActiveCurtailments === 'function') {
+                slc_renderActiveCurtailments();
+                slc_list_updater_interval = setInterval(slc_renderActiveCurtailments, 15000);
+            }
+        } 
+        // --- NEWLY ADDED BLOCK ---
+        else if (sectionId === 'enhanced-bulk-update-section_extra') {
+            if (typeof ebu_populateRouteTiles_ExtraPage === 'function') ebu_populateRouteTiles_ExtraPage();
+            if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') ebu_populateOldDestinationSelect_ExtraPage();
+        } 
+        // --- END NEWLY ADDED BLOCK ---
+        else if (sectionId === 'global-route-colour-management-section-extra' || sectionId === 'stop-specific-route-colour-management-section-extra') {
+             if (typeof renderUIDependentElements_ExtraPage === 'function') renderUIDependentElements_ExtraPage();
         }
     }
 }
@@ -15375,7 +15407,7 @@ async function loadInitialData_ExtraPage() {
         // 1. Load the LIVE schedule from Firebase. This is now the source of truth for the app's current state.
         startTime = performance.now();
         console.log("[PERF] Loading LIVE schedule data (from FB_PATH_SCHEDULES_BY_ROUTE)...");
-        const liveScheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
+        const liveScheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULES_BY_ROUTE));
         const liveFlatScheduleFromDB = [];
         if (liveScheduleSnap.exists()) {
             const schedulesByRoute = liveScheduleSnap.val();

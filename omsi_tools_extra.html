@@ -3419,77 +3419,83 @@ function curtail_fetchTodaysTrips() {
     const dest = document.getElementById('curtail-dest-select-extra').value;
     const statusMsg = document.getElementById('curtail-status-message-extra');
     const container = document.getElementById('curtail-trip-list-container-extra');
-    const now = new Date(); 
 
     if (!route || !dest) {
         statusMsg.textContent = 'Please select a route and destination.';
         statusMsg.style.color = '#f1c40f';
         if(container) container.innerHTML = '<p>Please select a service above and fetch trips.</p>';
         activeTripsForCurtailment = [];
+        curtail_renderTripCards(); // Render the empty state
         return;
     }
 
-    statusMsg.textContent = 'Finding active configurations and generating today\'s trips...';
+    statusMsg.textContent = 'Filtering live schedule data for today\'s trips...';
     statusMsg.style.color = '#3498db';
 
+    // Get the active profile codes for today to filter the main schedule
     const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
-    let allTripsForTheDay = [];
 
-    if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
-        statusMsg.textContent = 'Error: Route Schedule Generator configurations are not loaded.';
-        statusMsg.style.color = '#e74c3c';
+    // 1. Filter the LIVE schedule data (currentWorkingSchedule_extra), which contains curtailment info
+    const relevantEntriesForToday = currentWorkingSchedule_extra.filter(entry => {
+        if (entry.lineName !== route || entry.destinationName !== dest) {
+            return false;
+        }
+        const entryProfiles = (entry.OperatingProfile || "").split(',').map(p => p.trim());
+        return entryProfiles.some(profile => todaysActiveProfiles.includes(profile));
+    });
+
+    if (relevantEntriesForToday.length === 0) {
+        statusMsg.textContent = `No live schedule entries found for Route ${route} to ${dest} on today's profile.`;
+        statusMsg.style.color = '#f1c40f';
+        activeTripsForCurtailment = [];
+        curtail_renderTripCards();
         return;
     }
 
-    for (const configKey in rsg_loadedConfigs_extra) {
-        const config = rsg_loadedConfigs_extra[configKey];
+    // 2. Segment the filtered live entries into individual trips. This helper function groups them correctly.
+    const allTripsForService = segmentScheduleEntriesIntoTrips(relevantEntriesForToday);
+    
+    // 3. Process these trips into the format expected by the renderer, calculating metadata.
+    activeTripsForCurtailment = allTripsForService.map(tripStops => {
+        if (tripStops.length === 0) return null;
 
-        if (config.routeName !== route || config.destinationName !== dest) {
-            continue;
+        const firstStop = tripStops[0];
+        const lastStop = tripStops[tripStops.length - 1];
+
+        // Calculate trip end time to be used for filtering in the renderer
+        const endTimeAbs = getAbsMinutes(lastStop.scheduledTime, parseInt(lastStop.DayOffset || 0));
+        
+        let serviceDate = new Date();
+        if(serviceDate.getHours() < earlyMorningThresholdHours) {
+            serviceDate.setDate(serviceDate.getDate() - 1);
         }
+        serviceDate.setHours(0,0,0,0); // Get the start of the service day
+        
+        let endDate = new Date(serviceDate);
+        endDate.setMinutes(endDate.getMinutes() + endTimeAbs);
 
-        const configProfiles = (config.operatingProfile || "").split(',').map(p => p.trim());
-        const isActiveToday = configProfiles.some(profile => todaysActiveProfiles.includes(profile));
+        // Check if the first stop has a curtailment object. If so, the whole trip is considered curtailed.
+        // This is the key part that reads the state from the loaded data.
+        const isCurtailed = !!firstStop.curtailment;
 
-        if (isActiveToday) {
-            const tripsFromThisConfig = generateScheduleTripsFromConfig(config);
-            
-            const tripDurationMinutes = (config.stopSequence || []).reduce((acc, stop, index) => {
-                return index > 0 ? acc + (stop.timeAdjustment || 0) : acc;
-            }, 0);
+        return {
+            startTime: firstStop.scheduledTime,
+            endTimeObj: endDate, // Date object for the end of the trip
+            stops: tripStops,
+            isCurtailed: isCurtailed // This property is now correctly derived from the loaded live data
+        };
+    }).filter(Boolean); // Remove any null trips
 
-            tripsFromThisConfig.forEach(tripStops => {
-                if (tripStops.length > 0) {
-                    // We still need to calculate the end time for filtering later
-                    const startTimeObj = createEventTimeObjForAlert(tripStops[0].scheduledTime, new Date());
-                    const endTimeObj = new Date(startTimeObj.getTime() + tripDurationMinutes * 60000);
-
-                    allTripsForTheDay.push({
-                        startTime: tripStops[0].scheduledTime,
-                        endTimeObj: endTimeObj,
-                        stops: tripStops,
-                        isCurtailed: tripStops[0].curtailment && tripStops[0].curtailment.newDestinationName
-                    });
-                }
-            });
-        }
-    }
-
-    // --- MODIFICATION START ---
-    // Remove the filter that hides past trips. The renderer will handle this dynamically.
-    activeTripsForCurtailment = allTripsForTheDay;
-
-    // Sort the trips by start time once, right after fetching.
+    // Sort the final list of trips by their start time string
     activeTripsForCurtailment.sort((a, b) => {
         return a.startTime.localeCompare(b.startTime);
     });
-
+    
     statusMsg.textContent = `Found ${activeTripsForCurtailment.length} total trips for today. Displaying active trips.`;
     statusMsg.style.color = '#2ecc71';
-    
-    // Immediately render the list. The interval will take over from here.
+
+    // Call the renderer, which will do the dynamic filtering and display
     curtail_renderTripCards();
-    // --- MODIFICATION END ---
 }
 
 function curtail_renderTripCards() {

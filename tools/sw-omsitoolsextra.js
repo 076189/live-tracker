@@ -1,14 +1,12 @@
-// --- File: sw-omsitoolsextra.js ---
-
 // IMPORTANT: Increment this version number every time you change this file.
-const CACHE_NAME = 'omsi-tools-extra-cache-v3'; 
+const CACHE_NAME = 'omsi-tools-extra-cache-v4'; // Incremented version
 const urlsToCache = [
     '/live-tracker/omsi_tools_extra.html',
     '/live-tracker/manifest-omsitoolsextra.json',
     '/live-tracker/offline.html',
     '/live-tracker/fonts/NJFont-Medium.ttf',
-    'https://076189.github.io/live-tracker/assets/icons/tools_icon-192x192.png',
-    'https://076189.github.io/live-tracker/assets/icons/tools_icon-512x512.png'
+    '/live-tracker/assets/icons/tools_icon-192x192.png',
+    '/live-tracker/assets/icons/tools_icon-512x512.png'
 ];
 
 // Import the Firebase SDKs using the 'compat' version for service workers

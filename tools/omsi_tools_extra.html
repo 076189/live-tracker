@@ -4164,22 +4164,25 @@ function curtail_fetchTodaysTrips() {
     const now = new Date(); 
 
     if (!route || !dest) {
-        statusMsg.textContent = 'Please select a route and destination.';
-        statusMsg.style.color = '#f1c40f';
+        if(statusMsg) statusMsg.textContent = 'Please select a route and destination.';
         if(container) container.innerHTML = '<p>Please select a service above and fetch trips.</p>';
         activeTripsForCurtailment = [];
         return;
     }
 
-    statusMsg.textContent = 'Finding active configurations and generating today\'s trips...';
-    statusMsg.style.color = '#3498db';
+    if(statusMsg) {
+        statusMsg.textContent = 'Finding active configurations and generating today\'s trips...';
+        statusMsg.style.color = '#3498db';
+    }
 
     const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
     let allTripsForTheDay = [];
 
     if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
-        statusMsg.textContent = 'Error: Route Schedule Generator configurations are not loaded.';
-        statusMsg.style.color = '#e74c3c';
+        if(statusMsg) {
+            statusMsg.textContent = 'Error: Route Schedule Generator configurations are not loaded.';
+            statusMsg.style.color = '#e74c3c';
+        }
         return;
     }
 
@@ -4196,19 +4199,33 @@ function curtail_fetchTodaysTrips() {
         if (isActiveToday) {
             const tripsFromThisConfig = generateScheduleTripsFromConfig(config);
             
-            const tripDurationMinutes = (config.stopSequence || []).reduce((acc, stop, index) => {
-                return index > 0 ? acc + (stop.timeAdjustment || 0) : acc;
-            }, 0);
-
             tripsFromThisConfig.forEach(tripStops => {
                 if (tripStops.length > 0) {
-                    // We still need to calculate the end time for filtering later
-                    const startTimeObj = createEventTimeObjForAlert(tripStops[0].scheduledTime, new Date());
-                    const endTimeObj = new Date(startTimeObj.getTime() + tripDurationMinutes * 60000);
+                    
+                    // --- CORRECTED LOGIC START ---
+                    // Correctly calculate the end time based on the last stop of the trip
+                    const lastStop = tripStops[tripStops.length - 1];
+                    const [endHours, endMinutes] = lastStop.scheduledTime.split(':').map(Number);
+                    const endDayOffset = parseInt(lastStop.DayOffset || '0', 10);
+                    
+                    // Determine the correct base date for the service. A service starting at 23:00
+                    // on Wednesday is part of Wednesday's operating day.
+                    let serviceDate = new Date();
+                    // If we check at 3 AM, we are still considered to be in the *previous* operating day.
+                    if (serviceDate.getHours() < earlyMorningThresholdHours) {
+                        serviceDate.setDate(serviceDate.getDate() - 1);
+                    }
+
+                    // Create the end time Date object based on the service date and the last stop's offset.
+                    let endTimeObj = new Date(serviceDate.getFullYear(), serviceDate.getMonth(), serviceDate.getDate(), endHours, endMinutes, 0);
+                    if (endDayOffset > 0) {
+                        endTimeObj.setDate(endTimeObj.getDate() + endDayOffset);
+                    }
+                    // --- CORRECTED LOGIC END ---
 
                     allTripsForTheDay.push({
                         startTime: tripStops[0].scheduledTime,
-                        endTimeObj: endTimeObj,
+                        endTimeObj: endTimeObj, // This is the new, accurate end time
                         stops: tripStops,
                         isCurtailed: tripStops[0].curtailment && tripStops[0].curtailment.newDestinationName
                     });
@@ -4217,21 +4234,15 @@ function curtail_fetchTodaysTrips() {
         }
     }
 
-    // --- MODIFICATION START ---
-    // Remove the filter that hides past trips. The renderer will handle this dynamically.
     activeTripsForCurtailment = allTripsForTheDay;
+    activeTripsForCurtailment.sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-    // Sort the trips by start time once, right after fetching.
-    activeTripsForCurtailment.sort((a, b) => {
-        return a.startTime.localeCompare(b.startTime);
-    });
-
-    statusMsg.textContent = `Found ${activeTripsForCurtailment.length} total trips for today. Displaying active trips.`;
-    statusMsg.style.color = '#2ecc71';
+    if(statusMsg) {
+        statusMsg.textContent = `Found ${activeTripsForCurtailment.length} total trips for today. Displaying active trips.`;
+        statusMsg.style.color = '#2ecc71';
+    }
     
-    // Immediately render the list. The interval will take over from here.
     curtail_renderTripCards();
-    // --- MODIFICATION END ---
 }
 
     function curtail_renderTripCards() {

@@ -503,7 +503,7 @@ align-items: center;
         <div id="top-menu-bar_extra" style="display:none;"> 
             <div id="main-menu-buttons_extra">
                 <button class="menu-button" data-section="day-profile-override-section_extra">Day Profile Override</button>
-                <button class="menu-button" data-section="stop-manager-tool-section_extra">Master Stop Viewer</button>
+                <button class="menu-button" data-section="stop-manager-tool-section_extra">Bus Stops</button>
                 <button class="menu-button" data-section="global-route-deletion-section_extra">Global Route Deletion</button>
                 <button class="menu-button" data-section="route-schedule-generator-section_extra">Route Schedule Generator</button>
                 <button class="menu-button" data-section="route-profile-deletion-section_extra">Route Profile Deletion</button>
@@ -863,11 +863,8 @@ align-items: center;
             </div>
 
             <div id="stop-manager-tool-section_extra" class="tool-content-section section" style="display:none;">
-                <h2>Master Stop Viewer</h2>
-                <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
-                    This tool provides a consolidated list of all unique stops defined across all of your saved RSG configurations. To add, remove, or edit stops, please do so within the "Route Schedule Generator" tool.
-                </p>
-<div class="subsection">
+                <h2>Bus Stops</h2>
+                <div class="subsection">
     <h3 class="subsection-title">Add New Stop Definition</h3>
     <div class="form-grid" style="grid-template-columns: 1.5fr 1fr 1fr auto; align-items: start;">
         <div>
@@ -917,11 +914,11 @@ align-items: center;
 </div>
 
                  <div class="subsection">
-                    <h3 class="subsection-title">Master Stop List (Derived from RSG Configs)</h3>
+                    <h3 class="subsection-title">Bus Stop List</h3>
                      <div style="display: flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1rem;">
                         <input type="text" id="masterStopListFilterInput_extra" placeholder="Filter by name, ID, direction, status, or route..." style="flex-grow:1; min-width:250px;">
                         <div>
-                             <button id="findDuplicateStopsByNameDirButton_extra" class="button tertiary">Find Duplicates (Name/Dir)</button>
+                             <button id="findDuplicateStopsByNameDirButton_extra" class="button tertiary">Find Duplicates</button>
                              <button id="refreshMasterStopListButton_extra" class="button neutral">Refresh List</button>
                         </div>
                     </div>
@@ -1138,7 +1135,7 @@ align-items: center;
                             <input type="text" id="sh-description-input-extra" placeholder="e.g., Summer Holidays 2025" class="schedule-generator-input">
                         </div>
                         <div style="display:flex; gap: 0.5rem;">
-                            <button id="sh-save-button-extra" class="button save">Save/Add Period</button>
+                            <button id="sh-save-button-extra" class="button save">Add School Holiday</button>
                             <button id="sh-clear-form-button-extra" class="button neutral" style="display:none;">Clear</button>
                         </div>
                     </div>
@@ -1147,7 +1144,7 @@ align-items: center;
                 <div class="subsection">
                     <h3 class="subsection-title">Operating Profiles List</h3>
                     <p style="font-size:0.85em; opacity:0.8; margin-bottom:1em;">Manage the master list of operating profiles available throughout the tools.</p>
-                    <div id="op-profiles-list-extra" style="max-height: 250px; overflow-y: auto; margin-bottom:1rem;"></div>
+                    <div id="op-profiles-list-extra" style="margin-bottom:1rem;"></div>
                      <div class="form-grid" style="grid-template-columns: 2fr auto; align-items: end; border-top: 1px solid rgba(127,140,141,0.2); padding-top: 1rem;">
                          <div>
                             <label for="op-profile-input-extra">New Profile Name:</label>
@@ -16103,8 +16100,12 @@ function rsg_openCopyFromModal_ExtraPage() {
             // In case of an error fetching the role, it's safest to default to the most restrictive role.
             userRole = 'Standard User';
         }
-        // --- End of new role-fetching logic ---
-
+        
+        // <<< THE FIX: Attach the fetched role to the global user object
+        if(currentUser_extra) {
+            currentUser_extra.role = userRole; 
+        }
+        // <<< END OF FIX
 
         if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none';
         if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'flex';
@@ -16122,43 +16123,19 @@ function rsg_openCopyFromModal_ExtraPage() {
         setupFirebaseListeners_ExtraPage();
 
     } else { // User is logged out
-        // Stop all timers on logout
-        if (slc_list_updater_interval) {
-            clearInterval(slc_list_updater_interval);
-            slc_list_updater_interval = null;
-        }
-        if (curtail_trip_list_updater_interval) {
-            clearInterval(curtail_trip_list_updater_interval);
-            curtail_trip_list_updater_interval = null;
-        }
-        if (keyDeparturesIntervalId_extra) {
-            clearInterval(keyDeparturesIntervalId_extra);
-            keyDeparturesIntervalId_extra = null;
-        }
-        if (tripAlertIntervalId_extra) {
-            clearInterval(tripAlertIntervalId_extra);
-            tripAlertIntervalId_extra = null;
-        }
-
-        // --- UI Changes for Logout ---
-        if (authSection_el_extra) {
-            authSection_el_extra.style.display = 'block';
-            authSection_el_extra.classList.remove('auth-section-compact');
-        }
+        if (slc_list_updater_interval) { clearInterval(slc_list_updater_interval); slc_list_updater_interval = null; }
+        if (curtail_trip_list_updater_interval) { clearInterval(curtail_trip_list_updater_interval); curtail_trip_list_updater_interval = null; }
+        if (keyDeparturesIntervalId_extra) { clearInterval(keyDeparturesIntervalId_extra); keyDeparturesIntervalId_extra = null; }
+        if (tripAlertIntervalId_extra) { clearInterval(tripAlertIntervalId_extra); tripAlertIntervalId_extra = null; }
+        if (authSection_el_extra) { authSection_el_extra.style.display = 'block'; authSection_el_extra.classList.remove('auth-section-compact'); }
         if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'block';
         if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'none';
         if (authHeading) authHeading.style.display = 'block';
-
         if (topMenuBar_el_extra) topMenuBar_el_extra.style.display = 'none';
-
         if (authStatus_el_extra) authStatus_el_extra.textContent = 'Please log in.';
         if (loggedInUserEmailDisplay_el_extra) loggedInUserEmailDisplay_el_extra.textContent = '';
         if (currentProfileDisplayContainer_el) currentProfileDisplayContainer_el.style.display = 'none';
-        if (toolSectionsWrapper_el_extra) {
-            toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none');
-        }
-
-        // Clear data caches
+        if (toolSectionsWrapper_el_extra) { toolSectionsWrapper_el_extra.querySelectorAll('.tool-content-section').forEach(s => s.style.display = 'none'); }
         currentWorkingSchedule_extra = [];
         allDefinedStops_data = {};
         rsg_loadedConfigs_extra = {};

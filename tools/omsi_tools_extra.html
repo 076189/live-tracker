@@ -4161,7 +4161,7 @@ function curtail_fetchTodaysTrips() {
     const dest = document.getElementById('curtail-dest-select-extra').value;
     const statusMsg = document.getElementById('curtail-status-message-extra');
     const container = document.getElementById('curtail-trip-list-container-extra');
-    const now = new Date(); 
+    const now = new Date();
 
     if (!route || !dest) {
         if(statusMsg) statusMsg.textContent = 'Please select a route and destination.';
@@ -4175,6 +4175,14 @@ function curtail_fetchTodaysTrips() {
         statusMsg.style.color = '#3498db';
     }
 
+    // --- NEW: Establish the base date for the CURRENT operating day ---
+    let operatingDayDate = new Date();
+    if (operatingDayDate.getHours() < earlyMorningThresholdHours) {
+        operatingDayDate.setDate(operatingDayDate.getDate() - 1);
+    }
+    // Set to midnight at the start of the operating day.
+    operatingDayDate.setHours(0, 0, 0, 0); 
+    
     const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
     let allTripsForTheDay = [];
 
@@ -4202,30 +4210,24 @@ function curtail_fetchTodaysTrips() {
             tripsFromThisConfig.forEach(tripStops => {
                 if (tripStops.length > 0) {
                     
-                    // --- CORRECTED LOGIC START ---
-                    // Correctly calculate the end time based on the last stop of the trip
                     const lastStop = tripStops[tripStops.length - 1];
                     const [endHours, endMinutes] = lastStop.scheduledTime.split(':').map(Number);
                     const endDayOffset = parseInt(lastStop.DayOffset || '0', 10);
-                    
-                    // Determine the correct base date for the service. A service starting at 23:00
-                    // on Wednesday is part of Wednesday's operating day.
-                    let serviceDate = new Date();
-                    // If we check at 3 AM, we are still considered to be in the *previous* operating day.
-                    if (serviceDate.getHours() < earlyMorningThresholdHours) {
-                        serviceDate.setDate(serviceDate.getDate() - 1);
-                    }
 
-                    // Create the end time Date object based on the service date and the last stop's offset.
-                    let endTimeObj = new Date(serviceDate.getFullYear(), serviceDate.getMonth(), serviceDate.getDate(), endHours, endMinutes, 0);
+                    // --- REVISED AND CORRECTED LOGIC ---
+                    // Start with the base operating day date.
+                    let endTimeObj = new Date(operatingDayDate); 
+                    // Add the hours and minutes from the scheduled time.
+                    endTimeObj.setHours(endHours, endMinutes, 0, 0);
+                    // Add the DayOffset from the generated schedule.
                     if (endDayOffset > 0) {
                         endTimeObj.setDate(endTimeObj.getDate() + endDayOffset);
                     }
-                    // --- CORRECTED LOGIC END ---
+                    // --- END REVISED LOGIC ---
 
                     allTripsForTheDay.push({
                         startTime: tripStops[0].scheduledTime,
-                        endTimeObj: endTimeObj, // This is the new, accurate end time
+                        endTimeObj: endTimeObj,
                         stops: tripStops,
                         isCurtailed: tripStops[0].curtailment && tripStops[0].curtailment.newDestinationName
                     });

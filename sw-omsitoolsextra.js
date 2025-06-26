@@ -6,7 +6,9 @@ const urlsToCache = [
     '/live-tracker/omsi_tools_extra.html',
     '/live-tracker/manifest-omsitoolsextra.json',
     '/live-tracker/offline.html',
-    '/live-tracker/fonts/NJFont-Medium.ttf'
+    '/live-tracker/fonts/NJFont-Medium.ttf',
+    'https://076189.github.io/live-tracker/assets/icons/tools_icon-192x192.png',
+    'https://076189.github.io/live-tracker/assets/icons/tools_icon-512x512.png'
 ];
 
 // Import the Firebase SDKs using the 'compat' version for service workers

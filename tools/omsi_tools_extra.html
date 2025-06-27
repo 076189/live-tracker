@@ -4158,7 +4158,6 @@ function curtail_fetchTodaysTrips() {
     const dest = document.getElementById('curtail-dest-select-extra').value;
     const statusMsg = document.getElementById('curtail-status-message-extra');
     const container = document.getElementById('curtail-trip-list-container-extra');
-    const now = new Date();
 
     if (!route || !dest) {
         if(statusMsg) statusMsg.textContent = 'Please select a route and destination.';
@@ -4168,91 +4167,97 @@ function curtail_fetchTodaysTrips() {
     }
 
     if(statusMsg) {
-        statusMsg.textContent = 'Finding active configurations and generating today\'s trips...';
+        statusMsg.textContent = 'Fetching live trips and applying master stop order...';
         statusMsg.style.color = '#3498db';
     }
+    
+    const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
 
-    // Establish the base date for the CURRENT operating day (e.g., Friday at midnight)
+    // --- START: New, More Robust Hybrid Logic ---
+
+    // 1. Find the Canonical Stop Order from the first matching RSG configuration.
+    // This provides the master truth for how stops should be ordered.
+    let canonicalStopOrder = null;
+    for (const configKey in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[configKey];
+        if (config.routeName === route && config.destinationName === dest && config.stopSequence) {
+            canonicalStopOrder = config.stopSequence.map(s => s.stopID);
+            break; 
+        }
+    }
+
+    if (!canonicalStopOrder) {
+        if(statusMsg) {
+            statusMsg.textContent = `Error: An RSG Configuration with a stop sequence must exist for ${route} to ${dest} to determine the correct stop order.`;
+            statusMsg.style.color = '#e74c3c';
+        }
+        activeTripsForCurtailment = [];
+        curtail_renderTripCards();
+        return;
+    }
+
+    // 2. Filter the LIVE schedule data to get today's active entries.
+    const relevantLiveEntries = currentWorkingSchedule_extra.filter(entry => {
+        if (!entry.lineName || entry.lineName !== route || !entry.destinationName || entry.destinationName !== dest) return false;
+        if (!entry.OperatingProfile) return false;
+        const entryProfiles = entry.OperatingProfile.split(',').map(p => p.trim());
+        return entryProfiles.some(profile => todaysActiveProfiles.includes(profile));
+    });
+
+    if (relevantLiveEntries.length === 0) {
+        if(statusMsg) statusMsg.textContent = `No active schedule entries found for ${route} to ${dest} on today's profile.`;
+        activeTripsForCurtailment = [];
+        curtail_renderTripCards();
+        return;
+    }
+
+    // 3. Group the live entries into trips. The stop order within these trips might be incorrect at this stage.
+    const tripsForTheDay = segmentScheduleEntriesIntoTrips(relevantLiveEntries);
+
+    // Determine the start of the current "operating day" for correct date calculations
     let operatingDayDate = new Date();
     if (operatingDayDate.getHours() < earlyMorningThresholdHours) {
         operatingDayDate.setDate(operatingDayDate.getDate() - 1);
     }
-    operatingDayDate.setHours(0, 0, 0, 0); 
+    operatingDayDate.setHours(0, 0, 0, 0);
+
+    // 4. Process each trip to enforce the canonical stop order and prepare it for display.
+    activeTripsForCurtailment = tripsForTheDay.map(trip => {
+        if (trip.length === 0) return null;
+
+        // CRITICAL STEP: Re-sort the stops within this trip to match the master order.
+        trip.sort((a, b) => {
+            const indexA = canonicalStopOrder.indexOf(a.stopID);
+            const indexB = canonicalStopOrder.indexOf(b.stopID);
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+        });
+
+        const firstStop = trip[0];
+        const lastStop = trip[trip.length - 1];
+
+        const [endHours, endMinutes] = lastStop.scheduledTime.split(':').map(Number);
+        const absoluteEndDayOffset = parseInt(lastStop.DayOffset || '0', 10);
+        let endTimeObj = new Date(operatingDayDate);
+        endTimeObj.setHours(endHours, endMinutes, 0, 0);
+        if (absoluteEndDayOffset > 0) {
+            endTimeObj.setDate(endTimeObj.getDate() + absoluteEndDayOffset);
+        }
+
+        // The objects within the 'trip' array are references to the objects in 'currentWorkingSchedule_extra'.
+        // This means 'firstStop.curtailment' reflects the true live state.
+        return {
+            startTime: firstStop.scheduledTime,
+            endTimeObj: endTimeObj,
+            stops: trip, // The trip's stops are now correctly ordered and contain the live state.
+            isCurtailed: !!(firstStop.curtailment && firstStop.curtailment.newDestinationName)
+        };
+    }).filter(Boolean); // Remove any nulls that may have occurred.
     
-    const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
-    let allTripsForTheDay = [];
+    // --- END: New, More Robust Hybrid Logic ---
 
-    if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
-        if(statusMsg) {
-            statusMsg.textContent = 'Error: Route Schedule Generator configurations are not loaded.';
-            statusMsg.style.color = '#e74c3c';
-        }
-        return;
-    }
-
-    for (const configKey in rsg_loadedConfigs_extra) {
-        const config = rsg_loadedConfigs_extra[configKey];
-
-        if (config.routeName !== route || config.destinationName !== dest) {
-            continue;
-        }
-
-        const configProfiles = (config.operatingProfile || "").split(',').map(p => p.trim());
-        const isActiveToday = configProfiles.some(profile => todaysActiveProfiles.includes(profile));
-
-        if (isActiveToday) {
-            const tripsFromThisConfig = generateScheduleTripsFromConfig(config);
-            
-            tripsFromThisConfig.forEach(tripStops => {
-                if (tripStops.length > 0) {
-                    
-                    const firstStopOfTrip = tripStops[0];
-                    const firstStopTimeParts = firstStopOfTrip.scheduledTime.split(':').map(Number);
-                    
-                    // --- REWRITTEN LOGIC ---
-                    // Heuristic: if the trip starts in the early morning, it belongs to the next calendar day
-                    // relative to the start of the operating day.
-                    let baseDayOffset = 0;
-                    if (firstStopTimeParts[0] < earlyMorningThresholdHours) {
-                        baseDayOffset = 1;
-                    }
-
-                    // Adjust all stops in the trip with this new base offset
-                    const adjustedTripStops = tripStops.map(stop => {
-                        const stopOffsetFromGenerator = parseInt(stop.DayOffset || '0', 10);
-                        return { ...stop, DayOffset: String(baseDayOffset + stopOffsetFromGenerator) };
-                    });
-                    
-                    // Recalculate the absolute end time using the fully adjusted last stop
-                    const lastStop = adjustedTripStops[adjustedTripStops.length - 1];
-                    const [endHours, endMinutes] = lastStop.scheduledTime.split(':').map(Number);
-                    const absoluteEndDayOffset = parseInt(lastStop.DayOffset, 10);
-
-                    let endTimeObj = new Date(operatingDayDate);
-                    endTimeObj.setHours(endHours, endMinutes, 0, 0);
-                    if (absoluteEndDayOffset > 0) {
-                        endTimeObj.setDate(endTimeObj.getDate() + absoluteEndDayOffset);
-                    }
-                    // --- END REWRITTEN LOGIC ---
-
-                    allTripsForTheDay.push({
-                        startTime: firstStopOfTrip.scheduledTime,
-                        endTimeObj: endTimeObj,
-                        stops: adjustedTripStops, // Use the stops with the corrected offsets
-                        isCurtailed: firstStopOfTrip.curtailment && firstStopOfTrip.curtailment.newDestinationName
-                    });
-                }
-            });
-        }
-    }
-
-    activeTripsForCurtailment = allTripsForTheDay;
-    activeTripsForCurtailment.sort((a, b) => {
-        // Sort by the absolute end time to ensure chronological order across midnight
-        if (a.endTimeObj < b.endTimeObj) return -1;
-        if (a.endTimeObj > b.endTimeObj) return 1;
-        return 0;
-    });
+    activeTripsForCurtailment.sort((a, b) => a.endTimeObj.getTime() - b.endTimeObj.getTime());
 
     if(statusMsg) {
         statusMsg.textContent = `Found ${activeTripsForCurtailment.length} total trips for today. Displaying active trips.`;
@@ -4526,42 +4531,30 @@ async function curtail_revertCurtailment(tripIndex) {
     const routeName = tripObject.stops[0].lineName;
     let entriesUpdatedCount = 0;
 
-    // --- START: Corrected and more robust logic ---
-    console.log(`[REVERT DEBUG] Attempting to find and revert trip with ID: "${tripIdToRevert}"`);
-
-    // Use a standard `for` loop for clarity and to avoid potential closure issues.
-    for (let i = 0; i < currentWorkingSchedule_extra.length; i++) {
-        const entry = currentWorkingSchedule_extra[i];
-        
-        // Defensive check to ensure the entry and its tripId exist.
-        if (entry && entry.tripId) {
-            
-            // Compare the trip IDs. Trimming whitespace for safety.
-            if (entry.tripId.trim() === tripIdToRevert.trim()) {
-                
-                // This entry belongs to the trip we want to revert.
-                // Now, check if it actually has a curtailment property to remove.
-                if (entry.curtailment) {
-                    delete entry.curtailment;
-                    entriesUpdatedCount++; // Only increment if a change was actually made.
-                }
-            }
+    // The objects inside tripObject.stops are references to the master data.
+    // By modifying them directly, we are also modifying currentWorkingSchedule_extra.
+    tripObject.stops.forEach(stopEntry => {
+        // Find the corresponding entry in the master list just to be safe, although it's the same object.
+        const masterEntry = currentWorkingSchedule_extra.find(e => e.internalId === stopEntry.internalId);
+        if (masterEntry && masterEntry.curtailment) {
+            delete masterEntry.curtailment;
+            entriesUpdatedCount++;
         }
-    }
-
-    console.log(`[REVERT DEBUG] Loop finished. Found and updated ${entriesUpdatedCount} entries.`);
+        // Also ensure the display object is clean
+        if (stopEntry.curtailment) {
+            delete stopEntry.curtailment;
+        }
+    });
 
     if (entriesUpdatedCount > 0) {
-        // This is the success path. The curtailment was found and removed from our live data array.
         try {
-            // Now save the updated (reverted) schedule back to Firebase.
+            // Now that the master data is updated in memory, save it to Firebase.
             await saveSpecificRouteDataToFirebase_ExtraPage(routeName);
             
-            // Update the local display object to reflect the change immediately.
+            // Update the local display object's state for immediate UI refresh.
             tripObject.isCurtailed = false;
-            tripObject.stops.forEach(stop => delete stop.curtailment);
 
-            // Re-render the trip cards to show the "Intervene" button again.
+            // Re-render the cards to show the change.
             curtail_renderTripCards();
 
             alert(`Reverted curtailment for the ${tripObject.stops[0].scheduledTime} trip. The arrivals board will now update.`);
@@ -4571,13 +4564,10 @@ async function curtail_revertCurtailment(tripIndex) {
             alert('Error saving reversion: ' + error.message);
         }
     } else {
-        // This is the failure path that shows your error message.
-        // The new logging will help diagnose why it failed if it happens again.
-        console.error(`[REVERT DEBUG] FAILED. Could not find any entries in currentWorkingSchedule_extra with tripId "${tripIdToRevert}" that had a 'curtailment' property to delete.`);
-        console.log("[REVERT DEBUG] Sample tripIds from master list:", currentWorkingSchedule_extra.slice(0, 5).map(e => e.tripId));
+        // This block should no longer be reached with the corrected logic.
+        console.error(`[REVERT FAILED] Could not find any entries in master schedule with tripId "${tripIdToRevert}" that had a 'curtailment' property to delete.`);
         alert('Error: Could not find the active curtailment record for this trip ID in the live schedule data. The list may be out of sync.');
     }
-    // --- END: Corrected logic ---
 }
 
 function op_points_openCopyModal() {

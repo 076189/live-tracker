@@ -4527,34 +4527,39 @@ async function curtail_revertCurtailment(tripIndex) {
         return;
     }
 
+    // Get the reliable tripId from the first stop of the trip object.
     const tripIdToRevert = tripObject.stops[0].tripId;
     const routeName = tripObject.stops[0].lineName;
     let entriesUpdatedCount = 0;
 
-    // The objects inside tripObject.stops are references to the master data.
-    // By modifying them directly, we are also modifying currentWorkingSchedule_extra.
-    tripObject.stops.forEach(stopEntry => {
-        // Find the corresponding entry in the master list just to be safe, although it's the same object.
-        const masterEntry = currentWorkingSchedule_extra.find(e => e.internalId === stopEntry.internalId);
-        if (masterEntry && masterEntry.curtailment) {
-            delete masterEntry.curtailment;
-            entriesUpdatedCount++;
-        }
-        // Also ensure the display object is clean
-        if (stopEntry.curtailment) {
-            delete stopEntry.curtailment;
+    // Instead of looping over the trip's stops, loop over the entire master schedule.
+    // This is more robust and mirrors the logic used to apply the curtailment.
+    currentWorkingSchedule_extra.forEach(entry => {
+        // Check if the current entry belongs to the trip we want to revert.
+        if (entry.tripId === tripIdToRevert) {
+            // If the entry has a curtailment property, delete it.
+            if (entry.curtailment) {
+                delete entry.curtailment;
+                entriesUpdatedCount++;
+            }
         }
     });
 
     if (entriesUpdatedCount > 0) {
         try {
-            // Now that the master data is updated in memory, save it to Firebase.
+            // Now that the master data in memory is updated, save the entire affected route to Firebase.
             await saveSpecificRouteDataToFirebase_ExtraPage(routeName);
             
             // Update the local display object's state for immediate UI refresh.
             tripObject.isCurtailed = false;
+            // Also clean up the local `tripObject`'s stops just in case.
+            tripObject.stops.forEach(stop => {
+                if (stop.curtailment) {
+                    delete stop.curtailment;
+                }
+            });
 
-            // Re-render the cards to show the change.
+            // Re-render the cards to show the change (the "Revert" button will become "Intervene...").
             curtail_renderTripCards();
 
             alert(`Reverted curtailment for the ${tripObject.stops[0].scheduledTime} trip. The arrivals board will now update.`);
@@ -4564,7 +4569,9 @@ async function curtail_revertCurtailment(tripIndex) {
             alert('Error saving reversion: ' + error.message);
         }
     } else {
-        // This block should no longer be reached with the corrected logic.
+        // This 'else' block is now the point of failure the user is seeing.
+        // It means that even after searching the entire master schedule by tripId,
+        // no entries with a 'curtailment' property were found.
         console.error(`[REVERT FAILED] Could not find any entries in master schedule with tripId "${tripIdToRevert}" that had a 'curtailment' property to delete.`);
         alert('Error: Could not find the active curtailment record for this trip ID in the live schedule data. The list may be out of sync.');
     }

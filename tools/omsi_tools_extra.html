@@ -4167,98 +4167,97 @@ function curtail_fetchTodaysTrips() {
     }
 
     if(statusMsg) {
-        statusMsg.textContent = 'Finding active configurations and checking live status...';
+        statusMsg.textContent = 'Fetching live trips and applying master stop order...';
         statusMsg.style.color = '#3498db';
     }
+    
+    const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
 
-    // Determine the start of the current "operating day" for correct date calculations
+    // --- START: New and Final Hybrid Logic ---
+
+    // 1. Find the Canonical Stop Order from the first matching RSG configuration.
+    let canonicalStopOrder = null;
+    for (const configKey in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[configKey];
+        if (config.routeName === route && config.destinationName === dest && config.stopSequence) {
+            // Found a matching config, so we can get the master stop order.
+            canonicalStopOrder = config.stopSequence.map(s => s.stopID);
+            break; // Stop after finding the first one.
+        }
+    }
+
+    if (!canonicalStopOrder) {
+        if(statusMsg) {
+            statusMsg.textContent = `Error: No RSG Configuration found for ${route} to ${dest}. Cannot determine correct stop order.`;
+            statusMsg.style.color = '#e74c3c';
+        }
+        return;
+    }
+
+    // 2. Filter the LIVE schedule data to get today's active entries.
+    const relevantLiveEntries = currentWorkingSchedule_extra.filter(entry => {
+        if (!entry.lineName || entry.lineName !== route || !entry.destinationName || entry.destinationName !== dest) {
+            return false;
+        }
+        if (!entry.OperatingProfile) return false;
+        const entryProfiles = entry.OperatingProfile.split(',').map(p => p.trim());
+        return entryProfiles.some(profile => todaysActiveProfiles.includes(profile));
+    });
+
+    if (relevantLiveEntries.length === 0) {
+        if(statusMsg) {
+            statusMsg.textContent = `No active schedule entries found for ${route} to ${dest} on today's profile.`;
+            statusMsg.style.color = '#f1c40f';
+        }
+        activeTripsForCurtailment = [];
+        curtail_renderTripCards();
+        return;
+    }
+
+    // 3. Group the live entries into trips. They might be out of order initially.
+    const tripsForTheDay = segmentScheduleEntriesIntoTrips(relevantLiveEntries);
+
+    // 4. Re-sort each trip's stops based on the canonical order and prepare for display.
     let operatingDayDate = new Date();
     if (operatingDayDate.getHours() < earlyMorningThresholdHours) {
         operatingDayDate.setDate(operatingDayDate.getDate() - 1);
     }
-    operatingDayDate.setHours(0, 0, 0, 0); 
-    
-    const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
-    let allTripsForTheDay = [];
+    operatingDayDate.setHours(0, 0, 0, 0);
 
-    if (!rsg_loadedConfigs_extra || Object.keys(rsg_loadedConfigs_extra).length === 0) {
-        if(statusMsg) statusMsg.textContent = 'Error: Route Schedule Generator configurations are not loaded.';
-        return;
-    }
+    activeTripsForCurtailment = tripsForTheDay.map(trip => {
+        if (trip.length === 0) return null;
 
-    // --- START: New Hybrid Logic ---
-    // Loop through the base RSG configs to find what *should* run today
-    for (const configKey in rsg_loadedConfigs_extra) {
-        const config = rsg_loadedConfigs_extra[configKey];
+        // Re-sort the stops within this specific trip according to the master order.
+        trip.sort((a, b) => {
+            const indexA = canonicalStopOrder.indexOf(a.stopID);
+            const indexB = canonicalStopOrder.indexOf(b.stopID);
+            if (indexA === -1) return 1; // Put stops not in canonical order at the end
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+        });
 
-        // Filter for the selected route and destination
-        if (config.routeName !== route || config.destinationName !== dest) {
-            continue;
+        const firstStop = trip[0];
+        const lastStop = trip[trip.length - 1];
+
+        const [endHours, endMinutes] = lastStop.scheduledTime.split(':').map(Number);
+        const absoluteEndDayOffset = parseInt(lastStop.DayOffset || '0', 10);
+        let endTimeObj = new Date(operatingDayDate);
+        endTimeObj.setHours(endHours, endMinutes, 0, 0);
+        if (absoluteEndDayOffset > 0) {
+            endTimeObj.setDate(endTimeObj.getDate() + absoluteEndDayOffset);
         }
 
-        // Check if the config's profile is active today
-        const configProfiles = (config.operatingProfile || "").split(',').map(p => p.trim());
-        const isActiveToday = configProfiles.some(profile => todaysActiveProfiles.includes(profile));
-
-        if (isActiveToday) {
-            // 1. Generate the "clean" trips from the config. This guarantees the correct stop order.
-            const tripsFromThisConfig = generateScheduleTripsFromConfig(config);
-            
-            tripsFromThisConfig.forEach(cleanTripStops => {
-                if (cleanTripStops.length === 0) return;
-
-                const firstStopOfCleanTrip = cleanTripStops[0];
-                const tripIdForLookup = firstStopOfCleanTrip.tripId;
-
-                // 2. Look up this trip's state in the LIVE schedule data using its unique tripId.
-                const liveEntryForThisTrip = currentWorkingSchedule_extra.find(liveEntry => liveEntry.tripId === tripIdForLookup);
-                
-                let isCurtailedLive = false;
-                let liveCurtailmentData = null;
-
-                if (liveEntryForThisTrip && liveEntryForThisTrip.curtailment) {
-                    isCurtailedLive = true;
-                    liveCurtailmentData = liveEntryForThisTrip.curtailment;
-                }
-                
-                // 3. Augment the clean, correctly-ordered trip with the live curtailment data (if it exists).
-                if (isCurtailedLive) {
-                    cleanTripStops.forEach(stop => {
-                        stop.curtailment = liveCurtailmentData;
-                    });
-                }
-
-                // Calculate the absolute end time of the trip for display filtering
-                const lastStop = cleanTripStops[cleanTripStops.length - 1];
-                const [endHours, endMinutes] = lastStop.scheduledTime.split(':').map(Number);
-                const absoluteEndDayOffset = parseInt(lastStop.DayOffset || '0', 10);
-
-                let endTimeObj = new Date(operatingDayDate);
-                endTimeObj.setHours(endHours, endMinutes, 0, 0);
-                if (absoluteEndDayOffset > 0) {
-                    endTimeObj.setDate(endTimeObj.getDate() + absoluteEndDayOffset);
-                }
-                
-                // 4. Add the final, merged trip object to our list for display.
-                allTripsForTheDay.push({
-                    startTime: firstStopOfCleanTrip.scheduledTime,
-                    endTimeObj: endTimeObj,
-                    stops: cleanTripStops, // This now has the correct order AND the correct curtailment state.
-                    isCurtailed: isCurtailedLive
-                });
-            });
-        }
-    }
-    // --- END: New Hybrid Logic ---
-
-    activeTripsForCurtailment = allTripsForTheDay;
+        return {
+            startTime: firstStop.scheduledTime,
+            endTimeObj: endTimeObj,
+            stops: trip, // The trip's stops are now correctly ordered.
+            isCurtailed: !!(firstStop.curtailment && firstStop.curtailment.newDestinationName)
+        };
+    }).filter(Boolean);
     
-    // Sort and render as before
-    activeTripsForCurtailment.sort((a, b) => {
-        if (a.endTimeObj < b.endTimeObj) return -1;
-        if (a.endTimeObj > b.endTimeObj) return 1;
-        return 0;
-    });
+    // --- END: New and Final Hybrid Logic ---
+
+    activeTripsForCurtailment.sort((a, b) => a.endTimeObj.getTime() - b.endTimeObj.getTime());
 
     if(statusMsg) {
         statusMsg.textContent = `Found ${activeTripsForCurtailment.length} total trips for today. Displaying active trips.`;

@@ -838,10 +838,7 @@
     function generateArrivalText(s){return s<-59?null:(s<60?'due':`${Math.round(s/60)} min`)}
     function sanitize(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML}
     function getTextWidth(t,fS){const c=getTextWidth.canvas||(getTextWidth.canvas=document.createElement("canvas")),ctx=c.getContext("2d");ctx.font=fS;return ctx.measureText(t).width}
-    
-	function simpleCompareLineNames(a, b) {
-    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
+    function simpleCompareLineNames(a, b) { const numA = parseInt(a, 10); const numB = parseInt(b, 10); const isNumA = !isNaN(numA); const isNumB = !isNaN(numB); if (isNumA && isNumB) { if (numA < numB) return -1; if (numA > numB) return 1; return a.localeCompare(b); } if (isNumA && !isNumB) return -1; if (!isNumA && isNumB) return 1; return a.localeCompare(b); }
 
     function getRouteTileColour(lineName) {
         const upperLineName = String(lineName || "").toUpperCase();
@@ -911,40 +908,24 @@ function extractDestinationNameFromRule(ruleDestination) {
 
 	function updateAndDisplayLiveArrivals() {
     if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
-    if (!currentSelectedStopID || (!allScheduledData && !activeMassCurtailments)) { if (busListElement) busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`; return; }
-    if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.</li>`; return; }
+    if (!currentSelectedStopID || (!allScheduledData && !activeMassCurtailments)) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`;} return; }
+    if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.</li>`; } return; }
 
     const nowForProcessing = new Date();
-    const activeMassCurtailmentsProcessed = {};
-
-    if (activeMassCurtailments) {
+    
+    let combinedScheduleData = [...(allScheduledData || [])];
+    if (Object.keys(activeMassCurtailments).length > 0) {
         for (const key in activeMassCurtailments) {
             const rule = activeMassCurtailments[key];
-            if (rule && rule.startTime && rule.endTime) {
-                activeMassCurtailmentsProcessed[key] = {
-                    ...rule,
-                    parsedStartTime: new Date(rule.startTime),
-                    parsedEndTime: new Date(rule.endTime)
-                };
-            }
-        }
-    }
-
-    const combinedScheduleData = [];
-    for (let i = 0; i < allScheduledData.length; i++) {
-        if (allScheduledData[i].stopID === currentSelectedStopID) {
-            combinedScheduleData.push(allScheduledData[i]);
-        }
-    }
-
-    for (const key in activeMassCurtailmentsProcessed) {
-        const rule = activeMassCurtailmentsProcessed[key];
-        if (rule.dynamicallyGeneratedTrip && Array.isArray(rule.dynamicallyGeneratedTrip)) {
-            if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
-                for (let i = 0; i < rule.dynamicallyGeneratedTrip.length; i++) {
-                    if (rule.dynamicallyGeneratedTrip[i].stopID === currentSelectedStopID) {
-                        combinedScheduleData.push(Object.assign({}, rule.dynamicallyGeneratedTrip[i], { isDynamicallyGenerated: true }));
-                    }
+            if (rule && rule.dynamicallyGeneratedTrip && Array.isArray(rule.dynamicallyGeneratedTrip)) {
+                const startTime = new Date(rule.startTime);
+                const endTime = new Date(rule.endTime);
+                if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
+                    rule.dynamicallyGeneratedTrip.forEach(dynamicEntry => {
+                         if (dynamicEntry.stopID === currentSelectedStopID) {
+                            combinedScheduleData.push({ ...dynamicEntry, isDynamicallyGenerated: true });
+                        }
+                    });
                 }
             }
         }
@@ -954,134 +935,108 @@ function extractDestinationNameFromRule(ruleDestination) {
     const busDisplaySlotsCount = messageActive ? MAX_DISPLAY_ROWS - 1 : MAX_DISPLAY_ROWS;
     const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
 
-    const processedBuses = [];
-    
-    for (let mapIndex = 0; mapIndex < combinedScheduleData.length; mapIndex++) {
-        let busData = Object.assign({}, combinedScheduleData[mapIndex]);
-        let skipBus = false;
+    const processedBuses = combinedScheduleData
+        .filter(bus => bus.stopID === currentSelectedStopID)
+        .map((bus, mapIndex) => {
+            const busData = { ...bus };
 
-        if (!busData.isDynamicallyGenerated) {
-            for (const key in activeMassCurtailmentsProcessed) {
-                const rule = activeMassCurtailmentsProcessed[key];
-                if (rule.suppressedServiceLegs && Array.isArray(rule.suppressedServiceLegs)) {
-                    if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
-                        for (let k = 0; k < rule.suppressedServiceLegs.length; k++) {
-                            if (rule.suppressedServiceLegs[k].routeName === busData.lineName && rule.suppressedServiceLegs[k].destinationName === busData.destinationName) {
-                                skipBus = true;
-                                break;
+            if (!busData.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
+                for (const key in activeMassCurtailments) {
+                    const rule = activeMassCurtailments[key];
+                    if (rule && rule.suppressedServiceLegs && Array.isArray(rule.suppressedServiceLegs) && rule.startTime && rule.endTime) {
+                        const startTime = new Date(rule.startTime);
+                        const endTime = new Date(rule.endTime);
+                        if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
+                            const isSuppressed = rule.suppressedServiceLegs.some(leg => 
+                                leg.routeName === busData.lineName && leg.destinationName === busData.destinationName
+                            );
+                            if (isSuppressed) return null;
+                        }
+                    }
+                }
+            }
+            
+            if (!busData.isDynamicallyGenerated && Object.keys(activeMassCurtailments).length > 0) {
+                for (const key in activeMassCurtailments) {
+                    const rule = activeMassCurtailments[key];
+                     if (rule && rule.startTime && rule.endTime && rule.routeName === busData.lineName && rule.destinationName === busData.destinationName) {
+                        const startTime = new Date(rule.startTime);
+                        const endTime = new Date(rule.endTime);
+                        if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
+                            const stopSequence = busData.tripStopSequence || [];
+                            const currentStopIndex = stopSequence.indexOf(busData.stopID);
+                            const curtailStopIndex = stopSequence.indexOf(rule.newTerminusStopId);
+                            if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
+                                return null;
                             }
+                            busData.destinationName = rule.newTerminusDisplayName;
                         }
                     }
                 }
-                if (skipBus) break;
-                
-                if (rule.routeName === busData.lineName && rule.destinationName === busData.destinationName) {
-                    if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
-                        const stopSequence = busData.tripStopSequence || [];
-                        const currentStopIndex = stopSequence.indexOf(busData.stopID);
-                        const curtailStopIndex = stopSequence.indexOf(rule.newTerminusStopId);
-                        if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
-                            skipBus = true;
-                            break;
-                        }
-                        busData.destinationName = rule.newTerminusDisplayName;
-                    }
+            }
+
+            if (busData.curtailment) {
+                const stopSequence = busData.tripStopSequence || [];
+                const currentStopIndex = stopSequence.indexOf(busData.stopID);
+                const curtailStopIndex = stopSequence.indexOf(busData.curtailment.curtailAtStopID);
+
+                if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
+                    return null;
+                }
+                busData.destinationName = busData.curtailment.newDestinationName;
+            }
+            
+            if (!busData || !busData.OperatingProfile || typeof busData.OperatingProfile !== 'string' || busData.OperatingProfile.trim() === "") return null;
+            let tempTimeStr = String(busData.scheduledTime).trim();
+            const tempNumTime = parseFloat(tempTimeStr);
+            if (!isNaN(tempNumTime) && tempNumTime >= 0 && tempNumTime < 1 && !tempTimeStr.includes(':')) {
+                const totalMins = Math.round(tempNumTime * 1440);
+                tempTimeStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`;
+            }
+            const tempParts = tempTimeStr.match(/^(\d{1,2}):(\d{2})$/);
+            if (!tempParts) return null;
+            const hrs = parseInt(tempParts[1], 10);
+            const mins = parseInt(tempParts[2], 10);
+            const dayOffsetFromFile = parseInt(busData.DayOffset || "0") || 0;
+            if (isNaN(hrs) || isNaN(mins) || hrs < 0 || hrs > 23 || mins < 0 || mins > 59) return null;
+            let scheduleDate = new Date(nowForProcessing);
+            if (nowForProcessing.getHours() < earlyMorningThresholdHours) {
+                if (hrs >= 20) {
+                    scheduleDate.setDate(scheduleDate.getDate() - 1);
+                } else if (dayOffsetFromFile > 0 && hrs < earlyMorningThresholdHours) {
+                    scheduleDate.setDate(scheduleDate.getDate() - dayOffsetFromFile);
                 }
             }
-        }
-
-        if (skipBus) continue;
-
-        if (busData.curtailment) {
-            const stopSequence = busData.tripStopSequence || [];
-            const currentStopIndex = stopSequence.indexOf(busData.stopID);
-            const curtailStopIndex = stopSequence.indexOf(busData.curtailment.curtailAtStopID);
-            if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) continue;
-            busData.destinationName = busData.curtailment.newDestinationName;
-        }
-
-        if (!busData || !busData.OperatingProfile || typeof busData.OperatingProfile !== 'string' || busData.OperatingProfile.trim() === "") continue;
-        
-        let tempTimeStr = String(busData.scheduledTime).trim();
-        const tempNumTime = parseFloat(tempTimeStr);
-        if (!isNaN(tempNumTime) && tempNumTime >= 0 && tempNumTime < 1 && !tempTimeStr.includes(':')) {
-            const totalMins = Math.round(tempNumTime * 1440);
-            tempTimeStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`;
-        }
-        
-        const tempParts = tempTimeStr.match(/^(\d{1,2}):(\d{2})$/);
-        if (!tempParts) continue;
-        
-        const hrs = parseInt(tempParts[1], 10);
-        const mins = parseInt(tempParts[2], 10);
-        const dayOffsetFromFile = parseInt(busData.DayOffset || "0") || 0;
-        if (isNaN(hrs) || isNaN(mins) || hrs < 0 || hrs > 23 || mins < 0 || mins > 59) continue;
-        
-        let scheduleDate = new Date(nowForProcessing.getTime());
-        if (nowForProcessing.getHours() < earlyMorningThresholdHours) {
-            if (hrs >= 20) {
-                scheduleDate.setDate(scheduleDate.getDate() - 1);
-            } else if (dayOffsetFromFile > 0 && hrs < earlyMorningThresholdHours) {
-                scheduleDate.setDate(scheduleDate.getDate() - dayOffsetFromFile);
+            let dayCodesForThisBus = getCodesForCalendarDay(scheduleDate);
+            const dateStringYYYYMMDD = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}`;
+            if (globalOperationalOverrides[dateStringYYYYMMDD] && typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' && globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] && typeof globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] === 'string') {
+                const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName];
+                dayCodesForThisBus = routeSpecificOverride.split(',').map(p => p.trim()).filter(p => p);
             }
-        }
-        
-        let dayCodesForThisBus = getCodesForCalendarDay(scheduleDate);
-        const dateStringYYYYMMDD = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}`;
-        
-        if (globalOperationalOverrides[dateStringYYYYMMDD] && typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' && globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] && typeof globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] === 'string') {
-            const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName];
-            dayCodesForThisBus = routeSpecificOverride.split(',').map(p => p.trim()).filter(p => p);
-        }
-        
-        const busOpCodesLower = busData.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
-        const dayCodesLower = dayCodesForThisBus.map(c => c.toLowerCase());
-        
-        let hasValidCode = false;
-        for (let c = 0; c < busOpCodesLower.length; c++) {
-            if (dayCodesLower.includes(busOpCodesLower[c])) {
-                hasValidCode = true;
-                break;
+            const busOpCodesLower = busData.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
+            const dayCodesLower = dayCodesForThisBus.map(c => c.toLowerCase());
+            if (!busOpCodesLower.some(boc => dayCodesLower.includes(boc))) { return null; }
+            let adjustedSchedTime = new Date(scheduleDate.getFullYear(), scheduleDate.getMonth(), scheduleDate.getDate(), hrs, mins, 0);
+            if (dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() >= 20) {
+                adjustedSchedTime.setDate(adjustedSchedTime.getDate() + 1);
+            } else if (dayOffsetFromFile > 0) {
+                adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
             }
-        }
-        if (!hasValidCode) continue;
-        
-        let adjustedSchedTime = new Date(scheduleDate.getFullYear(), scheduleDate.getMonth(), scheduleDate.getDate(), hrs, mins, 0);
-        if (dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() >= 20) {
-            adjustedSchedTime.setDate(adjustedSchedTime.getDate() + 1);
-        } else if (dayOffsetFromFile > 0) {
-            adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
-        }
 
-        const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
-        if (diffSecs > MAX_TIME_TO_STATION_SECONDS || diffSecs < -59) continue;
+            const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
+            const arrTxt = generateArrivalText(diffSecs);
+            if (arrTxt === null) return null;
 
-        const arrTxt = generateArrivalText(diffSecs);
-        if (arrTxt === null) continue;
+            const internalId = busData.internalId || `${busData.stopID}_${busData.lineName}_${busData.OperatingProfile}_${(busData.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
+            return { ...busData, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1, resolvedScheduledTime: adjustedSchedTime.toISOString() };
+        })
+        .filter(b => b !== null && b.timeToStationInSeconds <= MAX_TIME_TO_STATION_SECONDS && b.timeToStationInSeconds >= -59)
+        .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0, MAX_DEPARTURES_OVERALL).map((bus, index) => ({ ...bus, originalMasterIndex: index }));
 
-        const internalId = busData.internalId || `${busData.stopID}_${busData.lineName}_${busData.OperatingProfile}_${(busData.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
-        
-        processedBuses.push({
-            ...busData,
-            timeToStationInSeconds: diffSecs,
-            calculatedArrivalText: arrTxt,
-            internalId: internalId,
-            originalMasterIndex: -1,
-            resolvedScheduledTime: adjustedSchedTime.toISOString()
-        });
-    }
-
-    processedBuses.sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds);
-    const finalProcessedBuses = processedBuses.slice(0, MAX_DEPARTURES_OVERALL);
-    for (let i = 0; i < finalProcessedBuses.length; i++) {
-        finalProcessedBuses[i].originalMasterIndex = i;
-    }
-
-    const newMasterInternalIdsString = finalProcessedBuses.map(b => b.internalId).join(',');
+    const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
     const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
     if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0;
-    allUpcomingBusesMasterList = finalProcessedBuses;
-    
+    allUpcomingBusesMasterList = processedBuses;
     const finalItemsToDisplayInSlots = new Array(MAX_DISPLAY_ROWS).fill(null);
     if (allUpcomingBusesMasterList.length > 0) {
         finalItemsToDisplayInSlots[0] = { ...allUpcomingBusesMasterList[0], displayNumber: 1, type: 'bus' };
@@ -1089,25 +1044,15 @@ function extractDestinationNameFromRule(ruleDestination) {
         if (cyclingCandidates.length > 0) {
             if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
             const busesForThisCycle = cyclingCandidates.slice(currentDepartureCycleStartIndex, currentDepartureCycleStartIndex + effectiveCyclingRowsCount);
-            for (let cycleIndex = 0; cycleIndex < busesForThisCycle.length; cycleIndex++) {
-                const bus = busesForThisCycle[cycleIndex];
-                let masterListIndex = -1;
-                for (let m = 0; m < allUpcomingBusesMasterList.length; m++) {
-                    if (allUpcomingBusesMasterList[m].internalId === bus.internalId) {
-                        masterListIndex = m;
-                        break;
-                    }
-                }
+            busesForThisCycle.forEach((bus, cycleIndex) => {
+                const masterListIndex = allUpcomingBusesMasterList.findIndex(masterBus => masterBus.internalId === bus.internalId);
                 const targetSlotIndex = 1 + cycleIndex;
-                if (targetSlotIndex < busDisplaySlotsCount) {
-                    finalItemsToDisplayInSlots[targetSlotIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex + 1, type: 'bus'};
-                }
-            }
+                if (targetSlotIndex < busDisplaySlotsCount) finalItemsToDisplayInSlots[targetSlotIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex +1, type: 'bus'};
+            });
             currentDepartureCycleStartIndex += effectiveCyclingRowsCount;
             if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
         }
     }
-    
     if (messageActive) {
         let scrollDuration = "15s";
         switch(customMessageSettings.scrollSpeed) {
@@ -1117,7 +1062,6 @@ function extractDestinationNameFromRule(ruleDestination) {
         }
         finalItemsToDisplayInSlots[MAX_DISPLAY_ROWS - 1] = { type: 'message', text: customMessageSettings.text, scrollDuration: scrollDuration, internalId: 'custom_message_slot_' + customMessageSettings.text };
     }
-    
     if (busListElement) busListElement.innerHTML = '';
     const newSnapshotForThisUpdate = new Array(MAX_DISPLAY_ROWS).fill(null);
     for (let i = 0; i < MAX_DISPLAY_ROWS; i++) {
@@ -1130,27 +1074,22 @@ function extractDestinationNameFromRule(ruleDestination) {
                 numberSpan.className = 'bus-item-number';
                 numberSpan.textContent = itemToDisplay.displayNumber + ".";
                 li.appendChild(numberSpan);
-                
                 const lineCodeSpan = document.createElement('span');
                 lineCodeSpan.className = 'bus-item-linecode';
                 lineCodeSpan.textContent = itemToDisplay.lineName;
                 li.appendChild(lineCodeSpan);
-                
                 const destinationSpan = document.createElement('span');
                 destinationSpan.className = 'bus-item-destination';
                 destinationSpan.title = sanitize(itemToDisplay.destinationName);
                 destinationSpan.textContent = itemToDisplay.destinationName;
                 li.appendChild(destinationSpan);
-                
                 const timeSpan = document.createElement('span');
                 timeSpan.className = 'bus-item-time';
                 timeSpan.textContent = itemToDisplay.calculatedArrivalText;
                 li.appendChild(timeSpan);
-                
                 let shouldAnimate = false;
                 if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'bus') shouldAnimate = true;
                 else if (itemToDisplay.internalId !== prevSnapshotForThisSlot.slot_internalId || itemToDisplay.calculatedArrivalText !== prevSnapshotForThisSlot.slot_calculatedArrivalText || itemToDisplay.displayNumber !== prevSnapshotForThisSlot.slot_displayNumber) shouldAnimate = true;
-                
                 if (shouldAnimate) {
                     li.classList.remove('bus-item-animate');
                     void li.offsetWidth;
@@ -1164,7 +1103,6 @@ function extractDestinationNameFromRule(ruleDestination) {
                 marqueeSpan.textContent = itemToDisplay.text;
                 li.style.setProperty('--scroll-duration', itemToDisplay.scrollDuration);
                 li.appendChild(marqueeSpan);
-                
                 let shouldAnimateMessage = false;
                 if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'message' || prevSnapshotForThisSlot.slot_internalId !== itemToDisplay.internalId) shouldAnimateMessage = true;
                 if (shouldAnimateMessage) {
@@ -1172,12 +1110,10 @@ function extractDestinationNameFromRule(ruleDestination) {
                     void li.offsetWidth;
                     setTimeout(() => { li.classList.add('bus-item-animate'); }, 10);
                 }
-                newSnapshotForThisUpdate[i] = { slot_type: 'message', slot_internalId: itemToDisplay.internalId };
+                newSnapshotForThisUpdate[i] = { slot_type: 'message', slot_internalId: itemToDisplay.internalId, };
             }
             busListElement.appendChild(li);
-        } else {
-            newSnapshotForThisUpdate[i] = null;
-        }
+        } else newSnapshotForThisUpdate[i] = null;
     }
     previousArrivalsSnapshot = newSnapshotForThisUpdate;
     const actualBusesShownCount = finalItemsToDisplayInSlots.filter(item => item && item.type === 'bus').length;
@@ -1229,7 +1165,9 @@ function segmentScheduleEntriesIntoTrips(scheduleEntriesForServiceLeg) {
 }
 
 async function loadInitialData() {
+    console.log("[ARRIVALS DEBUG] loadInitialData from Firebase called.");
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        console.error("Firebase not initialized. Cannot load data.");
         if(busListElement) busListElement.innerHTML = `<li class="error-message">Firebase connection error.</li>`;
         return;
     }
@@ -1240,29 +1178,37 @@ async function loadInitialData() {
         if (appStateSnapshot.exists()) {
             const appState = appStateSnapshot.val();
             currentScheduleStatus = appState.scheduleStatus || 'idle';
-            if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
+            if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); }
 
             const fbClosedStops = appState.closedStopIDs || {};
             closedStopIDsGlobal = [];
-            for (const stopID in fbClosedStops) { 
-                if (fbClosedStops[stopID] === true) closedStopIDsGlobal.push(stopID.toUpperCase()); 
-            }
+            for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) { closedStopIDsGlobal.push(stopID.toUpperCase()); } }
         } else {
             currentScheduleStatus = 'idle';
             closedStopIDsGlobal = [];
         }
 
         const customMessageSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_CUSTOM_STATUS_MESSAGE));
-        if (customMessageSnapshot.exists()) customMessageSettings = customMessageSnapshot.val();
-        else customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
+        if (customMessageSnapshot.exists()) {
+            customMessageSettings = customMessageSnapshot.val();
+        } else {
+            customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
+        }
 
         const overridesSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
-        if (overridesSnapshot.exists()) globalOperationalOverrides = overridesSnapshot.val();
-        else globalOperationalOverrides = {};
+        if (overridesSnapshot.exists()) {
+            globalOperationalOverrides = overridesSnapshot.val();
+        } else {
+            globalOperationalOverrides = {};
+        }
 
-        const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
-        if (massCurtailmentsSnapshot.exists()) activeMassCurtailments = massCurtailmentsSnapshot.val() || {};
-        else activeMassCurtailments = {};
+const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
+        if (massCurtailmentsSnapshot.exists()) {
+            activeMassCurtailments = massCurtailmentsSnapshot.val() || {};
+            console.log(`[ARRIVALS DEBUG] Loaded ${Object.keys(activeMassCurtailments).length} mass curtailment rules.`);
+        } else {
+            activeMassCurtailments = {};
+        }
 
         const scheduleSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
         const flatScheduleFromDB = [];
@@ -1275,34 +1221,22 @@ async function loadInitialData() {
                     for (const destKey in profileData) {
                         const destData = profileData[destKey];
                         if (destData && Array.isArray(destData.entries)) {
-                            for (let i = 0; i < destData.entries.length; i++) {
-                                if (destData.entries[i]) flatScheduleFromDB.push(destData.entries[i]);
-                            }
+                            destData.entries.forEach(entry => {
+                                flatScheduleFromDB.push({ ...entry });
+                            });
                         }
                     }
                 }
             }
             flatScheduleFromDB.sort((a, b) => {
-                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); 
-                if (lineCompare !== 0) return lineCompare;
-                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); 
-                if (profileCompare !== 0) return profileCompare;
-                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); 
-                if (destCompare !== 0) return destCompare;
-                const timeA = (a.scheduledTime || "99:99").replace(':', ''); 
-                const timeB = (b.scheduledTime || "99:99").replace(':', ''); 
-                return timeA.localeCompare(timeB);
+                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
+                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
+                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
+                const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
             });
-            
-            for (let i = 0; i < flatScheduleFromDB.length; i++) {
-                const e = flatScheduleFromDB[i];
-                if (!e.internalId) {
-                    e.internalId = `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_arr_flat`;
-                }
-            }
-            allScheduledData = flatScheduleFromDB;
+            allScheduledData = flatScheduleFromDB.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_arr_flat`}));
         } else {
-            allScheduledData = [];
+             allScheduledData = [];
         }
 
         const allDefinedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
@@ -1310,13 +1244,15 @@ async function loadInitialData() {
         if (allDefinedStopsSnapshot.exists() && typeof allDefinedStopsSnapshot.val() === 'object') {
             const definedStopsObject = allDefinedStopsSnapshot.val();
             for (const keyInFirebase in definedStopsObject) {
-                const stopData = definedStopsObject[keyInFirebase];
-                let currentStopID = (stopData && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
-                uniqueStops.push({
-                    stopID: currentStopID,
-                    stopName: stopData.stopName || "Unknown Name",
-                    direction: stopData.direction || ""
-                });
+                if (Object.hasOwnProperty.call(definedStopsObject, keyInFirebase)) {
+                    const stopData = definedStopsObject[keyInFirebase];
+                    let currentStopID = (stopData && stopData.stopID && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
+                    uniqueStops.push({
+                        stopID: currentStopID,
+                        stopName: stopData.stopName || "Unknown Name",
+                        direction: stopData.direction || ""
+                    });
+                }
             }
             const seenStopIDs = new Set();
             uniqueStops = uniqueStops.filter(stop => {
@@ -1332,9 +1268,11 @@ async function loadInitialData() {
         globalCustomRouteColours = { ...initialRouteColourMap };
         if (customColoursSnapshot.exists()) {
             const fbCustomColours = customColoursSnapshot.val();
-            if (typeof fbCustomColours === 'object') {
+            if (fbCustomColours && typeof fbCustomColours === 'object') {
                 for (const route in fbCustomColours) {
-                    globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route];
+                    if (Object.hasOwnProperty.call(fbCustomColours, route)) {
+                        globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route];
+                    }
                 }
             }
         }
@@ -1349,41 +1287,59 @@ async function loadInitialData() {
             if (lastStopFromLocalStorage && uniqueStops.find(s => s && s.stopID === lastStopFromLocalStorage)) {
                 stopToSelect = lastStopFromLocalStorage;
             }
-            if (stopToSelect) selectStop(stopToSelect);
-            else if (uniqueStops[0] && uniqueStops[0].stopID) selectStop(uniqueStops[0].stopID);
-            else if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No valid stops to select.</li>`;
-        } else {
+            if (stopToSelect) {
+                selectStop(stopToSelect);
+            } else if (uniqueStops[0] && uniqueStops[0].stopID) {
+                selectStop(uniqueStops[0].stopID);
+            } else {
+                if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No valid stops to select.</li>`;
+            }
+        }
+        else {
             const stopInfoArea = document.getElementById('stop-info-area');
-            if (stopInfoArea) stopInfoArea.innerHTML = '<div class="main-stop-name-line" style="text-align: center;">No Stops Available</div>';
+            if (stopInfoArea) { stopInfoArea.innerHTML = '<div class="main-stop-name-line" style="text-align: center;">No Stops Available</div>'; }
             if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule data or stops defined. Use <a href="setup.html" style="color:#90cdf4;">Setup tools</a>.</li>`;
         }
     } catch (error) {
+        console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error);
         if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading data. Error: ${error.message}</li>`;
     }
     setupFirebaseListeners();
 }
 
 function setupFirebaseListeners() {
-    if (!window.firebaseOMSI || !window.firebaseOMSI.database) return;
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        console.error("Firebase not initialized. Cannot set up listeners for arrivals page.");
+        return;
+    }
     const { database, dbOnValue, dbRef, dbChild } = window.firebaseOMSI;
+
+    console.log("[ARRIVALS DEBUG] Setting up Firebase listeners...");
 
     const liveScheduleRef = dbRef(database, FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED);
     dbOnValue(liveScheduleRef, (snapshot) => {
+        console.log("[ARRIVALS DEBUG] Live structured schedule data updated from Firebase.");
         const flatScheduleFromDBListener = [];
         if (snapshot.exists()) {
             const schedulesByRoute = snapshot.val();
-            if (typeof schedulesByRoute === 'object') {
+            if (schedulesByRoute && typeof schedulesByRoute === 'object') {
                 for (const routeKey in schedulesByRoute) {
-                    const routeData = schedulesByRoute[routeKey];
-                    if (typeof routeData === 'object') {
-                        for (const profileKey in routeData) {
-                            const profileData = routeData[profileKey];
-                            if (typeof profileData === 'object') {
-                                for (const destKey in profileData) {
-                                    const destData = profileData[destKey];
-                                    if (destData && Array.isArray(destData.entries)) {
-                                        for (let i = 0; i < destData.entries.length; i++) {
-                                            if (destData.entries[i]) flatScheduleFromDBListener.push(destData.entries[i]);
+                    if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
+                        const routeData = schedulesByRoute[routeKey];
+                        if (routeData && typeof routeData === 'object') {
+                            for (const profileKey in routeData) {
+                                if (Object.hasOwnProperty.call(routeData, profileKey)) {
+                                    const profileData = routeData[profileKey];
+                                    if (profileData && typeof profileData === 'object') {
+                                        for (const destKey in profileData) {
+                                            if (Object.hasOwnProperty.call(profileData, destKey)) {
+                                                const destData = profileData[destKey];
+                                                if (destData && Array.isArray(destData.entries)) {
+                                                    destData.entries.forEach(entry => {
+                                                        if (entry) flatScheduleFromDBListener.push({ ...entry });
+                                                    });
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1393,28 +1349,18 @@ function setupFirebaseListeners() {
                 }
             }
             flatScheduleFromDBListener.sort((a, b) => {
-                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName);
-                if (lineCompare !== 0) return lineCompare;
-                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || "");
-                if (profileCompare !== 0) return profileCompare;
-                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || "");
-                if (destCompare !== 0) return destCompare;
-                const timeA = (a.scheduledTime || "99:99").replace(':', '');
-                const timeB = (b.scheduledTime || "99:99").replace(':', '');
-                return timeA.localeCompare(timeB);
+                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
+                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
+                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
+                const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
             });
-            for (let i = 0; i < flatScheduleFromDBListener.length; i++) {
-                const e = flatScheduleFromDBListener[i];
-                if (!e.internalId) {
-                    e.internalId = `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fblistener_arr_flat`;
-                }
-            }
-            allScheduledData = flatScheduleFromDBListener;
+            allScheduledData = flatScheduleFromDBListener.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fblistener_arr_flat`}));
         } else {
             allScheduledData = [];
         }
+
         if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
-            updateAndDisplayLiveArrivals();
+            selectStop(currentSelectedStopID);
         } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
             displaySystemUpdateMessage();
         }
@@ -1422,17 +1368,22 @@ function setupFirebaseListeners() {
 
     const allDefinedStopsListenerRef = dbRef(database, FB_PATH_ALL_DEFINED_STOPS);
     dbOnValue(allDefinedStopsListenerRef, (snapshot) => {
+        console.log("[ARRIVALS DEBUG] All defined stops data updated from Firebase.");
         const newUniqueStopsArray = [];
         if (snapshot.exists() && typeof snapshot.val() === 'object') {
             const definedStopsObject = snapshot.val();
-            for (const keyInFirebase in definedStopsObject) {
-                const stopData = definedStopsObject[keyInFirebase];
-                let stopIDFromData = (stopData && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
-                newUniqueStopsArray.push({
-                    stopID: stopIDFromData,
-                    stopName: stopData.stopName || "Unknown Name",
-                    direction: stopData.direction || ""
-                });
+            if (definedStopsObject) {
+                for (const keyInFirebase in definedStopsObject) {
+                    if (Object.hasOwnProperty.call(definedStopsObject, keyInFirebase)) {
+                        const stopData = definedStopsObject[keyInFirebase];
+                        let stopIDFromData = (stopData && stopData.stopID && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
+                        newUniqueStopsArray.push({
+                            stopID: stopIDFromData,
+                            stopName: stopData.stopName || "Unknown Name",
+                            direction: stopData.direction || ""
+                        });
+                    }
+                }
             }
         }
         const seenStopIDs = new Set();
@@ -1442,10 +1393,8 @@ function setupFirebaseListeners() {
             return true;
         });
         finalProcessedStops.sort((a, b) => (a.stopName || "").toLowerCase().localeCompare((b.stopName || "").toLowerCase()));
-        
-        const oldUniqueStopsContentJSON = JSON.stringify(uniqueStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})));
-        const newUniqueStopsContentJSON = JSON.stringify(finalProcessedStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})));
-        
+        const oldUniqueStopsContentJSON = JSON.stringify(uniqueStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})).sort((a,b) => a.id.localeCompare(b.id)));
+        const newUniqueStopsContentJSON = JSON.stringify(finalProcessedStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})).sort((a,b) => a.id.localeCompare(b.id)));
         if (oldUniqueStopsContentJSON !== newUniqueStopsContentJSON) {
             uniqueStops = finalProcessedStops;
             populateStopSelectionModal();
@@ -1468,20 +1417,20 @@ function setupFirebaseListeners() {
             if (newStatus !== currentScheduleStatus) {
                 currentScheduleStatus = newStatus;
                 if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
-                else if (currentSelectedStopID) updateAndDisplayLiveArrivals();
+                else if (currentSelectedStopID) selectStop(currentSelectedStopID);
             }
+
             const fbClosedStops = appState.closedStopIDs || {};
             const newClosed = [];
             for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID.toUpperCase()); }
             if (JSON.stringify(closedStopIDsGlobal.sort()) !== JSON.stringify(newClosed.sort())) {
                 closedStopIDsGlobal = newClosed;
-                if (currentSelectedStopID) updateAndDisplayLiveArrivals();
+                if (currentSelectedStopID) selectStop(currentSelectedStopID);
                 populateStopSelectionModal();
             }
         } else {
-            currentScheduleStatus = 'idle'; 
-            closedStopIDsGlobal = [];
-            if (currentSelectedStopID) updateAndDisplayLiveArrivals();
+            currentScheduleStatus = 'idle'; closedStopIDsGlobal = [];
+            if (currentSelectedStopID) selectStop(currentSelectedStopID);
         }
     });
 
@@ -1490,17 +1439,17 @@ function setupFirebaseListeners() {
         globalCustomRouteColours = { ...initialRouteColourMap };
         if (snapshot.exists()) {
             const fbCols = snapshot.val();
-            if (typeof fbCols === 'object') {
-                for (const r in fbCols) { globalCustomRouteColours[r.toUpperCase()] = fbCols[r]; }
+            if (fbCols && typeof fbCols === 'object') {
+                for (const r in fbCols) { if (Object.hasOwnProperty.call(fbCols, r)) { globalCustomRouteColours[r.toUpperCase()] = fbCols[r]; } }
             }
         }
-        if (currentSelectedStopID) updateAndDisplayLiveArrivals();
+        if (currentSelectedStopID) selectStop(currentSelectedStopID);
     });
 
     const stopSpecificColoursRef = dbRef(database, FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS);
     dbOnValue(stopSpecificColoursRef, (snapshot) => {
         stopSpecificRouteColours = snapshot.exists() ? snapshot.val() || {} : {};
-        if (currentSelectedStopID) updateAndDisplayLiveArrivals();
+        if (currentSelectedStopID) selectStop(currentSelectedStopID);
     });
 
     const customMessageRef = dbRef(database, FB_PATH_CUSTOM_STATUS_MESSAGE);
@@ -1512,14 +1461,22 @@ function setupFirebaseListeners() {
     const operationalOverridesRef = dbRef(database, FB_PATH_OPERATIONAL_OVERRIDES);
     dbOnValue(operationalOverridesRef, (snapshot) => {
         globalOperationalOverrides = snapshot.exists() ? snapshot.val() : {};
-        if (currentSelectedStopID) updateAndDisplayLiveArrivals();
+        if (currentSelectedStopID) selectStop(currentSelectedStopID);
     });
 
+    // --- NEW LISTENER FOR DYNAMIC CURTAILMENTS --- //
     const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
     dbOnValue(massCurtailmentsRef, (snapshot) => {
+        console.log("[ARRIVALS DEBUG] Mass curtailment data updated from Firebase listener. Forcing arrivals re-render.");
         activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
-        if (currentSelectedStopID) updateAndDisplayLiveArrivals();
+        // If a stop is currently selected, force a refresh of the arrivals board to apply the new rules
+        if (currentSelectedStopID) {
+            updateAndDisplayLiveArrivals(); // THIS IS THE CRUCIAL LINE ADDED/MODIFIED
+        }
     });
+    // --- END OF NEW LISTENER --- //
+
+    console.log("[ARRIVALS DEBUG] All Firebase listeners set up.");
 }
 
     function populateStopSelectionModal(searchTerm = "") { if (!availableStopsList) return; availableStopsList.innerHTML = ''; if (!uniqueStops || uniqueStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">No stops available. Use <a href="setup.html" style="color:#90cdf4;">Setup page</a>.</li>`; return; } const filteredStops = uniqueStops.filter(stop => stop && ((stop.stopName||"").toLowerCase().includes(searchTerm.toLowerCase()) || (stop.direction||"").toLowerCase().includes(searchTerm.toLowerCase()))); if (filteredStops.length === 0) { availableStopsList.innerHTML = `<li style="padding: 0.75rem 0.5rem; text-align: center; opacity: 0.7;">${searchTerm ? 'No stops match search.' : 'No stops found.'}</li>`; return; } filteredStops.forEach(stop => { if(!stop || !stop.stopID) return; const li = document.createElement('li'); let directionText = stop.direction || ""; if (directionText.trim() !== "") { directionText = `towards ${directionText.trim()}`; } const isClosed = closedStopIDsGlobal.includes(stop.stopID.toUpperCase()); li.textContent = `${stop.stopName || "Unknown Stop"} ${directionText ? `(${directionText})` : ''}${isClosed ? ' (Closed)' : ''}`; if (isClosed) { li.style.textDecoration = "line-through"; li.style.opacity = "0.7"; } li.setAttribute('data-stopid', stop.stopID); li.addEventListener('click', () => { selectStop(stop.stopID); closeStopSelectionModal(); }); availableStopsList.appendChild(li); }); }
@@ -1530,158 +1487,8 @@ function setupFirebaseListeners() {
     function closeStopSelectionModal() { if (stopSelectionModalOverlay) stopSelectionModalOverlay.style.display = 'none'; }
 
     function selectStop(stopID) {
-    currentSelectedStopID = stopID; 
-    localStorage.setItem('lastSelectedStopID', stopID); 
-    currentDepartureCycleStartIndex = 0; 
-    allUpcomingBusesMasterList = []; 
-    previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); 
-    
-    if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { 
-        displaySystemUpdateMessage(); 
-        const stopInfoAreaClear = document.getElementById('stop-info-area'); 
-        if (stopInfoAreaClear) stopInfoAreaClear.innerHTML = ''; 
-        if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; } 
-        if(routeTilesContainerElement) { routeTilesContainerElement.innerHTML = ''; } 
-        if(busListElement) busListElement.innerHTML = ''; 
-        return; 
-    } 
-    
-    const selectedStopDetails = uniqueStops.find(s => s && s.stopID === stopID); 
-    const stopInfoArea = document.getElementById('stop-info-area'); 
-    if (stopInfoArea) stopInfoArea.innerHTML = ''; 
-    if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none';  } 
-    if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; 
-    
-    if (!selectedStopDetails) { 
-        if (stopInfoArea) { 
-            const errorHeader = document.createElement('div'); 
-            errorHeader.className = 'main-stop-name-line'; 
-            errorHeader.style.textAlign = 'center'; 
-            errorHeader.textContent = 'Stop Info Missing'; 
-            stopInfoArea.appendChild(errorHeader); 
-        } 
-        if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Details missing for ${sanitize(stopID)}.</li>`; 
-        if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); 
-        liveUpdateIntervalId = null; 
-        return; 
-    } 
-    
-    const newBusStopHeader = document.createElement('div'); 
-    newBusStopHeader.id = 'bus-stop-header'; 
-    newBusStopHeader.title = 'Click to change stop'; 
-    newBusStopHeader.style.display = 'flex'; 
-    newBusStopHeader.style.flexDirection = 'column'; 
-    newBusStopHeader.style.alignItems = 'center'; 
-    newBusStopHeader.style.justifyContent = 'center'; 
-    newBusStopHeader.style.paddingBottom = '0.25rem'; 
-    newBusStopHeader.style.cursor = 'pointer'; 
-    newBusStopHeader.style.textAlign = 'center'; 
-    newBusStopHeader.style.marginTop = '-0.5rem'; 
-    
-    let stopNameFull = selectedStopDetails.stopName || "Unknown Stop"; 
-    let mainNamePart = stopNameFull; 
-    let qualifierPart = null; 
-    let stopLetters = null; 
-    const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/; 
-    const qualifierMatch = mainNamePart.match(qualifierRegex); 
-    if (qualifierMatch) { mainNamePart = qualifierMatch[1].trim(); qualifierPart = qualifierMatch[2].trim(); } 
-    const letterRegex = /\(([A-Z0-9]{1,3})\)$/; let tempLetterMatch = mainNamePart.match(letterRegex); 
-    if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim(); } 
-    else if (qualifierPart) { tempLetterMatch = qualifierPart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim(); } } 
-    
-    const mainNameLineDiv = document.createElement('div'); 
-    mainNameLineDiv.className = 'main-stop-name-line'; 
-    mainNameLineDiv.textContent = mainNamePart; 
-    newBusStopHeader.appendChild(mainNameLineDiv); 
-    if (qualifierPart && qualifierPart !== "") { const qElem = document.createElement('div'); qElem.className = 'stop-name-qualifier'; qElem.textContent = qualifierPart; newBusStopHeader.appendChild(qElem); } 
-    
-    const newBusStopDirection = document.createElement('p'); 
-    newBusStopDirection.id = 'bus-stop-direction'; 
-    newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; 
-    newBusStopDirection.style.fontWeight = 'normal'; 
-    newBusStopDirection.style.textAlign = 'center'; 
-    newBusStopDirection.style.opacity = '0.75'; 
-    newBusStopDirection.style.marginTop = '0.25rem'; 
-    newBusStopDirection.style.minHeight = '1.2em'; 
-    newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; 
-    if(stopInfoArea) { stopInfoArea.appendChild(newBusStopHeader); stopInfoArea.appendChild(newBusStopDirection); newBusStopHeader.addEventListener('click', openStopSelectionModal); } 
-    
-    if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) { 
-        const allServingRoutesEver = new Set(); 
-        allScheduledData.forEach(bus => { if (bus && bus.stopID === currentSelectedStopID && bus.lineName) allServingRoutesEver.add(bus.lineName); }); 
-        const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames); 
-        routeTilesContainerElement.innerHTML = ''; 
-        sortedServingRoutes.forEach(lineName => { 
-            const tile = document.createElement('span'); 
-            tile.className = 'route-tile'; 
-            tile.textContent = lineName; 
-            let tileBGColour = getRouteTileColour(lineName); 
-            let tileTextColour = getTextColourForBackground(tileBGColour); 
-            tile.style.backgroundColor = tileBGColour; 
-            tile.style.color = tileTextColour; 
-            routeTilesContainerElement.appendChild(tile); 
-        }); 
-    } 
-    
-    if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { 
-        const circleElement = document.createElement('span'); 
-        circleElement.className = 'stop-letter-circle'; 
-        const letterSpan = document.createElement('span'); 
-        letterSpan.textContent = stopLetters; 
-        circleElement.appendChild(letterSpan); 
-        circleElement.style.alignItems = 'center'; 
-        circleElement.style.justifyContent = 'center'; 
-        stopLetterDisplayElement.innerHTML = ''; 
-        stopLetterDisplayElement.appendChild(circleElement); 
-        stopLetterDisplayElement.style.display = 'inline-flex'; 
-        requestAnimationFrame(() => { 
-            if (!document.body.contains(circleElement) || !document.body.contains(letterSpan)) return; 
-            const circStyle = window.getComputedStyle(circleElement); 
-            const circDiam = parseFloat(circStyle.width); 
-            if(isNaN(circDiam) || circDiam <= 0) return; 
-            
-            const bodyFontFamily = window.getComputedStyle(document.body).fontFamily;
-            letterSpan.style.fontFamily = bodyFontFamily; 
-            letterSpan.style.fontWeight = "bold"; 
-            
-            const lCount = (stopLetters || "").length; 
-            if(lCount === 0) { letterSpan.textContent = ''; return; } 
-            
-            const MIN_FS = 6; 
-            let curSize, tgtWidth; 
-            if(lCount === 1) { curSize = circDiam * 0.7; tgtWidth = circDiam * 0.60; } 
-            else if(lCount === 2) { curSize = circDiam * 0.50; tgtWidth = circDiam * 0.70; } 
-            else { curSize = circDiam * 0.40; tgtWidth = circDiam * 0.75; } 
-            
-            curSize = Math.max(MIN_FS, Math.min(curSize, circDiam * 0.8)); 
-            let iter = 0; 
-            let txtMeasW; 
-            
-            do { 
-                txtMeasW = getTextWidth(stopLetters, `bold ${curSize}px "${bodyFontFamily}"`); 
-                if(txtMeasW > tgtWidth && curSize > MIN_FS) curSize -= 0.5; 
-                else break; 
-                iter++; 
-            } while(iter < 50 && curSize > MIN_FS); 
-            
-            letterSpan.style.fontSize = curSize + "px"; 
-            letterSpan.style.lineHeight = circDiam + 'px'; 
-        }); 
-    } else { 
-        if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; 
-    } 
-    
-    if (closedStopIDsGlobal.includes(stopID.toUpperCase())) { 
-        if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;} 
-        if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); 
-        liveUpdateIntervalId = null; 
-        return; 
-    } 
-    
-    updateAndDisplayLiveArrivals(); 
-    if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); 
-    liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 10000);
-}
+        currentSelectedStopID = stopID; localStorage.setItem('lastSelectedStopID', stopID); currentDepartureCycleStartIndex = 0; allUpcomingBusesMasterList = []; previousArrivalsSnapshot = new Array(MAX_DISPLAY_ROWS).fill(null); if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); const stopInfoAreaClear = document.getElementById('stop-info-area'); if (stopInfoAreaClear) stopInfoAreaClear.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none'; } if(routeTilesContainerElement) { routeTilesContainerElement.innerHTML = ''; } if(busListElement) busListElement.innerHTML = ''; return; } const selectedStopDetails = uniqueStops.find(s => s && s.stopID === stopID); const stopInfoArea = document.getElementById('stop-info-area'); if (stopInfoArea) stopInfoArea.innerHTML = ''; if(stopLetterDisplayElement) { stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.style.display = 'none';  } if(routeTilesContainerElement) routeTilesContainerElement.innerHTML = ''; if (!selectedStopDetails) { console.warn(`[ARRIVALS DEBUG] No details for stopID (selectStop): ${stopID}`); if (stopInfoArea) { const errorHeader = document.createElement('div'); errorHeader.className = 'main-stop-name-line'; errorHeader.style.textAlign = 'center'; errorHeader.textContent = 'Stop Info Missing'; stopInfoArea.appendChild(errorHeader); } if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">Details missing for ${sanitize(stopID)}.</li>`; if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } const newBusStopHeader = document.createElement('div'); newBusStopHeader.id = 'bus-stop-header'; newBusStopHeader.title = 'Click to change stop'; newBusStopHeader.style.display = 'flex'; newBusStopHeader.style.flexDirection = 'column'; newBusStopHeader.style.alignItems = 'center'; newBusStopHeader.style.justifyContent = 'center'; newBusStopHeader.style.paddingBottom = '0.25rem'; newBusStopHeader.style.cursor = 'pointer'; newBusStopHeader.style.textAlign = 'center'; newBusStopHeader.style.marginTop = '-0.5rem'; let stopNameFull = selectedStopDetails.stopName || "Unknown Stop"; let mainNamePart = stopNameFull; let qualifierPart = null; let stopLetters = null; const qualifierRegex = /^(.*?)\s*\/\s*(.*)$/; const qualifierMatch = mainNamePart.match(qualifierRegex); if (qualifierMatch) { mainNamePart = qualifierMatch[1].trim(); qualifierPart = qualifierMatch[2].trim(); } const letterRegex = /\(([A-Z0-9]{1,3})\)$/; let tempLetterMatch = mainNamePart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; mainNamePart = mainNamePart.replace(tempLetterMatch[0], "").trim(); } else if (qualifierPart) { tempLetterMatch = qualifierPart.match(letterRegex); if (tempLetterMatch) { stopLetters = tempLetterMatch[1]; qualifierPart = qualifierPart.replace(tempLetterMatch[0], "").trim(); } } const mainNameLineDiv = document.createElement('div'); mainNameLineDiv.className = 'main-stop-name-line'; mainNameLineDiv.textContent = mainNamePart; newBusStopHeader.appendChild(mainNameLineDiv); if (qualifierPart && qualifierPart !== "") { const qElem = document.createElement('div'); qElem.className = 'stop-name-qualifier'; qElem.textContent = qualifierPart; newBusStopHeader.appendChild(qElem); } const newBusStopDirection = document.createElement('p'); newBusStopDirection.id = 'bus-stop-direction'; newBusStopDirection.style.fontSize = 'clamp(0.8rem, 3vmin, 1rem)'; newBusStopDirection.style.fontWeight = 'normal'; newBusStopDirection.style.textAlign = 'center'; newBusStopDirection.style.opacity = '0.75'; newBusStopDirection.style.marginTop = '0.25rem'; newBusStopDirection.style.minHeight = '1.2em'; newBusStopDirection.textContent = selectedStopDetails.direction ? `towards ${selectedStopDetails.direction}` : ""; if(stopInfoArea) { stopInfoArea.appendChild(newBusStopHeader); stopInfoArea.appendChild(newBusStopDirection); newBusStopHeader.addEventListener('click', openStopSelectionModal); } if (selectedStopDetails && allScheduledData && allScheduledData.length > 0 && routeTilesContainerElement) { const allServingRoutesEver = new Set(); allScheduledData.forEach(bus => { if (bus && bus.stopID === currentSelectedStopID && bus.lineName) allServingRoutesEver.add(bus.lineName); }); const sortedServingRoutes = Array.from(allServingRoutesEver).sort(simpleCompareLineNames); routeTilesContainerElement.innerHTML = ''; sortedServingRoutes.forEach(lineName => { const tile = document.createElement('span'); tile.className = 'route-tile'; tile.textContent = lineName; let tileBGColour = getRouteTileColour(lineName); let tileTextColour = getTextColourForBackground(tileBGColour); tile.style.backgroundColor = tileBGColour; tile.style.color = tileTextColour; routeTilesContainerElement.appendChild(tile); }); } if (stopLetters && stopLetterDisplayElement && mainNameLineDiv) { const circleElement = document.createElement('span'); circleElement.className = 'stop-letter-circle'; const letterSpan = document.createElement('span'); letterSpan.textContent = stopLetters; circleElement.appendChild(letterSpan); circleElement.style.alignItems = 'center'; circleElement.style.justifyContent = 'center'; stopLetterDisplayElement.innerHTML = ''; stopLetterDisplayElement.appendChild(circleElement); stopLetterDisplayElement.style.display = 'inline-flex'; requestAnimationFrame(() => { if (!document.body.contains(circleElement) || !document.body.contains(letterSpan)) return; const circStyle=window.getComputedStyle(circleElement); const circDiam=parseFloat(circStyle.width); if(isNaN(circDiam) || circDiam <= 0) return; letterSpan.style.fontFamily = window.getComputedStyle(document.body).fontFamily; letterSpan.style.fontWeight="bold"; const lCount=(stopLetters || "").length; if(lCount===0) { letterSpan.textContent = ''; return; } const MIN_FS=6; let curSize, tgtWidth; if(lCount===1){curSize=circDiam*0.7; tgtWidth=circDiam*0.60;} else if(lCount===2){curSize=circDiam*0.50;tgtWidth=circDiam*0.70;} else{curSize=circDiam*0.40;tgtWidth=circDiam*0.75;} curSize=Math.max(MIN_FS,Math.min(curSize, circDiam*0.8)); let iter=0; let txtMeasW; do{ letterSpan.style.fontSize=curSize+"px"; txtMeasW=getTextWidth(stopLetters,`bold ${curSize}px "${getComputedStyle(letterSpan).fontFamily}"`); if(txtMeasW > tgtWidth && curSize > MIN_FS) curSize -= 0.5; else break; iter++; } while(iter<50 && curSize>MIN_FS); letterSpan.style.fontSize=curSize+"px"; letterSpan.style.lineHeight = circDiam + 'px'; }); } else { if (stopLetterDisplayElement) stopLetterDisplayElement.style.display = 'none'; } if (closedStopIDsGlobal.includes(stopID.toUpperCase())) { if(busListElement) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.<br>Please use the next or previous stop.</li>`;} if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = null; return; } updateAndDisplayLiveArrivals(); if (liveUpdateIntervalId) clearInterval(liveUpdateIntervalId); liveUpdateIntervalId = setInterval(updateAndDisplayLiveArrivals, 10000);
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
         console.log("ARRIVALS SCRIPT ALIVE: DOMContentLoaded, event listeners being set up at " + new Date().toLocaleTimeString());

@@ -911,13 +911,13 @@ function extractDestinationNameFromRule(ruleDestination) {
 
 	function updateAndDisplayLiveArrivals() {
     if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
-    if (!currentSelectedStopID || (!allScheduledData && !activeMassCurtailments)) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`;} return; }
-    if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.</li>`; } return; }
+    if (!currentSelectedStopID || (!allScheduledData && !activeMassCurtailments)) { if (busListElement) busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`; return; }
+    if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.</li>`; return; }
 
     const nowForProcessing = new Date();
     const activeMassCurtailmentsProcessed = {};
 
-    if (Object.keys(activeMassCurtailments).length > 0) {
+    if (activeMassCurtailments) {
         for (const key in activeMassCurtailments) {
             const rule = activeMassCurtailments[key];
             if (rule && rule.startTime && rule.endTime) {
@@ -930,16 +930,22 @@ function extractDestinationNameFromRule(ruleDestination) {
         }
     }
 
-    let combinedScheduleData = [...(allScheduledData || [])];
+    const combinedScheduleData = [];
+    for (let i = 0; i < allScheduledData.length; i++) {
+        if (allScheduledData[i].stopID === currentSelectedStopID) {
+            combinedScheduleData.push(allScheduledData[i]);
+        }
+    }
+
     for (const key in activeMassCurtailmentsProcessed) {
         const rule = activeMassCurtailmentsProcessed[key];
         if (rule.dynamicallyGeneratedTrip && Array.isArray(rule.dynamicallyGeneratedTrip)) {
             if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
-                rule.dynamicallyGeneratedTrip.forEach(dynamicEntry => {
-                    if (dynamicEntry.stopID === currentSelectedStopID) {
-                        combinedScheduleData.push({ ...dynamicEntry, isDynamicallyGenerated: true });
+                for (let i = 0; i < rule.dynamicallyGeneratedTrip.length; i++) {
+                    if (rule.dynamicallyGeneratedTrip[i].stopID === currentSelectedStopID) {
+                        combinedScheduleData.push(Object.assign({}, rule.dynamicallyGeneratedTrip[i], { isDynamicallyGenerated: true }));
                     }
-                });
+                }
             }
         }
     }
@@ -948,102 +954,134 @@ function extractDestinationNameFromRule(ruleDestination) {
     const busDisplaySlotsCount = messageActive ? MAX_DISPLAY_ROWS - 1 : MAX_DISPLAY_ROWS;
     const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
 
-    const processedBuses = combinedScheduleData
-        .filter(bus => bus.stopID === currentSelectedStopID)
-        .map((bus, mapIndex) => {
-            const busData = { ...bus };
+    const processedBuses = [];
+    
+    for (let mapIndex = 0; mapIndex < combinedScheduleData.length; mapIndex++) {
+        let busData = Object.assign({}, combinedScheduleData[mapIndex]);
+        let skipBus = false;
 
-            if (!busData.isDynamicallyGenerated) {
-                for (const key in activeMassCurtailmentsProcessed) {
-                    const rule = activeMassCurtailmentsProcessed[key];
-                    if (rule.suppressedServiceLegs && Array.isArray(rule.suppressedServiceLegs)) {
-                        if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
-                            const isSuppressed = rule.suppressedServiceLegs.some(leg =>
-                                leg.routeName === busData.lineName && leg.destinationName === busData.destinationName
-                            );
-                            if (isSuppressed) return null;
-                        }
-                    }
-                }
-
-                for (const key in activeMassCurtailmentsProcessed) {
-                    const rule = activeMassCurtailmentsProcessed[key];
-                    if (rule.routeName === busData.lineName && rule.destinationName === busData.destinationName) {
-                        if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
-                            const stopSequence = busData.tripStopSequence || [];
-                            const currentStopIndex = stopSequence.indexOf(busData.stopID);
-                            const curtailStopIndex = stopSequence.indexOf(rule.newTerminusStopId);
-                            if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
-                                return null;
+        if (!busData.isDynamicallyGenerated) {
+            for (const key in activeMassCurtailmentsProcessed) {
+                const rule = activeMassCurtailmentsProcessed[key];
+                if (rule.suppressedServiceLegs && Array.isArray(rule.suppressedServiceLegs)) {
+                    if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
+                        for (let k = 0; k < rule.suppressedServiceLegs.length; k++) {
+                            if (rule.suppressedServiceLegs[k].routeName === busData.lineName && rule.suppressedServiceLegs[k].destinationName === busData.destinationName) {
+                                skipBus = true;
+                                break;
                             }
-                            busData.destinationName = rule.newTerminusDisplayName;
                         }
                     }
                 }
-            }
-
-            if (busData.curtailment) {
-                const stopSequence = busData.tripStopSequence || [];
-                const currentStopIndex = stopSequence.indexOf(busData.stopID);
-                const curtailStopIndex = stopSequence.indexOf(busData.curtailment.curtailAtStopID);
-
-                if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
-                    return null;
-                }
-                busData.destinationName = busData.curtailment.newDestinationName;
-            }
-
-            if (!busData || !busData.OperatingProfile || typeof busData.OperatingProfile !== 'string' || busData.OperatingProfile.trim() === "") return null;
-            let tempTimeStr = String(busData.scheduledTime).trim();
-            const tempNumTime = parseFloat(tempTimeStr);
-            if (!isNaN(tempNumTime) && tempNumTime >= 0 && tempNumTime < 1 && !tempTimeStr.includes(':')) {
-                const totalMins = Math.round(tempNumTime * 1440);
-                tempTimeStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`;
-            }
-            const tempParts = tempTimeStr.match(/^(\d{1,2}):(\d{2})$/);
-            if (!tempParts) return null;
-            const hrs = parseInt(tempParts[1], 10);
-            const mins = parseInt(tempParts[2], 10);
-            const dayOffsetFromFile = parseInt(busData.DayOffset || "0") || 0;
-            if (isNaN(hrs) || isNaN(mins) || hrs < 0 || hrs > 23 || mins < 0 || mins > 59) return null;
-            let scheduleDate = new Date(nowForProcessing);
-            if (nowForProcessing.getHours() < earlyMorningThresholdHours) {
-                if (hrs >= 20) {
-                    scheduleDate.setDate(scheduleDate.getDate() - 1);
-                } else if (dayOffsetFromFile > 0 && hrs < earlyMorningThresholdHours) {
-                    scheduleDate.setDate(scheduleDate.getDate() - dayOffsetFromFile);
+                if (skipBus) break;
+                
+                if (rule.routeName === busData.lineName && rule.destinationName === busData.destinationName) {
+                    if (nowForProcessing >= rule.parsedStartTime && nowForProcessing <= rule.parsedEndTime) {
+                        const stopSequence = busData.tripStopSequence || [];
+                        const currentStopIndex = stopSequence.indexOf(busData.stopID);
+                        const curtailStopIndex = stopSequence.indexOf(rule.newTerminusStopId);
+                        if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) {
+                            skipBus = true;
+                            break;
+                        }
+                        busData.destinationName = rule.newTerminusDisplayName;
+                    }
                 }
             }
-            let dayCodesForThisBus = getCodesForCalendarDay(scheduleDate);
-            const dateStringYYYYMMDD = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}`;
-            if (globalOperationalOverrides[dateStringYYYYMMDD] && typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' && globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] && typeof globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] === 'string') {
-                const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName];
-                dayCodesForThisBus = routeSpecificOverride.split(',').map(p => p.trim()).filter(p => p);
+        }
+
+        if (skipBus) continue;
+
+        if (busData.curtailment) {
+            const stopSequence = busData.tripStopSequence || [];
+            const currentStopIndex = stopSequence.indexOf(busData.stopID);
+            const curtailStopIndex = stopSequence.indexOf(busData.curtailment.curtailAtStopID);
+            if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) continue;
+            busData.destinationName = busData.curtailment.newDestinationName;
+        }
+
+        if (!busData || !busData.OperatingProfile || typeof busData.OperatingProfile !== 'string' || busData.OperatingProfile.trim() === "") continue;
+        
+        let tempTimeStr = String(busData.scheduledTime).trim();
+        const tempNumTime = parseFloat(tempTimeStr);
+        if (!isNaN(tempNumTime) && tempNumTime >= 0 && tempNumTime < 1 && !tempTimeStr.includes(':')) {
+            const totalMins = Math.round(tempNumTime * 1440);
+            tempTimeStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`;
+        }
+        
+        const tempParts = tempTimeStr.match(/^(\d{1,2}):(\d{2})$/);
+        if (!tempParts) continue;
+        
+        const hrs = parseInt(tempParts[1], 10);
+        const mins = parseInt(tempParts[2], 10);
+        const dayOffsetFromFile = parseInt(busData.DayOffset || "0") || 0;
+        if (isNaN(hrs) || isNaN(mins) || hrs < 0 || hrs > 23 || mins < 0 || mins > 59) continue;
+        
+        let scheduleDate = new Date(nowForProcessing.getTime());
+        if (nowForProcessing.getHours() < earlyMorningThresholdHours) {
+            if (hrs >= 20) {
+                scheduleDate.setDate(scheduleDate.getDate() - 1);
+            } else if (dayOffsetFromFile > 0 && hrs < earlyMorningThresholdHours) {
+                scheduleDate.setDate(scheduleDate.getDate() - dayOffsetFromFile);
             }
-            const busOpCodesLower = busData.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
-            const dayCodesLower = dayCodesForThisBus.map(c => c.toLowerCase());
-            if (!busOpCodesLower.some(boc => dayCodesLower.includes(boc))) { return null; }
-            let adjustedSchedTime = new Date(scheduleDate.getFullYear(), scheduleDate.getMonth(), scheduleDate.getDate(), hrs, mins, 0);
-            if (dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() >= 20) {
-                adjustedSchedTime.setDate(adjustedSchedTime.getDate() + 1);
-            } else if (dayOffsetFromFile > 0) {
-                adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
+        }
+        
+        let dayCodesForThisBus = getCodesForCalendarDay(scheduleDate);
+        const dateStringYYYYMMDD = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}`;
+        
+        if (globalOperationalOverrides[dateStringYYYYMMDD] && typeof globalOperationalOverrides[dateStringYYYYMMDD] === 'object' && globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] && typeof globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName] === 'string') {
+            const routeSpecificOverride = globalOperationalOverrides[dateStringYYYYMMDD][busData.lineName];
+            dayCodesForThisBus = routeSpecificOverride.split(',').map(p => p.trim()).filter(p => p);
+        }
+        
+        const busOpCodesLower = busData.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
+        const dayCodesLower = dayCodesForThisBus.map(c => c.toLowerCase());
+        
+        let hasValidCode = false;
+        for (let c = 0; c < busOpCodesLower.length; c++) {
+            if (dayCodesLower.includes(busOpCodesLower[c])) {
+                hasValidCode = true;
+                break;
             }
+        }
+        if (!hasValidCode) continue;
+        
+        let adjustedSchedTime = new Date(scheduleDate.getFullYear(), scheduleDate.getMonth(), scheduleDate.getDate(), hrs, mins, 0);
+        if (dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() >= 20) {
+            adjustedSchedTime.setDate(adjustedSchedTime.getDate() + 1);
+        } else if (dayOffsetFromFile > 0) {
+            adjustedSchedTime.setDate(adjustedSchedTime.getDate() + dayOffsetFromFile);
+        }
 
-            const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
-            const arrTxt = generateArrivalText(diffSecs);
-            if (arrTxt === null) return null;
+        const diffSecs = Math.round((adjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
+        if (diffSecs > MAX_TIME_TO_STATION_SECONDS || diffSecs < -59) continue;
 
-            const internalId = busData.internalId || `${busData.stopID}_${busData.lineName}_${busData.OperatingProfile}_${(busData.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
-            return { ...busData, timeToStationInSeconds: diffSecs, calculatedArrivalText: arrTxt, internalId: internalId, originalMasterIndex: -1, resolvedScheduledTime: adjustedSchedTime.toISOString() };
-        })
-        .filter(b => b !== null && b.timeToStationInSeconds <= MAX_TIME_TO_STATION_SECONDS && b.timeToStationInSeconds >= -59)
-        .sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds).slice(0, MAX_DEPARTURES_OVERALL).map((bus, index) => ({ ...bus, originalMasterIndex: index }));
+        const arrTxt = generateArrivalText(diffSecs);
+        if (arrTxt === null) continue;
 
-    const newMasterInternalIdsString = processedBuses.map(b => b.internalId).join(',');
+        const internalId = busData.internalId || `${busData.stopID}_${busData.lineName}_${busData.OperatingProfile}_${(busData.scheduledTime||"0000").replace(':', '')}_${dayOffsetFromFile}_${hrs}${mins}_mapIdx${mapIndex}`;
+        
+        processedBuses.push({
+            ...busData,
+            timeToStationInSeconds: diffSecs,
+            calculatedArrivalText: arrTxt,
+            internalId: internalId,
+            originalMasterIndex: -1,
+            resolvedScheduledTime: adjustedSchedTime.toISOString()
+        });
+    }
+
+    processedBuses.sort((a,b) => a.timeToStationInSeconds - b.timeToStationInSeconds);
+    const finalProcessedBuses = processedBuses.slice(0, MAX_DEPARTURES_OVERALL);
+    for (let i = 0; i < finalProcessedBuses.length; i++) {
+        finalProcessedBuses[i].originalMasterIndex = i;
+    }
+
+    const newMasterInternalIdsString = finalProcessedBuses.map(b => b.internalId).join(',');
     const oldMasterInternalIdsString = allUpcomingBusesMasterList.map(b => b.internalId).join(',');
     if (newMasterInternalIdsString !== oldMasterInternalIdsString) currentDepartureCycleStartIndex = 0;
-    allUpcomingBusesMasterList = processedBuses;
+    allUpcomingBusesMasterList = finalProcessedBuses;
+    
     const finalItemsToDisplayInSlots = new Array(MAX_DISPLAY_ROWS).fill(null);
     if (allUpcomingBusesMasterList.length > 0) {
         finalItemsToDisplayInSlots[0] = { ...allUpcomingBusesMasterList[0], displayNumber: 1, type: 'bus' };
@@ -1051,15 +1089,25 @@ function extractDestinationNameFromRule(ruleDestination) {
         if (cyclingCandidates.length > 0) {
             if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
             const busesForThisCycle = cyclingCandidates.slice(currentDepartureCycleStartIndex, currentDepartureCycleStartIndex + effectiveCyclingRowsCount);
-            busesForThisCycle.forEach((bus, cycleIndex) => {
-                const masterListIndex = allUpcomingBusesMasterList.findIndex(masterBus => masterBus.internalId === bus.internalId);
+            for (let cycleIndex = 0; cycleIndex < busesForThisCycle.length; cycleIndex++) {
+                const bus = busesForThisCycle[cycleIndex];
+                let masterListIndex = -1;
+                for (let m = 0; m < allUpcomingBusesMasterList.length; m++) {
+                    if (allUpcomingBusesMasterList[m].internalId === bus.internalId) {
+                        masterListIndex = m;
+                        break;
+                    }
+                }
                 const targetSlotIndex = 1 + cycleIndex;
-                if (targetSlotIndex < busDisplaySlotsCount) finalItemsToDisplayInSlots[targetSlotIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex +1, type: 'bus'};
-            });
+                if (targetSlotIndex < busDisplaySlotsCount) {
+                    finalItemsToDisplayInSlots[targetSlotIndex] = { ...bus, displayNumber: masterListIndex !== -1 ? masterListIndex + 1 : bus.originalMasterIndex + 1, type: 'bus'};
+                }
+            }
             currentDepartureCycleStartIndex += effectiveCyclingRowsCount;
             if (currentDepartureCycleStartIndex >= cyclingCandidates.length) currentDepartureCycleStartIndex = 0;
         }
     }
+    
     if (messageActive) {
         let scrollDuration = "15s";
         switch(customMessageSettings.scrollSpeed) {
@@ -1069,6 +1117,7 @@ function extractDestinationNameFromRule(ruleDestination) {
         }
         finalItemsToDisplayInSlots[MAX_DISPLAY_ROWS - 1] = { type: 'message', text: customMessageSettings.text, scrollDuration: scrollDuration, internalId: 'custom_message_slot_' + customMessageSettings.text };
     }
+    
     if (busListElement) busListElement.innerHTML = '';
     const newSnapshotForThisUpdate = new Array(MAX_DISPLAY_ROWS).fill(null);
     for (let i = 0; i < MAX_DISPLAY_ROWS; i++) {
@@ -1081,22 +1130,27 @@ function extractDestinationNameFromRule(ruleDestination) {
                 numberSpan.className = 'bus-item-number';
                 numberSpan.textContent = itemToDisplay.displayNumber + ".";
                 li.appendChild(numberSpan);
+                
                 const lineCodeSpan = document.createElement('span');
                 lineCodeSpan.className = 'bus-item-linecode';
                 lineCodeSpan.textContent = itemToDisplay.lineName;
                 li.appendChild(lineCodeSpan);
+                
                 const destinationSpan = document.createElement('span');
                 destinationSpan.className = 'bus-item-destination';
                 destinationSpan.title = sanitize(itemToDisplay.destinationName);
                 destinationSpan.textContent = itemToDisplay.destinationName;
                 li.appendChild(destinationSpan);
+                
                 const timeSpan = document.createElement('span');
                 timeSpan.className = 'bus-item-time';
                 timeSpan.textContent = itemToDisplay.calculatedArrivalText;
                 li.appendChild(timeSpan);
+                
                 let shouldAnimate = false;
                 if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'bus') shouldAnimate = true;
                 else if (itemToDisplay.internalId !== prevSnapshotForThisSlot.slot_internalId || itemToDisplay.calculatedArrivalText !== prevSnapshotForThisSlot.slot_calculatedArrivalText || itemToDisplay.displayNumber !== prevSnapshotForThisSlot.slot_displayNumber) shouldAnimate = true;
+                
                 if (shouldAnimate) {
                     li.classList.remove('bus-item-animate');
                     void li.offsetWidth;
@@ -1110,6 +1164,7 @@ function extractDestinationNameFromRule(ruleDestination) {
                 marqueeSpan.textContent = itemToDisplay.text;
                 li.style.setProperty('--scroll-duration', itemToDisplay.scrollDuration);
                 li.appendChild(marqueeSpan);
+                
                 let shouldAnimateMessage = false;
                 if (!prevSnapshotForThisSlot || prevSnapshotForThisSlot.slot_type !== 'message' || prevSnapshotForThisSlot.slot_internalId !== itemToDisplay.internalId) shouldAnimateMessage = true;
                 if (shouldAnimateMessage) {
@@ -1117,10 +1172,12 @@ function extractDestinationNameFromRule(ruleDestination) {
                     void li.offsetWidth;
                     setTimeout(() => { li.classList.add('bus-item-animate'); }, 10);
                 }
-                newSnapshotForThisUpdate[i] = { slot_type: 'message', slot_internalId: itemToDisplay.internalId, };
+                newSnapshotForThisUpdate[i] = { slot_type: 'message', slot_internalId: itemToDisplay.internalId };
             }
             busListElement.appendChild(li);
-        } else newSnapshotForThisUpdate[i] = null;
+        } else {
+            newSnapshotForThisUpdate[i] = null;
+        }
     }
     previousArrivalsSnapshot = newSnapshotForThisUpdate;
     const actualBusesShownCount = finalItemsToDisplayInSlots.filter(item => item && item.type === 'bus').length;
@@ -1172,9 +1229,7 @@ function segmentScheduleEntriesIntoTrips(scheduleEntriesForServiceLeg) {
 }
 
 async function loadInitialData() {
-    console.log("[ARRIVALS DEBUG] loadInitialData from Firebase called.");
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
-        console.error("Firebase not initialized. Cannot load data.");
         if(busListElement) busListElement.innerHTML = `<li class="error-message">Firebase connection error.</li>`;
         return;
     }
@@ -1185,37 +1240,29 @@ async function loadInitialData() {
         if (appStateSnapshot.exists()) {
             const appState = appStateSnapshot.val();
             currentScheduleStatus = appState.scheduleStatus || 'idle';
-            if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); }
+            if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
 
             const fbClosedStops = appState.closedStopIDs || {};
             closedStopIDsGlobal = [];
-            for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) { closedStopIDsGlobal.push(stopID.toUpperCase()); } }
+            for (const stopID in fbClosedStops) { 
+                if (fbClosedStops[stopID] === true) closedStopIDsGlobal.push(stopID.toUpperCase()); 
+            }
         } else {
             currentScheduleStatus = 'idle';
             closedStopIDsGlobal = [];
         }
 
         const customMessageSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_CUSTOM_STATUS_MESSAGE));
-        if (customMessageSnapshot.exists()) {
-            customMessageSettings = customMessageSnapshot.val();
-        } else {
-            customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
-        }
+        if (customMessageSnapshot.exists()) customMessageSettings = customMessageSnapshot.val();
+        else customMessageSettings = { text: "", startTimeISO: null, endTimeISO: null, scrollSpeed: "medium", isEnabled: false };
 
         const overridesSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_OPERATIONAL_OVERRIDES));
-        if (overridesSnapshot.exists()) {
-            globalOperationalOverrides = overridesSnapshot.val();
-        } else {
-            globalOperationalOverrides = {};
-        }
+        if (overridesSnapshot.exists()) globalOperationalOverrides = overridesSnapshot.val();
+        else globalOperationalOverrides = {};
 
-const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
-        if (massCurtailmentsSnapshot.exists()) {
-            activeMassCurtailments = massCurtailmentsSnapshot.val() || {};
-            console.log(`[ARRIVALS DEBUG] Loaded ${Object.keys(activeMassCurtailments).length} mass curtailment rules.`);
-        } else {
-            activeMassCurtailments = {};
-        }
+        const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MASS_CURTAILMENTS));
+        if (massCurtailmentsSnapshot.exists()) activeMassCurtailments = massCurtailmentsSnapshot.val() || {};
+        else activeMassCurtailments = {};
 
         const scheduleSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
         const flatScheduleFromDB = [];
@@ -1228,22 +1275,34 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
                     for (const destKey in profileData) {
                         const destData = profileData[destKey];
                         if (destData && Array.isArray(destData.entries)) {
-                            destData.entries.forEach(entry => {
-                                flatScheduleFromDB.push({ ...entry });
-                            });
+                            for (let i = 0; i < destData.entries.length; i++) {
+                                if (destData.entries[i]) flatScheduleFromDB.push(destData.entries[i]);
+                            }
                         }
                     }
                 }
             }
             flatScheduleFromDB.sort((a, b) => {
-                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
-                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
-                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
-                const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
+                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); 
+                if (lineCompare !== 0) return lineCompare;
+                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); 
+                if (profileCompare !== 0) return profileCompare;
+                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); 
+                if (destCompare !== 0) return destCompare;
+                const timeA = (a.scheduledTime || "99:99").replace(':', ''); 
+                const timeB = (b.scheduledTime || "99:99").replace(':', ''); 
+                return timeA.localeCompare(timeB);
             });
-            allScheduledData = flatScheduleFromDB.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_arr_flat`}));
+            
+            for (let i = 0; i < flatScheduleFromDB.length; i++) {
+                const e = flatScheduleFromDB[i];
+                if (!e.internalId) {
+                    e.internalId = `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_arr_flat`;
+                }
+            }
+            allScheduledData = flatScheduleFromDB;
         } else {
-             allScheduledData = [];
+            allScheduledData = [];
         }
 
         const allDefinedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
@@ -1251,15 +1310,13 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
         if (allDefinedStopsSnapshot.exists() && typeof allDefinedStopsSnapshot.val() === 'object') {
             const definedStopsObject = allDefinedStopsSnapshot.val();
             for (const keyInFirebase in definedStopsObject) {
-                if (Object.hasOwnProperty.call(definedStopsObject, keyInFirebase)) {
-                    const stopData = definedStopsObject[keyInFirebase];
-                    let currentStopID = (stopData && stopData.stopID && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
-                    uniqueStops.push({
-                        stopID: currentStopID,
-                        stopName: stopData.stopName || "Unknown Name",
-                        direction: stopData.direction || ""
-                    });
-                }
+                const stopData = definedStopsObject[keyInFirebase];
+                let currentStopID = (stopData && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
+                uniqueStops.push({
+                    stopID: currentStopID,
+                    stopName: stopData.stopName || "Unknown Name",
+                    direction: stopData.direction || ""
+                });
             }
             const seenStopIDs = new Set();
             uniqueStops = uniqueStops.filter(stop => {
@@ -1275,11 +1332,9 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
         globalCustomRouteColours = { ...initialRouteColourMap };
         if (customColoursSnapshot.exists()) {
             const fbCustomColours = customColoursSnapshot.val();
-            if (fbCustomColours && typeof fbCustomColours === 'object') {
+            if (typeof fbCustomColours === 'object') {
                 for (const route in fbCustomColours) {
-                    if (Object.hasOwnProperty.call(fbCustomColours, route)) {
-                        globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route];
-                    }
+                    globalCustomRouteColours[route.toUpperCase()] = fbCustomColours[route];
                 }
             }
         }
@@ -1294,30 +1349,22 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
             if (lastStopFromLocalStorage && uniqueStops.find(s => s && s.stopID === lastStopFromLocalStorage)) {
                 stopToSelect = lastStopFromLocalStorage;
             }
-            if (stopToSelect) {
-                selectStop(stopToSelect);
-            } else if (uniqueStops[0] && uniqueStops[0].stopID) {
-                selectStop(uniqueStops[0].stopID);
-            } else {
-                if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No valid stops to select.</li>`;
-            }
-        }
-        else {
+            if (stopToSelect) selectStop(stopToSelect);
+            else if (uniqueStops[0] && uniqueStops[0].stopID) selectStop(uniqueStops[0].stopID);
+            else if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No valid stops to select.</li>`;
+        } else {
             const stopInfoArea = document.getElementById('stop-info-area');
-            if (stopInfoArea) { stopInfoArea.innerHTML = '<div class="main-stop-name-line" style="text-align: center;">No Stops Available</div>'; }
+            if (stopInfoArea) stopInfoArea.innerHTML = '<div class="main-stop-name-line" style="text-align: center;">No Stops Available</div>';
             if(busListElement) busListElement.innerHTML = `<li class="no-buses-message">No schedule data or stops defined. Use <a href="setup.html" style="color:#90cdf4;">Setup tools</a>.</li>`;
         }
     } catch (error) {
-        console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error);
         if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading data. Error: ${error.message}</li>`;
     }
     setupFirebaseListeners();
 }
 
 function setupFirebaseListeners() {
-    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
-        return;
-    }
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) return;
     const { database, dbOnValue, dbRef, dbChild } = window.firebaseOMSI;
 
     const liveScheduleRef = dbRef(database, FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED);
@@ -1325,24 +1372,18 @@ function setupFirebaseListeners() {
         const flatScheduleFromDBListener = [];
         if (snapshot.exists()) {
             const schedulesByRoute = snapshot.val();
-            if (schedulesByRoute && typeof schedulesByRoute === 'object') {
+            if (typeof schedulesByRoute === 'object') {
                 for (const routeKey in schedulesByRoute) {
-                    if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
-                        const routeData = schedulesByRoute[routeKey];
-                        if (routeData && typeof routeData === 'object') {
-                            for (const profileKey in routeData) {
-                                if (Object.hasOwnProperty.call(routeData, profileKey)) {
-                                    const profileData = routeData[profileKey];
-                                    if (profileData && typeof profileData === 'object') {
-                                        for (const destKey in profileData) {
-                                            if (Object.hasOwnProperty.call(profileData, destKey)) {
-                                                const destData = profileData[destKey];
-                                                if (destData && Array.isArray(destData.entries)) {
-                                                    destData.entries.forEach(entry => {
-                                                        if (entry) flatScheduleFromDBListener.push({ ...entry });
-                                                    });
-                                                }
-                                            }
+                    const routeData = schedulesByRoute[routeKey];
+                    if (typeof routeData === 'object') {
+                        for (const profileKey in routeData) {
+                            const profileData = routeData[profileKey];
+                            if (typeof profileData === 'object') {
+                                for (const destKey in profileData) {
+                                    const destData = profileData[destKey];
+                                    if (destData && Array.isArray(destData.entries)) {
+                                        for (let i = 0; i < destData.entries.length; i++) {
+                                            if (destData.entries[i]) flatScheduleFromDBListener.push(destData.entries[i]);
                                         }
                                     }
                                 }
@@ -1352,16 +1393,26 @@ function setupFirebaseListeners() {
                 }
             }
             flatScheduleFromDBListener.sort((a, b) => {
-                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
-                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
-                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
-                const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
+                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName);
+                if (lineCompare !== 0) return lineCompare;
+                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || "");
+                if (profileCompare !== 0) return profileCompare;
+                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || "");
+                if (destCompare !== 0) return destCompare;
+                const timeA = (a.scheduledTime || "99:99").replace(':', '');
+                const timeB = (b.scheduledTime || "99:99").replace(':', '');
+                return timeA.localeCompare(timeB);
             });
-            allScheduledData = flatScheduleFromDBListener.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fblistener_arr_flat`}));
+            for (let i = 0; i < flatScheduleFromDBListener.length; i++) {
+                const e = flatScheduleFromDBListener[i];
+                if (!e.internalId) {
+                    e.internalId = `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fblistener_arr_flat`;
+                }
+            }
+            allScheduledData = flatScheduleFromDBListener;
         } else {
             allScheduledData = [];
         }
-
         if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {
             updateAndDisplayLiveArrivals();
         } else if (currentScheduleStatus === 'simulating_scheduled_update_downtime') {
@@ -1374,18 +1425,14 @@ function setupFirebaseListeners() {
         const newUniqueStopsArray = [];
         if (snapshot.exists() && typeof snapshot.val() === 'object') {
             const definedStopsObject = snapshot.val();
-            if (definedStopsObject) {
-                for (const keyInFirebase in definedStopsObject) {
-                    if (Object.hasOwnProperty.call(definedStopsObject, keyInFirebase)) {
-                        const stopData = definedStopsObject[keyInFirebase];
-                        let stopIDFromData = (stopData && stopData.stopID && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
-                        newUniqueStopsArray.push({
-                            stopID: stopIDFromData,
-                            stopName: stopData.stopName || "Unknown Name",
-                            direction: stopData.direction || ""
-                        });
-                    }
-                }
+            for (const keyInFirebase in definedStopsObject) {
+                const stopData = definedStopsObject[keyInFirebase];
+                let stopIDFromData = (stopData && typeof stopData.stopID === 'string') ? stopData.stopID.toUpperCase() : keyInFirebase.toUpperCase();
+                newUniqueStopsArray.push({
+                    stopID: stopIDFromData,
+                    stopName: stopData.stopName || "Unknown Name",
+                    direction: stopData.direction || ""
+                });
             }
         }
         const seenStopIDs = new Set();
@@ -1395,8 +1442,10 @@ function setupFirebaseListeners() {
             return true;
         });
         finalProcessedStops.sort((a, b) => (a.stopName || "").toLowerCase().localeCompare((b.stopName || "").toLowerCase()));
-        const oldUniqueStopsContentJSON = JSON.stringify(uniqueStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})).sort((a,b) => a.id.localeCompare(b.id)));
-        const newUniqueStopsContentJSON = JSON.stringify(finalProcessedStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})).sort((a,b) => a.id.localeCompare(b.id)));
+        
+        const oldUniqueStopsContentJSON = JSON.stringify(uniqueStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})));
+        const newUniqueStopsContentJSON = JSON.stringify(finalProcessedStops.map(s => ({id: s.stopID, name: s.stopName, dir: s.direction})));
+        
         if (oldUniqueStopsContentJSON !== newUniqueStopsContentJSON) {
             uniqueStops = finalProcessedStops;
             populateStopSelectionModal();
@@ -1421,7 +1470,6 @@ function setupFirebaseListeners() {
                 if (currentScheduleStatus === 'simulating_scheduled_update_downtime') displaySystemUpdateMessage();
                 else if (currentSelectedStopID) updateAndDisplayLiveArrivals();
             }
-
             const fbClosedStops = appState.closedStopIDs || {};
             const newClosed = [];
             for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID.toUpperCase()); }
@@ -1431,7 +1479,8 @@ function setupFirebaseListeners() {
                 populateStopSelectionModal();
             }
         } else {
-            currentScheduleStatus = 'idle'; closedStopIDsGlobal = [];
+            currentScheduleStatus = 'idle'; 
+            closedStopIDsGlobal = [];
             if (currentSelectedStopID) updateAndDisplayLiveArrivals();
         }
     });
@@ -1441,8 +1490,8 @@ function setupFirebaseListeners() {
         globalCustomRouteColours = { ...initialRouteColourMap };
         if (snapshot.exists()) {
             const fbCols = snapshot.val();
-            if (fbCols && typeof fbCols === 'object') {
-                for (const r in fbCols) { if (Object.hasOwnProperty.call(fbCols, r)) { globalCustomRouteColours[r.toUpperCase()] = fbCols[r]; } }
+            if (typeof fbCols === 'object') {
+                for (const r in fbCols) { globalCustomRouteColours[r.toUpperCase()] = fbCols[r]; }
             }
         }
         if (currentSelectedStopID) updateAndDisplayLiveArrivals();
@@ -1469,9 +1518,7 @@ function setupFirebaseListeners() {
     const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
     dbOnValue(massCurtailmentsRef, (snapshot) => {
         activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
-        if (currentSelectedStopID) {
-            updateAndDisplayLiveArrivals();
-        }
+        if (currentSelectedStopID) updateAndDisplayLiveArrivals();
     });
 }
 

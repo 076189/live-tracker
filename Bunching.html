@@ -63,6 +63,7 @@ box-sizing: border-box;
 -webkit-user-select: text;
 user-select: text;
 -webkit-touch-callout: default;
+pointer-events: auto;
 }
 button {
 background: #d9381e;
@@ -152,8 +153,9 @@ const raw = document.getElementById('csvData').value.trim();
 if (!raw) return;
 
 const lines = raw.split(/\r?\n/);
-const routeLogs = {};
+const routeDayLogs = {};
 const routeDestinations = {};
+let totalArrivalsMap = {};
 
 for (let line of lines) {
 line = line.trim();
@@ -170,11 +172,26 @@ if (dateStr && timeStr && route) {
 const partsD = dateStr.split('/');
 if (partsD.length === 3) {
 const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
+const timeParts = timeStr.split(':');
+let hours = 0;
+if (timeParts.length >= 2) {
+hours = parseInt(timeParts[0], 10);
+}
+let adjustedDate = isoDate;
+if (hours >= 0 && hours < 5) {
+const dObj = new Date(isoDate);
+dObj.setDate(dObj.getDate() - 1);
+adjustedDate = dObj.toISOString().split('T')[0];
+}
+
 const timestamp = new Date(`${isoDate}T${timeStr}`).getTime();
 
 if (!isNaN(timestamp)) {
-if (!routeLogs[route]) routeLogs[route] = [];
-routeLogs[route].push(timestamp);
+totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
+
+if (!routeDayLogs[route]) routeDayLogs[route] = {};
+if (!routeDayLogs[route][adjustedDate]) routeDayLogs[route][adjustedDate] = [];
+routeDayLogs[route][adjustedDate].push(timestamp);
 
 if (!routeDestinations[route]) routeDestinations[route] = {};
 if (dest) {
@@ -189,25 +206,28 @@ routeDestinations[route][dest] = (routeDestinations[route][dest] || 0) + 1;
 const resultsBody = document.getElementById('resultsBody');
 resultsBody.innerHTML = '';
 
-for (let route in routeLogs) {
-const times = routeLogs[route].sort((a, b) => a - b);
-let intervals = [];
+for (let route in totalArrivalsMap) {
+const daysObj = routeDayLogs[route] || {};
+let allIntervals = [];
 let bunchCount = 0;
 
+for (let dayKey in daysObj) {
+const times = daysObj[dayKey].sort((a, b) => a - b);
 for (let i = 1; i < times.length; i++) {
 const diffMins = (times[i] - times[i-1]) / (1000 * 60);
-if (diffMins >= 0) {
-intervals.push(diffMins);
+if (diffMins >= 0 && diffMins < 180) {
+allIntervals.push(diffMins);
 if (diffMins < 3) {
 bunchCount++;
 }
 }
 }
+}
 
-const totalArrivals = times.length;
-const avgHeadway = intervals.length > 0 ? (intervals.reduce((a, b) => a + b, 0) / intervals.length).toFixed(1) : 'N/A';
-const minHeadway = intervals.length > 0 ? Math.min(...intervals).toFixed(1) : 'N/A';
-const maxHeadway = intervals.length > 0 ? Math.max(...intervals).toFixed(1) : 'N/A';
+const totalArrivals = totalArrivalsMap[route];
+const avgHeadway = allIntervals.length > 0 ? (allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length).toFixed(1) : 'N/A';
+const minHeadway = allIntervals.length > 0 ? Math.min(...allIntervals).toFixed(1) : 'N/A';
+const maxHeadway = allIntervals.length > 0 ? Math.max(...allIntervals).toFixed(1) : 'N/A';
 
 let curtailments = [];
 if (routeDestinations[route]) {

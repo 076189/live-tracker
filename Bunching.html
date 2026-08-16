@@ -55,7 +55,7 @@ user-select: text;
 touch-action: manipulation;
 pointer-events: auto;
 }
-input[type="file"], input[type="date"], input[type="time"] {
+input[type="file"], input[type="date"], input[type="time"], select {
 width: 100%;
 background: #2d2d2d;
 color: #fff;
@@ -199,19 +199,32 @@ font-weight: bold;
 <input type="date" id="startDate">
 </div>
 <div class="filter-half">
+<label for="timePreset">Time Preset:</label>
+<select id="timePreset" onchange="handleTimePresetChange()">
+<option value="ALL">All Day</option>
+<option value="23:00-07:00">23:00 - 07:00</option>
+<option value="07:00-19:00">07:00 - 19:00</option>
+<option value="19:00-23:00">19:00 - 23:00</option>
+<option value="CUSTOM">Custom Time</option>
+</select>
+</div>
+</div>
+
+<div class="filter-group" id="customTimeGroup" style="display:none;">
+<div class="filter-half">
 <label for="startTime">Start Time:</label>
-<input type="time" id="startTime">
+<input type="time" id="startTime" value="00:00">
+</div>
+<div class="filter-half">
+<label for="endTime">End Time:</label>
+<input type="time" id="endTime" value="23:59">
 </div>
 </div>
 
 <div class="filter-group">
-<div class="filter-half">
+<div class="filter-half" style="width:100%; display:block;">
 <label for="endDate">End Date:</label>
-<input type="date" id="endDate">
-</div>
-<div class="filter-half">
-<label for="endTime">End Time:</label>
-<input type="time" id="endTime">
+<input type="date" id="endDate" style="width:100%;">
 </div>
 </div>
 
@@ -253,6 +266,16 @@ const routeTerminusAliases = {
 
 let analysisResultsCache = [];
 let logDateRange = "N/A";
+
+function handleTimePresetChange() {
+const preset = document.getElementById('timePreset').value;
+const customGroup = document.getElementById('customTimeGroup');
+if (preset === 'CUSTOM') {
+customGroup.style.display = 'table';
+} else {
+customGroup.style.display = 'none';
+}
+}
 
 function parseCSVLine(text) {
 const result = [];
@@ -386,9 +409,25 @@ let raw = document.getElementById('csvData').value.trim();
 if (!raw) return;
 
 const startDateVal = document.getElementById('startDate').value;
-const startTimeVal = document.getElementById('startTime').value;
 const endDateVal = document.getElementById('endDate').value;
-const endTimeVal = document.getElementById('endTime').value;
+const preset = document.getElementById('timePreset').value;
+
+let filterStartT = "00:00";
+let filterEndT = "23:59";
+
+if (preset === "23:00-07:00") {
+filterStartT = "23:00";
+filterEndT = "07:00";
+} else if (preset === "07:00-19:00") {
+filterStartT = "07:00";
+filterEndT = "19:00";
+} else if (preset === "19:00-23:00") {
+filterStartT = "19:00";
+filterEndT = "23:00";
+} else if (preset === "CUSTOM") {
+filterStartT = document.getElementById('startTime').value || "00:00";
+filterEndT = document.getElementById('endTime').value || "23:59";
+}
 
 const selectedRoutes = new Set();
 document.querySelectorAll('.route-chk:checked').forEach(cb => {
@@ -427,8 +466,20 @@ const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
 
 if (startDateVal && isoDate < startDateVal) continue;
 if (endDateVal && isoDate > endDateVal) continue;
-if (startDateVal && isoDate === startDateVal && startTimeVal && timeStr < startTimeVal) continue;
-if (endDateVal && isoDate === endDateVal && endTimeVal && timeStr > endTimeVal) continue;
+
+// Time filter logic
+if (preset === "23:00-07:00") {
+// 23:00 to 07:00 crosses midnight
+// Valid if (Date == StartDate AND time >= 23:00) OR (Date == EndDate AND time <= 07:00) OR (in between)
+// Let's check against timestamp bounds relative to adjusted logical days or simple string checks
+let timeValid = false;
+if (timeStr >= "23:00" || timeStr <= "07:00") {
+timeValid = true;
+}
+if (!timeValid) continue;
+} else {
+if (timeStr < filterStartT || timeStr > filterEndT) continue;
+}
 
 if (!selectedRoutes.has(route.toUpperCase())) continue;
 
@@ -474,9 +525,10 @@ if (allDatesSet.size > 0) {
 const sortedDates = Array.from(allDatesSet).sort();
 const minDateParts = sortedDates[0].split('-');
 const maxDateParts = sortedDates[sortedDates.length - 1].split('-');
-const startStr = `${minDateParts[2]}/${minDateParts[1]}/${minDateParts[0]}` + (startTimeVal ? ` ${startTimeVal}` : '');
-const endStr = `${maxDateParts[2]}/${maxDateParts[1]}/${maxDateParts[0]}` + (endTimeVal ? ` ${endTimeVal}` : '');
-logDateRange = `${startStr} - ${endStr}`;
+const startStr = `${minDateParts[2]}/${minDateParts[1]}/${minDateParts[0]}`;
+const endStr = `${maxDateParts[2]}/${maxDateParts[1]}/${maxDateParts[0]}`;
+let timeLabel = preset === 'ALL' ? 'All Day' : (preset === 'CUSTOM' ? `${filterStartT} - ${filterEndT}` : preset);
+logDateRange = `${startStr} - ${endStr} (${timeLabel})`;
 } else {
 logDateRange = "N/A";
 }

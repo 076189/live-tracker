@@ -148,6 +148,10 @@ font-weight: bold;
 </div>
 
 <script>
+const routeTerminusAliases = {
+"91": ["Crouch End", "Wood Green"]
+};
+
 function parseRouteKey(route) {
 const match = route.match(/^([A-Za-z]*)(\d+)([A-Za-z]*)$/);
 if (!match) return { prefix: route, num: 0, suffix: route };
@@ -261,8 +265,33 @@ const maxHeadway = allIntervals.length > 0 ? Math.max(...allIntervals).toFixed(1
 let curtailments = [];
 if (routeDestinations[route]) {
 const destCounts = routeDestinations[route];
-const destinations = Object.keys(destCounts);
+const aliases = routeTerminusAliases[route] || [];
 
+if (aliases.length > 0) {
+let primaryTerminus = null;
+let maxPrimaryCount = -1;
+
+for (let alias of aliases) {
+let aliasTotal = 0;
+for (let d in destCounts) {
+if (d.toLowerCase().includes(alias.toLowerCase())) {
+aliasTotal += destCounts[d];
+}
+}
+if (aliasTotal > maxPrimaryCount) {
+maxPrimaryCount = aliasTotal;
+primaryTerminus = alias;
+}
+}
+
+for (let d in destCounts) {
+let matchesAlias = aliases.some(alias => d.toLowerCase().includes(alias.toLowerCase()));
+if (!matchesAlias) {
+curtailments.push(`${d} (${destCounts[d]})`);
+}
+}
+} else {
+const destinations = Object.keys(destCounts);
 if (destinations.length > 1) {
 let maxCount = 0;
 for (let d in destCounts) {
@@ -273,6 +302,7 @@ maxCount = destCounts[d];
 for (let d in destCounts) {
 if (destCounts[d] < maxCount) {
 curtailments.push(`${d} (${destCounts[d]})`);
+}
 }
 }
 }

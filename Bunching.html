@@ -65,6 +65,17 @@ user-select: text;
 -webkit-touch-callout: default;
 pointer-events: auto;
 }
+input[type="file"] {
+width: 100%;
+background: #2d2d2d;
+color: #fff;
+border: 1px solid #444;
+padding: 8px;
+font-size: 12px;
+border-radius: 4px;
+box-sizing: border-box;
+margin-top: 6px;
+}
 button {
 background: #d9381e;
 color: white;
@@ -79,6 +90,13 @@ box-sizing: border-box;
 }
 button:hover {
 background: #b52e17;
+}
+.btn-secondary {
+background: #333;
+color: #fff;
+}
+.btn-secondary:hover {
+background: #444;
 }
 .table-wrapper {
 width: 100%;
@@ -116,6 +134,11 @@ color: #ffa726;
 font-weight: bold;
 }
 </style>
+<!-- SheetJS Library for reading Excel/Google Sheets exports (.xlsx / .csv) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- jsPDF Library for generating and downloading PDF reports -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 
@@ -124,6 +147,8 @@ font-weight: bold;
 <div class="card">
 <p style="margin-top:0; font-size: 12px;">Paste log text below:</p>
 <textarea id="csvData" placeholder="Paste data here..."></textarea>
+<p style="margin: 10px 0 0 0; font-size: 12px;">Or upload Sheets file (.xlsx, .xls, .csv):</p>
+<input type="file" id="fileInput" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
 <button onclick="analyzeLogs()">Analyze Frequencies</button>
 </div>
 
@@ -143,12 +168,15 @@ font-weight: bold;
 <tbody id="resultsBody"></tbody>
 </table>
 </div>
+<button class="btn-secondary" onclick="downloadPDF()">Download PDF Report</button>
 </div>
 
 <script>
 const routeTerminusAliases = {
 "91": ["Crouch End", "Wood Green"]
 };
+
+let analysisResultsCache = [];
 
 function normalizeDestination(dest) {
 if (!dest) return "";
@@ -184,6 +212,22 @@ return rA.num - rB.num;
 }
 
 return rA.suffix.localeCompare(rB.suffix);
+}
+
+function handleFileUpload(event) {
+const file = event.target.files[0];
+if (!file) return;
+
+const reader = new FileReader();
+reader.onload = function(e) {
+const data = new Uint8Array(e.target.result);
+const workbook = XLSX.read(data, {type: 'array'});
+const firstSheetName = workbook.SheetNames[0];
+const worksheet = workbook.Sheets[firstSheetName];
+const csvText = XLSX.utils.sheet_to_csv(worksheet, {FS: "\t"});
+document.getElementById('csvData').value = csvText;
+};
+reader.readAsArrayBuffer(file);
 }
 
 function analyzeLogs() {
@@ -250,6 +294,7 @@ routeDestDisplay[route][normDest] = dest;
 
 const resultsBody = document.getElementById('resultsBody');
 resultsBody.innerHTML = '';
+analysisResultsCache = [];
 
 const sortedRoutes = Object.keys(totalArrivalsMap).sort(compareRoutes);
 
@@ -301,18 +346,58 @@ curtailments.push(`${destDisplays[normD]} (${destCounts[normD]})`);
 }
 }
 
+const curtailmentStr = curtailments.length > 0 ? curtailments.join(', ') : 'None';
+const bunchStr = bunchCount > 0 ? `${bunchCount} detected` : 'None';
+
+analysisResultsCache.push({
+route: route,
+arrivals: totalArrivals,
+headway: avgHeadway === 'N/A' ? 'N/A' : `${avgHeadway} mins`,
+bunching: bunchStr,
+curtailments: curtailmentStr
+});
+
 const row = document.createElement('tr');
 row.innerHTML = `
 <td><strong>${route}</strong></td>
 <td>${totalArrivals}</td>
 <td>${avgHeadway} mins</td>
-<td class="${bunchCount > 0 ? 'bunching' : 'normal'}">${bunchCount > 0 ? `${bunchCount} detected` : 'None'}</td>
-<td class="${curtailments.length > 0 ? 'curtailment' : 'normal'}">${curtailments.length > 0 ? curtailments.join(', ') : 'None'}</td>
+<td class="${bunchCount > 0 ? 'bunching' : 'normal'}">${bunchStr}</td>
+<td class="${curtailments.length > 0 ? 'curtailment' : 'normal'}">${curtailmentStr}</td>
 `;
 resultsBody.appendChild(row);
 }
 
 document.getElementById('resultsCard').style.display = 'block';
+}
+
+function downloadPDF() {
+const { jsPDF } = window.jspdf;
+const doc = new jsPDF({ orientation: 'landscape' });
+
+doc.setFontSize(16);
+doc.text("TfL Bus Analyzer Report", 14, 15);
+doc.setFontSize(10);
+doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
+
+const tableData = analysisResultsCache.map(item => [
+item.route,
+item.arrivals,
+item.headway,
+item.bunching,
+item.curtailments
+]);
+
+doc.autoTable({
+startY: 28,
+head: [['Route', 'Total Arrivals', 'Average Headway', 'Bunching Alerts', 'Curtailments Detected']],
+body: tableData,
+theme: 'grid',
+headStyles: { fillColor: [217, 56, 30] },
+styles: { fontSize: 9, cellPadding: 4 }
+});
+
+doc.save("tfl-bus-analyzer-report.pdf");
 }
 </script>
 

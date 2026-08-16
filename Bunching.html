@@ -205,7 +205,7 @@ font-weight: bold;
 <label for="timePreset">Time Preset:</label>
 <select id="timePreset" onchange="handleTimePresetChange()" style="margin-bottom: 8px;">
 <option value="ALL">All Day</option>
-<option value="23:00-07:00">23:00 - 07:00</option>
+<option value="23:00-07:00">23:00 - 07:00 (Night Bus)</option>
 <option value="07:00-19:00">07:00 - 19:00</option>
 <option value="19:00-23:00">19:00 - 23:00</option>
 <option value="CUSTOM">Custom Time</option>
@@ -223,7 +223,7 @@ font-weight: bold;
 </div>
 
 <label for="curtailmentThreshold">Curtailment Threshold (%):</label>
-<input type="number" id="curtailmentThreshold" value="45" min="1" max="100" style="margin-bottom: 8px;">
+<input type="number" id="curtailmentThreshold" value="75" min="1" max="100" style="margin-bottom: 8px;">
 
 <label>Select Routes:</label>
 <div class="route-actions">
@@ -257,6 +257,7 @@ font-weight: bold;
 </div>
 
 <script>
+let globalLogData = "";
 let analysisResultsCache = [];
 let logDateRange = "N/A";
 
@@ -329,6 +330,12 @@ return rA.suffix.localeCompare(rB.suffix);
 
 function updateRouteCheckboxes() {
 let raw = document.getElementById('csvData').value.trim();
+if (raw) {
+globalLogData = raw;
+} else {
+raw = globalLogData;
+}
+
 const lines = raw.split(/\r?\n/);
 const routesSet = new Set();
 
@@ -400,19 +407,26 @@ reader.readAsArrayBuffer(file);
 
 function analyzeLogs() {
 let raw = document.getElementById('csvData').value.trim();
+if (raw) {
+globalLogData = raw;
+document.getElementById('csvData').value = '';
+} else {
+raw = globalLogData;
+}
+
 if (!raw) return;
 
 const startDateVal = document.getElementById('startDate').value;
 const endDateVal = document.getElementById('endDate').value;
 const preset = document.getElementById('timePreset').value;
-const thresholdPct = (parseFloat(document.getElementById('curtailmentThreshold').value) || 45) / 100;
+const thresholdPct = (parseFloat(document.getElementById('curtailmentThreshold').value) || 75) / 100;
 
 let filterStartT = "00:00";
 let filterEndT = "23:59";
+let isNightPreset = false;
 
 if (preset === "23:00-07:00") {
-filterStartT = "23:00";
-filterEndT = "07:00";
+isNightPreset = true;
 } else if (preset === "07:00-19:00") {
 filterStartT = "07:00";
 filterEndT = "19:00";
@@ -458,45 +472,38 @@ if (dateStr && timeStr && route) {
 const partsD = dateStr.split('/');
 if (partsD.length === 3) {
 const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
+const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
+const timeParts = timeStr.split(':');
+let hours = timeParts.length >= 2 ? parseInt(timeParts[0], 10) : 0;
 
+let operatingDate = isoDate;
+if (isNightPreset && hours >= 0 && hours < 7) {
+const dObj = new Date(isoDate);
+dObj.setDate(dObj.getDate() - 1);
+operatingDate = dObj.toISOString().split('T')[0];
+}
+
+if (isNightPreset) {
+if (startDateVal && operatingDate < startDateVal) continue;
+if (endDateVal && operatingDate > endDateVal) continue;
+if (timeHHMM < "23:00" && timeHHMM > "07:00") continue;
+} else {
 if (startDateVal && isoDate < startDateVal) continue;
 if (endDateVal && isoDate > endDateVal) continue;
-
-const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
-
-if (preset === "23:00-07:00") {
-let timeValid = false;
-if (timeHHMM >= "23:00" || timeHHMM <= "07:00") {
-timeValid = true;
-}
-if (!timeValid) continue;
-} else {
 if (timeHHMM < filterStartT || timeHHMM > filterEndT) continue;
 }
 
 if (!selectedRoutes.has(route)) continue;
 
-allDatesSet.add(isoDate);
-const timeParts = timeStr.split(':');
-let hours = 0;
-if (timeParts.length >= 2) {
-hours = parseInt(timeParts[0], 10);
-}
-let adjustedDate = isoDate;
-if (hours >= 0 && hours < 5) {
-const dObj = new Date(isoDate);
-dObj.setDate(dObj.getDate() - 1);
-adjustedDate = dObj.toISOString().split('T')[0];
-}
-
+allDatesSet.add(operatingDate);
 const timestamp = new Date(`${isoDate}T${timeStr}`).getTime();
 
 if (!isNaN(timestamp)) {
 totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
 
 if (!routeDayLogs[route]) routeDayLogs[route] = {};
-if (!routeDayLogs[route][adjustedDate]) routeDayLogs[route][adjustedDate] = [];
-routeDayLogs[route][adjustedDate].push(timestamp);
+if (!routeDayLogs[route][operatingDate]) routeDayLogs[route][operatingDate] = [];
+routeDayLogs[route][operatingDate].push(timestamp);
 
 if (dest) {
 const normDest = normalizeDestination(dest);

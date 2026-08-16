@@ -71,6 +71,10 @@ font-weight: bold;
 .normal {
 color: #69f0ae;
 }
+.curtailment {
+color: #ffa726;
+font-weight: bold;
+}
 </style>
 </head>
 <body>
@@ -95,6 +99,7 @@ color: #69f0ae;
 <th>Min Headway (Mins)</th>
 <th>Max Headway (Mins)</th>
 <th>Bunching Alerts (&lt;3m gaps)</th>
+<th>Curtailments Detected</th>
 </tr>
 </thead>
 <tbody id="resultsBody"></tbody>
@@ -102,12 +107,33 @@ color: #69f0ae;
 </div>
 
 <script>
+const standardDestinations = {
+"12": ["Dulwich, Plough", "Oxford Circus", "Piccadilly Circus"],
+"24": ["Pimlico", "Hampstead Heath"],
+"26": ["Victoria", "Hackney Wick"],
+"87": ["Wandsworth", "Aldwych"],
+"88": ["Clapham Common", "Parliament Square", "Camden Town"],
+"159": ["Streatham Station", "Oxford Circus"],
+"453": ["Deptford Bridge", "Marylebone"],
+"N3": ["Bromley North", "Whitehall"],
+"N11": ["Ealing Broadway", "Liverpool Street"],
+"N26": ["Victoria", "Trafalgar Square"],
+"N44": ["Sutton Station", "Aldwych"],
+"N53": ["Plumstead Station", "Whitehall"],
+"N87": ["Kingston", "Aldwych"],
+"N109": ["Croydon Town Centre", "Aldwych"],
+"N136": ["Chislehurst, War Memorial", "Oxford Circus"],
+"N155": ["Morden", "Aldwych"],
+"N381": ["Peckham", "Trafalgar Square"]
+};
+
 function analyzeLogs() {
 const raw = document.getElementById('csvData').value.trim();
 if (!raw) return;
 
 const lines = raw.split(/\r?\n/);
 const routeLogs = {};
+const routeDestinations = {};
 
 for (let line of lines) {
 line = line.trim();
@@ -117,6 +143,7 @@ const cols = line.split('\t');
 if (cols.length >= 7) {
 const dateStr = cols[0].trim();
 const route = cols[1].trim();
+const dest = cols[2].trim();
 const timeStr = cols[6].trim();
 
 if (dateStr && timeStr && route) {
@@ -128,6 +155,9 @@ const timestamp = new Date(`${isoDate}T${timeStr}`).getTime();
 if (!isNaN(timestamp)) {
 if (!routeLogs[route]) routeLogs[route] = [];
 routeLogs[route].push(timestamp);
+
+if (!routeDestinations[route]) routeDestinations[route] = new Set();
+if (dest) routeDestinations[route].add(dest);
 }
 }
 }
@@ -157,6 +187,17 @@ const avgHeadway = intervals.length > 0 ? (intervals.reduce((a, b) => a + b, 0) 
 const minHeadway = intervals.length > 0 ? Math.min(...intervals).toFixed(1) : 'N/A';
 const maxHeadway = intervals.length > 0 ? Math.max(...intervals).toFixed(1) : 'N/A';
 
+let curtailments = [];
+if (routeDestinations[route]) {
+const expected = standardDestinations[route] || [];
+for (let d of routeDestinations[route]) {
+let isStandard = expected.some(exp => d.toLowerCase().includes(exp.toLowerCase()));
+if (!isStandard && expected.length > 0) {
+curtailments.push(d);
+}
+}
+}
+
 const row = document.createElement('tr');
 row.innerHTML = `
 <td><strong>${route}</strong></td>
@@ -165,6 +206,7 @@ row.innerHTML = `
 <td>${minHeadway} mins</td>
 <td>${maxHeadway} mins</td>
 <td class="${bunchCount > 0 ? 'bunching' : 'normal'}">${bunchCount > 0 ? `${bunchCount} detected` : 'None'}</td>
+<td class="${curtailments.length > 0 ? 'curtailment' : 'normal'}">${curtailments.length > 0 ? curtailments.join(', ') : 'None'}</td>
 `;
 resultsBody.appendChild(row);
 }

@@ -563,26 +563,21 @@ const destDisplays = routeDestDisplay[route] || {};
 const aliases = routeTerminusAliases[route] || [];
 const normalizedAliases = aliases.map(a => normalizeDestination(a));
 
-if (normalizedAliases.length > 0) {
-for (let normD in destCounts) {
-let matchesAlias = normalizedAliases.some(alias => {
-return normD === alias || normD.includes(alias) || alias.includes(normD);
-});
-if (!matchesAlias) {
-curtailmentItems.push(`${destDisplays[normD]} (${destCounts[normD]})`);
-}
-}
-} else {
+// Find the destination with the highest frequency to treat as the main full route terminus
 let maxCount = 0;
+let topDest = "";
 for (let normD in destCounts) {
 if (destCounts[normD] > maxCount) {
 maxCount = destCounts[normD];
+topDest = normD;
 }
 }
+
 for (let normD in destCounts) {
-if (destCounts[normD] < maxCount) {
+let isAlias = normalizedAliases.some(alias => normD === alias || normD.includes(alias) || alias.includes(normD));
+// If it's not the top/most frequent destination and not an explicit alias, count it as a curtailment
+if (normD !== topDest && !isAlias) {
 curtailmentItems.push(`${destDisplays[normD]} (${destCounts[normD]})`);
-}
 }
 }
 
@@ -607,16 +602,12 @@ row.innerHTML = `
 <td>${totalArrivals}</td>
 <td>${avgHeadway} mins</td>
 <td class="${bunchCount > 0 ? 'bunching' : 'normal'}">${bunchStr}</td>
-<td class="${curtailmentsItems_check(curtailmentItems)}">${curtailmentHTML}</td>
+<td class="${curtailmentItems.length > 0 ? 'curtailment' : 'normal'}">${curtailmentHTML}</td>
 `;
 resultsBody.appendChild(row);
 }
 
 document.getElementById('resultsCard').style.display = 'block';
-}
-
-function curtailmentsItems_check(items) {
-return items.length > 0 ? 'curtailment' : 'normal';
 }
 
 function downloadPDF() {

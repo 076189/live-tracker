@@ -148,6 +148,33 @@ font-weight: bold;
 </div>
 
 <script>
+function parseRouteKey(route) {
+const match = route.match(/^([A-Za-z]*)(\d+)([A-Za-z]*)$/);
+if (!match) return { prefix: route, num: 0, suffix: route };
+return {
+prefix: match[1].toUpperCase(),
+num: parseInt(match[2], 10),
+suffix: match[3].toUpperCase()
+};
+}
+
+function compareRoutes(a, b) {
+const rA = parseRouteKey(a);
+const rB = parseRouteKey(b);
+
+if (rA.prefix !== rB.prefix) {
+if (rA.prefix === '') return -1;
+if (rB.prefix === '') return 1;
+return rA.prefix.localeCompare(rB.prefix);
+}
+
+if (rA.num !== rB.num) {
+return rA.num - rB.num;
+}
+
+return rA.suffix.localeCompare(rB.suffix);
+}
+
 function analyzeLogs() {
 const raw = document.getElementById('csvData').value.trim();
 if (!raw) return;
@@ -206,7 +233,9 @@ routeDestinations[route][dest] = (routeDestinations[route][dest] || 0) + 1;
 const resultsBody = document.getElementById('resultsBody');
 resultsBody.innerHTML = '';
 
-for (let route in totalArrivalsMap) {
+const sortedRoutes = Object.keys(totalArrivalsMap).sort(compareRoutes);
+
+for (let route of sortedRoutes) {
 const daysObj = routeDayLogs[route] || {};
 let allIntervals = [];
 let bunchCount = 0;

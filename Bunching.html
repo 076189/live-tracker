@@ -272,6 +272,7 @@ customGroup.style.display = 'none';
 }
 
 function parseCSVLine(text) {
+const separator = text.includes('\t') ? '\t' : ',';
 const result = [];
 let current = '';
 let inQuotes = false;
@@ -280,7 +281,7 @@ for (let i = 0; i < text.length; i++) {
 const char = text[i];
 if (char === '"') {
 inQuotes = !inQuotes;
-} else if ((char === ',' || char === '\t') && !inQuotes) {
+} else if (char === separator && !inQuotes) {
 result.push(current.trim());
 current = '';
 } else {
@@ -461,14 +462,16 @@ const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
 if (startDateVal && isoDate < startDateVal) continue;
 if (endDateVal && isoDate > endDateVal) continue;
 
+const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
+
 if (preset === "23:00-07:00") {
 let timeValid = false;
-if (timeStr >= "23:00" || timeStr <= "07:00") {
+if (timeHHMM >= "23:00" || timeHHMM <= "07:00") {
 timeValid = true;
 }
 if (!timeValid) continue;
 } else {
-if (timeStr < filterStartT || timeStr > filterEndT) continue;
+if (timeHHMM < filterStartT || timeHHMM > filterEndT) continue;
 }
 
 if (!selectedRoutes.has(route)) continue;
@@ -553,27 +556,18 @@ const avgHeadway = allIntervals.length > 0 ? (allIntervals.reduce((a, b) => a + 
 let curtailmentItems = [];
 const destCounts = routeDestinations[route] || {};
 const destDisplays = routeDestDisplay[route] || {};
-
 let sortedDests = Object.keys(destCounts).sort((a, b) => destCounts[b] - destCounts[a]);
-
-// If there are more than 2 distinct destinations/terminuses, classify any destination beyond the top 2 as curtailments.
-// If there are 2 or fewer, check if the second destination has a significantly lower frequency ratio (e.g. < 15% of the primary terminal) to correctly isolate real short-turns/curtailments instead of alternate normal full-route terminals.
 let primaryCount = sortedDests.length > 0 ? destCounts[sortedDests[0]] : 0;
 let topTerminuses = [];
 
-if (sortedDests.length <= 2) {
-  topTerminuses = sortedDests;
-} else {
-  topTerminuses = sortedDests.slice(0, 2);
-  for (let i = 2; i < sortedDests.length; i++) {
-    let normD = sortedDests[i];
-    // If a destination has a very low frequency compared to the main destination, it's a curtailment
-    if (destCounts[normD] < (primaryCount * 0.25)) {
-      // It's a curtailment, don't add to topTerminuses
-    } else {
-      topTerminuses.push(normD);
-    }
-  }
+if (sortedDests.length > 0) {
+topTerminuses.push(sortedDests[0]);
+for (let i = 1; i < sortedDests.length; i++) {
+let normD = sortedDests[i];
+if (destCounts[normD] >= (primaryCount * 0.25)) {
+topTerminuses.push(normD);
+}
+}
 }
 
 for (let normD of sortedDests) {

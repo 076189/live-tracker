@@ -177,6 +177,7 @@ const routeTerminusAliases = {
 };
 
 let analysisResultsCache = [];
+let logDateRange = "N/A";
 
 function normalizeDestination(dest) {
 if (!dest) return "";
@@ -239,6 +240,7 @@ const routeDayLogs = {};
 const routeDestinations = {};
 const routeDestDisplay = {};
 let totalArrivalsMap = {};
+let allDatesSet = new Set();
 
 for (let line of lines) {
 line = line.trim();
@@ -254,6 +256,7 @@ const timeStr = cols[6].trim();
 if (dateStr && timeStr && route) {
 const partsD = dateStr.split('/');
 if (partsD.length === 3) {
+allDatesSet.add(`${partsD[2]}-${partsD[1]}-${partsD[0]}`);
 const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
 const timeParts = timeStr.split(':');
 let hours = 0;
@@ -290,6 +293,15 @@ routeDestDisplay[route][normDest] = dest;
 }
 }
 }
+}
+
+if (allDatesSet.size > 0) {
+const sortedDates = Array.from(allDatesSet).sort();
+const minDateParts = sortedDates[0].split('-');
+const maxDateParts = sortedDates[sortedDates.length - 1].split('-');
+logDateRange = `${minDateParts[2]}/${minDateParts[1]}/${minDateParts[0]} - ${maxDateParts[2]}/${maxDateParts[1]}/${maxDateParts[0]}`;
+} else {
+logDateRange = "N/A";
 }
 
 const resultsBody = document.getElementById('resultsBody');
@@ -375,10 +387,21 @@ function downloadPDF() {
 const { jsPDF } = window.jspdf;
 const doc = new jsPDF({ orientation: 'landscape' });
 
-doc.setFontSize(16);
-doc.text("TfL Bus Analyzer Report", 14, 15);
+doc.setFillColor(217, 56, 30);
+doc.rect(0, 0, 297, 18, 'F');
+doc.setTextColor(255, 255, 255);
+doc.setFontSize(14);
+doc.setFont("Helvetica", "bold");
+doc.text("TfL Bus Log Frequency & Bunching Report", 14, 12);
+
+doc.setTextColor(60, 60, 60);
 doc.setFontSize(10);
-doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
+doc.setFont("Helvetica", "normal");
+doc.text(`Log Period: ${logDateRange}`, 14, 25);
+doc.text(`Generated: ${new Date().toLocaleString()}`, 283, 25, { align: 'right' });
+
+doc.setDrawColor(200, 200, 200);
+doc.line(14, 29, 283, 29);
 
 const tableData = analysisResultsCache.map(item => [
 item.route,
@@ -389,12 +412,32 @@ item.curtailments
 ]);
 
 doc.autoTable({
-startY: 28,
+startY: 33,
 head: [['Route', 'Total Arrivals', 'Average Headway', 'Bunching Alerts', 'Curtailments Detected']],
 body: tableData,
 theme: 'grid',
-headStyles: { fillColor: [217, 56, 30] },
-styles: { fontSize: 9, cellPadding: 4 }
+headStyles: { 
+  fillColor: [37, 37, 37], 
+  textColor: [255, 255, 255], 
+  fontStyle: 'bold',
+  halign: 'left'
+},
+bodyStyles: { 
+  textColor: [40, 40, 40],
+  fontSize: 9
+},
+alternateRowStyles: { 
+  fillColor: [248, 248, 248] 
+},
+styles: { 
+  cellPadding: 4, 
+  overflow: 'linebreak' 
+},
+didDrawPage: function(data) {
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Page ${doc.internal.getNumberOfPages()}`, 283, 205, { align: 'right' });
+}
 });
 
 doc.save("tfl-bus-analyzer-report.pdf");

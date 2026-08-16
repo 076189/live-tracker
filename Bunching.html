@@ -107,26 +107,6 @@ font-weight: bold;
 </div>
 
 <script>
-const standardDestinations = {
-"12": ["Dulwich, Plough", "Oxford Circus", "Piccadilly Circus"],
-"24": ["Pimlico", "Hampstead Heath"],
-"26": ["Victoria", "Hackney Wick"],
-"87": ["Wandsworth", "Aldwych"],
-"88": ["Clapham Common", "Parliament Square", "Camden Town"],
-"159": ["Streatham Station", "Oxford Circus"],
-"453": ["Deptford Bridge", "Marylebone"],
-"N3": ["Bromley North", "Whitehall"],
-"N11": ["Ealing Broadway", "Liverpool Street"],
-"N26": ["Victoria", "Trafalgar Square"],
-"N44": ["Sutton Station", "Aldwych"],
-"N53": ["Plumstead Station", "Whitehall"],
-"N87": ["Kingston", "Aldwych"],
-"N109": ["Croydon Town Centre", "Aldwych"],
-"N136": ["Chislehurst, War Memorial", "Oxford Circus"],
-"N155": ["Morden", "Aldwych"],
-"N381": ["Peckham", "Trafalgar Square"]
-};
-
 function analyzeLogs() {
 const raw = document.getElementById('csvData').value.trim();
 if (!raw) return;
@@ -156,8 +136,10 @@ if (!isNaN(timestamp)) {
 if (!routeLogs[route]) routeLogs[route] = [];
 routeLogs[route].push(timestamp);
 
-if (!routeDestinations[route]) routeDestinations[route] = new Set();
-if (dest) routeDestinations[route].add(dest);
+if (!routeDestinations[route]) routeDestinations[route] = {};
+if (dest) {
+routeDestinations[route][dest] = (routeDestinations[route][dest] || 0) + 1;
+}
 }
 }
 }
@@ -189,11 +171,20 @@ const maxHeadway = intervals.length > 0 ? Math.max(...intervals).toFixed(1) : 'N
 
 let curtailments = [];
 if (routeDestinations[route]) {
-const expected = standardDestinations[route] || [];
-for (let d of routeDestinations[route]) {
-let isStandard = expected.some(exp => d.toLowerCase().includes(exp.toLowerCase()));
-if (!isStandard && expected.length > 0) {
-curtailments.push(d);
+const destCounts = routeDestinations[route];
+const destinations = Object.keys(destCounts);
+
+if (destinations.length > 1) {
+let maxCount = 0;
+for (let d in destCounts) {
+if (destCounts[d] > maxCount) {
+maxCount = destCounts[d];
+}
+}
+for (let d in destCounts) {
+if (destCounts[d] < maxCount) {
+curtailments.push(`${d} (${destCounts[d]})`);
+}
 }
 }
 }

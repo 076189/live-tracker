@@ -209,6 +209,27 @@ const routeTerminusAliases = {
 let analysisResultsCache = [];
 let logDateRange = "N/A";
 
+function parseCSVLine(text) {
+const result = [];
+let current = '';
+let inQuotes = false;
+
+
+for (let i = 0; i < text.length; i++) {
+const char = text[i];
+if (char === '"') {
+inQuotes = !inQuotes;
+} else if ((char === ',' || char === '\t') && !inQuotes) {
+result.push(current.trim());
+current = '';
+} else {
+current += char;
+}
+}
+result.push(current.trim());
+return result.map(val => val.replace(/^["'](.*)["']$/, '$1'));
+}
+
 function normalizeDestination(dest) {
 if (!dest) return "";
 return dest
@@ -247,18 +268,15 @@ return rA.suffix.localeCompare(rB.suffix);
 
 function updateRouteDropdown() {
 let raw = document.getElementById('csvData').value.trim();
-if (raw.includes(',') && !raw.includes('\t')) raw = raw.replace(/,/g, '\t');
-
 const lines = raw.split(/\r?\n/);
 const routesSet = new Set();
 
 for (let line of lines) {
 line = line.trim();
 if (!line) continue;
-const cols = line.split('\t');
+const cols = parseCSVLine(line);
 if (cols.length >= 7) {
-const route = cols[1].trim();
-// Ignore header strings or invalid route formats
+const route = cols[1];
 if (route && route.toUpperCase() !== "ROUTE" && !route.includes('/')) {
 routesSet.add(route);
 }
@@ -289,7 +307,7 @@ const data = new Uint8Array(e.target.result);
 const workbook = XLSX.read(data, {type: 'array'});
 const firstSheetName = workbook.SheetNames[0];
 const worksheet = workbook.Sheets[firstSheetName];
-const csvText = XLSX.utils.sheet_to_csv(worksheet, {FS: "\t"});
+const csvText = XLSX.utils.sheet_to_csv(worksheet);
 document.getElementById('csvData').value = csvText;
 updateRouteDropdown();
 };
@@ -299,7 +317,6 @@ reader.readAsArrayBuffer(file);
 function analyzeLogs() {
 let raw = document.getElementById('csvData').value.trim();
 if (!raw) return;
-if (raw.includes(',') && !raw.includes('\t')) raw = raw.replace(/,/g, '\t');
 
 const startDateVal = document.getElementById('startDate').value;
 const endDateVal = document.getElementById('endDate').value;
@@ -316,12 +333,12 @@ for (let line of lines) {
 line = line.trim();
 if (!line) continue;
 
-const cols = line.split('\t');
+const cols = parseCSVLine(line);
 if (cols.length >= 7) {
-const dateStr = cols[0].trim();
-const route = cols[1].trim();
-const dest = cols[2].trim();
-const timeStr = cols[6].trim();
+const dateStr = cols[0];
+const route = cols[1];
+const dest = cols[2];
+const timeStr = cols[6];
 
 if (route.toUpperCase() === "ROUTE") continue;
 

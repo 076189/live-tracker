@@ -55,7 +55,7 @@ user-select: text;
 touch-action: manipulation;
 pointer-events: auto;
 }
-input[type="file"], input[type="date"], select {
+input[type="file"], input[type="date"] {
 width: 100%;
 background: #2d2d2d;
 color: #fff;
@@ -84,6 +84,40 @@ font-size: 11px;
 color: #aaa;
 display: block;
 margin-top: 6px;
+}
+.route-selector-container {
+background: #2d2d2d;
+border: 1px solid #444;
+border-radius: 4px;
+max-height: 120px;
+overflow-y: auto;
+-webkit-overflow-scrolling: touch;
+padding: 6px;
+margin-top: 4px;
+box-sizing: border-box;
+}
+.route-checkbox-label {
+display: flex;
+align-items: center;
+font-size: 12px;
+color: #fff;
+margin-bottom: 4px;
+cursor: pointer;
+}
+.route-checkbox-label input[type="checkbox"] {
+margin-right: 8px;
+accent-color: #d9381e;
+}
+.route-actions {
+display: flex;
+gap: 8px;
+margin-top: 4px;
+}
+.route-actions button {
+background: #333;
+font-size: 11px;
+padding: 4px 8px;
+margin-top: 0;
 }
 button {
 background: #d9381e;
@@ -156,7 +190,7 @@ font-weight: bold;
 
 <div class="card">
 <p style="margin-top:0; font-size: 12px;">Paste log text or upload Sheets file (.xlsx, .xls, .csv):</p>
-<textarea id="csvData" placeholder="Paste data here..." oninput="updateRouteDropdown()"></textarea>
+<textarea id="csvData" placeholder="Paste data here..." oninput="updateRouteCheckboxes()"></textarea>
 <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
 
 <div class="filter-group">
@@ -170,10 +204,14 @@ font-weight: bold;
 </div>
 </div>
 
-<label for="routeDropdown">Select Route:</label>
-<select id="routeDropdown">
-<option value="ALL">All Routes</option>
-</select>
+<label>Select Routes:</label>
+<div class="route-actions">
+<button type="button" class="btn-secondary" onclick="toggleAllRoutes(true)">Select All</button>
+<button type="button" class="btn-secondary" onclick="toggleAllRoutes(false)">Deselect All</button>
+</div>
+<div id="routeCheckboxesContainer" class="route-selector-container">
+<span style="font-size: 11px; color: #777;">Paste data to populate routes...</span>
+</div>
 
 <button onclick="analyzeLogs()">Analyze Frequencies</button>
 </div>
@@ -261,7 +299,7 @@ return rA.num - rB.num;
 return rA.suffix.localeCompare(rB.suffix);
 }
 
-function updateRouteDropdown() {
+function updateRouteCheckboxes() {
 let raw = document.getElementById('csvData').value.trim();
 const lines = raw.split(/\r?\n/);
 const routesSet = new Set();
@@ -278,18 +316,44 @@ routesSet.add(route);
 }
 }
 
-const dropdown = document.getElementById('routeDropdown');
-const currentSelected = dropdown.value;
-dropdown.innerHTML = '<option value="ALL">All Routes</option>';
-
+const container = document.getElementById('routeCheckboxesContainer');
 const sortedRoutes = Array.from(routesSet).sort(compareRoutes);
-for (let route of sortedRoutes) {
-const opt = document.createElement('option');
-opt.value = route;
-opt.textContent = route;
-if (route === currentSelected) opt.selected = true;
-dropdown.appendChild(opt);
+
+if (sortedRoutes.length === 0) {
+container.innerHTML = '<span style="font-size: 11px; color: #777;">Paste data to populate routes...</span>';
+return;
 }
+
+// Remember currently checked items
+const checkedRoutes = new Set();
+container.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+checkedRoutes.add(cb.value);
+});
+
+container.innerHTML = '';
+for (let route of sortedRoutes) {
+const label = document.createElement('label');
+label.className = 'route-checkbox-label';
+
+const checkbox = document.createElement('inputtype'); // wait, input type checkbox
+const cb = document.createElement('input');
+cb.type = 'checkbox';
+cb.value = route;
+cb.className = 'route-chk';
+// Default to checked if it was checked before, or if nothing was checked yet
+if (checkedRoutes.size === 0 || checkedRoutes.has(route)) {
+cb.checked = true;
+}
+
+label.appendChild(cb);
+label.appendChild(document.createTextNode(route));
+container.appendChild(label);
+}
+}
+
+function toggleAllRoutes(select) {
+const checkboxes = document.querySelectorAll('.route-chk');
+checkboxes.forEach(cb => cb.checked = select);
 }
 
 function handleFileUpload(event) {
@@ -304,7 +368,7 @@ const firstSheetName = workbook.SheetNames[0];
 const worksheet = workbook.Sheets[firstSheetName];
 const csvText = XLSX.utils.sheet_to_csv(worksheet);
 document.getElementById('csvData').value = csvText;
-updateRouteDropdown();
+updateRouteCheckboxes();
 };
 reader.readAsArrayBuffer(file);
 }
@@ -315,7 +379,16 @@ if (!raw) return;
 
 const startDateVal = document.getElementById('startDate').value;
 const endDateVal = document.getElementById('endDate').value;
-const selectedRoute = document.getElementById('routeDropdown').value;
+
+const selectedRoutes = new Set();
+document.querySelectorAll('.route-chk:checked').forEach(cb => {
+selectedRoutes.add(cb.value.toUpperCase());
+});
+
+if (selectedRoutes.size === 0) {
+alert("Please select at least one route.");
+return;
+}
 
 const lines = raw.split(/\r?\n/);
 const routeDayLogs = {};
@@ -344,7 +417,7 @@ const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
 
 if (startDateVal && isoDate < startDateVal) continue;
 if (endDateVal && isoDate > endDateVal) continue;
-if (selectedRoute !== "ALL" && route.toUpperCase() !== selectedRoute.toUpperCase()) continue;
+if (!selectedRoutes.has(route.toUpperCase())) continue;
 
 allDatesSet.add(isoDate);
 const timeParts = timeStr.split(':');

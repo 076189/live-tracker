@@ -150,6 +150,15 @@ const routeTerminusAliases = {
 "91": ["Crouch End", "Wood Green"]
 };
 
+function normalizeDestination(dest) {
+if (!dest) return "";
+return dest
+.replace(/[,]/g, '')
+.replace(/\s+/g, ' ')
+.trim()
+.toLowerCase();
+}
+
 function parseRouteKey(route) {
 const match = route.match(/^([A-Za-z]*)(\d+)([A-Za-z]*)$/);
 if (!match) return { prefix: route, num: 0, suffix: route };
@@ -184,6 +193,7 @@ if (!raw) return;
 const lines = raw.split(/\r?\n/);
 const routeDayLogs = {};
 const routeDestinations = {};
+const routeDestDisplay = {};
 let totalArrivalsMap = {};
 
 for (let line of lines) {
@@ -222,9 +232,15 @@ if (!routeDayLogs[route]) routeDayLogs[route] = {};
 if (!routeDayLogs[route][adjustedDate]) routeDayLogs[route][adjustedDate] = [];
 routeDayLogs[route][adjustedDate].push(timestamp);
 
-if (!routeDestinations[route]) routeDestinations[route] = {};
 if (dest) {
-routeDestinations[route][dest] = (routeDestinations[route][dest] || 0) + 1;
+const normDest = normalizeDestination(dest);
+if (!routeDestinations[route]) routeDestinations[route] = {};
+routeDestinations[route][normDest] = (routeDestinations[route][normDest] || 0) + 1;
+
+if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
+if (!routeDestDisplay[route][normDest]) {
+routeDestDisplay[route][normDest] = dest;
+}
 }
 }
 }
@@ -259,47 +275,28 @@ const totalArrivals = totalArrivalsMap[route];
 const avgHeadway = allIntervals.length > 0 ? (allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length).toFixed(1) : 'N/A';
 
 let curtailments = [];
-if (routeDestinations[route]) {
-const destCounts = routeDestinations[route];
+const destCounts = routeDestinations[route] || {};
+const destDisplays = routeDestDisplay[route] || {};
 const aliases = routeTerminusAliases[route] || [];
+const normalizedAliases = aliases.map(a => normalizeDestination(a));
 
-if (aliases.length > 0) {
-let primaryTerminus = null;
-let maxPrimaryCount = -1;
-
-for (let alias of aliases) {
-let aliasTotal = 0;
-for (let d in destCounts) {
-if (d.toLowerCase().includes(alias.toLowerCase())) {
-aliasTotal += destCounts[d];
-}
-}
-if (aliasTotal > maxPrimaryCount) {
-maxPrimaryCount = aliasTotal;
-primaryTerminus = alias;
-}
-}
-
-for (let d in destCounts) {
-let matchesAlias = aliases.some(alias => d.toLowerCase().includes(alias.toLowerCase()));
+if (normalizedAliases.length > 0) {
+for (let normD in destCounts) {
+let matchesAlias = normalizedAliases.some(alias => normD === alias || normD.includes(alias));
 if (!matchesAlias) {
-curtailments.push(`${d} (${destCounts[d]})`);
+curtailments.push(`${destDisplays[normD]} (${destCounts[normD]})`);
 }
 }
 } else {
-const destinations = Object.keys(destCounts);
-if (destinations.length > 1) {
 let maxCount = 0;
-for (let d in destCounts) {
-if (destCounts[d] > maxCount) {
-maxCount = destCounts[d];
+for (let normD in destCounts) {
+if (destCounts[normD] > maxCount) {
+maxCount = destCounts[normD];
 }
 }
-for (let d in destCounts) {
-if (destCounts[d] < maxCount) {
-curtailments.push(`${d} (${destCounts[d]})`);
-}
-}
+for (let normD in destCounts) {
+if (destCounts[normD] < maxCount) {
+curtailments.push(`${destDisplays[normD]} (${destCounts[normD]})`);
 }
 }
 }

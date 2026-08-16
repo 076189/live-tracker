@@ -8,130 +8,525 @@
 <meta name="apple-mobile-web-app-title" content="TfL Analyzer">
 <title>Bus Log Frequency & Bunching Analyzer</title>
 <style>
-:root { color-scheme: dark; }
-html { background-color: #121212; margin: 0; padding: 0; width: 100%; height: 100%; -webkit-text-size-adjust: 100%; }
-body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 10px; box-sizing: border-box; width: 100%; min-height: 100%; font-family: Arial, sans-serif; }
-h2 { color: #ffffff; border-bottom: 2px solid #333; padding-bottom: 6px; font-size: 1.1rem; margin-top: 5px; }
-.card { background: #1e1e1e; border: 1px solid #333; padding: 10px; margin-bottom: 12px; border-radius: 8px; box-sizing: border-box; width: 100%; }
-textarea { width: 100%; height: 80px; background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; font-family: monospace; font-size: 11px; border-radius: 4px; box-sizing: border-box; }
-input[type="file"], input[type="date"], input[type="text"] { width: 100%; background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; font-size: 12px; border-radius: 4px; box-sizing: border-box; margin-top: 6px; }
-.filter-group { display: flex; gap: 8px; margin-top: 8px; }
-.filter-half { flex: 1; }
-label { font-size: 11px; color: #aaa; display: block; margin-top: 6px; }
-button { background: #d9381e; color: white; border: none; padding: 8px 16px; font-size: 14px; cursor: pointer; border-radius: 4px; margin-top: 10px; width: 100%; }
-button:hover { background: #b52e17; }
-.btn-secondary { background: #333; color: #fff; }
-.btn-secondary:hover { background: #444; }
-.table-wrapper { width: 100%; overflow-x: auto; margin-top: 8px; }
-table { width: 100%; border-collapse: collapse; }
-th, td { border: 1px solid #333; padding: 6px; text-align: left; font-size: 11px; }
-th { background: #252525; color: #ffffff; }
+:root {
+color-scheme: dark;
+}
+html {
+background-color: #121212;
+margin: 0;
+padding: 0;
+width: 100%;
+height: 100%;
+-webkit-text-size-adjust: 100%;
+}
+body {
+background-color: #121212;
+color: #e0e0e0;
+margin: 0;
+padding: 10px;
+box-sizing: border-box;
+width: 100%;
+min-height: 100%;
+overflow-x: hidden;
+font-family: Arial, sans-serif;
+-webkit-user-select: text;
+user-select: text;
+}
+h2 {
+color: #ffffff;
+border-bottom: 2px solid #333;
+padding-bottom: 6px;
+font-size: 1.1rem;
+margin-top: 5px;
+}
+.card {
+background: #1e1e1e;
+border: 1px solid #333;
+padding: 10px;
+margin-bottom: 12px;
+border-radius: 8px;
+box-sizing: border-box;
+width: 100%;
+overflow: hidden;
+}
+textarea {
+width: 100%;
+height: 80px;
+background: #2d2d2d;
+color: #fff;
+border: 1px solid #444;
+padding: 8px;
+font-family: monospace;
+font-size: 11px;
+border-radius: 4px;
+box-sizing: border-box;
+-webkit-user-select: text;
+user-select: text;
+-webkit-touch-callout: default;
+pointer-events: auto;
+}
+input[type="file"], input[type="date"], select {
+width: 100%;
+background: #2d2d2d;
+color: #fff;
+border: 1px solid #444;
+padding: 8px;
+font-size: 12px;
+border-radius: 4px;
+box-sizing: border-box;
+margin-top: 6px;
+}
+.filter-group {
+display: flex;
+gap: 8px;
+margin-top: 8px;
+}
+.filter-half {
+flex: 1;
+}
+label {
+font-size: 11px;
+color: #aaa;
+display: block;
+margin-top: 6px;
+}
+button {
+background: #d9381e;
+color: white;
+border: none;
+padding: 8px 16px;
+font-size: 14px;
+cursor: pointer;
+border-radius: 4px;
+margin-top: 10px;
+width: 100%;
+box-sizing: border-box;
+}
+button:hover {
+background: #b52e17;
+}
+.btn-secondary {
+background: #333;
+color: #fff;
+}
+.btn-secondary:hover {
+background: #444;
+}
+.table-wrapper {
+width: 100%;
+overflow-x: auto;
+-webkit-overflow-scrolling: touch;
+margin-top: 8px;
+}
+table {
+width: 100%;
+border-collapse: collapse;
+table-layout: auto;
+}
+th, td {
+border: 1px solid #333;
+padding: 6px 6px;
+text-align: left;
+font-size: 11px;
+white-space: normal;
+word-wrap: break-word;
+}
+th {
+background: #252525;
+color: #ffffff;
+font-size: 10px;
+}
+.bunching {
+color: #ff5252;
+font-weight: bold;
+}
+.normal {
+color: #69f0ae;
+}
+.curtailment {
+color: #ffa726;
+font-weight: bold;
+}
 </style>
+<!-- SheetJS Library for reading Excel/Google Sheets exports (.xlsx / .csv) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- jsPDF Library for generating and downloading PDF reports -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 
 <h2>TfL Bus Analyzer</h2>
+
 <div class="card">
-<p style="margin-top:0; font-size: 12px;">Paste log text or upload Sheets file:</p>
-<textarea id="csvData"></textarea>
+<p style="margin-top:0; font-size: 12px;">Paste log text or upload Sheets file (.xlsx, .xls, .csv):</p>
+<textarea id="csvData" placeholder="Paste data here..." oninput="updateRouteDropdown()"></textarea>
 <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
+
 <div class="filter-group">
-<div class="filter-half"><label>Start Date:</label><input type="date" id="startDate"></div>
-<div class="filter-half"><label>End Date:</label><input type="date" id="endDate"></div>
+<div class="filter-half">
+<label for="startDate">Start Date:</label>
+<input type="date" id="startDate">
 </div>
-<label>Filter Routes (comma-separated):</label>
-<input type="text" id="routeFilter" placeholder="e.g. 24, 91, N26">
+<div class="filter-half">
+<label for="endDate">End Date:</label>
+<input type="date" id="endDate">
+</div>
+</div>
+
+<label for="routeDropdown">Select Route:</label>
+<select id="routeDropdown">
+<option value="ALL">All Routes</option>
+</select>
+
 <button onclick="analyzeLogs()">Analyze Frequencies</button>
 </div>
 
 <div class="card" id="resultsCard" style="display:none;">
 <h2>Results</h2>
-<div class="table-wrapper"><table id="resultsTable"><thead><tr><th>Route</th><th>Total</th><th>Avg Headway</th><th>Bunching</th><th>Curtailments</th></tr></thead><tbody id="resultsBody"></tbody></table></div>
+<div class="table-wrapper">
+<table id="resultsTable">
+<thead>
+<tr>
+<th>Route</th>
+<th>Total Arrivals</th>
+<th>Average Headway (Mins)</th>
+<th>Bunching Alerts</th>
+<th>Curtailments Detected</th>
+</tr>
+</thead>
+<tbody id="resultsBody"></tbody>
+</table>
+</div>
 <button class="btn-secondary" onclick="downloadPDF()">Download PDF Report</button>
 </div>
 
 <script>
-const routeTerminusAliases = { "91": ["Crouch End", "Wood Green"] };
+const routeTerminusAliases = {
+"91": ["Crouch End", "Wood Green"]
+};
+
 let analysisResultsCache = [];
-let activeLogRange = "";
+let logDateRange = "N/A";
+
+function normalizeDestination(dest) {
+if (!dest) return "";
+return dest
+.replace(/[,]/g, '')
+.replace(/\s+/g, ' ')
+.trim()
+.toLowerCase();
+}
+
+function parseRouteKey(route) {
+const match = route.match(/^([A-Za-z]*)(\d+)([A-Za-z]*)$/);
+if (!match) return { prefix: route, num: 0, suffix: route };
+return {
+prefix: match[1].toUpperCase(),
+num: parseInt(match[2], 10),
+suffix: match[3].toUpperCase()
+};
+}
+
+function compareRoutes(a, b) {
+const rA = parseRouteKey(a);
+const rB = parseRouteKey(b);
+
+if (rA.prefix !== rB.prefix) {
+if (rA.prefix === '') return -1;
+if (rB.prefix === '') return 1;
+return rA.prefix.localeCompare(rB.prefix);
+}
+
+if (rA.num !== rB.num) {
+return rA.num - rB.num;
+}
+
+return rA.suffix.localeCompare(rB.suffix);
+}
+
+function updateRouteDropdown() {
+let raw = document.getElementById('csvData').value.trim();
+if (raw.includes(',') && !raw.includes('\t')) raw = raw.replace(/,/g, '\t');
+
+const lines = raw.split(/\r?\n/);
+const routesSet = new Set();
+
+for (let line of lines) {
+line = line.trim();
+if (!line) continue;
+const cols = line.split('\t');
+if (cols.length >= 7) {
+const route = cols[1].trim();
+if (route) routesSet.add(route);
+}
+}
+
+const dropdown = document.getElementById('routeDropdown');
+const currentSelected = dropdown.value;
+dropdown.innerHTML = '<option value="ALL">All Routes</option>';
+
+const sortedRoutes = Array.from(routesSet).sort(compareRoutes);
+for (let route of sortedRoutes) {
+const opt = document.createElement('option');
+opt.value = route;
+opt.textContent = route;
+if (route === currentSelected) opt.selected = true;
+dropdown.appendChild(opt);
+}
+}
 
 function handleFileUpload(event) {
 const file = event.target.files[0];
+if (!file) return;
+
 const reader = new FileReader();
 reader.onload = function(e) {
 const data = new Uint8Array(e.target.result);
 const workbook = XLSX.read(data, {type: 'array'});
-document.getElementById('csvData').value = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]], {FS: "\t"});
+const firstSheetName = workbook.SheetNames[0];
+const worksheet = workbook.Sheets[firstSheetName];
+const csvText = XLSX.utils.sheet_to_csv(worksheet, {FS: "\t"});
+document.getElementById('csvData').value = csvText;
+updateRouteDropdown();
 };
 reader.readAsArrayBuffer(file);
 }
 
 function analyzeLogs() {
 let raw = document.getElementById('csvData').value.trim();
-// Automatically fix comma-separated data to tabs for processing
+if (!raw) return;
 if (raw.includes(',') && !raw.includes('\t')) raw = raw.replace(/,/g, '\t');
 
+const startDateVal = document.getElementById('startDate').value;
+const endDateVal = document.getElementById('endDate').value;
+const selectedRoute = document.getElementById('routeDropdown').value;
+
 const lines = raw.split(/\r?\n/);
-const startDate = document.getElementById('startDate').value;
-const endDate = document.getElementById('endDate').value;
-const routeFilter = document.getElementById('routeFilter').value.split(',').map(r => r.trim().toUpperCase());
-const routeData = {};
-const allDates = [];
+const routeDayLogs = {};
+const routeDestinations = {};
+const routeDestDisplay = {};
+let totalArrivalsMap = {};
+let allDatesSet = new Set();
 
-lines.forEach(line => {
+for (let line of lines) {
+line = line.trim();
+if (!line) continue;
+
 const cols = line.split('\t');
-if (cols.length < 7) return;
+if (cols.length >= 7) {
+const dateStr = cols[0].trim();
+const route = cols[1].trim();
+const dest = cols[2].trim();
+const timeStr = cols[6].trim();
 
-const [d, r, dest, , , , t] = cols.map(c => c.trim());
-const [day, m, y] = d.split('/');
-const isoDate = `${y}-${m}-${day}`;
+if (dateStr && timeStr && route) {
+const partsD = dateStr.split('/');
+if (partsD.length === 3) {
+const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
 
-if (startDate && isoDate < startDate) return;
-if (endDate && isoDate > endDate) return;
-if (routeFilter[0] !== "" && !routeFilter.includes(r.toUpperCase())) return;
+if (startDateVal && isoDate < startDateVal) continue;
+if (endDateVal && isoDate > endDateVal) continue;
+if (selectedRoute !== "ALL" && route.toUpperCase() !== selectedRoute.toUpperCase()) continue;
 
-allDates.push(isoDate);
-if (!routeData[r]) routeData[r] = { times: [], dests: {} };
-routeData[r].times.push(new Date(`${isoDate}T${t}`).getTime());
-routeData[r].dests[dest] = (routeData[r].dests[dest] || 0) + 1;
-});
+allDatesSet.add(isoDate);
+const timeParts = timeStr.split(':');
+let hours = 0;
+if (timeParts.length >= 2) {
+hours = parseInt(timeParts[0], 10);
+}
+let adjustedDate = isoDate;
+if (hours >= 0 && hours < 5) {
+const dObj = new Date(isoDate);
+dObj.setDate(dObj.getDate() - 1);
+adjustedDate = dObj.toISOString().split('T')[0];
+}
 
-activeLogRange = allDates.length ? `${Math.min(...allDates)} to ${Math.max(...allDates)}` : "All Dates";
+const timestamp = new Date(`${isoDate}T${timeStr}`).getTime();
+
+if (!isNaN(timestamp)) {
+totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
+
+if (!routeDayLogs[route]) routeDayLogs[route] = {};
+if (!routeDayLogs[route][adjustedDate]) routeDayLogs[route][adjustedDate] = [];
+routeDayLogs[route][adjustedDate].push(timestamp);
+
+if (dest) {
+const normDest = normalizeDestination(dest);
+if (!routeDestinations[route]) routeDestinations[route] = {};
+routeDestinations[route][normDest] = (routeDestinations[route][normDest] || 0) + 1;
+
+if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
+if (!routeDestDisplay[route][normDest]) {
+routeDestDisplay[route][normDest] = dest;
+}
+}
+}
+}
+}
+}
+}
+
+if (allDatesSet.size > 0) {
+const sortedDates = Array.from(allDatesSet).sort();
+const minDateParts = sortedDates[0].split('-');
+const maxDateParts = sortedDates[sortedDates.length - 1].split('-');
+logDateRange = `${minDateParts[2]}/${minDateParts[1]}/${minDateParts[0]} - ${maxDateParts[2]}/${maxDateParts[1]}/${maxDateParts[0]}`;
+} else {
+logDateRange = "N/A";
+}
+
 const resultsBody = document.getElementById('resultsBody');
 resultsBody.innerHTML = '';
 analysisResultsCache = [];
 
-Object.keys(routeData).sort().forEach(r => {
-const d = routeData[r];
-d.times.sort((a,b) => a-b);
-let intervals = [], bunch = 0;
-for(let i=1; i<d.times.length; i++) {
-let diff = (d.times[i]-d.times[i-1])/(60000);
-if(diff < 180) { intervals.push(diff); if(diff < 3) bunch++; }
-}
-const curtailments = Object.keys(d.dests).filter(dest => !routeTerminusAliases[r]?.includes(dest));
-const res = { route: r, total: d.times.length, headway: intervals.length ? (intervals.reduce((a,b)=>a+b,0)/intervals.length).toFixed(1) + 'm' : 'N/A', bunch: bunch || 'None', curt: curtailments.length ? curtailments : ['None'] };
+const sortedRoutes = Object.keys(totalArrivalsMap).sort(compareRoutes);
 
-analysisResultsCache.push(res);
-resultsBody.innerHTML += `<tr><td><strong>${r}</strong></td><td>${res.total}</td><td>${res.headway}</td><td class="${bunch?'bunching':'normal'}">${res.bunch}</td><td class="curtailment">${res.curt.map(c=>`<li>${c}</li>`).join('')}</td></tr>`;
+for (let route of sortedRoutes) {
+const daysObj = routeDayLogs[route] || {};
+let allIntervals = [];
+let bunchCount = 0;
+
+for (let dayKey in daysObj) {
+const times = daysObj[dayKey].sort((a, b) => a - b);
+for (let i = 1; i < times.length; i++) {
+const diffMins = (times[i] - times[i-1]) / (1000 * 60);
+if (diffMins >= 0 && diffMins < 180) {
+allIntervals.push(diffMins);
+if (diffMins < 3) {
+bunchCount++;
+}
+}
+}
+}
+
+const totalArrivals = totalArrivalsMap[route];
+const avgHeadway = allIntervals.length > 0 ? (allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length).toFixed(1) : 'N/A';
+
+let curtailmentItems = [];
+const destCounts = routeDestinations[route] || {};
+const destDisplays = routeDestDisplay[route] || {};
+const aliases = routeTerminusAliases[route] || [];
+const normalizedAliases = aliases.map(a => normalizeDestination(a));
+
+if (normalizedAliases.length > 0) {
+for (let normD in destCounts) {
+let matchesAlias = normalizedAliases.some(alias => normD === alias || normD.includes(alias));
+if (!matchesAlias) {
+curtailmentItems.push(`${destDisplays[normD]} (${destCounts[normD]})`);
+}
+}
+} else {
+let maxCount = 0;
+for (let normD in destCounts) {
+if (destCounts[normD] > maxCount) {
+maxCount = destCounts[normD];
+}
+}
+for (let normD in destCounts) {
+if (destCounts[normD] < maxCount) {
+curtailmentItems.push(`${destDisplays[normD]} (${destCounts[normD]})`);
+}
+}
+}
+
+let curtailmentHTML = 'None';
+if (curtailmentItems.length > 0) {
+curtailmentHTML = '<ul style="margin:0; padding-left:14px;">' + curtailmentItems.map(item => `<li>${item}</li>`).join('') + '</ul>';
+}
+
+const bunchStr = bunchCount > 0 ? `${bunchCount} detected` : 'None';
+
+analysisResultsCache.push({
+route: route,
+arrivals: totalArrivals,
+headway: avgHeadway === 'N/A' ? 'N/A' : `${avgHeadway} mins`,
+bunching: bunchStr,
+curtailments: curtailmentItems
 });
+
+const row = document.createElement('tr');
+row.innerHTML = `
+<td><strong>${route}</strong></td>
+<td>${totalArrivals}</td>
+<td>${avgHeadway} mins</td>
+<td class="${bunchCount > 0 ? 'bunching' : 'normal'}">${bunchStr}</td>
+<td class="${curtailmentItems.length > 0 ? 'curtailment' : 'normal'}">${curtailmentHTML}</td>
+`;
+resultsBody.appendChild(row);
+}
+
 document.getElementById('resultsCard').style.display = 'block';
 }
 
 function downloadPDF() {
 const { jsPDF } = window.jspdf;
-const doc = new jsPDF();
-doc.text(`Report: ${activeLogRange}`, 10, 10);
+const doc = new jsPDF({ orientation: 'portrait' });
+
+doc.setFillColor(217, 56, 30);
+doc.rect(0, 0, 210, 14, 'F');
+doc.setTextColor(255, 255, 255);
+doc.setFontSize(12);
+doc.setFont("Helvetica", "bold");
+doc.text("TfL Bus Log Frequency & Bunching Report", 10, 10);
+
+doc.setTextColor(50, 50, 50);
+doc.setFontSize(9);
+doc.setFont("Helvetica", "normal");
+doc.text(`Log Period: ${logDateRange}`, 10, 20);
+doc.text(`Generated: ${new Date().toLocaleString()}`, 200, 20, { align: 'right' });
+
+doc.setDrawColor(220, 220, 220);
+doc.line(10, 23, 200, 23);
+
+const tableData = analysisResultsCache.map(item => [
+item.route,
+item.arrivals,
+item.headway,
+item.bunching,
+item.curtailments.length > 0 ? item.curtailments.map(c => `• ${c}`).join('\n') : 'None'
+]);
+
 doc.autoTable({
-startY: 20,
-head: [['Route', 'Total', 'Avg', 'Bunching', 'Curtailments']],
-body: analysisResultsCache.map(i => [i.route, i.total, i.headway, i.bunch, i.curt.join('\n')])
+startY: 25,
+head: [['Route', 'Total', 'Avg Headway', 'Bunching', 'Curtailments']],
+body: tableData,
+theme: 'grid',
+headStyles: { 
+  fillColor: [37, 37, 37], 
+  textColor: [255, 255, 255], 
+  fontStyle: 'bold',
+  halign: 'left',
+  fontSize: 8
+},
+bodyStyles: { 
+  textColor: [40, 40, 40],
+  fontSize: 8
+},
+alternateRowStyles: { 
+  fillColor: [248, 248, 248] 
+},
+styles: { 
+  cellPadding: 2.5, 
+  overflow: 'linebreak' 
+},
+columnStyles: {
+  0: { cellWidth: 16 },
+  1: { cellWidth: 16 },
+  2: { cellWidth: 26 },
+  3: { cellWidth: 22 },
+  4: { cellWidth: 'auto' }
+},
+didDrawPage: function(data) {
+  doc.setFontSize(7);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Page ${doc.internal.getNumberOfPages()}`, 200, 290, { align: 'right' });
+}
 });
-doc.save("report.pdf");
+
+doc.save("tfl-bus-analyzer-report.pdf");
 }
 </script>
+
 </body>
 </html>

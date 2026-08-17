@@ -490,7 +490,7 @@ const routeDayLogs = {};
 const routeFilteredDestinations = {};
 const routeDestDisplay = {};
 let totalArrivalsMap = {};
-let allDatesSet = new Set();
+let explicitDatesSet = new Set();
 
 for (let line of lines) {
 line = line.trim();
@@ -535,13 +535,13 @@ return true;
 
 if (!selectedRoutes.has(route)) continue;
 
-allDatesSet.add(operatingDate);
 const timestamp = new Date(`${isoDate}T${timeStr}`).getTime();
 
 if (!isNaN(timestamp)) {
 const passes = timePassesPreset();
 
 if (passes) {
+explicitDatesSet.add(operatingDate);
 totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
 
 if (dest) {
@@ -565,8 +565,13 @@ routeDayLogs[route][operatingDate].push({ timeStr: timeHHMM, timestamp: timestam
 }
 }
 
-if (allDatesSet.size > 0) {
-const sortedDates = Array.from(allDatesSet).sort();
+if (startDateVal && endDateVal) {
+const sParts = startDateVal.split('-');
+const eParts = endDateVal.split('-');
+let timeLabel = preset === 'ALL' ? 'All Day' : (preset === 'CUSTOM' ? `${filterStartT} - ${filterEndT}` : preset);
+logDateRange = `${sParts[2]}/${sParts[1]}/${sParts[0]} - ${eParts[2]}/${eParts[1]}/${eParts[0]} (${timeLabel})`;
+} else if (explicitDatesSet.size > 0) {
+const sortedDates = Array.from(explicitDatesSet).sort();
 const minDateParts = sortedDates[0].split('-');
 const maxDateParts = sortedDates[sortedDates.length - 1].split('-');
 const startStr = `${minDateParts[2]}/${minDateParts[1]}/${minDateParts[0]}`;

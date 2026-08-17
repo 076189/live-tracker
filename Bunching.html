@@ -85,6 +85,16 @@ color: #aaa;
 display: block;
 margin-top: 6px;
 }
+.date-shortcuts {
+display: flex;
+gap: 6px;
+margin-top: 4px;
+}
+.date-shortcuts button {
+margin-top: 0;
+font-size: 10px;
+padding: 4px 6px;
+}
 .route-selector-container {
 background: #2d2d2d;
 border: 1px solid #444;
@@ -201,6 +211,12 @@ font-weight: bold;
 <input type="date" id="endDate">
 </div>
 </div>
+<div class="date-shortcuts">
+<button type="button" class="btn-secondary" onclick="setDateRange('today')">Today</button>
+<button type="button" class="btn-secondary" onclick="setDateRange('yesterday')">Yesterday</button>
+<button type="button" class="btn-secondary" onclick="setDateRange('last7')">Last 7 Days</button>
+<button type="button" class="btn-secondary" onclick="setDateRange('last30')">Last 30 Days</button>
+</div>
 
 <label for="timePreset">Time Preset:</label>
 <select id="timePreset" onchange="handleTimePresetChange()" style="margin-bottom: 8px;">
@@ -245,7 +261,7 @@ font-weight: bold;
 <tr>
 <th>Route</th>
 <th>Total Arrivals</th>
-<th>Average Headway (Mins)</th>
+<th>Average Headway</th>
 <th>Bunching Alerts</th>
 <th>Curtailments Detected</th>
 </tr>
@@ -260,6 +276,27 @@ font-weight: bold;
 let globalLogData = "";
 let analysisResultsCache = [];
 let logDateRange = "N/A";
+
+function setDateRange(type) {
+const today = new Date();
+const formatDate = (d) => d.toISOString().split('T')[0];
+let start = new Date(today);
+let end = new Date(today);
+
+if (type === 'today') {
+// start and end are today
+} else if (type === 'yesterday') {
+start.setDate(today.getDate() - 1);
+end.setDate(today.getDate() - 1);
+} else if (type === 'last7') {
+start.setDate(today.getDate() - 7);
+} else if (type === 'last30') {
+start.setDate(today.getDate() - 30);
+}
+
+document.getElementById('startDate').value = formatDate(start);
+document.getElementById('endDate').value = formatDate(end);
+}
 
 function handleTimePresetChange() {
 const preset = document.getElementById('timePreset').value;
@@ -483,15 +520,18 @@ dObj.setDate(dObj.getDate() - 1);
 operatingDate = dObj.toISOString().split('T')[0];
 }
 
+const timePassesPreset = () => {
 if (isNightPreset) {
-if (startDateVal && operatingDate < startDateVal) continue;
-if (endDateVal && operatingDate > endDateVal) continue;
-if (timeHHMM < "23:00" && timeHHMM > "07:00") continue;
+if (startDateVal && operatingDate < startDateVal) return false;
+if (endDateVal && operatingDate > endDateVal) return false;
+if (timeHHMM < "23:00" && timeHHMM > "07:00") return false;
 } else {
-if (startDateVal && isoDate < startDateVal) continue;
-if (endDateVal && isoDate > endDateVal) continue;
-if (timeHHMM < filterStartT || timeHHMM > filterEndT) continue;
+if (startDateVal && isoDate < startDateVal) return false;
+if (endDateVal && isoDate > endDateVal) return false;
+if (timeHHMM < filterStartT || timeHHMM > filterEndT) return false;
 }
+return true;
+};
 
 if (!selectedRoutes.has(route)) continue;
 
@@ -499,11 +539,13 @@ allDatesSet.add(operatingDate);
 const timestamp = new Date(`${isoDate}T${timeStr}`).getTime();
 
 if (!isNaN(timestamp)) {
+if (timePassesPreset()) {
 totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
+}
 
 if (!routeDayLogs[route]) routeDayLogs[route] = {};
 if (!routeDayLogs[route][operatingDate]) routeDayLogs[route][operatingDate] = [];
-routeDayLogs[route][operatingDate].push(timestamp);
+routeDayLogs[route][operatingDate].push({ timeStr: timeHHMM, timestamp: timestamp, passesFilter: timePassesPreset() });
 
 if (dest) {
 const normDest = normalizeDestination(dest);
@@ -545,7 +587,10 @@ let allIntervals = [];
 let bunchCount = 0;
 
 for (let dayKey in daysObj) {
-const times = daysObj[dayKey].sort((a, b) => a - b);
+const dayLogs = daysObj[dayKey].sort((a, b) => a.timestamp - b.timestamp);
+const filteredLogs = dayLogs.filter(d => d.passesFilter);
+const times = filteredLogs.map(d => d.timestamp);
+
 for (let i = 1; i < times.length; i++) {
 const diffMins = (times[i] - times[i-1]) / (1000 * 60);
 if (diffMins >= 0 && diffMins < 180) {
@@ -557,7 +602,7 @@ bunchCount++;
 }
 }
 
-const totalArrivals = totalArrivalsMap[route];
+const totalArrivals = totalArrivalsMap[route] || 0;
 const avgHeadway = allIntervals.length > 0 ? (allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length).toFixed(1) : 'N/A';
 
 let curtailmentItems = [];

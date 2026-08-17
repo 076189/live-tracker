@@ -187,6 +187,12 @@ color: #69f0ae;
 color: #ffa726;
 font-weight: bold;
 }
+.pdf-options {
+background: #252525;
+padding: 8px;
+border-radius: 4px;
+margin-top: 8px;
+}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -255,6 +261,13 @@ font-weight: bold;
 
 <div class="card" id="resultsCard" style="display:none;">
 <h2>Results</h2>
+<div class="pdf-options">
+<label for="pdfOrientation" style="margin-top:0;">PDF Page Layout:</label>
+<select id="pdfOrientation">
+<option value="landscape">Landscape (Recommended)</option>
+<option value="portrait">Portrait</option>
+</select>
+</div>
 <div class="table-wrapper">
 <table id="resultsTable">
 <thead>
@@ -625,6 +638,15 @@ bunchCount++;
 const totalArrivals = totalArrivalsMap[route] || 0;
 const avgHeadway = allIntervals.length > 0 ? (allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length).toFixed(1) : 'N/A';
 
+// Calculate Reliability Score (%)
+let reliabilityScore = 100;
+if (totalArrivals > 0) {
+const bunchPenalty = (bunchCount / totalArrivals) * 50;
+reliabilityScore = Math.max(0, Math.min(100, Math.round(100 - bunchPenalty)));
+} else {
+reliabilityScore = 0;
+}
+
 let curtailmentItems = [];
 const destCounts = routeFilteredDestinations[route] || {};
 const destDisplays = routeDestDisplay[route] || {};
@@ -662,6 +684,7 @@ analysisResultsCache.push({
 route: route,
 arrivals: totalArrivals,
 headway: avgHeadway === 'N/A' ? 'N/A' : `${avgHeadway} mins`,
+reliability: `${reliabilityScore}%`,
 bunching: bunchStr,
 curtailments: curtailmentItems
 });
@@ -682,10 +705,14 @@ document.getElementById('resultsCard').style.display = 'block';
 
 function downloadPDF() {
 const { jsPDF } = window.jspdf;
-const doc = new jsPDF({ orientation: 'portrait' });
+const orientation = document.getElementById('pdfOrientation').value;
+const doc = new jsPDF({ orientation: orientation, unit: 'mm', format: 'a4' });
+
+const pageWidth = orientation === 'landscape' ? 297 : 210;
+const pageHeight = orientation === 'landscape' ? 210 : 297;
 
 doc.setFillColor(217, 56, 30);
-doc.rect(0, 0, 210, 14, 'F');
+doc.rect(0, 0, pageWidth, 14, 'F');
 doc.setTextColor(255, 255, 255);
 doc.setFontSize(12);
 doc.setFont("Helvetica", "bold");
@@ -695,22 +722,23 @@ doc.setTextColor(50, 50, 50);
 doc.setFontSize(9);
 doc.setFont("Helvetica", "normal");
 doc.text(`Start: ${logPeriodDetails.startD} ${logPeriodDetails.startT}  |  End: ${logPeriodDetails.endD} ${logPeriodDetails.endT}`, 10, 20);
-doc.text(`Generated: ${new Date().toLocaleString()}`, 200, 20, { align: 'right' });
+doc.text(`Generation Timestamp: ${new Date().toLocaleString()}`, pageWidth - 10, 20, { align: 'right' });
 
 doc.setDrawColor(220, 220, 220);
-doc.line(10, 23, 200, 23);
+doc.line(10, 23, pageWidth - 10, 23);
 
 const tableData = analysisResultsCache.map(item => [
 item.route,
 item.arrivals,
 item.headway,
+item.reliability,
 item.bunching,
 item.curtailments.length > 0 ? item.curtailments.map(c => `• ${c}`).join('\n') : 'None'
 ]);
 
 doc.autoTable({
 startY: 25,
-head: [['Route', 'Total', 'Average Headway', 'Bunching', 'Curtailments']],
+head: [['Route', 'Total', 'Average Headway', 'Reliability', 'Bunching', 'Curtailments']],
 body: tableData,
 theme: 'grid',
 headStyles: { 
@@ -729,19 +757,34 @@ alternateRowStyles: {
 },
 styles: { 
   cellPadding: 2.5, 
-  overflow: 'linebreak' 
+  overflow: 'linebreak',
+  rowPageBreak: 'avoid'
 },
 columnStyles: {
   0: { cellWidth: 16 },
   1: { cellWidth: 16 },
   2: { cellWidth: 26 },
   3: { cellWidth: 22 },
-  4: { cellWidth: 'auto' }
+  4: { cellWidth: 22 },
+  5: { cellWidth: 'auto' }
+},
+didDrawCell: function(data) {
+  // Custom PDF Route Tile rendering for column 0
+  if (data.section === 'body' && data.column.index === 0) {
+    const routeName = data.cell.raw;
+    doc.setFillColor(45, 45, 45);
+    doc.setDrawColor(68, 68, 68);
+    doc.roundedRect(data.cell.x + 1, data.cell.y + 1, data.cell.width - 2, data.cell.height - 2, 1, 1, 'FD');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(String(routeName), data.cell.x + (data.cell.width / 2), data.cell.y + (data.cell.height / 2) + 2.5, { align: 'center' });
+  }
 },
 didDrawPage: function(data) {
   doc.setFontSize(7);
   doc.setTextColor(150, 150, 150);
-  doc.text(`Page ${doc.internal.getNumberOfPages()}`, 200, 290, { align: 'right' });
+  doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageWidth - 10, pageHeight - 7, { align: 'right' });
 }
 });
 

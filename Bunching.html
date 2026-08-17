@@ -207,6 +207,12 @@ color: #69f0ae;
 color: #ffa726;
 font-weight: bold;
 }
+.status-indicator {
+font-size: 10px;
+color: #69f0ae;
+margin-top: 4px;
+text-align: right;
+}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -217,7 +223,7 @@ font-weight: bold;
 <h2>TfL Bus Analyzer</h2>
 
 <div class="card">
-<p style="margin-top:0; font-size: 12px;">Paste log text, upload file, or sync directly from Google Sheets:</p>
+<p style="margin-top:0; font-size: 12px;">Paste log text, upload file, or link a live Google Sheet:</p>
 <textarea id="csvData" placeholder="Paste data here..." oninput="updateRouteCheckboxes()"></textarea>
 <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
 
@@ -227,7 +233,11 @@ font-weight: bold;
 <button type="button" class="btn-secondary" onclick="loadPresetSheet('1Buv3b9wNW-f4j4cuKUaAaA8mdp2KgTBopiCsOct3QYw')">Horse Guards Parade</button>
 <button type="button" class="btn-secondary" onclick="loadPresetSheet('1Wo8SpSr2N0HMmhGxxygwLUNon_wLyODjN8fVRXSShNQ')">Southampton St / Covent Garden</button>
 </div>
-<button type="button" class="btn-secondary" onclick="syncFromGoogleSheet()" style="margin-top: 6px;">Sync from Google Sheet</button>
+<div style="display: flex; gap: 8px; margin-top: 6px;">
+<button type="button" class="btn-secondary" onclick="syncFromGoogleSheet()" style="margin-top: 0; flex: 1;">Sync Now</button>
+<button type="button" id="liveToggleBtn" class="btn-secondary" onclick="toggleLiveFeed()" style="margin-top: 0; flex: 1; background: #222;">Live Feed: OFF</button>
+</div>
+<div id="liveStatus" class="status-indicator" style="display:none;">Live feed active (updating every 30s)</div>
 
 <div class="filter-group">
 <div class="filter-half">
@@ -311,6 +321,7 @@ font-weight: bold;
 let globalLogData = "";
 let analysisResultsCache = [];
 let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59", stopName: "N/A" };
+let liveFeedInterval = null;
 
 function setDateRange(type) {
 const today = new Date();
@@ -347,10 +358,10 @@ document.getElementById('sheetIdInput').value = id;
 syncFromGoogleSheet();
 }
 
-async function syncFromGoogleSheet() {
+async function syncFromGoogleSheet(isAuto = false) {
 let inputVal = document.getElementById('sheetIdInput').value.trim();
 if (!inputVal) {
-alert("Please enter a Google Spreadsheet ID or URL.");
+if (!isAuto) alert("Please enter a Google Spreadsheet ID or URL.");
 return;
 }
 
@@ -360,7 +371,7 @@ if (match && match[1]) {
 sheetId = match[1];
 }
 
-const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&cacheBust=${new Date().getTime()}`;
 
 try {
 const response = await fetch(csvUrl);
@@ -369,10 +380,51 @@ const csvText = await response.text();
 document.getElementById('csvData').value = csvText;
 globalLogData = csvText;
 updateRouteCheckboxes();
+
+
+// Auto re-analyze if results are currently visible to keep view live-updated
+if (document.getElementById('resultsCard').style.display === 'block') {
+analyzeLogs();
+}
+
+if (!isAuto) {
 alert("Successfully synced from Google Sheet!");
+} else {
+const statusEl = document.getElementById('liveStatus');
+statusEl.textContent = `Live feed active (Last updated: ${new Date().toLocaleTimeString()})`;
+}
 } catch (error) {
 console.error(error);
+if (!isAuto) {
 alert("Failed to sync sheet. Ensure the spreadsheet is shared as 'Anyone with the link can view'.");
+}
+}
+}
+
+function toggleLiveFeed() {
+const btn = document.getElementById('liveToggleBtn');
+const statusEl = document.getElementById('liveStatus');
+let inputVal = document.getElementById('sheetIdInput').value.trim();
+
+if (!liveFeedInterval) {
+if (!inputVal) {
+alert("Please enter or select a Google Sheet URL first.");
+return;
+}
+syncFromGoogleSheet();
+liveFeedInterval = setInterval(() => {
+syncFromGoogleSheet(true);
+}, 30000); // Poll every 30 seconds
+
+btn.textContent = "Live Feed: ON";
+btn.style.background = "#d9381e";
+statusEl.style.display = "block";
+} else {
+clearInterval(liveFeedInterval);
+liveFeedInterval = null;
+btn.textContent = "Live Feed: OFF";
+btn.style.background = "#333";
+statusEl.style.display = "none";
 }
 }
 

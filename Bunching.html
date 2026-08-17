@@ -55,7 +55,7 @@ user-select: text;
 touch-action: manipulation;
 pointer-events: auto;
 }
-input[type="file"], input[type="date"], input[type="time"], input[type="number"], select {
+input[type="file"], input[type="date"], input[type="time"], input[type="number"], select, input[type="text"] {
 width: 100%;
 background: #2d2d2d;
 color: #fff;
@@ -224,11 +224,11 @@ text-align: right;
 
 <div class="card">
 <p style="margin-top:0; font-size: 12px;">Paste log text, upload file, or link a live Google Sheet:</p>
-<textarea id="csvData" placeholder="Paste data here..." oninput="updateRouteCheckboxes()"></textarea>
+<textarea id="csvData" placeholder="Paste data here..." oninput="handleDataInput()"></textarea>
 <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
 
 <label for="sheetIdInput" style="margin-top: 10px;">Google Spreadsheet ID / URL:</label>
-<input type="text" id="sheetIdInput" placeholder="Paste Spreadsheet ID or URL here...">
+<input type="text" id="sheetIdInput" placeholder="Paste Spreadsheet ID or URL here..." oninput="saveStateToStorage()">
 <div class="sheet-presets">
 <button type="button" class="btn-secondary" onclick="loadPresetSheet('1Buv3b9wNW-f4j4cuKUaAaA8mdp2KgTBopiCsOct3QYw')">Horse Guards Parade</button>
 <button type="button" class="btn-secondary" onclick="loadPresetSheet('1Wo8SpSr2N0HMmhGxxygwLUNon_wLyODjN8fVRXSShNQ')">Southampton St / Covent Garden</button>
@@ -242,11 +242,11 @@ text-align: right;
 <div class="filter-group">
 <div class="filter-half">
 <label for="startDate">Start Date:</label>
-<input type="date" id="startDate">
+<input type="date" id="startDate" onchange="saveStateToStorage()">
 </div>
 <div class="filter-half">
 <label for="endDate">End Date:</label>
-<input type="date" id="endDate">
+<input type="date" id="endDate" onchange="saveStateToStorage()">
 </div>
 </div>
 <div class="date-shortcuts">
@@ -268,16 +268,16 @@ text-align: right;
 <div class="filter-group" id="customTimeGroup" style="display:none;">
 <div class="filter-half">
 <label for="startTime">Start Time:</label>
-<input type="time" id="startTime" value="00:00">
+<input type="time" id="startTime" value="00:00" onchange="saveStateToStorage()">
 </div>
 <div class="filter-half">
 <label for="endTime">End Time:</label>
-<input type="time" id="endTime" value="23:59">
+<input type="time" id="endTime" value="23:59" onchange="saveStateToStorage()">
 </div>
 </div>
 
 <label for="curtailmentThreshold">Curtailment Threshold (%):</label>
-<input type="number" id="curtailmentThreshold" value="45" min="1" max="100" style="margin-bottom: 8px;">
+<input type="number" id="curtailmentThreshold" value="45" min="1" max="100" style="margin-bottom: 8px;" onchange="saveStateToStorage()">
 
 <label>Select Routes:</label>
 <div class="route-actions">
@@ -323,6 +323,67 @@ let analysisResultsCache = [];
 let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59", stopName: "N/A" };
 let liveFeedInterval = null;
 
+window.addEventListener('DOMContentLoaded', () => {
+loadStateFromStorage();
+if (globalLogData) {
+updateRouteCheckboxes();
+if (localStorage.getItem('tfl_results_visible') === 'true') {
+analyzeLogs();
+}
+}
+if (localStorage.getItem('tfl_live_active') === 'true') {
+toggleLiveFeed();
+}
+});
+
+function saveStateToStorage() {
+localStorage.setItem('tfl_csv_data', document.getElementById('csvData').value);
+localStorage.setItem('tfl_sheet_id', document.getElementById('sheetIdInput').value);
+localStorage.setItem('tfl_start_date', document.getElementById('startDate').value);
+localStorage.setItem('tfl_end_date', document.getElementById('endDate').value);
+localStorage.setItem('tfl_time_preset', document.getElementById('timePreset').value);
+localStorage.setItem('tfl_start_time', document.getElementById('startTime').value);
+localStorage.setItem('tfl_end_time', document.getElementById('endTime').value);
+localStorage.setItem('tfl_threshold', document.getElementById('curtailmentThreshold').value);
+
+const checkedRoutes = [];
+document.querySelectorAll('.route-chk:checked').forEach(cb => checkedRoutes.push(cb.value));
+localStorage.setItem('tfl_checked_routes', JSON.stringify(checkedRoutes));
+}
+
+function loadStateFromStorage() {
+const csv = localStorage.getItem('tfl_csv_data');
+if (csv) {
+document.getElementById('csvData').value = csv;
+globalLogData = csv;
+}
+const sheetId = localStorage.getItem('tfl_sheet_id');
+if (sheetId) document.getElementById('sheetIdInput').value = sheetId;
+
+const sd = localStorage.getItem('tfl_start_date');
+if (sd) document.getElementById('startDate').value = sd;
+const ed = localStorage.getItem('tfl_end_date');
+if (ed) document.getElementById('endDate').value = ed;
+
+const tp = localStorage.getItem('tfl_time_preset');
+if (tp) {
+document.getElementById('timePreset').value = tp;
+handleTimePresetChange();
+}
+const st = localStorage.getItem('tfl_start_time');
+if (st) document.getElementById('startTime').value = st;
+const et = localStorage.getItem('tfl_end_time');
+if (et) document.getElementById('endTime').value = et;
+
+const th = localStorage.getItem('tfl_threshold');
+if (th) document.getElementById('curtailmentThreshold').value = th;
+}
+
+function handleDataInput() {
+updateRouteCheckboxes();
+saveStateToStorage();
+}
+
 function setDateRange(type) {
 const today = new Date();
 const formatDate = (d) => d.toISOString().split('T')[0];
@@ -341,6 +402,7 @@ start.setDate(today.getDate() - 30);
 
 document.getElementById('startDate').value = formatDate(start);
 document.getElementById('endDate').value = formatDate(end);
+saveStateToStorage();
 }
 
 function handleTimePresetChange() {
@@ -351,6 +413,7 @@ customGroup.style.display = 'table';
 } else {
 customGroup.style.display = 'none';
 }
+saveStateToStorage();
 }
 
 function loadPresetSheet(id) {
@@ -380,6 +443,7 @@ const csvText = await response.text();
 document.getElementById('csvData').value = csvText;
 globalLogData = csvText;
 updateRouteCheckboxes();
+saveStateToStorage();
 
 if (document.getElementById('resultsCard').style.display === 'block') {
 analyzeLogs();
@@ -417,12 +481,14 @@ syncFromGoogleSheet(true);
 btn.textContent = "Live Feed: ON";
 btn.style.background = "#d9381e";
 statusEl.style.display = "block";
+localStorage.setItem('tfl_live_active', 'true');
 } else {
 clearInterval(liveFeedInterval);
 liveFeedInterval = null;
 btn.textContent = "Live Feed: OFF";
 btn.style.background = "#333";
 statusEl.style.display = "none";
+localStorage.setItem('tfl_live_active', 'false');
 }
 }
 
@@ -493,10 +559,11 @@ raw = globalLogData;
 
 const lines = raw.split(/\r?\n/);
 const routesSet = new Set();
-const previouslyChecked = new Set();
-document.querySelectorAll('.route-chk:checked').forEach(cb => {
-previouslyChecked.add(cb.value.toUpperCase());
-});
+let savedChecked = [];
+try {
+savedChecked = JSON.parse(localStorage.getItem('tfl_checked_routes') || '[]');
+} catch(e) {}
+const previouslyChecked = new Set(savedChecked);
 
 for (let line of lines) {
 line = line.trim();
@@ -527,6 +594,7 @@ const cb = document.createElement('input');
 cb.type = 'checkbox';
 cb.value = route;
 cb.className = 'route-chk';
+cb.onchange = saveStateToStorage;
 if (previouslyChecked.size === 0 || previouslyChecked.has(route)) {
 cb.checked = true;
 }
@@ -535,11 +603,13 @@ label.appendChild(cb);
 label.appendChild(document.createTextNode(route));
 container.appendChild(label);
 }
+saveStateToStorage();
 }
 
 function toggleAllRoutes(select) {
 const checkboxes = document.querySelectorAll('.route-chk');
 checkboxes.forEach(cb => cb.checked = select);
+saveStateToStorage();
 }
 
 function handleFileUpload(event) {
@@ -820,6 +890,7 @@ resultsBody.appendChild(row);
 }
 
 document.getElementById('resultsCard').style.display = 'block';
+localStorage.setItem('tfl_results_visible', 'true');
 }
 
 function downloadPDF() {

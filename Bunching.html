@@ -487,7 +487,7 @@ return;
 
 const lines = raw.split(/\r?\n/);
 const routeDayLogs = {};
-const routeDestinations = {};
+const routeFilteredDestinations = {};
 const routeDestDisplay = {};
 let totalArrivalsMap = {};
 let allDatesSet = new Set();
@@ -539,24 +539,26 @@ allDatesSet.add(operatingDate);
 const timestamp = new Date(`${isoDate}T${timeStr}`).getTime();
 
 if (!isNaN(timestamp)) {
-if (timePassesPreset()) {
-totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
-}
+const passes = timePassesPreset();
 
-if (!routeDayLogs[route]) routeDayLogs[route] = {};
-if (!routeDayLogs[route][operatingDate]) routeDayLogs[route][operatingDate] = [];
-routeDayLogs[route][operatingDate].push({ timeStr: timeHHMM, timestamp: timestamp, passesFilter: timePassesPreset() });
+if (passes) {
+totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
 
 if (dest) {
 const normDest = normalizeDestination(dest);
-if (!routeDestinations[route]) routeDestinations[route] = {};
-routeDestinations[route][normDest] = (routeDestinations[route][normDest] || 0) + 1;
+if (!routeFilteredDestinations[route]) routeFilteredDestinations[route] = {};
+routeFilteredDestinations[route][normDest] = (routeFilteredDestinations[route][normDest] || 0) + 1;
 
 if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
 if (!routeDestDisplay[route][normDest]) {
 routeDestDisplay[route][normDest] = dest;
 }
 }
+}
+
+if (!routeDayLogs[route]) routeDayLogs[route] = {};
+if (!routeDayLogs[route][operatingDate]) routeDayLogs[route][operatingDate] = [];
+routeDayLogs[route][operatingDate].push({ timeStr: timeHHMM, timestamp: timestamp, passesFilter: passes });
 }
 }
 }
@@ -606,7 +608,7 @@ const totalArrivals = totalArrivalsMap[route] || 0;
 const avgHeadway = allIntervals.length > 0 ? (allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length).toFixed(1) : 'N/A';
 
 let curtailmentItems = [];
-const destCounts = routeDestinations[route] || {};
+const destCounts = routeFilteredDestinations[route] || {};
 const destDisplays = routeDestDisplay[route] || {};
 let sortedDests = Object.keys(destCounts).sort((a, b) => destCounts[b] - destCounts[a]);
 let primaryCount = sortedDests.length > 0 ? destCounts[sortedDests[0]] : 0;

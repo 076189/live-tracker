@@ -187,12 +187,6 @@ color: #69f0ae;
 color: #ffa726;
 font-weight: bold;
 }
-.pdf-options {
-background: #252525;
-padding: 8px;
-border-radius: 4px;
-margin-top: 8px;
-}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -261,13 +255,6 @@ margin-top: 8px;
 
 <div class="card" id="resultsCard" style="display:none;">
 <h2>Results</h2>
-<div class="pdf-options">
-<label for="pdfOrientation" style="margin-top:0;">PDF Page Layout:</label>
-<select id="pdfOrientation">
-<option value="landscape">Landscape (Recommended)</option>
-<option value="portrait">Portrait</option>
-</select>
-</div>
 <div class="table-wrapper">
 <table id="resultsTable">
 <thead>
@@ -275,6 +262,7 @@ margin-top: 8px;
 <th>Route</th>
 <th>Total Arrivals</th>
 <th>Average Headway</th>
+<th>Reliability</th>
 <th>Bunching Alerts</th>
 <th>Curtailments Detected</th>
 </tr>
@@ -694,6 +682,7 @@ row.innerHTML = `
 <td><strong>${route}</strong></td>
 <td>${totalArrivals}</td>
 <td>${avgHeadway} mins</td>
+<td>${reliabilityScore}%</td>
 <td class="${bunchCount > 0 ? 'bunching' : 'normal'}">${bunchStr}</td>
 <td class="${curtailmentItems.length > 0 ? 'curtailment' : 'normal'}">${curtailmentHTML}</td>
 `;
@@ -705,11 +694,10 @@ document.getElementById('resultsCard').style.display = 'block';
 
 function downloadPDF() {
 const { jsPDF } = window.jspdf;
-const orientation = document.getElementById('pdfOrientation').value;
-const doc = new jsPDF({ orientation: orientation, unit: 'mm', format: 'a4' });
+const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-const pageWidth = orientation === 'landscape' ? 297 : 210;
-const pageHeight = orientation === 'landscape' ? 210 : 297;
+const pageWidth = 210;
+const pageHeight = 297;
 
 doc.setFillColor(217, 56, 30);
 doc.rect(0, 0, pageWidth, 14, 'F');
@@ -767,19 +755,6 @@ columnStyles: {
   3: { cellWidth: 22 },
   4: { cellWidth: 22 },
   5: { cellWidth: 'auto' }
-},
-didDrawCell: function(data) {
-  // Custom PDF Route Tile rendering for column 0
-  if (data.section === 'body' && data.column.index === 0) {
-    const routeName = data.cell.raw;
-    doc.setFillColor(45, 45, 45);
-    doc.setDrawColor(68, 68, 68);
-    doc.roundedRect(data.cell.x + 1, data.cell.y + 1, data.cell.width - 2, data.cell.height - 2, 1, 1, 'FD');
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("Helvetica", "bold");
-    doc.setFontSize(8);
-    doc.text(String(routeName), data.cell.x + (data.cell.width / 2), data.cell.y + (data.cell.height / 2) + 2.5, { align: 'center' });
-  }
 },
 didDrawPage: function(data) {
   doc.setFontSize(7);

@@ -605,11 +605,22 @@ for (let route of sortedRoutes) {
 const daysObj = routeDayLogs[route] || {};
 let allIntervals = [];
 let bunchCount = 0;
+let peakVR = 0;
 
 for (let dayKey in daysObj) {
 const dayLogs = daysObj[dayKey].sort((a, b) => a.timestamp - b.timestamp);
 const filteredLogs = dayLogs.filter(d => d.passesFilter);
 const times = filteredLogs.map(d => d.timestamp);
+
+// Calculate Peak Vehicle Requirement (PVR) via rolling 60-min window per day
+for (let i = 0; i < filteredLogs.length; i++) {
+let winStart = filteredLogs[i].timestamp;
+let winEnd = winStart + (60 * 60 * 1000);
+let countInWindow = filteredLogs.filter(d => d.timestamp >= winStart && d.timestamp <= winEnd).length;
+if (countInWindow > peakVR) {
+peakVR = countInWindow;
+}
+}
 
 for (let i = 1; i < times.length; i++) {
 const diffMins = (times[i] - times[i-1]) / (1000 * 60);
@@ -671,6 +682,7 @@ analysisResultsCache.push({
 route: route,
 arrivals: totalArrivals,
 headway: avgHeadway === 'N/A' ? 'N/A' : `${avgHeadway} mins`,
+pvr: peakVR > 0 ? peakVR : 'N/A',
 reliability: `${reliabilityScore}%`,
 bunching: bunchStr,
 curtailments: curtailmentItems
@@ -717,6 +729,7 @@ const tableData = analysisResultsCache.map(item => [
 item.route,
 item.arrivals,
 item.headway,
+item.pvr,
 item.reliability,
 item.bunching,
 item.curtailments.length > 0 ? item.curtailments.map(c => `• ${c}`).join('\n') : 'None'
@@ -724,7 +737,7 @@ item.curtailments.length > 0 ? item.curtailments.map(c => `• ${c}`).join('\n')
 
 doc.autoTable({
 startY: 25,
-head: [['Route', 'Total', 'Average Headway', 'Reliability', 'Bunching', 'Curtailments']],
+head: [['Route', 'Total', 'Avg Headway', 'Est. PVR', 'Reliability', 'Bunching', 'Curtailments']],
 body: tableData,
 theme: 'grid',
 headStyles: { 
@@ -747,12 +760,13 @@ styles: {
   rowPageBreak: 'avoid'
 },
 columnStyles: {
-  0: { cellWidth: 16 },
-  1: { cellWidth: 16 },
-  2: { cellWidth: 26 },
-  3: { cellWidth: 22 },
-  4: { cellWidth: 22 },
-  5: { cellWidth: 'auto' }
+  0: { cellWidth: 14 },
+  1: { cellWidth: 14 },
+  2: { cellWidth: 24 },
+  3: { cellWidth: 16 },
+  4: { cellWidth: 20 },
+  5: { cellWidth: 20 },
+  6: { cellWidth: 'auto' }
 },
 didDrawPage: function(data) {
   doc.setFontSize(7);

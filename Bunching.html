@@ -275,7 +275,7 @@ font-weight: bold;
 <script>
 let globalLogData = "";
 let analysisResultsCache = [];
-let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59" };
+let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59", stopName: "N/A" };
 
 function setDateRange(type) {
 const today = new Date();
@@ -493,6 +493,7 @@ const routeFilteredDestinations = {};
 const routeDestDisplay = {};
 let totalArrivalsMap = {};
 let explicitDatesSet = new Set();
+let detectedStopsSet = new Set();
 
 for (let line of lines) {
 line = line.trim();
@@ -503,9 +504,18 @@ if (cols.length >= 7) {
 const dateStr = cols[0];
 const route = cols[1] ? cols[1].trim().toUpperCase() : "";
 const dest = cols[2];
+// Look for stop name between column index 3 and 5 if present in bustimes export format
+let stopCandidate = cols[3] && !cols[3].includes('/') && !cols[3].includes(':') ? cols[3] : "";
+if (!stopCandidate && cols[4] && !cols[4].includes('/') && !cols[4].includes(':')) {
+stopCandidate = cols[4];
+}
 const timeStr = cols[6];
 
 if (route === "ROUTE") continue;
+
+if (stopCandidate && stopCandidate.toLowerCase() !== route.toLowerCase()) {
+detectedStopsSet.add(stopCandidate);
+}
 
 if (dateStr && timeStr && route) {
 const partsD = dateStr.split('/');
@@ -588,11 +598,14 @@ const maxParts = sortedDates[sortedDates.length - 1].split('-');
 endDStr = `${maxParts[2]}/${maxParts[1]}/${maxParts[0]}`;
 }
 
+let loggedStopName = detectedStopsSet.size > 0 ? Array.from(detectedStopsSet).join(', ') : "Logged Location";
+
 logPeriodDetails = {
 startD: startDStr,
 startT: filterStartT,
 endD: endDStr,
-endT: filterEndT
+endT: filterEndT,
+stopName: loggedStopName
 };
 
 const resultsBody = document.getElementById('resultsBody');
@@ -707,11 +720,12 @@ doc.text("TfL Bus Log Frequency & Bunching Report", 10, 10);
 doc.setTextColor(50, 50, 50);
 doc.setFontSize(9);
 doc.setFont("Helvetica", "normal");
-doc.text(`Start: ${logPeriodDetails.startD} ${logPeriodDetails.startT}  |  End: ${logPeriodDetails.endD} ${logPeriodDetails.endT}`, 10, 20);
+doc.text(`Stop Location: ${logPeriodDetails.stopName}`, 10, 19);
+doc.text(`Start: ${logPeriodDetails.startD} ${logPeriodDetails.startT}  |  End: ${logPeriodDetails.endD} ${logPeriodDetails.endT}`, 10, 24);
 doc.text(`Generation Timestamp: ${new Date().toLocaleString()}`, pageWidth - 10, 20, { align: 'right' });
 
 doc.setDrawColor(220, 220, 220);
-doc.line(10, 23, pageWidth - 10, 23);
+doc.line(10, 27, pageWidth - 10, 27);
 
 const tableData = analysisResultsCache.map(item => [
 item.route,
@@ -723,7 +737,7 @@ item.curtailments.length > 0 ? item.curtailments.map(c => `• ${c}`).join('\n')
 ]);
 
 doc.autoTable({
-startY: 25,
+startY: 29,
 head: [['Route', 'Total', 'Average Headway', 'Reliability', 'Bunching', 'Curtailments']],
 body: tableData,
 theme: 'grid',

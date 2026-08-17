@@ -381,8 +381,6 @@ document.getElementById('csvData').value = csvText;
 globalLogData = csvText;
 updateRouteCheckboxes();
 
-
-// Auto re-analyze if results are currently visible to keep view live-updated
 if (document.getElementById('resultsCard').style.display === 'block') {
 analyzeLogs();
 }
@@ -414,7 +412,7 @@ return;
 syncFromGoogleSheet();
 liveFeedInterval = setInterval(() => {
 syncFromGoogleSheet(true);
-}, 30000); // Poll every 30 seconds
+}, 30000);
 
 btn.textContent = "Live Feed: ON";
 btn.style.background = "#d9381e";
@@ -495,6 +493,10 @@ raw = globalLogData;
 
 const lines = raw.split(/\r?\n/);
 const routesSet = new Set();
+const previouslyChecked = new Set();
+document.querySelectorAll('.route-chk:checked').forEach(cb => {
+previouslyChecked.add(cb.value.toUpperCase());
+});
 
 for (let line of lines) {
 line = line.trim();
@@ -516,11 +518,6 @@ container.innerHTML = '<span style="font-size: 11px; color: #777;">Paste data or
 return;
 }
 
-const checkedRoutes = new Set();
-container.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
-checkedRoutes.add(cb.value.toUpperCase());
-});
-
 container.innerHTML = '';
 for (let route of sortedRoutes) {
 const label = document.createElement('label');
@@ -530,7 +527,7 @@ const cb = document.createElement('input');
 cb.type = 'checkbox';
 cb.value = route;
 cb.className = 'route-chk';
-if (checkedRoutes.size === 0 || checkedRoutes.has(route)) {
+if (previouslyChecked.size === 0 || previouslyChecked.has(route)) {
 cb.checked = true;
 }
 

@@ -275,7 +275,7 @@ font-weight: bold;
 <script>
 let globalLogData = "";
 let analysisResultsCache = [];
-let logDateRange = "N/A";
+let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59" };
 
 function setDateRange(type) {
 const today = new Date();
@@ -464,6 +464,8 @@ let isNightPreset = false;
 
 if (preset === "23:00-07:00") {
 isNightPreset = true;
+filterStartT = "23:00";
+filterEndT = "07:00";
 } else if (preset === "07:00-19:00") {
 filterStartT = "07:00";
 filterEndT = "19:00";
@@ -565,22 +567,33 @@ routeDayLogs[route][operatingDate].push({ timeStr: timeHHMM, timestamp: timestam
 }
 }
 
-if (startDateVal && endDateVal) {
+let startDStr = "N/A";
+let endDStr = "N/A";
+
+if (startDateVal) {
 const sParts = startDateVal.split('-');
-const eParts = endDateVal.split('-');
-let timeLabel = preset === 'ALL' ? 'All Day' : (preset === 'CUSTOM' ? `${filterStartT} - ${filterEndT}` : preset);
-logDateRange = `${sParts[2]}/${sParts[1]}/${sParts[0]} - ${eParts[2]}/${eParts[1]}/${eParts[0]} (${timeLabel})`;
+startDStr = `${sParts[2]}/${sParts[1]}/${sParts[0]}`;
 } else if (explicitDatesSet.size > 0) {
 const sortedDates = Array.from(explicitDatesSet).sort();
-const minDateParts = sortedDates[0].split('-');
-const maxDateParts = sortedDates[sortedDates.length - 1].split('-');
-const startStr = `${minDateParts[2]}/${minDateParts[1]}/${minDateParts[0]}`;
-const endStr = `${maxDateParts[2]}/${maxDateParts[1]}/${maxDateParts[0]}`;
-let timeLabel = preset === 'ALL' ? 'All Day' : (preset === 'CUSTOM' ? `${filterStartT} - ${filterEndT}` : preset);
-logDateRange = `${startStr} - ${endStr} (${timeLabel})`;
-} else {
-logDateRange = "N/A";
+const minParts = sortedDates[0].split('-');
+startDStr = `${minParts[2]}/${minParts[1]}/${minParts[0]}`;
 }
+
+if (endDateVal) {
+const eParts = endDateVal.split('-');
+endDStr = `${eParts[2]}/${eParts[1]}/${eParts[0]}`;
+} else if (explicitDatesSet.size > 0) {
+const sortedDates = Array.from(explicitDatesSet).sort();
+const maxParts = sortedDates[sortedDates.length - 1].split('-');
+endDStr = `${maxParts[2]}/${maxParts[1]}/${maxParts[0]}`;
+}
+
+logPeriodDetails = {
+startD: startDStr,
+startT: filterStartT,
+endD: endDStr,
+endT: filterEndT
+};
 
 const resultsBody = document.getElementById('resultsBody');
 resultsBody.innerHTML = '';
@@ -681,7 +694,7 @@ doc.text("TfL Bus Log Frequency & Bunching Report", 10, 10);
 doc.setTextColor(50, 50, 50);
 doc.setFontSize(9);
 doc.setFont("Helvetica", "normal");
-doc.text(`Log Period: ${logDateRange}`, 10, 20);
+doc.text(`Start: ${logPeriodDetails.startD} ${logPeriodDetails.startT}  |  End: ${logPeriodDetails.endD} ${logPeriodDetails.endT}`, 10, 20);
 doc.text(`Generated: ${new Date().toLocaleString()}`, 200, 20, { align: 'right' });
 
 doc.setDrawColor(220, 220, 220);

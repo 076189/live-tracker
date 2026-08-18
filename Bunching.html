@@ -114,9 +114,6 @@ background: #555;
 background: #2d2d2d;
 border: 1px solid #444;
 border-radius: 4px;
-max-height: 120px;
-overflow-y: auto;
--webkit-overflow-scrolling: touch;
 padding: 8px;
 margin-top: 4px;
 box-sizing: border-box;
@@ -355,9 +352,9 @@ localStorage.setItem('tfl_start_time', document.getElementById('startTime').valu
 localStorage.setItem('tfl_end_time', document.getElementById('endTime').value);
 localStorage.setItem('tfl_threshold', document.getElementById('curtailmentThreshold').value);
 
-const checkedRoutes = [];
-document.querySelectorAll('.route-chk:checked').forEach(cb => checkedRoutes.push(cb.value));
-localStorage.setItem('tfl_checked_routes', JSON.stringify(checkedRoutes));
+const uncheckedRoutes = [];
+document.querySelectorAll('.route-chk:not(:checked)').forEach(cb => uncheckedRoutes.push(cb.value));
+localStorage.setItem('tfl_unchecked_routes', JSON.stringify(uncheckedRoutes));
 }
 
 function loadStateFromStorage() {
@@ -597,11 +594,11 @@ raw = globalLogData;
 
 const lines = raw.split(/\r?\n/);
 const routesSet = new Set();
-let savedChecked = [];
+let savedUnchecked = [];
 try {
-savedChecked = JSON.parse(localStorage.getItem('tfl_checked_routes') || '[]');
+savedUnchecked = JSON.parse(localStorage.getItem('tfl_unchecked_routes') || '[]');
 } catch(e) {}
-const previouslyChecked = new Set(savedChecked);
+const previouslyUnchecked = new Set(savedUnchecked);
 
 for (let line of lines) {
 line = line.trim();
@@ -633,9 +630,7 @@ cb.type = 'checkbox';
 cb.value = route;
 cb.className = 'route-chk';
 cb.onchange = saveStateToStorage;
-if (previouslyChecked.size === 0 || previouslyChecked.has(route)) {
-cb.checked = true;
-}
+cb.checked = !previouslyUnchecked.has(route);
 
 label.appendChild(cb);
 label.appendChild(document.createTextNode(route));

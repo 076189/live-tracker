@@ -242,7 +242,7 @@ text-align: right;
 <div class="filter-group">
 <div class="filter-half">
 <label for="startDate">Start Date:</label>
-<input type="date" id="startDate" onchange="saveStateToStorage()">
+<input type="date" id="startDate" onchange="handleStartDateChange()">
 </div>
 <div class="filter-half">
 <label for="endDate">End Date:</label>
@@ -384,6 +384,18 @@ updateRouteCheckboxes();
 saveStateToStorage();
 }
 
+function handleStartDateChange() {
+const preset = document.getElementById('timePreset').value;
+const startDateVal = document.getElementById('startDate').value;
+
+if (preset === '23:00-07:00' && startDateVal) {
+let sDateObj = new Date(startDateVal);
+sDateObj.setDate(sDateObj.getDate() + 1);
+document.getElementById('endDate').value = sDateObj.toISOString().split('T')[0];
+}
+saveStateToStorage();
+}
+
 function setDateRange(type) {
 const today = new Date();
 const formatDate = (d) => d.toISOString().split('T')[0];
@@ -402,6 +414,14 @@ start.setDate(today.getDate() - 30);
 
 document.getElementById('startDate').value = formatDate(start);
 document.getElementById('endDate').value = formatDate(end);
+
+const preset = document.getElementById('timePreset').value;
+if (preset === '23:00-07:00' && type !== 'last7' && type !== 'last30') {
+let eDateObj = new Date(end);
+eDateObj.setDate(eDateObj.getDate() + 1);
+document.getElementById('endDate').value = formatDate(eDateObj);
+}
+
 saveStateToStorage();
 }
 
@@ -413,6 +433,16 @@ customGroup.style.display = 'table';
 } else {
 customGroup.style.display = 'none';
 }
+
+if (preset === '23:00-07:00') {
+const startDateVal = document.getElementById('startDate').value;
+if (startDateVal) {
+let sDateObj = new Date(startDateVal);
+sDateObj.setDate(sDateObj.getDate() + 1);
+document.getElementById('endDate').value = sDateObj.toISOString().split('T')[0];
+}
+}
+
 saveStateToStorage();
 }
 
@@ -589,7 +619,7 @@ for (let route of sortedRoutes) {
 const label = document.createElement('label');
 label.className = 'route-checkbox-label';
 
-const cb = document.input ? document.createElement('input') : document.createElement('input');
+const cb = document.createElement('input');
 cb.type = 'checkbox';
 cb.value = route;
 cb.className = 'route-chk';
@@ -773,7 +803,6 @@ const maxD = new Date(routeMaxDate[route] || isoDate);
 const curD = new Date(isoDate);
 const diffDays = (maxD - curD) / (1000 * 60 * 60 * 24);
 
-// Recent window: strictly last 7 days of logs. If a test trip was logged within the last 7 days, it's counted here.
 if (diffDays <= 7) {
 if (!routeRecentDestinations[route]) routeRecentDestinations[route] = {};
 routeRecentDestinations[route][normDest] = (routeRecentDestinations[route][normDest] || 0) + 1;
@@ -888,9 +917,6 @@ for (let normD of allSortedDests) {
 let totalCount = allDests[normD];
 let recentCount = recentDests[normD] || 0;
 let isTop = topTerminuses.includes(normD);
-
-// If it's a legacy terminal point (had lots of occurrences in the past, but 0 in recent 7 days), completely skip it.
-// If you test a live curtailment today, recentCount will be > 0, so it bypasses this skip and shows its exact recent count!
 let isLegacyObsolete = (recentCount === 0 && totalCount > (totalArrivals * 0.05));
 
 if (!isTop && !isLegacyObsolete) {

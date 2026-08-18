@@ -323,10 +323,6 @@ let analysisResultsCache = [];
 let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59", stopName: "N/A" };
 let liveFeedInterval = null;
 
-const LEGACY_TERMINI_EXCLUSIONS = {
-"91": ["crouch end"]
-};
-
 window.addEventListener('DOMContentLoaded', () => {
 loadStateFromStorage();
 if (globalLogData) {
@@ -747,16 +743,13 @@ explicitDatesSet.add(operatingDate);
 totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
 
 if (dest) {
-let normDest = normalizeDestination(dest);
-let legacyIgnores = LEGACY_TERMINI_EXCLUSIONS[route] || [];
-if (!legacyIgnores.includes(normDest)) {
+const normDest = normalizeDestination(dest);
 if (!routeAllDestinations[route]) routeAllDestinations[route] = {};
 routeAllDestinations[route][normDest] = (routeAllDestinations[route][normDest] || 0) + 1;
 
 if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
 if (!routeDestDisplay[route][normDest]) {
 routeDestDisplay[route][normDest] = dest;
-}
 }
 }
 }
@@ -850,6 +843,8 @@ if (sortedDests.length > 0) {
 topTerminuses.push(sortedDests[0]);
 for (let i = 1; i < sortedDests.length; i++) {
 let normD = sortedDests[i];
+// Dynamic threshold check: if a destination forms at least the threshold percentage (e.g., 45%) of the top destination's count, it's a primary terminal layout (like Wood Green AND Crouch End co-existing).
+// If Crouch End only happened once (e.g. 1 out of 100), its count will be way below the threshold, so it will naturally fall into curtailments!
 if (allDests[normD] >= (primaryCount * thresholdPct)) {
 topTerminuses.push(normD);
 }

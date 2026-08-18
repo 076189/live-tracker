@@ -134,6 +134,7 @@ accent-color: #d9381e;
 }
 .route-actions {
 display: flex;
+flex-wrap: wrap;
 gap: 8px;
 margin-top: 4px;
 }
@@ -284,6 +285,8 @@ text-align: right;
 <div class="route-actions">
 <button type="button" class="btn-secondary" onclick="toggleAllRoutes(true)">Select All</button>
 <button type="button" class="btn-secondary" onclick="toggleAllRoutes(false)">Deselect All</button>
+<button type="button" class="btn-secondary" onclick="toggleRouteType('day')">Day Routes</button>
+<button type="button" class="btn-secondary" onclick="toggleRouteType('night')">Night Routes</button>
 </div>
 <div id="routeCheckboxesContainer" class="route-selector-container">
 <span style="font-size: 11px; color: #777;">Paste data or sync sheet to populate routes...</span>
@@ -642,6 +645,42 @@ saveStateToStorage();
 function toggleAllRoutes(select) {
 const checkboxes = document.querySelectorAll('.route-chk');
 checkboxes.forEach(cb => cb.checked = select);
+saveStateToStorage();
+}
+
+function toggleRouteType(type) {
+const checkboxes = document.querySelectorAll('.route-chk');
+if (type === 'day') {
+checkboxes.forEach(cb => {
+cb.checked = !cb.value.startsWith('N');
+});
+} else if (type === 'night') {
+const nightRoutesSet = new Set();
+const lines = globalLogData.split(/\r?\n/);
+for (let line of lines) {
+line = line.trim();
+if (!line) continue;
+const cols = parseCSVLine(line);
+if (cols.length >= 7) {
+const route = cols[1] ? cols[1].trim().toUpperCase() : "";
+const timeStr = cols[6];
+if (route && route !== "ROUTE" && timeStr) {
+if (route.startsWith('N')) {
+nightRoutesSet.add(route);
+} else {
+const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
+if (timeHHMM >= "01:00" && timeHHMM <= "04:00") {
+nightRoutesSet.add(route);
+}
+}
+}
+}
+}
+checkboxes.forEach(cb => {
+const r = cb.value;
+cb.checked = nightRoutesSet.has(r) || r.startsWith('N');
+});
+}
 saveStateToStorage();
 }
 

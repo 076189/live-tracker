@@ -621,27 +621,6 @@ const known24HourRoutes = [
 return known24HourRoutes.includes(r);
 }
 
-function isNightServiceRoute(r) {
-if (r.startsWith('N')) return true;
-if (isKnown24HourRoute(r)) return true;
-
-const lines = globalLogData.split(/\r?\n/);
-for (let line of lines) {
-const cols = parseCSVLine(line);
-if (cols.length >= 7) {
-const route = cols[1] ? cols[1].trim().toUpperCase() : "";
-const timeStr = cols[6] ? cols[6].trim() : "";
-if (route === r && timeStr) {
-const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
-if ((timeHHMM >= "00:00" && timeHHMM <= "04:59") || timeHHMM.startsWith("24:") || timeHHMM.startsWith("25:")) {
-return true;
-}
-}
-}
-}
-return false;
-}
-
 function updateRouteCheckboxes() {
 let raw = document.getElementById('csvData').value.trim();
 if (raw) {
@@ -707,8 +686,8 @@ function toggleRouteType(type) {
 const checkboxes = document.querySelectorAll('.route-chk');
 checkboxes.forEach(cb => {
 const r = cb.value;
-const isNight = isNightServiceRoute(r);
-const isDay = !r.startsWith('N');
+const isNight = r.startsWith('N') || isKnown24HourRoute(r);
+const isDay = !r.startsWith('N') || isKnown24HourRoute(r);
 
 if (type === 'day') {
 cb.checked = isDay;

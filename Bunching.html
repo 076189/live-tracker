@@ -323,10 +323,8 @@ let analysisResultsCache = [];
 let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59", stopName: "N/A" };
 let liveFeedInterval = null;
 
-// Hardcoded known route terminal/extension history adjustments
-// Maps route string -> array of normalized destination strings to completely ignore as legacy/obsolete terminal points
 const LEGACY_TERMINI_EXCLUSIONS = {
-"91": ["Crouch End"]
+"91": ["crouch end"]
 };
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -749,13 +747,16 @@ explicitDatesSet.add(operatingDate);
 totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
 
 if (dest) {
-const normDest = normalizeDestination(dest);
+let normDest = normalizeDestination(dest);
+let legacyIgnores = LEGACY_TERMINI_EXCLUSIONS[route] || [];
+if (!legacyIgnores.includes(normDest)) {
 if (!routeAllDestinations[route]) routeAllDestinations[route] = {};
 routeAllDestinations[route][normDest] = (routeAllDestinations[route][normDest] || 0) + 1;
 
 if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
 if (!routeDestDisplay[route][normDest]) {
 routeDestDisplay[route][normDest] = dest;
+}
 }
 }
 }
@@ -862,14 +863,11 @@ directionDisplay = destDisplays[topNormD] || topNormD;
 }
 
 let curtailmentItems = [];
-let legacyIgnores = LEGACY_TERMINI_EXCLUSIONS[route] || [];
-
 for (let normD of sortedDests) {
 let count = allDests[normD];
 let isTopTerminus = topTerminuses.includes(normD);
-let isHardcodedLegacy = legacyIgnores.includes(normD);
 
-if (!isTopTerminus && !isHardcodedLegacy) {
+if (!isTopTerminus) {
 curtailmentItems.push(`${destDisplays[normD]} (${count})`);
 }
 }

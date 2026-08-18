@@ -133,16 +133,28 @@ margin-right: 6px;
 accent-color: #d9381e;
 }
 .route-actions {
-display: flex;
-flex-wrap: wrap;
-gap: 8px;
+display: table;
+width: 100%;
+table-layout: fixed;
+border-spacing: 6px;
 margin-top: 4px;
+margin-left: -6px;
 }
-.route-actions button {
+.route-actions-row {
+display: table-row;
+}
+.route-action-cell {
+display: table-cell;
+width: 50%;
+padding-bottom: 4px;
+}
+.route-action-cell button {
 background: #333;
 font-size: 11px;
-padding: 4px 8px;
+padding: 6px 8px;
 margin-top: 0;
+width: 100%;
+box-sizing: border-box;
 }
 button {
 background: #d9381e;
@@ -283,10 +295,14 @@ text-align: right;
 
 <label>Select Routes:</label>
 <div class="route-actions">
-<button type="button" class="btn-secondary" onclick="toggleAllRoutes(true)">Select All</button>
-<button type="button" class="btn-secondary" onclick="toggleAllRoutes(false)">Deselect All</button>
-<button type="button" class="btn-secondary" onclick="toggleRouteType('day')">Day Routes</button>
-<button type="button" class="btn-secondary" onclick="toggleRouteType('night')">Night Routes</button>
+<div class="route-actions-row">
+<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleAllRoutes(true)">Select All</button></div>
+<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleAllRoutes(false)">Deselect All</button></div>
+</div>
+<div class="route-actions-row">
+<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleRouteType('day')">Day Routes</button></div>
+<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleRouteType('night')">Night Routes</button></div>
+</div>
 </div>
 <div id="routeCheckboxesContainer" class="route-selector-container">
 <span style="font-size: 11px; color: #777;">Paste data or sync sheet to populate routes...</span>
@@ -599,6 +615,18 @@ return rA.num - rB.num;
 return rA.suffix.localeCompare(rB.suffix);
 }
 
+function isKnown24HourRoute(r) {
+const known24HourRoutes = [
+"6", "12", "14", "24", "35", "36", "37", "43", "47", "52", "53", "57", "64",
+"65", "68", "73", "76", "85", "88", "93", "94", "105", "108", "111", "114", "119",
+"134", "139", "148", "149", "154", "158", "159", "176", "188", "189", "207", "213", "214",
+"220", "222", "238", "243", "248", "253", "264", "277", "280", "281", "285",
+"295", "296", "297", "344", "345", "368", "390", "436", "453", "472", "473", "474",
+"C10", "D7", "E1", "U1", "W3", "W7"
+];
+return known24HourRoutes.includes(r);
+}
+
 function updateRouteCheckboxes() {
 let raw = document.getElementById('csvData').value.trim();
 if (raw) {
@@ -662,7 +690,7 @@ saveStateToStorage();
 
 function toggleRouteType(type) {
 const checkboxes = document.querySelectorAll('.route-chk');
-const nightRoutesSet = new Set(["6","12","14","24","35","36","37","43","47","52","53","57","64","65","68","73","76","85","88","93","94","105","108","111","114","119","134","139","148","149","154","158","159","176","188","189","207","213","214","220","222","238","243","248","253","264","277","280","281","285","295","296","297","344","345","368","390","436","453","472","473","474","C10","D7","E1","U1","W3","W7"]);
+const dynamicNightRoutes = new Set();
 
 const lines = globalLogData.split(/\r?\n/);
 for (let line of lines) {
@@ -672,11 +700,11 @@ const route = cols[1] ? cols[1].trim().toUpperCase() : "";
 const timeStr = cols[6] ? cols[6].trim() : "";
 if (route && route !== "ROUTE" && timeStr) {
 if (route.startsWith('N')) {
-nightRoutesSet.add(route);
+dynamicNightRoutes.add(route);
 } else {
 const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
 if ((timeHHMM >= "00:00" && timeHHMM <= "04:59") || timeHHMM.startsWith("24:") || timeHHMM.startsWith("25:")) {
-nightRoutesSet.add(route);
+dynamicNightRoutes.add(route);
 }
 }
 }
@@ -685,10 +713,13 @@ nightRoutesSet.add(route);
 
 checkboxes.forEach(cb => {
 const r = cb.value;
+const isNight = r.startsWith('N') || dynamicNightRoutes.has(r) || isKnown24HourRoute(r);
+const isDay = !r.startsWith('N') || isKnown24HourRoute(r);
+
 if (type === 'day') {
-cb.checked = !r.startsWith('N');
+cb.checked = isDay;
 } else if (type === 'night') {
-cb.checked = r.startsWith('N') || nightRoutesSet.has(r);
+cb.checked = isNight;
 }
 });
 saveStateToStorage();

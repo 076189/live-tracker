@@ -355,9 +355,21 @@ localStorage.setItem('tfl_start_time', document.getElementById('startTime').valu
 localStorage.setItem('tfl_end_time', document.getElementById('endTime').value);
 localStorage.setItem('tfl_threshold', document.getElementById('curtailmentThreshold').value);
 
-const uncheckedRoutes = [];
-document.querySelectorAll('.route-chk:not(:checked)').forEach(cb => uncheckedRoutes.push(cb.value));
-localStorage.setItem('tfl_unchecked_routes', JSON.stringify(uncheckedRoutes));
+let savedUnchecked = [];
+try {
+savedUnchecked = JSON.parse(localStorage.getItem('tfl_unchecked_routes') || '[]');
+} catch(e) {}
+let uncheckedSet = new Set(savedUnchecked);
+
+document.querySelectorAll('.route-chk').forEach(cb => {
+if (!cb.checked) {
+uncheckedSet.add(cb.value);
+} else {
+uncheckedSet.delete(cb.value);
+}
+});
+
+localStorage.setItem('tfl_unchecked_routes', JSON.stringify(Array.from(uncheckedSet)));
 }
 
 function loadStateFromStorage() {
@@ -650,46 +662,35 @@ saveStateToStorage();
 
 function toggleRouteType(type) {
 const checkboxes = document.querySelectorAll('.route-chk');
-const known24HourRoutes = [
-"6", "12", "14", "24", "35", "36", "37", "43", "47", "52", "53", "57", "64",
-"65", "68", "73", "76", "85", "88", "93", "94", "105", "108", "111", "119",
-"134", "139", "148", "149", "158", "159", "176", "188", "189", "213", "214",
-"220", "222", "238", "243", "248", "253", "264", "277", "280", "281", "285",
-"295", "297", "344", "345", "368", "390", "436", "453", "472", "473", "474",
-"C10", "D7", "E1", "U1", "W3", "W7"
-];
+const nightRoutesSet = new Set(["6","12","14","24","35","36","37","43","47","52","53","57","64","65","68","73","76","85","88","93","94","105","108","111","114","119","134","139","148","149","154","158","159","176","188","189","207","213","214","220","222","238","243","248","253","264","277","280","281","285","295","296","297","344","345","368","390","436","453","472","473","474","C10","D7","E1","U1","W3","W7"]);
 
-if (type === 'day') {
-checkboxes.forEach(cb => {
-cb.checked = !cb.value.startsWith('N');
-});
-} else if (type === 'night') {
-const nightRoutesSet = new Set();
 const lines = globalLogData.split(/\r?\n/);
 for (let line of lines) {
-line = line.trim();
-if (!line) continue;
 const cols = parseCSVLine(line);
 if (cols.length >= 7) {
 const route = cols[1] ? cols[1].trim().toUpperCase() : "";
-const timeStr = cols[6];
+const timeStr = cols[6] ? cols[6].trim() : "";
 if (route && route !== "ROUTE" && timeStr) {
 if (route.startsWith('N')) {
 nightRoutesSet.add(route);
 } else {
 const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
-if (timeHHMM >= "00:00" && timeHHMM <= "04:30") {
+if ((timeHHMM >= "00:00" && timeHHMM <= "04:59") || timeHHMM.startsWith("24:") || timeHHMM.startsWith("25:")) {
 nightRoutesSet.add(route);
 }
 }
 }
 }
 }
+
 checkboxes.forEach(cb => {
 const r = cb.value;
-cb.checked = r.startsWith('N') || nightRoutesSet.has(r) || known24HourRoutes.includes(r);
-});
+if (type === 'day') {
+cb.checked = !r.startsWith('N');
+} else if (type === 'night') {
+cb.checked = r.startsWith('N') || nightRoutesSet.has(r);
 }
+});
 saveStateToStorage();
 }
 
@@ -1048,42 +1049,42 @@ head: [['Route', 'Total Trips', 'Average Headway', 'Reliability', 'Bunching', 'C
 body: tableData,
 theme: 'grid',
 headStyles: { 
-  fillColor: [37, 37, 37], 
-  textColor: [255, 255, 255], 
-  fontStyle: 'bold',
-  halign: 'center',
-  valign: 'middle',
-  fontSize: 8
+fillColor: [37, 37, 37], 
+textColor: [255, 255, 255], 
+fontStyle: 'bold',
+halign: 'center',
+valign: 'middle',
+fontSize: 8
 },
 bodyStyles: { 
-  textColor: [40, 40, 40],
-  fontSize: 8,
-  valign: 'middle',
-  halign: 'left'
+textColor: [40, 40, 40],
+fontSize: 8,
+valign: 'middle',
+halign: 'left'
 },
 alternateRowStyles: { 
-  fillColor: [248, 248, 248] 
+fillColor: [248, 248, 248] 
 },
 styles: { 
-  cellPadding: 2.5, 
-  overflow: 'linebreak',
-  rowPageBreak: 'avoid',
-  valign: 'middle',
-  halign: 'left'
+cellPadding: 2.5, 
+overflow: 'linebreak',
+rowPageBreak: 'avoid',
+valign: 'middle',
+halign: 'left'
 },
 columnStyles: {
-  0: { cellWidth: 14, halign: 'left' },
-  1: { cellWidth: 16, halign: 'left' },
-  2: { cellWidth: 24, halign: 'left' },
-  3: { cellWidth: 18, halign: 'left' },
-  4: { cellWidth: 20, halign: 'left' },
-  5: { cellWidth: 'auto', halign: 'left' },
-  6: { cellWidth: 28, halign: 'left' }
+0: { cellWidth: 14, halign: 'left' },
+1: { cellWidth: 16, halign: 'left' },
+2: { cellWidth: 24, halign: 'left' },
+3: { cellWidth: 18, halign: 'left' },
+4: { cellWidth: 20, halign: 'left' },
+5: { cellWidth: 'auto', halign: 'left' },
+6: { cellWidth: 28, halign: 'left' }
 },
 didDrawPage: function(data) {
-  doc.setFontSize(7);
-  doc.setTextColor(150, 150, 150);
-  doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageWidth - 10, pageHeight - 7, { align: 'right' });
+doc.setFontSize(7);
+doc.setTextColor(150, 150, 150);
+doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageWidth - 10, pageHeight - 7, { align: 'right' });
 }
 });
 

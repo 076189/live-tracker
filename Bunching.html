@@ -323,6 +323,12 @@ let analysisResultsCache = [];
 let logPeriodDetails = { startD: "N/A", startT: "00:00", endD: "N/A", endT: "23:59", stopName: "N/A" };
 let liveFeedInterval = null;
 
+// Hardcoded known route terminal/extension history adjustments
+// Maps route string -> array of normalized destination strings to completely ignore as legacy/obsolete terminal points
+const LEGACY_TERMINI_EXCLUSIONS = {
+"91": ["Crouch End"]
+};
+
 window.addEventListener('DOMContentLoaded', () => {
 loadStateFromStorage();
 if (globalLogData) {
@@ -685,30 +691,6 @@ let totalArrivalsMap = {};
 let explicitDatesSet = new Set();
 let detectedStopsSet = new Set();
 
-// First pass: collect all valid date objects per route to find the true max dataset date
-let routeMaxDate = {};
-for (let line of lines) {
-line = line.trim();
-if (!line) continue;
-const cols = parseCSVLine(line);
-if (cols.length >= 7) {
-const dateStr = cols[0];
-const route = cols[1] ? cols[1].trim().toUpperCase() : "";
-const timeStr = cols[6];
-if (dateStr && timeStr && route && route !== "ROUTE") {
-const partsD = dateStr.split('/');
-if (partsD.length === 3) {
-const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
-if (!routeMaxDate[route] || isoDate > routeMaxDate[route]) {
-routeMaxDate[route] = isoDate;
-}
-}
-}
-}
-}
-
-// Second pass: scan dataset and bin destinations into recent (last 7 days of logs) vs older history
-const routeRecentDestinations = {};
 for (let line of lines) {
 line = line.trim();
 if (!line) continue;
@@ -770,16 +752,6 @@ if (dest) {
 const normDest = normalizeDestination(dest);
 if (!routeAllDestinations[route]) routeAllDestinations[route] = {};
 routeAllDestinations[route][normDest] = (routeAllDestinations[route][normDest] || 0) + 1;
-
-const maxD = new Date(routeMaxDate[route] || isoDate);
-const curD = new Date(isoDate);
-const diffDays = (maxD - curD) / (1000 * 60 * 60 * 24);
-
-// Only consider destinations occurring within the last 7 days of the dataset for baseline term calculation
-if (diffDays <= 7) {
-if (!routeRecentDestinations[route]) routeRecentDestinations[route] = {};
-routeRecentDestinations[route][normDest] = (routeRecentDestinations[route][normDest] || 0) + 1;
-}
 
 if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
 if (!routeDestDisplay[route][normDest]) {
@@ -866,45 +838,38 @@ reliabilityScore = Math.max(0, Math.min(100, Math.round(100 - bunchPenalty)));
 reliabilityScore = 0;
 }
 
-// Base primary termini off the recent 7-day window if available, falling back to all if empty
-const recentDests = routeRecentDestinations[route] || {};
 const allDests = routeAllDestinations[route] || {};
 const destDisplays = routeDestDisplay[route] || {};
 
-let baselineSource = Object.keys(recentDests).length > 0 ? recentDests : allDests;
-let sortedBaseline = Object.keys(baselineSource).sort((a, b) => baselineSource[b] - baselineSource[a]);
-let primaryCount = sortedBaseline.length > 0 ? baselineSource[sortedBaseline[0]] : 0;
+let sortedDests = Object.keys(allDests).sort((a, b) => allDests[b] - allDests[a]);
+let primaryCount = sortedDests.length > 0 ? allDests[sortedDests[0]] : 0;
 let topTerminuses = [];
 
-if (sortedBaseline.length > 0) {
-topTerminuses.push(sortedBaseline[0]);
-for (let i = 1; i < sortedBaseline.length; i++) {
-let normD = sortedBaseline[i];
-if (baselineSource[normD] >= (primaryCount * thresholdPct)) {
+if (sortedDests.length > 0) {
+topTerminuses.push(sortedDests[0]);
+for (let i = 1; i < sortedDests.length; i++) {
+let normD = sortedDests[i];
+if (allDests[normD] >= (primaryCount * thresholdPct)) {
 topTerminuses.push(normD);
 }
 }
 }
 
 let directionDisplay = 'N/A';
-if (sortedBaseline.length > 0) {
-let topNormD = sortedBaseline[0];
+if (sortedDests.length > 0) {
+let topNormD = sortedDests[0];
 directionDisplay = destDisplays[topNormD] || topNormD;
 }
 
 let curtailmentItems = [];
-let allSortedDests = Object.keys(allDests).sort((a, b) => allDests[b] - allDests[a]);
+let legacyIgnores = LEGACY_TERMINI_EXCLUSIONS[route] || [];
 
-for (let normD of allSortedDests) {
+for (let normD of sortedDests) {
 let count = allDests[normD];
 let isTopTerminus = topTerminuses.includes(normD);
+let isHardcodedLegacy = legacyIgnores.includes(normD);
 
-// If a destination was strictly part of pre-extension history (i.e. zero occurrences in the recent 7-day window and total count makes up a high legacy volume), ignore it. 
-// However, if a user logged a test curtailment recently, it WILL appear in recentDests, so it correctly bypasses this exclusion!
-let recentCount = recentDests[normD] || 0;
-let isPurelyHistorical = (recentCount === 0 && count > (totalArrivals * 0.03));
-
-if (!isTopTerminus && !isPurelyHistorical) {
+if (!isTopTerminus && !isHardcodedLegacy) {
 curtailmentItems.push(`${destDisplays[normD]} (${count})`);
 }
 }

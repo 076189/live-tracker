@@ -133,28 +133,22 @@ margin-right: 6px;
 accent-color: #d9381e;
 }
 .route-actions {
-display: table;
-width: 100%;
-table-layout: fixed;
-border-spacing: 6px;
+display: flex;
+flex-direction: column;
+gap: 6px;
 margin-top: 4px;
-margin-left: -6px;
 }
 .route-actions-row {
-display: table-row;
+display: flex;
+gap: 6px;
+width: 100%;
 }
-.route-action-cell {
-display: table-cell;
-width: 50%;
-padding-bottom: 4px;
-}
-.route-action-cell button {
+.route-actions-row button {
+flex: 1;
 background: #333;
 font-size: 11px;
 padding: 6px 8px;
 margin-top: 0;
-width: 100%;
-box-sizing: border-box;
 }
 button {
 background: #d9381e;
@@ -296,12 +290,12 @@ text-align: right;
 <label>Select Routes:</label>
 <div class="route-actions">
 <div class="route-actions-row">
-<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleAllRoutes(true)">Select All</button></div>
-<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleAllRoutes(false)">Deselect All</button></div>
+<button type="button" class="btn-secondary" onclick="toggleAllRoutes(true)">Select All</button>
+<button type="button" class="btn-secondary" onclick="toggleAllRoutes(false)">Deselect All</button>
 </div>
 <div class="route-actions-row">
-<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleRouteType('day')">Day Routes</button></div>
-<div class="route-action-cell"><button type="button" class="btn-secondary" onclick="toggleRouteType('night')">Night Routes</button></div>
+<button type="button" class="btn-secondary" onclick="toggleRouteType('day')">Day Routes</button>
+<button type="button" class="btn-secondary" onclick="toggleRouteType('night')">Night Routes</button>
 </div>
 </div>
 <div id="routeCheckboxesContainer" class="route-selector-container">
@@ -627,6 +621,27 @@ const known24HourRoutes = [
 return known24HourRoutes.includes(r);
 }
 
+function isNightServiceRoute(r) {
+if (r.startsWith('N')) return true;
+if (isKnown24HourRoute(r)) return true;
+
+const lines = globalLogData.split(/\r?\n/);
+for (let line of lines) {
+const cols = parseCSVLine(line);
+if (cols.length >= 7) {
+const route = cols[1] ? cols[1].trim().toUpperCase() : "";
+const timeStr = cols[6] ? cols[6].trim() : "";
+if (route === r && timeStr) {
+const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
+if ((timeHHMM >= "00:00" && timeHHMM <= "04:59") || timeHHMM.startsWith("24:") || timeHHMM.startsWith("25:")) {
+return true;
+}
+}
+}
+}
+return false;
+}
+
 function updateRouteCheckboxes() {
 let raw = document.getElementById('csvData').value.trim();
 if (raw) {
@@ -690,31 +705,10 @@ saveStateToStorage();
 
 function toggleRouteType(type) {
 const checkboxes = document.querySelectorAll('.route-chk');
-const dynamicNightRoutes = new Set();
-
-const lines = globalLogData.split(/\r?\n/);
-for (let line of lines) {
-const cols = parseCSVLine(line);
-if (cols.length >= 7) {
-const route = cols[1] ? cols[1].trim().toUpperCase() : "";
-const timeStr = cols[6] ? cols[6].trim() : "";
-if (route && route !== "ROUTE" && timeStr) {
-if (route.startsWith('N')) {
-dynamicNightRoutes.add(route);
-} else {
-const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
-if ((timeHHMM >= "00:00" && timeHHMM <= "04:59") || timeHHMM.startsWith("24:") || timeHHMM.startsWith("25:")) {
-dynamicNightRoutes.add(route);
-}
-}
-}
-}
-}
-
 checkboxes.forEach(cb => {
 const r = cb.value;
-const isNight = r.startsWith('N') || dynamicNightRoutes.has(r) || isKnown24HourRoute(r);
-const isDay = !r.startsWith('N') || isKnown24HourRoute(r);
+const isNight = isNightServiceRoute(r);
+const isDay = !r.startsWith('N');
 
 if (type === 'day') {
 cb.checked = isDay;

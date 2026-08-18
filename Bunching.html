@@ -589,7 +589,7 @@ for (let route of sortedRoutes) {
 const label = document.createElement('label');
 label.className = 'route-checkbox-label';
 
-const cb = document.createElement('input');
+const cb = document.input ? document.createElement('input') : document.createElement('input');
 cb.type = 'checkbox';
 cb.value = route;
 cb.className = 'route-chk';
@@ -680,10 +680,32 @@ return;
 const lines = raw.split(/\r?\n/);
 const routeDayLogs = {};
 const routeAllDestinations = {};
+const routeRecentDestinations = {};
 const routeDestDisplay = {};
 let totalArrivalsMap = {};
 let explicitDatesSet = new Set();
 let detectedStopsSet = new Set();
+let routeMaxDate = {};
+
+for (let line of lines) {
+line = line.trim();
+if (!line) continue;
+const cols = parseCSVLine(line);
+if (cols.length >= 7) {
+const dateStr = cols[0];
+const route = cols[1] ? cols[1].trim().toUpperCase() : "";
+const timeStr = cols[6];
+if (dateStr && timeStr && route && route !== "ROUTE") {
+const partsD = dateStr.split('/');
+if (partsD.length === 3) {
+const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
+if (!routeMaxDate[route] || isoDate > routeMaxDate[route]) {
+routeMaxDate[route] = isoDate;
+}
+}
+}
+}
+}
 
 for (let line of lines) {
 line = line.trim();
@@ -746,6 +768,16 @@ if (dest) {
 const normDest = normalizeDestination(dest);
 if (!routeAllDestinations[route]) routeAllDestinations[route] = {};
 routeAllDestinations[route][normDest] = (routeAllDestinations[route][normDest] || 0) + 1;
+
+const maxD = new Date(routeMaxDate[route] || isoDate);
+const curD = new Date(isoDate);
+const diffDays = (maxD - curD) / (1000 * 60 * 60 * 24);
+
+// Recent window: strictly last 7 days of logs. If a test trip was logged within the last 7 days, it's counted here.
+if (diffDays <= 7) {
+if (!routeRecentDestinations[route]) routeRecentDestinations[route] = {};
+routeRecentDestinations[route][normDest] = (routeRecentDestinations[route][normDest] || 0) + 1;
+}
 
 if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
 if (!routeDestDisplay[route][normDest]) {
@@ -833,37 +865,36 @@ reliabilityScore = 0;
 }
 
 const allDests = routeAllDestinations[route] || {};
+const recentDests = routeRecentDestinations[route] || {};
 const destDisplays = routeDestDisplay[route] || {};
 
-let sortedDests = Object.keys(allDests).sort((a, b) => allDests[b] - allDests[a]);
-let primaryCount = sortedDests.length > 0 ? allDests[sortedDests[0]] : 0;
-let topTerminuses = [];
+let sortedRecent = Object.keys(recentDests).sort((a, b) => recentDests[b] - recentDests[a]);
+let primaryNorm = sortedRecent.length > 0 ? sortedRecent[0] : "";
+let primaryCount = primaryNorm ? recentDests[primaryNorm] : 0;
 
-if (sortedDests.length > 0) {
-topTerminuses.push(sortedDests[0]);
-for (let i = 1; i < sortedDests.length; i++) {
-let normD = sortedDests[i];
-// Dynamic threshold check: if a destination forms at least the threshold percentage (e.g., 45%) of the top destination's count, it's a primary terminal layout (like Wood Green AND Crouch End co-existing).
-// If Crouch End only happened once (e.g. 1 out of 100), its count will be way below the threshold, so it will naturally fall into curtailments!
-if (allDests[normD] >= (primaryCount * thresholdPct)) {
+let topTerminuses = [primaryNorm];
+for (let normD in recentDests) {
+if (normD !== primaryNorm && recentDests[normD] >= (primaryCount * thresholdPct)) {
 topTerminuses.push(normD);
 }
 }
-}
 
-let directionDisplay = 'N/A';
-if (sortedDests.length > 0) {
-let topNormD = sortedDests[0];
-directionDisplay = destDisplays[topNormD] || topNormD;
-}
+let directionDisplay = primaryNorm ? (destDisplays[primaryNorm] || primaryNorm) : 'N/A';
 
 let curtailmentItems = [];
-for (let normD of sortedDests) {
-let count = allDests[normD];
-let isTopTerminus = topTerminuses.includes(normD);
+let allSortedDests = Object.keys(allDests).sort((a, b) => allDests[b] - allDests[a]);
 
-if (!isTopTerminus) {
-curtailmentItems.push(`${destDisplays[normD]} (${count})`);
+for (let normD of allSortedDests) {
+let totalCount = allDests[normD];
+let recentCount = recentDests[normD] || 0;
+let isTop = topTerminuses.includes(normD);
+
+// If it's a legacy terminal point (had lots of occurrences in the past, but 0 in recent 7 days), completely skip it.
+// If you test a live curtailment today, recentCount will be > 0, so it bypasses this skip and shows its exact recent count!
+let isLegacyObsolete = (recentCount === 0 && totalCount > (totalArrivals * 0.05));
+
+if (!isTop && !isLegacyObsolete) {
+curtailmentItems.push(`${destDisplays[normD]} (${recentCount > 0 ? recentCount : totalCount})`);
 }
 }
 

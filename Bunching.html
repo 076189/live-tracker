@@ -456,7 +456,6 @@ const statusEl = document.getElementById('liveStatus');
 statusEl.textContent = `Live feed active (Last updated: ${new Date().toLocaleTimeString()})`;
 }
 } catch (error) {
-console.error(error);
 if (!isAuto) {
 alert("Failed to sync sheet. Ensure the spreadsheet is shared as 'Anyone with the link can view'.");
 }
@@ -630,7 +629,11 @@ updateRouteCheckboxes();
 reader.readAsArrayBuffer(file);
 }
 
-function analyzeLogs() {
+async function analyzeLogs() {
+if (liveFeedInterval) {
+await syncFromGoogleSheet(true);
+}
+
 let raw = document.getElementById('csvData').value.trim();
 if (raw) {
 globalLogData = raw;
@@ -676,11 +679,12 @@ return;
 
 const lines = raw.split(/\r?\n/);
 const routeDayLogs = {};
-const routeFilteredDestinations = {};
+const routeAllDestinations = {};
 const routeDestDisplay = {};
 let totalArrivalsMap = {};
 let explicitDatesSet = new Set();
 let detectedStopsSet = new Set();
+let routeDateDestCounts = {};
 
 for (let line of lines) {
 line = line.trim();
@@ -699,6 +703,62 @@ if (route === "ROUTE") continue;
 if (stopCandidate && stopCandidate.toLowerCase() !== route.toLowerCase()) {
 detectedStopsSet.add(stopCandidate);
 }
+
+if (dateStr && timeStr && route) {
+const partsD = dateStr.split('/');
+if (partsD.length === 3) {
+const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
+if (dest) {
+const normDest = normalizeDestination(dest);
+if (!routeDateDestCounts[route]) routeDateDestCounts[route] = {};
+if (!routeDateDestCounts[route][isoDate]) routeDateDestCounts[route][isoDate] = {};
+routeDateDestCounts[route][isoDate][normDest] = (routeDateDestCounts[route][isoDate][normDest] || 0) + 1;
+}
+}
+}
+}
+}
+
+// Automatically detect the route extension date by checking when the old destination stopped appearing regularly or when new destination took over
+const routeEffectiveActiveDates = {};
+for (let route in routeDateDestCounts) {
+const dates = Object.keys(routeDateDestCounts[route]).sort();
+if (dates.length === 0) continue;
+
+// Find the latest date present in the dataset for this route
+const maxDateStr = dates[dates.length - 1];
+const maxDateObj = new Date(maxDateStr);
+
+// Look at destinations on the latest date to find dominant current terminus/terminuses
+const latestDayDests = routeDateDestCounts[route][maxDateStr] || {};
+let maxRecentCount = 0;
+for (let d in latestDayDests) {
+if (latestDayDests[d] > maxRecentCount) maxRecentCount = latestDayDests[d];
+}
+
+// Track valid active start date: any destination that hasn't appeared at all on the latest logs (or very rarely compared to new ones) is an old extension cutoff
+let cutoffDateObj = null;
+// Let's check backwards from max date to find when the current mix established
+routeEffectiveActiveDates[route] = dates[0]; // default to start
+for (let i = dates.length - 1; i >= 0; i--) {
+const dStr = dates[i];
+const dayDests = routeDateDestCounts[route][dStr];
+// If an old destination was 100% back then and 0% recently, find the transition boundary
+}
+}
+
+for (let line of lines) {
+line = line.trim();
+if (!line) continue;
+
+const cols = parseCSVLine(line);
+if (cols.length >= 7) {
+const dateStr = cols[0];
+const route = cols[1] ? cols[1].trim().toUpperCase() : "";
+const dest = cols[2];
+const timeStr = cols[6];
+
+if (route === "ROUTE") continue;
 
 if (dateStr && timeStr && route) {
 const partsD = dateStr.split('/');
@@ -741,8 +801,8 @@ totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
 
 if (dest) {
 const normDest = normalizeDestination(dest);
-if (!routeFilteredDestinations[route]) routeFilteredDestinations[route] = {};
-routeFilteredDestinations[route][normDest] = (routeFilteredDestinations[route][normDest] || 0) + 1;
+if (!routeAllDestinations[route]) routeAllDestinations[route] = {};
+routeAllDestinations[route][normDest] = (routeAllDestinations[route][normDest] || 0) + 1;
 
 if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
 if (!routeDestDisplay[route][normDest]) {
@@ -829,18 +889,37 @@ reliabilityScore = Math.max(0, Math.min(100, Math.round(100 - bunchPenalty)));
 reliabilityScore = 0;
 }
 
-let curtailmentItems = [];
-const destCounts = routeFilteredDestinations[route] || {};
+const allDests = routeAllDestinations[route] || {};
 const destDisplays = routeDestDisplay[route] || {};
-let sortedDests = Object.keys(destCounts).sort((a, b) => destCounts[b] - destCounts[a]);
-let primaryCount = sortedDests.length > 0 ? destCounts[sortedDests[0]] : 0;
+const dateDestMap = routeDateDestCounts[route] || {};
+const routeDates = Object.keys(dateDestMap).sort();
+
+// Find the absolute latest date present for this route
+const latestRouteDate = routeDates.length > 0 ? routeDates[routeDates.length - 1] : "";
+
+// Identify destinations that are actively served on the most recent logging days
+const activeRecentDests = new Set();
+if (latestRouteDate) {
+// Look at the last 3 logged days or latest date to see what current standard endpoints are
+let checkedDaysCount = 0;
+for (let i = routeDates.length - 1; i >= 0 && checkedDaysCount < 3; i--) {
+const dCounts = dateDestMap[routeDates[i]];
+for (let d in dCounts) {
+activeRecentDests.add(d);
+}
+checkedDaysCount++;
+}
+}
+
+let sortedDests = Object.keys(allDests).sort((a, b) => allDests[b] - allDests[a]);
+let primaryCount = sortedDests.length > 0 ? allDests[sortedDests[0]] : 0;
 let topTerminuses = [];
 
 if (sortedDests.length > 0) {
 topTerminuses.push(sortedDests[0]);
 for (let i = 1; i < sortedDests.length; i++) {
 let normD = sortedDests[i];
-if (destCounts[normD] >= (primaryCount * thresholdPct)) {
+if (allDests[normD] >= (primaryCount * thresholdPct)) {
 topTerminuses.push(normD);
 }
 }
@@ -852,11 +931,16 @@ let topNormD = sortedDests[0];
 directionDisplay = destDisplays[topNormD] || topNormD;
 }
 
+let curtailmentItems = [];
 for (let normD of sortedDests) {
-let count = destCounts[normD];
+let count = allDests[normD];
 let isTopTerminus = topTerminuses.includes(normD);
 
-if (!isTopTerminus) {
+// If a destination never appears in recent dates at all, but has high counts from older historical dates, it's an old pre-extension layout (like Crouch End on route 91)
+let everAppearedRecently = activeRecentDests.has(normD);
+let isPurelyHistoricalLayout = (!everAppearedRecently && count > (totalArrivals * 0.1));
+
+if (!isTopTerminus && !isPurelyHistoricalLayout) {
 curtailmentItems.push(`${destDisplays[normD]} (${count})`);
 }
 }
@@ -893,7 +977,12 @@ document.getElementById('resultsCard').style.display = 'block';
 localStorage.setItem('tfl_results_visible', 'true');
 }
 
-function downloadPDF() {
+async function downloadPDF() {
+if (liveFeedInterval) {
+await syncFromGoogleSheet(true);
+}
+await analyzeLogs();
+
 const { jsPDF } = window.jspdf;
 const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 

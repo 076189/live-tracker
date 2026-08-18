@@ -680,11 +680,12 @@ return;
 const lines = raw.split(/\r?\n/);
 const routeDayLogs = {};
 const routeAllDestinations = {};
+const routeRecentDestinations = {};
 const routeDestDisplay = {};
 let totalArrivalsMap = {};
 let explicitDatesSet = new Set();
 let detectedStopsSet = new Set();
-let routeDateDestCounts = {};
+let routeMaxDate = {};
 
 for (let line of lines) {
 line = line.trim();
@@ -708,42 +709,11 @@ if (dateStr && timeStr && route) {
 const partsD = dateStr.split('/');
 if (partsD.length === 3) {
 const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
-if (dest) {
-const normDest = normalizeDestination(dest);
-if (!routeDateDestCounts[route]) routeDateDestCounts[route] = {};
-if (!routeDateDestCounts[route][isoDate]) routeDateDestCounts[route][isoDate] = {};
-routeDateDestCounts[route][isoDate][normDest] = (routeDateDestCounts[route][isoDate][normDest] || 0) + 1;
+if (!routeMaxDate[route] || isoDate > routeMaxDate[route]) {
+routeMaxDate[route] = isoDate;
 }
 }
 }
-}
-}
-
-// Automatically detect the route extension date by checking when the old destination stopped appearing regularly or when new destination took over
-const routeEffectiveActiveDates = {};
-for (let route in routeDateDestCounts) {
-const dates = Object.keys(routeDateDestCounts[route]).sort();
-if (dates.length === 0) continue;
-
-// Find the latest date present in the dataset for this route
-const maxDateStr = dates[dates.length - 1];
-const maxDateObj = new Date(maxDateStr);
-
-// Look at destinations on the latest date to find dominant current terminus/terminuses
-const latestDayDests = routeDateDestCounts[route][maxDateStr] || {};
-let maxRecentCount = 0;
-for (let d in latestDayDests) {
-if (latestDayDests[d] > maxRecentCount) maxRecentCount = latestDayDests[d];
-}
-
-// Track valid active start date: any destination that hasn't appeared at all on the latest logs (or very rarely compared to new ones) is an old extension cutoff
-let cutoffDateObj = null;
-// Let's check backwards from max date to find when the current mix established
-routeEffectiveActiveDates[route] = dates[0]; // default to start
-for (let i = dates.length - 1; i >= 0; i--) {
-const dStr = dates[i];
-const dayDests = routeDateDestCounts[route][dStr];
-// If an old destination was 100% back then and 0% recently, find the transition boundary
 }
 }
 
@@ -803,6 +773,15 @@ if (dest) {
 const normDest = normalizeDestination(dest);
 if (!routeAllDestinations[route]) routeAllDestinations[route] = {};
 routeAllDestinations[route][normDest] = (routeAllDestinations[route][normDest] || 0) + 1;
+
+const maxD = new Date(routeMaxDate[route] || isoDate);
+const curD = new Date(isoDate);
+const diffDays = (maxD - curD) / (1000 * 60 * 60 * 24);
+
+if (diffDays <= 7) {
+if (!routeRecentDestinations[route]) routeRecentDestinations[route] = {};
+routeRecentDestinations[route][normDest] = (routeRecentDestinations[route][normDest] || 0) + 1;
+}
 
 if (!routeDestDisplay[route]) routeDestDisplay[route] = {};
 if (!routeDestDisplay[route][normDest]) {
@@ -889,37 +868,18 @@ reliabilityScore = Math.max(0, Math.min(100, Math.round(100 - bunchPenalty)));
 reliabilityScore = 0;
 }
 
-const allDests = routeAllDestinations[route] || {};
+const destSource = (routeRecentDestinations[route] && Object.keys(routeRecentDestinations[route]).length > 0) ? routeRecentDestinations[route] : (routeAllDestinations[route] || {});
 const destDisplays = routeDestDisplay[route] || {};
-const dateDestMap = routeDateDestCounts[route] || {};
-const routeDates = Object.keys(dateDestMap).sort();
 
-// Find the absolute latest date present for this route
-const latestRouteDate = routeDates.length > 0 ? routeDates[routeDates.length - 1] : "";
-
-// Identify destinations that are actively served on the most recent logging days
-const activeRecentDests = new Set();
-if (latestRouteDate) {
-// Look at the last 3 logged days or latest date to see what current standard endpoints are
-let checkedDaysCount = 0;
-for (let i = routeDates.length - 1; i >= 0 && checkedDaysCount < 3; i--) {
-const dCounts = dateDestMap[routeDates[i]];
-for (let d in dCounts) {
-activeRecentDests.add(d);
-}
-checkedDaysCount++;
-}
-}
-
-let sortedDests = Object.keys(allDests).sort((a, b) => allDests[b] - allDests[a]);
-let primaryCount = sortedDests.length > 0 ? allDests[sortedDests[0]] : 0;
+let sortedDests = Object.keys(destSource).sort((a, b) => destSource[b] - destSource[a]);
+let primaryCount = sortedDests.length > 0 ? destSource[sortedDests[0]] : 0;
 let topTerminuses = [];
 
 if (sortedDests.length > 0) {
 topTerminuses.push(sortedDests[0]);
 for (let i = 1; i < sortedDests.length; i++) {
 let normD = sortedDests[i];
-if (allDests[normD] >= (primaryCount * thresholdPct)) {
+if (destSource[normD] >= (primaryCount * thresholdPct)) {
 topTerminuses.push(normD);
 }
 }
@@ -932,15 +892,14 @@ directionDisplay = destDisplays[topNormD] || topNormD;
 }
 
 let curtailmentItems = [];
-for (let normD of sortedDests) {
+const allDests = routeAllDestinations[route] || {};
+let allSortedDests = Object.keys(allDests).sort((a, b) => allDests[b] - allDests[a]);
+
+for (let normD of allSortedDests) {
 let count = allDests[normD];
 let isTopTerminus = topTerminuses.includes(normD);
 
-// If a destination never appears in recent dates at all, but has high counts from older historical dates, it's an old pre-extension layout (like Crouch End on route 91)
-let everAppearedRecently = activeRecentDests.has(normD);
-let isPurelyHistoricalLayout = (!everAppearedRecently && count > (totalArrivals * 0.1));
-
-if (!isTopTerminus && !isPurelyHistoricalLayout) {
+if (!isTopTerminus) {
 curtailmentItems.push(`${destDisplays[normD]} (${count})`);
 }
 }

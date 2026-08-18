@@ -267,7 +267,7 @@ text-align: right;
 
 <div class="filter-group" id="customTimeGroup" style="display:none;">
 <div class="filter-half">
-<label for="startTime">Start Date / Time or Start Time:</label>
+<label for="startTime">Start Time:</label>
 <input type="time" id="startTime" value="00:00" onchange="saveStateToStorage()">
 </div>
 <div class="filter-half">
@@ -765,20 +765,16 @@ const partsD = dateStr.split('/');
 if (partsD.length === 3) {
 const isoDate = `${partsD[2]}-${partsD[1]}-${partsD[0]}`;
 const timeHHMM = timeStr.length > 5 ? timeStr.substring(0, 5) : timeStr;
-const timeParts = timeStr.split(':');
-let hours = timeParts.length >= 2 ? parseInt(timeParts[0], 10) : 0;
-
-let operatingDate = isoDate;
-if (isNightPreset && hours >= 0 && hours < 7) {
-const dObj = new Date(isoDate);
-dObj.setDate(dObj.getDate() - 1);
-operatingDate = dObj.toISOString().split('T')[0];
-}
 
 const timePassesPreset = () => {
 if (isNightPreset) {
-if (startDateVal && operatingDate < startDateVal) return false;
-if (endDateVal && operatingDate > endDateVal) return false;
+// Direct timestamp boundary checks without shifting operating dates
+const dateTimeStr = `${isoDate}T${timeStr}`;
+if (startDateVal && endDateVal) {
+const startDateTime = `${startDateVal}T23:00:00`;
+const endDateTime = `${endDateVal}T07:00:00`;
+if (dateTimeStr < startDateTime || dateTimeStr > endDateTime) return false;
+}
 if (timeHHMM < "23:00" && timeHHMM > "07:00") return false;
 } else {
 if (startDateVal && isoDate < startDateVal) return false;
@@ -796,7 +792,7 @@ if (!isNaN(timestamp)) {
 const passes = timePassesPreset();
 
 if (passes) {
-explicitDatesSet.add(operatingDate);
+explicitDatesSet.add(isoDate);
 totalArrivalsMap[route] = (totalArrivalsMap[route] || 0) + 1;
 
 if (dest) {
@@ -821,8 +817,8 @@ routeDestDisplay[route][normDest] = dest;
 }
 
 if (!routeDayLogs[route]) routeDayLogs[route] = {};
-if (!routeDayLogs[route][operatingDate]) routeDayLogs[route][operatingDate] = [];
-routeDayLogs[route][operatingDate].push({ timeStr: timeHHMM, timestamp: timestamp, passesFilter: passes });
+if (!routeDayLogs[route][isoDate]) routeDayLogs[route][isoDate] = [];
+routeDayLogs[route][isoDate].push({ timeStr: timeHHMM, timestamp: timestamp, passesFilter: passes });
 }
 }
 }

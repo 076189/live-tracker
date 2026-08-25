@@ -636,6 +636,7 @@
         closedStopIDsGlobal = [];
 
     let allScheduledData = [];
+    let scheduledDataByStopID = new Map();
     let activeMassCurtailments = {};
     let uniqueStops = [];
     let currentSelectedStopID = null;
@@ -710,6 +711,16 @@
         scrollSpeed: "medium",
         isEnabled: false
     };
+
+    function rebuildScheduleStopIndex() {
+        scheduledDataByStopID = new Map();
+        allScheduledData.forEach(bus => {
+            if (!bus || !bus.stopID) return;
+            const stopID = String(bus.stopID).toUpperCase();
+            if (!scheduledDataByStopID.has(stopID)) scheduledDataByStopID.set(stopID, []);
+            scheduledDataByStopID.get(stopID).push(bus);
+        });
+    }
 
     // --- Helper Functions ---
     function sanitizeFirebaseKey(text) {
@@ -934,7 +945,9 @@ function extractDestinationNameFromRule(ruleDestination) {
 
     const nowForProcessing = new Date();
     
-    let combinedScheduleData = [...(allScheduledData || [])];
+    let combinedScheduleData = [
+        ...(scheduledDataByStopID.get(String(currentSelectedStopID).toUpperCase()) || [])
+    ];
     if (Object.keys(activeMassCurtailments).length > 0) {
         for (const key in activeMassCurtailments) {
             const rule = activeMassCurtailments[key];
@@ -1255,9 +1268,11 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
                 const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
                 const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
             });
-            allScheduledData = flatScheduleFromDB.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fbload_arr_flat`}));
+            allScheduledData = flatScheduleFromDB;
+            rebuildScheduleStopIndex();
         } else {
              allScheduledData = [];
+             rebuildScheduleStopIndex();
         }
 
         const allDefinedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
@@ -1375,9 +1390,11 @@ function setupFirebaseListeners() {
                 const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
                 const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
             });
-            allScheduledData = flatScheduleFromDBListener.map((e,i)=>({...e, internalId: e.internalId || `${(e.stopID||'s')}_${(e.lineName||'l')}_${(e.scheduledTime||"").replace(':','')}_${i}_fblistener_arr_flat`}));
+            allScheduledData = flatScheduleFromDBListener;
+            rebuildScheduleStopIndex();
         } else {
             allScheduledData = [];
+            rebuildScheduleStopIndex();
         }
 
         if (currentSelectedStopID && currentScheduleStatus !== 'simulating_scheduled_update_downtime') {

@@ -1494,6 +1494,7 @@ align-items: center;
 	let shownTripAlerts_extra = {};    // Tracks shown alerts: key = "Route|Dest|Type|Time", value = true
 	let lastAlertDataPreparedDate_extra = null; // To know when to refresh todayKeyTripEvents_extra
 	let tripAlertIntervalId_extra = null; // To store the setInterval ID
+    let firebaseListenerUnsubscribers_extra = [];
         let rsg_lastLoadedRouteName_extra = null;
         let rsg_lastLoadedDestName_extra = null;
         let rsg_lastLoadedOpProfile_extra = null;
@@ -2191,21 +2192,25 @@ function setupFirebaseListeners_ExtraPage() {
         console.error("Firebase not ready, cannot set up listeners on Extra Tools page.");
         return;
     }
+
+    firebaseListenerUnsubscribers_extra.forEach(unsubscribe => unsubscribe());
+    firebaseListenerUnsubscribers_extra = [];
+
     const { database, dbOnValue, dbRef } = window.firebaseOMSI;
 
     // Listener for Mass Service Leg Curtailments
     const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
-    dbOnValue(massCurtailmentsRef, (snapshot) => {
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(massCurtailmentsRef, (snapshot) => {
         console.log("[SLC Listener] Mass curtailment data updated from Firebase.");
         massCurtailments_data = snapshot.exists() ? snapshot.val() || {} : {};
         if (typeof slc_renderActiveCurtailments === 'function') {
             slc_renderActiveCurtailments();
         }
-    });
+    }));
 
     // Listener for the LIVE SCHEDULE data
     const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-    dbOnValue(liveScheduleRefForTools, (snapshot) => {
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(liveScheduleRefForTools, (snapshot) => {
         console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
         let flatLiveSchedule = [];
         if (snapshot.exists()) {
@@ -2252,11 +2257,11 @@ function setupFirebaseListeners_ExtraPage() {
         if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
             populateMasterStopList_ExtraPage();
         }
-    });
+    }));
 
     // Listener for RSG Configurations
     const rsgConfigsRef = dbRef(database, FB_PATH_RSG_CONFIGS);
-    dbOnValue(rsgConfigsRef, (snapshot) => {
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgConfigsRef, (snapshot) => {
         console.log("[RSG Configs Listener] RSG configurations data updated.");
         rsg_loadedConfigs_extra = snapshot.exists() ? snapshot.val() || {} : {};
 
@@ -2277,28 +2282,28 @@ function setupFirebaseListeners_ExtraPage() {
         if(currentUser_extra) { // Only if logged in
              renderUIDependentElements_ExtraPage();
         }
-    });
+    }));
 
     // Listener for Defined Curtailment Points
     const curtailmentPointsRef = dbRef(database, FB_PATH_CURTAILMENT_POINTS);
-    dbOnValue(curtailmentPointsRef, (snapshot) => {
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(curtailmentPointsRef, (snapshot) => {
         console.log("[CurtailmentPoints Listener] CurtailmentPoints data updated via listener.");
         definedCurtailmentPoints = snapshot.exists() ? snapshot.val() || {} : {};
-    });
+    }));
 
     // Listener for User Data
 const usersRef = dbRef(database, FB_PATH_USERS); // Using constant is better
-dbOnValue(usersRef, (snapshot) => {
+firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
     console.log("[UM Listener] User data changed in Firebase.");
     um_allUsersData = snapshot.val() || {}; // MODIFIED: Store data in the global cache
     if (document.getElementById('user-management-section_extra').style.display !== 'none') {
         um_renderUserList(um_allUsersData); // MODIFIED: Pass the cached data to the render function
     }
-});
+}));
     
     // *** CORRECTED: Real-time listeners for Scheduled Tasks ***
     const scheduledUpdatesRef = dbRef(database, FB_PATH_SCHEDULED_ROUTE_UPDATES);
-    dbOnValue(scheduledUpdatesRef, (snapshot) => {
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(scheduledUpdatesRef, (snapshot) => {
         console.log("[SRU Listener] Scheduled route updates data changed in Firebase.");
         scheduledRouteUpdates_extra = snapshot.exists() ? snapshot.val() || {} : {};
         // The visibility check has been REMOVED here to ensure it always updates the UI.
@@ -2308,10 +2313,10 @@ dbOnValue(usersRef, (snapshot) => {
         if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
             checkAndDisplayDueUpdatesNotification_ExtraPage();
         }
-    });
+    }));
 
     const scheduledDeletionsRef = dbRef(database, FB_PATH_SCHEDULED_DELETIONS);
-    dbOnValue(scheduledDeletionsRef, (snapshot) => {
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(scheduledDeletionsRef, (snapshot) => {
         console.log("[SRU Listener] Scheduled route deletions data changed in Firebase.");
         scheduledRouteDeletions_extra = snapshot.exists() ? snapshot.val() || {} : {};
         // The visibility check has been REMOVED here as well.
@@ -2321,7 +2326,7 @@ dbOnValue(usersRef, (snapshot) => {
         if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
             checkAndDisplayDueUpdatesNotification_ExtraPage();
         }
-    });
+    }));
     // *** END CORRECTION ***
 
     console.log("Real-time Firebase listeners set up for Extra Tools page.");
@@ -15901,6 +15906,8 @@ function rsg_openCopyFromModal_ExtraPage() {
         setupFirebaseListeners_ExtraPage();
 
     } else { // User is logged out
+        firebaseListenerUnsubscribers_extra.forEach(unsubscribe => unsubscribe());
+        firebaseListenerUnsubscribers_extra = [];
         if (slc_list_updater_interval) { clearInterval(slc_list_updater_interval); slc_list_updater_interval = null; }
         if (curtail_trip_list_updater_interval) { clearInterval(curtail_trip_list_updater_interval); curtail_trip_list_updater_interval = null; }
         if (keyDeparturesIntervalId_extra) { clearInterval(keyDeparturesIntervalId_extra); keyDeparturesIntervalId_extra = null; }

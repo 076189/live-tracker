@@ -1945,9 +1945,7 @@ function generateReverseStops(stopsArray) {
 }
 
 function rsg_getStopSequenceSignature_ExtraPage(sequence) {
-    if (!Array.isArray(sequence)) {
-        return '';
-    }
+    if (!Array.isArray(sequence)) return '';
 
     return sequence
         .map(stop => String(stop?.stopID || '').trim().toUpperCase())
@@ -1970,13 +1968,12 @@ function rsg_findOppositeDirectionConfig_ExtraPage() {
         ''
     ).toUpperCase();
 
-    if (!routeName) {
-        return null;
-    }
+    if (!routeName) return null;
 
-    const reverseSignature = rsg_getStopSequenceSignature_ExtraPage(
-        [...rsg_selectedStops_extra].reverse()
-    );
+    const expectedOppositeSignature =
+        rsg_getStopSequenceSignature_ExtraPage(
+            [...rsg_selectedStops_extra].reverse()
+        );
 
     const currentConfigKey = rsg_currentlyEditingConfigKey_extra;
     const currentDestination =
@@ -1984,23 +1981,26 @@ function rsg_findOppositeDirectionConfig_ExtraPage() {
 
     const matches = Object.entries(rsg_loadedConfigs_extra || {})
         .filter(([configKey, config]) => {
-            if (!config || configKey === currentConfigKey) {
-                return false;
-            }
+            if (!config || configKey === currentConfigKey) return false;
+            if (!Array.isArray(config.stopSequence)) return false;
 
-            if (!Array.isArray(config.stopSequence)) {
-                return false;
-            }
+            const configRoute = String(config.routeName || '')
+                .trim()
+                .toUpperCase();
+
+            const configSignature =
+                rsg_getStopSequenceSignature_ExtraPage(
+                    config.stopSequence
+                );
 
             return (
-                String(config.routeName || '').trim().toUpperCase() === routeName &&
-                rsg_getStopSequenceSignature_ExtraPage(config.stopSequence) ===
-                    reverseSignature
+                configRoute === routeName &&
+                configSignature === expectedOppositeSignature
             );
         })
         .map(([configKey, config]) => ({ configKey, config }));
 
-    // Prefer a configuration with a different destination.
+    // Prefer the opposite configuration with a different destination.
     return (
         matches.find(({ config }) =>
             String(config.destinationName || '').trim().toLowerCase() !==
@@ -2016,91 +2016,119 @@ function handleAutoReverse() {
     ) {
         if (rsgStatusMessage_el_extra) {
             rsgStatusMessage_el_extra.textContent =
-                'Add at least two stops before suggesting the reverse direction.';
+                'Load or build a route with at least two stops first.';
             rsgStatusMessage_el_extra.style.color = '#f1c40f';
         }
         return;
     }
 
-    const firstStop = rsg_selectedStops_extra[0];
-    const lastStop =
-        rsg_selectedStops_extra[rsg_selectedStops_extra.length - 1];
-
-    const oppositeDirectionConfig =
+    const oppositeDirection =
         rsg_findOppositeDirectionConfig_ExtraPage();
 
-    let confirmationMessage =
-        'Suggest reverse direction?\n\n' +
-        `${firstStop.stopName || firstStop.stopID} → ` +
-        `${lastStop.stopName || lastStop.stopID}\n\n` +
-        'will become\n\n' +
-        `${lastStop.stopName || lastStop.stopID} → ` +
-        `${firstStop.stopName || firstStop.stopID}`;
+    if (!oppositeDirection) {
+        const firstStop = rsg_selectedStops_extra[0];
+        const lastStop =
+            rsg_selectedStops_extra[rsg_selectedStops_extra.length - 1];
 
-    if (oppositeDirectionConfig) {
-        const oppositeConfig = oppositeDirectionConfig.config;
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent =
+                `No saved opposite direction found for ` +
+                `"${firstStop.stopName || firstStop.stopID}" to ` +
+                `"${lastStop.stopName || lastStop.stopID}".`;
+            rsgStatusMessage_el_extra.style.color = '#f1c40f';
+        }
 
-        confirmationMessage +=
-            `\n\nMatching opposite-direction configuration found:\n` +
-            `"${oppositeConfig.userDisplayName || oppositeConfig.destinationName}"` +
-            `\nDestination: "${oppositeConfig.destinationName || 'Unknown'}"`;
+        return;
     }
+
+    const oppositeConfig = oppositeDirection.config;
+    const currentFirstStop = rsg_selectedStops_extra[0];
+    const currentLastStop =
+        rsg_selectedStops_extra[rsg_selectedStops_extra.length - 1];
+
+    const oppositeDestination =
+        oppositeConfig.destinationName || '';
+
+    const oppositeDisplayName =
+        oppositeConfig.userDisplayName ||
+        oppositeConfig.destinationName ||
+        oppositeDirection.configKey;
+
+    const confirmationMessage =
+        `Opposite direction found:\n\n` +
+        `${currentFirstStop.stopName || currentFirstStop.stopID} → ` +
+        `${currentLastStop.stopName || currentLastStop.stopID}\n\n` +
+        `Use the saved opposite-direction configuration:\n` +
+        `"${oppositeDisplayName}"?\n\n` +
+        `This will replace the current RSG sequence with:\n` +
+        `${oppositeConfig.stopSequence[0]?.stopName ||
+            oppositeConfig.stopSequence[0]?.stopID} → ` +
+        `${oppositeConfig.stopSequence[oppositeConfig.stopSequence.length - 1]?.stopName ||
+            oppositeConfig.stopSequence[oppositeConfig.stopSequence.length - 1]?.stopID}`;
 
     if (!confirm(confirmationMessage)) {
         return;
     }
 
-    rsg_selectedStops_extra =
-        generateReverseStops(rsg_selectedStops_extra);
+    // Use the saved opposite configuration directly. This preserves the
+    // correct opposite-direction time adjustments instead of copying the
+    // adjustments from the original direction.
+    rsg_selectedStops_extra = JSON.parse(
+        JSON.stringify(oppositeConfig.stopSequence)
+    );
 
-    if (oppositeDirectionConfig) {
-        const oppositeConfig = oppositeDirectionConfig.config;
-        const oppositeDestination = oppositeConfig.destinationName || '';
-
-        if (rsgDestinationNameInput_el_extra) {
-            rsgDestinationNameInput_el_extra.value = oppositeDestination;
-            rsgDestinationNameInput_el_extra.dispatchEvent(
-                new Event('input', { bubbles: true })
-            );
-            rsgDestinationNameInput_el_extra.dispatchEvent(
-                new Event('blur', { bubbles: true })
-            );
-        }
-
-        if (rsgDestinationNameSelect_el_extra) {
-            const matchingOption = Array.from(
-                rsgDestinationNameSelect_el_extra.options
-            ).find(option =>
-                option.value.trim().toLowerCase() ===
-                oppositeDestination.trim().toLowerCase()
-            );
-
-            rsgDestinationNameSelect_el_extra.value =
-                matchingOption?.value || '';
-        }
+    // Use the opposite direction's destination.
+    if (rsgDestinationNameInput_el_extra) {
+        rsgDestinationNameInput_el_extra.value = oppositeDestination;
+        rsgDestinationNameInput_el_extra.dispatchEvent(
+            new Event('input', { bubbles: true })
+        );
     }
 
-    // Existing first-stop times belong to the old direction.
+    if (rsgDestinationNameSelect_el_extra) {
+        const matchingDestinationOption = Array.from(
+            rsgDestinationNameSelect_el_extra.options
+        ).find(option =>
+            option.value.trim().toLowerCase() ===
+            oppositeDestination.trim().toLowerCase()
+        );
+
+        rsgDestinationNameSelect_el_extra.value =
+            matchingDestinationOption?.value || '';
+    }
+
+    // Use the opposite direction's first-stop times where available.
     if (rsgFirstStopTimesInput_el_extra) {
-        rsgFirstStopTimesInput_el_extra.value = '';
+        rsgFirstStopTimesInput_el_extra.value =
+            oppositeConfig.firstStopTimes || '';
         rsgFirstStopTimesInput_el_extra.dispatchEvent(
             new Event('input', { bubbles: true })
         );
     }
 
-    // This is now a new/modified setup, not the original saved configuration.
+    // Keep the current route and use the opposite configuration's profiles
+    // when they are available.
+    if (oppositeConfig.operatingProfile) {
+        rsg_setCheckedProfiles_ExtraPage(
+            oppositeConfig.operatingProfile
+        );
+    }
+
+    // This is now a modified configuration, not the original saved one.
     rsg_currentlyEditingConfigKey_extra = null;
     rsg_currentlyEditingConfigDisplayName_extra = null;
-    rsg_lastLoadedRouteName_extra = '';
-    rsg_lastLoadedDestName_extra = '';
-    rsg_lastLoadedOpProfile_extra = '';
+    rsg_lastLoadedRouteName_extra =
+        oppositeConfig.routeName || rsg_selectedRoute_extra || '';
+    rsg_lastLoadedDestName_extra = oppositeDestination;
+    rsg_lastLoadedOpProfile_extra =
+        oppositeConfig.operatingProfile || '';
     rsg_isDirty = true;
 
     rsg_renderStopSequence_ExtraPage();
 
-    const statusMessage = oppositeDirectionConfig
-        ? `Reverse direction applied. Opposite destination suggested: ${oppositeDirectionConfig.config.destinationName}. Enter times for the new first stop, then generate a preview.`
-        : 'Reverse direction applied. Review the destination and enter times for the new first stop, then generate a preview.';
+    const statusMessage =
+        `Opposite direction applied using "${oppositeDisplayName}". ` +
+        'Review the sequence and generate a preview.';
 
     rsg_resetPreviewState(statusMessage, 'info');
 

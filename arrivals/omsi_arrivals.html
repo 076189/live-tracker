@@ -644,7 +644,6 @@
     let globalOperationalOverrides = {};
 
     const MAX_DISPLAY_ROWS = 4;
-    const CYCLING_ROWS_COUNT = 3;
     const MAX_DEPARTURES_OVERALL = 10;
     const MAX_TIME_TO_STATION_SECONDS = 1800;
     const earlyMorningThresholdHours = 5;
@@ -694,7 +693,6 @@
     let stopSpecificRouteColours = {};
 
     const FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED = '/liveSchedule/schedulesByRoute';
-    const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
     const FB_PATH_APPSTATE = '/appState';
     const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
     const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
@@ -806,7 +804,8 @@
             }
             if (holidayTitle.toLowerCase().includes("christmas day")) dCodes.add("Christmas Day");
             if (holidayTitle.toLowerCase().includes("boxing day")) dCodes.add("Boxing Day");
-            if (holidayTitle.toLowerCase().includes("new year’s day")) dCodes.add("New Years Day");
+            const normalizedHolidayTitle = holidayTitle.toLowerCase().replace(/[’']/g, "");
+            if (normalizedHolidayTitle.includes("new years day")) dCodes.add("New Years Day");
         }
 
         if (!isBH) {
@@ -940,7 +939,7 @@ function extractDestinationNameFromRule(ruleDestination) {
 
 	function updateAndDisplayLiveArrivals() {
     if (currentScheduleStatus === 'simulating_scheduled_update_downtime') { displaySystemUpdateMessage(); return; }
-    if (!currentSelectedStopID || (!allScheduledData && !activeMassCurtailments)) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`;} return; }
+    if (!currentSelectedStopID || (scheduledDataByStopID.size === 0 && Object.keys(activeMassCurtailments).length === 0)) { if (busListElement) { busListElement.innerHTML = `<li class="loading-message">No schedule data.</li>`;} return; }
     if (closedStopIDsGlobal.includes(currentSelectedStopID)) { if (busListElement && !busListElement.querySelector('.stop-closed-message')) { busListElement.innerHTML = `<li class="stop-closed-message">Bus stop closed.</li>`; } return; }
 
     const nowForProcessing = new Date();
@@ -956,7 +955,7 @@ function extractDestinationNameFromRule(ruleDestination) {
                 const endTime = new Date(rule.endTime);
                 if (nowForProcessing >= startTime && nowForProcessing <= endTime) {
                     rule.dynamicallyGeneratedTrip.forEach(dynamicEntry => {
-                         if (dynamicEntry.stopID === currentSelectedStopID) {
+                         if (String(dynamicEntry.stopID || '').toUpperCase() === String(currentSelectedStopID).toUpperCase()) {
                             combinedScheduleData.push({ ...dynamicEntry, isDynamicallyGenerated: true });
                         }
                     });
@@ -970,7 +969,7 @@ function extractDestinationNameFromRule(ruleDestination) {
     const effectiveCyclingRowsCount = messageActive ? MAX_DISPLAY_ROWS - 2 : MAX_DISPLAY_ROWS - 1;
 
     const processedBuses = combinedScheduleData
-        .filter(bus => bus.stopID === currentSelectedStopID)
+        .filter(bus => String(bus.stopID || '').toUpperCase() === String(currentSelectedStopID).toUpperCase())
         .map((bus, mapIndex) => {
             const busData = { ...bus };
 
@@ -1348,7 +1347,7 @@ function setupFirebaseListeners() {
         console.error("Firebase not initialized. Cannot set up listeners for arrivals page.");
         return;
     }
-    const { database, dbOnValue, dbRef, dbChild } = window.firebaseOMSI;
+    const { database, dbOnValue, dbRef } = window.firebaseOMSI;
 
     console.log("[ARRIVALS DEBUG] Setting up Firebase listeners...");
 

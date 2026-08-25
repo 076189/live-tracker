@@ -1556,9 +1556,6 @@ align-items: center;
 
 
         // --- DOM Elements ---
-document.getElementById('autoReverseBtn').addEventListener('click', () => {
-  handleAutoReverse('stopsDirectionA', 'stopsDirectionB');
-});
 	const umSection_el = document.getElementById('user-management-section_extra');
 const umFormTitle_el = document.getElementById('um-form-title_extra');
 const umForm_el = document.getElementById('userManagementForm_extra');
@@ -1920,37 +1917,199 @@ function um_closeSuspendModal() {
 }
 
 function generateReverseStops(stopsArray) {
-  return [...stopsArray].reverse().map(stop => ({
-    ...stop,
-    timingPoint: stop.timingPoint || false
-  }));
+    if (!Array.isArray(stopsArray)) {
+        return [];
+    }
+
+    const originalStops = [...stopsArray];
+    const reversedStops = [...originalStops].reverse();
+
+    return reversedStops.map((stop, reversedIndex) => {
+        // The new first stop has no preceding-stop adjustment.
+        // For every other stop, use the original adjustment for the
+        // journey leg being travelled in the opposite direction.
+        const originalNextStopIndex =
+            originalStops.length - reversedIndex;
+
+        const reversedAdjustment =
+            reversedIndex === 0
+                ? 0
+                : Number(originalStops[originalNextStopIndex]?.timeAdjustment) || 0;
+
+        return {
+            ...stop,
+            timeAdjustment: reversedAdjustment,
+            timingPoint: Boolean(stop.timingPoint)
+        };
+    });
 }
 
-function handleAutoReverse(sourceInputId, targetInputId) {
-  const sourceEl = document.getElementById(sourceInputId);
-  const targetEl = document.getElementById(targetInputId);
-  
-  if (!sourceEl || !targetEl) {
-    return;
-  }
-  
-  const rawValue = sourceEl.value !== undefined ? sourceEl.value : sourceEl.innerText;
-  
-  let sourceData = [];
-  try {
-    sourceData = JSON.parse(rawValue || '[]');
-  } catch (err) {
-    sourceData = [];
-  }
-  
-  const reversedData = generateReverseStops(sourceData);
-  const outputString = JSON.stringify(reversedData, null, 2);
-  
-  if (targetEl.tagName === 'INPUT' || targetEl.tagName === 'TEXTAREA') {
-    targetEl.value = outputString;
-  } else {
-    targetEl.innerText = outputString;
-  }
+function rsg_getStopSequenceSignature_ExtraPage(sequence) {
+    if (!Array.isArray(sequence)) {
+        return '';
+    }
+
+    return sequence
+        .map(stop => String(stop?.stopID || '').trim().toUpperCase())
+        .filter(Boolean)
+        .join('|');
+}
+
+function rsg_findOppositeDirectionConfig_ExtraPage() {
+    if (
+        !Array.isArray(rsg_selectedStops_extra) ||
+        rsg_selectedStops_extra.length < 2
+    ) {
+        return null;
+    }
+
+    const routeName = (
+        rsgNewRouteNameInput_el_extra?.value.trim() ||
+        rsg_selectedRoute_extra ||
+        rsgRouteNameInput_el_extra?.value.trim() ||
+        ''
+    ).toUpperCase();
+
+    if (!routeName) {
+        return null;
+    }
+
+    const reverseSignature = rsg_getStopSequenceSignature_ExtraPage(
+        [...rsg_selectedStops_extra].reverse()
+    );
+
+    const currentConfigKey = rsg_currentlyEditingConfigKey_extra;
+    const currentDestination =
+        rsgDestinationNameInput_el_extra?.value.trim().toLowerCase() || '';
+
+    const matches = Object.entries(rsg_loadedConfigs_extra || {})
+        .filter(([configKey, config]) => {
+            if (!config || configKey === currentConfigKey) {
+                return false;
+            }
+
+            if (!Array.isArray(config.stopSequence)) {
+                return false;
+            }
+
+            return (
+                String(config.routeName || '').trim().toUpperCase() === routeName &&
+                rsg_getStopSequenceSignature_ExtraPage(config.stopSequence) ===
+                    reverseSignature
+            );
+        })
+        .map(([configKey, config]) => ({ configKey, config }));
+
+    // Prefer a configuration with a different destination.
+    return (
+        matches.find(({ config }) =>
+            String(config.destinationName || '').trim().toLowerCase() !==
+            currentDestination
+        ) || matches[0] || null
+    );
+}
+
+function handleAutoReverse() {
+    if (
+        !Array.isArray(rsg_selectedStops_extra) ||
+        rsg_selectedStops_extra.length < 2
+    ) {
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent =
+                'Add at least two stops before suggesting the reverse direction.';
+            rsgStatusMessage_el_extra.style.color = '#f1c40f';
+        }
+        return;
+    }
+
+    const firstStop = rsg_selectedStops_extra[0];
+    const lastStop =
+        rsg_selectedStops_extra[rsg_selectedStops_extra.length - 1];
+
+    const oppositeDirectionConfig =
+        rsg_findOppositeDirectionConfig_ExtraPage();
+
+    let confirmationMessage =
+        'Suggest reverse direction?\n\n' +
+        `${firstStop.stopName || firstStop.stopID} → ` +
+        `${lastStop.stopName || lastStop.stopID}\n\n` +
+        'will become\n\n' +
+        `${lastStop.stopName || lastStop.stopID} → ` +
+        `${firstStop.stopName || firstStop.stopID}`;
+
+    if (oppositeDirectionConfig) {
+        const oppositeConfig = oppositeDirectionConfig.config;
+
+        confirmationMessage +=
+            `\n\nMatching opposite-direction configuration found:\n` +
+            `"${oppositeConfig.userDisplayName || oppositeConfig.destinationName}"` +
+            `\nDestination: "${oppositeConfig.destinationName || 'Unknown'}"`;
+    }
+
+    if (!confirm(confirmationMessage)) {
+        return;
+    }
+
+    rsg_selectedStops_extra =
+        generateReverseStops(rsg_selectedStops_extra);
+
+    if (oppositeDirectionConfig) {
+        const oppositeConfig = oppositeDirectionConfig.config;
+        const oppositeDestination = oppositeConfig.destinationName || '';
+
+        if (rsgDestinationNameInput_el_extra) {
+            rsgDestinationNameInput_el_extra.value = oppositeDestination;
+            rsgDestinationNameInput_el_extra.dispatchEvent(
+                new Event('input', { bubbles: true })
+            );
+            rsgDestinationNameInput_el_extra.dispatchEvent(
+                new Event('blur', { bubbles: true })
+            );
+        }
+
+        if (rsgDestinationNameSelect_el_extra) {
+            const matchingOption = Array.from(
+                rsgDestinationNameSelect_el_extra.options
+            ).find(option =>
+                option.value.trim().toLowerCase() ===
+                oppositeDestination.trim().toLowerCase()
+            );
+
+            rsgDestinationNameSelect_el_extra.value =
+                matchingOption?.value || '';
+        }
+    }
+
+    // Existing first-stop times belong to the old direction.
+    if (rsgFirstStopTimesInput_el_extra) {
+        rsgFirstStopTimesInput_el_extra.value = '';
+        rsgFirstStopTimesInput_el_extra.dispatchEvent(
+            new Event('input', { bubbles: true })
+        );
+    }
+
+    // This is now a new/modified setup, not the original saved configuration.
+    rsg_currentlyEditingConfigKey_extra = null;
+    rsg_currentlyEditingConfigDisplayName_extra = null;
+    rsg_lastLoadedRouteName_extra = '';
+    rsg_lastLoadedDestName_extra = '';
+    rsg_lastLoadedOpProfile_extra = '';
+    rsg_isDirty = true;
+
+    rsg_renderStopSequence_ExtraPage();
+
+    const statusMessage = oppositeDirectionConfig
+        ? `Reverse direction applied. Opposite destination suggested: ${oppositeDirectionConfig.config.destinationName}. Enter times for the new first stop, then generate a preview.`
+        : 'Reverse direction applied. Review the destination and enter times for the new first stop, then generate a preview.';
+
+    rsg_resetPreviewState(statusMessage, 'info');
+
+    if (rsgStatusMessage_el_extra) {
+        rsgStatusMessage_el_extra.textContent = statusMessage;
+        rsgStatusMessage_el_extra.style.color = '#2ecc71';
+    }
+
+    rsg_updateRsgActionButtonsState();
 }
 
 async function um_setUserAccountStatus(uid, email, newStatus, liftTimestamp = null) {
@@ -16624,6 +16783,11 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
             }
         });
     }
+    const autoReverseButton = document.getElementById('autoReverseBtn');
+
+if (autoReverseButton && typeof handleAutoReverse === 'function') {
+    autoReverseButton.addEventListener('click', handleAutoReverse);
+}
     const rsgPullFirstStopTimesButton_local = document.getElementById('rsg-pull-first-stop-times-button-extra');
     if (rsgPullFirstStopTimesButton_local && typeof rsg_pullCurrentFirstStopTimes_ExtraPage === 'function') {
         rsgPullFirstStopTimesButton_local.addEventListener('click', rsg_pullCurrentFirstStopTimes_ExtraPage);

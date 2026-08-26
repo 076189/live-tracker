@@ -1495,6 +1495,7 @@ align-items: center;
 	let lastAlertDataPreparedDate_extra = null; // To know when to refresh todayKeyTripEvents_extra
 	let tripAlertIntervalId_extra = null; // To store the setInterval ID
     let firebaseListenerUnsubscribers_extra = [];
+    let authGeneration_extra = 0;
         let rsg_lastLoadedRouteName_extra = null;
         let rsg_lastLoadedDestName_extra = null;
         let rsg_lastLoadedOpProfile_extra = null;
@@ -6921,26 +6922,6 @@ function displayCalendarDayDetails_ExtraPage(dateString, events) {
 function triggerStopAnalysisDynamically(stopID) {
     console.log('[Trigger] Analyzing stopID:', stopID); // For debugging
     analyzeStop_ExtraPage(stopID);
-}
-
-function displaySchoolHolidays_ExtraPage() {
-    const displayDiv = document.getElementById('school-holidays-display-extra');
-    if (!displayDiv) return;
-
-    if (!schoolHolidayDateRanges_extra || schoolHolidayDateRanges_extra.length === 0) {
-        displayDiv.innerHTML = '<p>No school holiday periods are currently defined in the script.</p>';
-        return;
-    }
-
-    let html = '<ul style="list-style-type: disc; padding-left: 20px; margin-top:0.5em;">';
-    schoolHolidayDateRanges_extra.forEach(range => {
-        // Assuming you have formatDateToDDMonthYYYY_ExtraPage or similar
-        const startDateFormatted = range.start ? formatDateToDDMonthYYYY_ExtraPage(range.start) : 'N/A';
-        const endDateFormatted = range.end ? formatDateToDDMonthYYYY_ExtraPage(range.end) : 'N/A';
-        html += `<li style="margin-bottom:0.3em;">${startDateFormatted} - ${endDateFormatted}</li>`;
-    });
-    html += '</ul>';
-    displayDiv.innerHTML = html;
 }
 
 async function saveSchoolHolidaysToFirebase_ExtraPage() {
@@ -16296,9 +16277,6 @@ if (opPointsRouteSelect) {
     opPointsRouteSelect.addEventListener('change', op_points_populateDestSelect);
 }
 const curtailRouteSelect = document.getElementById('curtail-route-select-extra');
-            if (curtailRouteSelect) {
-                curtailRouteSelect.addEventListener('change', curtail_populateDestSelect);
-            }
 const opPointsDestSelect = document.getElementById('op-points-dest-select-extra');
 if (opPointsDestSelect) {
     opPointsDestSelect.addEventListener('change', () => {
@@ -16363,12 +16341,12 @@ if (curtailModal && curtailModalCancelBtn) {
 }
 const { database, dbOnValue, dbRef } = window.firebaseOMSI;
 const liveInterventionsRef = dbRef(database, FB_PATH_LIVE_INTERVENTIONS);
-dbOnValue(liveInterventionsRef, (snapshot) => {
+firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapshot) => {
     liveCurtailmentData = snapshot.exists() ? snapshot.val() : {};
     if (document.getElementById('trip-curtailment-section_extra').style.display !== 'none') {
         curtail_renderTripCards();
     }
-});
+}));
 
     // --- General UI Listeners ---
     const iphoneTestBtn = document.getElementById('iphoneTestNotificationBtn');
@@ -16471,34 +16449,6 @@ dbOnValue(liveInterventionsRef, (snapshot) => {
         });
     }
 
-// Add event listeners when the DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    if (umForm_el) {
-        umForm_el.addEventListener('submit', um_handleFormSubmit);
-    }
-    if (umClearFormButton_el) {
-        umClearFormButton_el.addEventListener('click', um_clearForm);
-    }
-
-    // Delegated event listener for edit/delete buttons
-    if (umUserListContainer_el) {
-        umUserListContainer_el.addEventListener('click', (event) => {
-            if (event.target.classList.contains('um-edit-btn')) {
-                const uid = event.target.dataset.uid;
-                // Placeholder for edit functionality
-                umFormStatus_el.textContent = `Editing user ${uid}. (Functionality to be fully implemented)`;
-            }
-            if (event.target.classList.contains('um-delete-btn')) {
-                const uid = event.target.dataset.uid;
-                // Placeholder for delete functionality
-                if (confirm(`Are you sure you want to delete user ${uid}? This is conceptual.`)) {
-                    umFormStatus_el.textContent = `Deleted user ${uid}. (Conceptual)`;
-                }
-            }
-        });
-    }
-});
-
     // --- Firebase Auth Initialization ---
     function initializeExtraAppLogic() {
         console.log("Firebase ready, Extra app logic init.");
@@ -16517,9 +16467,12 @@ document.addEventListener('DOMContentLoaded', () => {
         } = window.firebaseOMSI;
 
         authOnAuthStateChanged(auth, async user => {
+            const callbackAuthGeneration = ++authGeneration_extra;
             if (typeof updateAuthUI_ExtraPage === 'function') {
                 await updateAuthUI_ExtraPage(user);
             }
+
+            if (callbackAuthGeneration !== authGeneration_extra) return;
 
             if (user) {
                 console.log("FCM DEBUG: User authenticated. Attempting to get FCM token.");
@@ -16540,7 +16493,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         setTimeout(async () => {
                             console.log("FCM DEBUG: Retrying FCM token acquisition after delay...");
-                            if (window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken && currentUser_extra) {
+                            if (callbackAuthGeneration === authGeneration_extra && window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken && currentUser_extra) {
                                 try {
                                     const retryRegistration = await navigator.serviceWorker.ready;
                                     if (retryRegistration) {

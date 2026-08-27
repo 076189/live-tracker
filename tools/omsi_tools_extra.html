@@ -1496,6 +1496,8 @@ align-items: center;
 	let tripAlertIntervalId_extra = null; // To store the setInterval ID
     let firebaseListenerUnsubscribers_extra = [];
     let authGeneration_extra = 0;
+    let dependentRenderTimer_extra = null;
+    let keyDeparturesRefreshInProgress_extra = false;
         let rsg_lastLoadedRouteName_extra = null;
         let rsg_lastLoadedDestName_extra = null;
         let rsg_lastLoadedOpProfile_extra = null;
@@ -2230,7 +2232,7 @@ function setupFirebaseListeners_ExtraPage() {
                                                 const destData = profileData[destKey];
                                                 if (destData && Array.isArray(destData.entries)) {
                                                     destData.entries.forEach(entry => {
-                                                        if (entry) flatLiveSchedule.push({ ...entry });
+                                                        if (entry) flatLiveSchedule.push(entry);
                                                     });
                                                 }
                                             }
@@ -2281,7 +2283,7 @@ function setupFirebaseListeners_ExtraPage() {
 
         // Re-populate any UI elements that depend on the full schedule list
         if(currentUser_extra) { // Only if logged in
-             renderUIDependentElements_ExtraPage();
+             scheduleDependentRender_ExtraPage();
         }
     }));
 
@@ -2331,6 +2333,24 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
     // *** END CORRECTION ***
 
     console.log("Real-time Firebase listeners set up for Extra Tools page.");
+}
+
+function scheduleDependentRender_ExtraPage() {
+    if (dependentRenderTimer_extra !== null) return;
+    dependentRenderTimer_extra = setTimeout(() => {
+        dependentRenderTimer_extra = null;
+        if (currentUser_extra) renderUIDependentElements_ExtraPage();
+    }, 100);
+}
+
+async function refreshKeyDeparturesSafely_ExtraPage() {
+    if (keyDeparturesRefreshInProgress_extra) return;
+    keyDeparturesRefreshInProgress_extra = true;
+    try {
+        await displayKeyDepartures_ExtraPage();
+    } finally {
+        keyDeparturesRefreshInProgress_extra = false;
+    }
 }
 
 function rsg_openPasteAdjModal_ExtraPage() {
@@ -15811,8 +15831,8 @@ function rsg_openCopyFromModal_ExtraPage() {
             if (typeof populateSettingsForm_ExtraPage === 'function') populateSettingsForm_ExtraPage();
         } else if (sectionId === 'key-departures-section_extra') {
             if (typeof displayKeyDepartures_ExtraPage === 'function') {
-                displayKeyDepartures_ExtraPage();
-                keyDeparturesIntervalId_extra = setInterval(displayKeyDepartures_ExtraPage, KEY_DEPARTURES_REFRESH_INTERVAL_MS);
+                refreshKeyDeparturesSafely_ExtraPage();
+                keyDeparturesIntervalId_extra = setInterval(refreshKeyDeparturesSafely_ExtraPage, KEY_DEPARTURES_REFRESH_INTERVAL_MS);
             }
         } else if (sectionId === 'calendar-view-section_extra') {
             if (typeof renderCalendarView_ExtraPage === 'function') {
@@ -15887,6 +15907,10 @@ function rsg_openCopyFromModal_ExtraPage() {
         setupFirebaseListeners_ExtraPage();
 
     } else { // User is logged out
+        if (dependentRenderTimer_extra !== null) {
+            clearTimeout(dependentRenderTimer_extra);
+            dependentRenderTimer_extra = null;
+        }
         firebaseListenerUnsubscribers_extra.forEach(unsubscribe => unsubscribe());
         firebaseListenerUnsubscribers_extra = [];
         if (slc_list_updater_interval) { clearInterval(slc_list_updater_interval); slc_list_updater_interval = null; }

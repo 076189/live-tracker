@@ -9175,37 +9175,41 @@ async function srd_confirmAndScheduleDeletion_ExtraPage() {
         return;
     }
     if (!goLiveDateTimeValue) {
-        // ... (error handling for goLiveDateTimeValue) ...
+        if (srdStatusMessage_el_extra) {
+            srdStatusMessage_el_extra.textContent = "Please choose a deletion date and time.";
+            srdStatusMessage_el_extra.style.color = "#f1c40f";
+        }
         return;
     }
 
     const goLiveDateObj = new Date(goLiveDateTimeValue);
     if (isNaN(goLiveDateObj.getTime())) {
-        // ... (error handling for invalid date) ...
+        if (srdStatusMessage_el_extra) {
+            srdStatusMessage_el_extra.textContent = "The deletion date and time is invalid.";
+            srdStatusMessage_el_extra.style.color = "#e74c3c";
+        }
         return;
     }
 
     if (goLiveDateObj <= new Date()) {
-        // ... (error handling for past date) ...
+        if (srdStatusMessage_el_extra) {
+            srdStatusMessage_el_extra.textContent = "The deletion date and time must be in the future.";
+            srdStatusMessage_el_extra.style.color = "#f1c40f";
+        }
         return;
     }
 
     // Destructure auth here to ensure it's in scope for this function
     const { database, dbSet, dbRef, auth } = window.firebaseOMSI;
 
-    // Crucial check for UID
-    console.log("SRD Save: Current User from auth object:", auth.currentUser ? auth.currentUser.uid : "No user from auth object");
-    console.log("SRD Save: Current User from currentUser_extra variable:", currentUser_extra ? currentUser_extra.uid : "No user from currentUser_extra");
-    console.log("SRD Save: Expected Admin UID:", 'PBVTn1GvcAfIZWNLzuP1brUtJDu1');
-
-    // Use the UID from the auth object directly for the most reliable check
-    if (!auth.currentUser || auth.currentUser.uid !== 'PBVTn1GvcAfIZWNLzuP1brUtJDu1') {
+    const userRole = currentUser_extra.role || '';
+    if (!auth.currentUser || !['Admin', 'Moderator'].includes(userRole)) {
         if (srdStatusMessage_el_extra) {
             srdStatusMessage_el_extra.textContent = "Permission Denied: You are not authorized to perform this action.";
             srdStatusMessage_el_extra.style.color = "#e74c3c";
         }
-        console.error("SRD Save: Permission Denied. UID mismatch or no authenticated user. Actual UID:", auth.currentUser ? auth.currentUser.uid : "null");
-        return; // Stop if not the admin user
+        console.error("SRD Save: Permission Denied. Role:", userRole);
+        return;
     }
 
 

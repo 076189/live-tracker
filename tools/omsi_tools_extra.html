@@ -3451,7 +3451,7 @@ async function saveStopSpecificRouteColours_ExtraPage() {
             stopSpecificRouteColourStatusMessage_el_extra.textContent="Not logged in. Cannot save.";
             stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';
         }
-        return;
+        return false;
     }
     const { database, dbSet, dbRef } = window.firebaseOMSI;
     try {
@@ -3464,15 +3464,17 @@ async function saveStopSpecificRouteColours_ExtraPage() {
         renderStopSpecificRouteColours_ExtraPage(); // Re-render the list of saved specific colors
         // Re-render any UI elements that rely on colors, e.g., master stop list, departures list
         renderUIDependentElements_ExtraPage(); 
+        return true;
     } catch (error) {
         if(stopSpecificRouteColourStatusMessage_el_extra){
             stopSpecificRouteColourStatusMessage_el_extra.textContent='Error saving stop-specific colours: ' + error.message;
             stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';
         }
+        return false;
     }
 }
 
-function handleSaveStopSpecificRouteColour_ExtraPage() {
+async function handleSaveStopSpecificRouteColour_ExtraPage() {
     if (!currentUser_extra) {
         if(stopSpecificRouteColourStatusMessage_el_extra) {stopSpecificRouteColourStatusMessage_el_extra.textContent="Not logged in. Cannot save."; stopSpecificRouteColourStatusMessage_el_extra.style.color='#e74c3c';}
         return;
@@ -3495,6 +3497,7 @@ function handleSaveStopSpecificRouteColour_ExtraPage() {
         return;
     }
 
+    const previousColours = JSON.parse(JSON.stringify(stopSpecificRouteColours_extra));
     if (!stopSpecificRouteColours_extra[selectedStopID]) {
         stopSpecificRouteColours_extra[selectedStopID] = {};
     }
@@ -3509,7 +3512,11 @@ function handleSaveStopSpecificRouteColour_ExtraPage() {
     });
 
     if (routesUpdated.length > 0) {
-        saveStopSpecificRouteColours_ExtraPage();
+        const saved = await saveStopSpecificRouteColours_ExtraPage();
+        if (!saved) {
+            stopSpecificRouteColours_extra = previousColours;
+            return;
+        }
         selectedTiles.forEach(tile => tile.classList.remove('selected-for-color-edit')); // Deselect after saving
 
         // Update state of delete button after saving
@@ -3532,7 +3539,7 @@ function handleSaveStopSpecificRouteColour_ExtraPage() {
     }
 }
 
-function handleDeleteRouteFromSpecificStop_ExtraPage() {
+async function handleDeleteRouteFromSpecificStop_ExtraPage() {
     if (!currentUser_extra) { alert("Log in."); if(deleteRouteFromStopStatusMessage_el_extra) deleteRouteFromStopStatusMessage_el_extra.textContent="Not logged in."; return; }
     const selectedStopID = selectStopForSpecificRouteColour_el_extra.value;
     const lineNameToDelete = deleteRouteFromStopButton_el_extra.dataset.selectedRouteName;
@@ -3550,6 +3557,7 @@ function handleDeleteRouteFromSpecificStop_ExtraPage() {
         return;
     }
 
+    const previousColours = JSON.parse(JSON.stringify(stopSpecificRouteColours_extra));
     let originalScheduleLength = currentWorkingSchedule_extra.length;
     currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(e => !(e.stopID === selectedStopID && e.lineName && e.lineName.toUpperCase() === lineNameToDelete.toUpperCase()));
     let scheduleEntriesRemovedCount = originalScheduleLength - currentWorkingSchedule_extra.length;
@@ -3561,7 +3569,12 @@ function handleDeleteRouteFromSpecificStop_ExtraPage() {
         if (Object.keys(stopSpecificRouteColours_extra[selectedStopID]).length === 0) {
             delete stopSpecificRouteColours_extra[selectedStopID];
         }
-        saveStopSpecificRouteColours_ExtraPage(); // Save to Firebase immediately after local modification
+        const saved = await saveStopSpecificRouteColours_ExtraPage();
+        if (!saved) stopSpecificRouteColours_extra = previousColours;
+    }
+
+    if (scheduleEntriesRemovedCount > 0) {
+        await saveSpecificRouteDataToFirebase_ExtraPage(lineNameToDelete);
     }
 
     if (deleteRouteFromStopStatusMessage_el_extra) {
@@ -3644,15 +3657,17 @@ function renderStopSpecificRouteColours_ExtraPage() {
     });
 }
 
-function handleRemoveStopSpecificRouteColour_ExtraPage(stopID, lineName) {
+async function handleRemoveStopSpecificRouteColour_ExtraPage(stopID, lineName) {
     if (!currentUser_extra) return;
     if (stopSpecificRouteColours_extra[stopID] && stopSpecificRouteColours_extra[stopID][lineName]) {
         if (confirm(`Remove specific colour override for route ${lineName} at stop ${stopID}?`)) {
+            const previousColours = JSON.parse(JSON.stringify(stopSpecificRouteColours_extra));
             delete stopSpecificRouteColours_extra[stopID][lineName];
             if (Object.keys(stopSpecificRouteColours_extra[stopID]).length === 0) {
                 delete stopSpecificRouteColours_extra[stopID]; // Remove the stop entry if no routes are left
             }
-            saveStopSpecificRouteColours_ExtraPage();
+            const saved = await saveStopSpecificRouteColours_ExtraPage();
+            if (!saved) stopSpecificRouteColours_extra = previousColours;
         }
     }
 }
@@ -3663,7 +3678,7 @@ async function saveGlobalCustomRouteColours_ExtraPage() {
             globalRouteColourStatusMessage_el_extra.textContent = "Not logged in or Firebase not available.";
             globalRouteColourStatusMessage_el_extra.style.color = '#e74c3c';
         }
-        return;
+        return false;
     }
     const { database, dbSet, dbRef } = window.firebaseOMSI;
     try {
@@ -3676,15 +3691,17 @@ async function saveGlobalCustomRouteColours_ExtraPage() {
         renderGlobalCustomRouteColours_ExtraPage();
         // Trigger re-render of any component relying on colours, e.g., RSG route tiles, etc.
         renderUIDependentElements_ExtraPage(); 
+        return true;
     } catch (error) {
         if(globalRouteColourStatusMessage_el_extra) {
             globalRouteColourStatusMessage_el_extra.textContent = 'Error saving global colours: ' + error.message;
             globalRouteColourStatusMessage_el_extra.style.color = '#e74c3c';
         }
+        return false;
     }
 }
 
-function handleSaveGlobalRouteColour_ExtraPage() {
+async function handleSaveGlobalRouteColour_ExtraPage() {
     if (!currentUser_extra) return;
     if (!selectRouteNameColour_el_extra || !inputRouteColour_el_extra || !globalRouteColourStatusMessage_el_extra) return;
 
@@ -3702,16 +3719,20 @@ function handleSaveGlobalRouteColour_ExtraPage() {
         return;
     }
 
+    const previousColours = { ...globalCustomRouteColours_extra };
     globalCustomRouteColours_extra[routeName.toUpperCase()] = color.toUpperCase();
-    saveGlobalCustomRouteColours_ExtraPage();
+    const saved = await saveGlobalCustomRouteColours_ExtraPage();
+    if (!saved) globalCustomRouteColours_extra = previousColours;
 }
 
-function handleRemoveGlobalRouteColour_ExtraPage(routeName) {
+async function handleRemoveGlobalRouteColour_ExtraPage(routeName) {
     if (!currentUser_extra) return;
     if (globalCustomRouteColours_extra.hasOwnProperty(routeName.toUpperCase()) && 
         confirm(`Are you sure you want to remove the global custom colour for route "${routeName}"? It will revert to default.`)) {
+        const previousColours = { ...globalCustomRouteColours_extra };
         delete globalCustomRouteColours_extra[routeName.toUpperCase()];
-        saveGlobalCustomRouteColours_ExtraPage();
+        const saved = await saveGlobalCustomRouteColours_ExtraPage();
+        if (!saved) globalCustomRouteColours_extra = previousColours;
         // If the removed route is currently selected in the dropdown, reset the color picker
         if (selectRouteNameColour_el_extra && selectRouteNameColour_el_extra.value.toUpperCase() === routeName.toUpperCase()) {
             inputRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra;
@@ -5137,6 +5158,8 @@ async function handleEnhancedBulkUpdateDestination() {
     const oldDestSelect = document.getElementById('ebu-old-destination-extra');
     const oldDest = oldDestSelect.value.trim(); // Value from the dropdown
     const newDest = document.getElementById('ebu-new-destination-extra').value.trim(); // Value from the input field
+    const oldDestKey = oldDest.toLocaleLowerCase();
+    const newDestKey = newDest.toLocaleLowerCase();
     
     console.log(`EBU Update Debug: Initiating update.`);
     console.log(`EBU Update Debug: Selected Old Destination (from dropdown value): '${oldDest}'`);
@@ -5157,7 +5180,7 @@ async function handleEnhancedBulkUpdateDestination() {
         statusEl.style.color = '#f1c40f';
         return;
     }
-    if (oldDest === newDest) {
+    if (oldDestKey === newDestKey) {
         statusEl.textContent = "Old and New names are the same. No changes needed.";
         statusEl.style.color = '#7f8c8d';
         return;
@@ -5170,10 +5193,11 @@ async function handleEnhancedBulkUpdateDestination() {
     const affectedScheduleRoutes = new Set(); // Track routes affected in schedule entries
 
     console.log(`EBU Update Debug: --- Searching currentWorkingSchedule_extra (Total: ${currentWorkingSchedule_extra.length}) ---`);
-    currentWorkingSchedule_extra.forEach(entry => {
+    const updatedSchedule = currentWorkingSchedule_extra.map(entry => ({ ...entry }));
+    updatedSchedule.forEach(entry => {
         const routeScopeMatch = targetRoutes.length === 0 || targetRoutes.includes(entry.lineName);
         
-        if (routeScopeMatch && entry.destinationName === oldDest) { // Exact string comparison
+        if (routeScopeMatch && String(entry.destinationName || '').trim().toLocaleLowerCase() === oldDestKey) {
             entry.destinationName = newDest;
             scheduleUpdateCount++;
             affectedScheduleRoutes.add(entry.lineName); // Add route to the set
@@ -5186,7 +5210,7 @@ async function handleEnhancedBulkUpdateDestination() {
     let rsgConfigUpdateCount = 0;
     const rsgUpdatesForFirebase = {};
     console.log(`EBU Update Debug: --- Searching rsg_loadedConfigs_extra (Total: ${Object.keys(rsg_loadedConfigs_extra).length}) ---`);
-    const oldDestRegex = new RegExp(oldDest.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'); // Create global, case-insensitive regex
+    const oldDestRegex = new RegExp(oldDest.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
     for (const configKey in rsg_loadedConfigs_extra) {
         const config = rsg_loadedConfigs_extra[configKey];
@@ -5194,7 +5218,7 @@ async function handleEnhancedBulkUpdateDestination() {
         
         // This condition checks if the core `destinationName` matches the `oldDest`.
         // This ensures we are only processing relevant RSG configurations.
-        if (routeScopeMatch && config.destinationName === oldDest) { 
+        if (routeScopeMatch && String(config.destinationName || '').trim().toLocaleLowerCase() === oldDestKey) { 
             const updatedConfig = { ...config };
             updatedConfig.destinationName = newDest; // Update core destinationName
 
@@ -5220,10 +5244,10 @@ async function handleEnhancedBulkUpdateDestination() {
     const tempCurtailmentPoints = JSON.parse(JSON.stringify(definedCurtailmentPoints));
     
     console.log(`EBU Update Debug: --- Searching definedCurtailmentPoints (Total: ${Object.keys(definedCurtailmentPoints).length} top-level routeKeys) ---`);
-    const sanitizedTargetRoutesSet = new Set(targetRoutes.map(routeName => sanitizeFirebaseKey(routeName)));
+    const sanitizedTargetRoutesSet = new Set(targetRoutes.map(routeName => sanitizeFirebaseKey(routeName).toUpperCase()));
 
     for (const routeKey in tempCurtailmentPoints) {
-        const routeScopeMatch = targetRoutes.length === 0 || sanitizedTargetRoutesSet.has(routeKey);
+        const routeScopeMatch = targetRoutes.length === 0 || sanitizedTargetRoutesSet.has(routeKey.toUpperCase());
         
         if (routeScopeMatch) {
             for (const destKey in tempCurtailmentPoints[routeKey]) {
@@ -5232,7 +5256,7 @@ async function handleEnhancedBulkUpdateDestination() {
 
                 if (Array.isArray(pointsArray)) {
                     pointsArray.forEach(point => {
-                        if (point.newDestinationName === oldDest) { // Exact string comparison
+                        if (String(point.newDestinationName || '').trim().toLocaleLowerCase() === oldDestKey) {
                             point.newDestinationName = newDest;
                             curtailmentUpdateCount++;
                             pointsWereUpdatedInThisDestKey = true;
@@ -5271,22 +5295,35 @@ async function handleEnhancedBulkUpdateDestination() {
     }
 
     statusEl.textContent = "Applying updates to Firebase... This may take a moment.";
-    const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+    const { database, dbGet, dbUpdate, dbRef } = window.firebaseOMSI;
 
     try {
         if (Object.keys(rsgUpdatesForFirebase).length > 0) {
             console.log("EBU Update Debug: Committing RSG config updates to Firebase:", rsgUpdatesForFirebase);
             await dbUpdate(dbRef(database), rsgUpdatesForFirebase);
-            Object.assign(rsg_loadedConfigs_extra, rsgUpdatesForFirebase); // Update local cache
+            Object.entries(rsgUpdatesForFirebase).forEach(([path, config]) => {
+                const configKey = path.slice(`${FB_PATH_RSG_CONFIGS}/`.length);
+                rsg_loadedConfigs_extra[configKey] = config;
+            });
         }
         if (Object.keys(curtailmentUpdatesForFirebase).length > 0) {
             console.log("EBU Update Debug: Committing Curtailment Point updates to Firebase:", curtailmentUpdatesForFirebase);
             await dbUpdate(dbRef(database), curtailmentUpdatesForFirebase);
+
+            await Promise.all(Object.entries(curtailmentUpdatesForFirebase).map(async ([firebasePath, expectedPoints]) => {
+                const savedSnapshot = await dbGet(dbRef(database, firebasePath));
+                const savedPoints = savedSnapshot.exists() ? savedSnapshot.val() : null;
+                if (JSON.stringify(savedPoints) !== JSON.stringify(expectedPoints)) {
+                    throw new Error(`Curtailment update verification failed at ${firebasePath}.`);
+                }
+            }));
+
             Object.assign(definedCurtailmentPoints, tempCurtailmentPoints); // Update local cache
         }
         
         // Loop through affected routes and save them individually
         console.log(`EBU Update Debug: Committing changes to ${affectedScheduleRoutes.size} affected schedule routes.`);
+        currentWorkingSchedule_extra = updatedSchedule;
         const saveSchedulePromises = [];
         for (const routeName of affectedScheduleRoutes) {
             saveSchedulePromises.push(saveSpecificRouteDataToFirebase_ExtraPage(routeName));
@@ -7237,6 +7274,7 @@ async function handleAddOpProfile_ExtraPage() {
         return;
     }
 
+    const previousProfiles = [...RSG_OPERATING_PROFILES_LIST];
     RSG_OPERATING_PROFILES_LIST.push(newProfileName);
     if (await saveOpProfilesToFirebase_ExtraPage()) {
         statusEl.textContent = `Profile "${newProfileName}" added.`;
@@ -7246,6 +7284,8 @@ async function handleAddOpProfile_ExtraPage() {
         // Refresh dependent UIs
         if (typeof rsg_populateProfileCheckboxes_ExtraPage === 'function') rsg_populateProfileCheckboxes_ExtraPage();
         if (typeof dpo_populateProfileCheckboxes_ExtraPage === 'function') dpo_populateProfileCheckboxes_ExtraPage();
+    } else {
+        RSG_OPERATING_PROFILES_LIST = previousProfiles;
     }
 }
 
@@ -7308,6 +7348,7 @@ async function handleEditOpProfile_ExtraPage(oldProfileName) {
 
     const index = RSG_OPERATING_PROFILES_LIST.findIndex(p => p === oldProfileName);
     if (index > -1) {
+        const previousProfiles = [...RSG_OPERATING_PROFILES_LIST];
         RSG_OPERATING_PROFILES_LIST[index] = trimmedNewName;
         if (await saveOpProfilesToFirebase_ExtraPage()) {
             statusEl.textContent = `Profile "<span class="math-inline">\{oldProfileName\}" renamed to "</span>{trimmedNewName}".`;
@@ -7315,6 +7356,8 @@ async function handleEditOpProfile_ExtraPage(oldProfileName) {
             // Refresh dependent UIs
             if (typeof rsg_populateProfileCheckboxes_ExtraPage === 'function') rsg_populateProfileCheckboxes_ExtraPage();
             if (typeof dpo_populateProfileCheckboxes_ExtraPage === 'function') dpo_populateProfileCheckboxes_ExtraPage();
+        } else {
+            RSG_OPERATING_PROFILES_LIST = previousProfiles;
         }
     } else {
         statusEl.textContent = `Error: Profile "${oldProfileName}" not found to edit.`;
@@ -7342,11 +7385,14 @@ async function handleDeleteOpProfile_ExtraPage(profileNameToDelete) {
         return;
     }
 
+    const previousProfiles = [...RSG_OPERATING_PROFILES_LIST];
     RSG_OPERATING_PROFILES_LIST = RSG_OPERATING_PROFILES_LIST.filter(p => p !== profileNameToDelete);
     if (await saveOpProfilesToFirebase_ExtraPage()) {
         statusEl.textContent = `Profile "${profileNameToDelete}" deleted.`;
         renderEditableOpProfiles_ExtraPage();
         // Refresh dependent UIs
+    } else {
+        RSG_OPERATING_PROFILES_LIST = previousProfiles;
         if (typeof rsg_populateProfileCheckboxes_ExtraPage === 'function') rsg_populateProfileCheckboxes_ExtraPage();
         if (typeof dpo_populateProfileCheckboxes_ExtraPage === 'function') dpo_populateProfileCheckboxes_ExtraPage();
     }
@@ -8397,21 +8443,6 @@ async function handleCancelAllUpdatesAllRoutes_Global() {
 function dpo_getCanonicalProfileString_ExtraPage(profileArray) {
     if (!Array.isArray(profileArray)) return "";
     return profileArray.map(p => String(p).trim()).sort((a,b) => a.localeCompare(b)).join(',');
-}
-
-function dpo_simulateAutoGroup_ExtraPage(selectedProfilesArray) {
-    let simulatedSelections = [...selectedProfilesArray]; 
-    // Assuming RSG_PROFILE_GROUPS_TO_MANAGE is suitable here
-    RSG_PROFILE_GROUPS_TO_MANAGE.forEach(group => {
-        const allIndividualsPresent = group.individuals.every(ind => simulatedSelections.includes(ind));
-        if (allIndividualsPresent) {
-            simulatedSelections = simulatedSelections.filter(p => !group.individuals.includes(p)); 
-            if (!simulatedSelections.includes(group.groupProfile)) {
-                simulatedSelections.push(group.groupProfile); 
-            }
-        }
-    });
-    return simulatedSelections;
 }
 
 function dpo_populateProfileCheckboxes_ExtraPage() {

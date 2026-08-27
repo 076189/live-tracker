@@ -15955,38 +15955,10 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded app state and ${closedStopIDs_extra.length} closed stop IDs in ${duration.toFixed(2)} ms.`);
 
-        // --- Load the LIVE schedule from Firebase ---
-        startTime = performance.now();
-        console.log("[PERF] Loading LIVE schedule data (from FB_PATH_SCHEDULES_BY_ROUTE)...");
-        const liveScheduleSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SCHEDULES_BY_ROUTE));
-        const liveFlatScheduleFromDB = [];
-        if (liveScheduleSnap.exists()) {
-            const schedulesByRoute = liveScheduleSnap.val();
-            if (schedulesByRoute && typeof schedulesByRoute === 'object') {
-                for (const routeKey in schedulesByRoute) {
-                    const routeData = schedulesByRoute[routeKey];
-                    if (routeData && typeof routeData === 'object') {
-                        for (const profileKey in routeData) {
-                            const profileData = routeData[profileKey];
-                            if (profileData && typeof profileData === 'object') {
-                                for (const destKey in profileData) {
-                                    const destData = profileData[destKey];
-                                    if (destData && Array.isArray(destData.entries)) {
-                                        destData.entries.forEach(entry => {
-                                            if (entry) liveFlatScheduleFromDB.push({ ...entry });
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        currentWorkingSchedule_extra = liveFlatScheduleFromDB;
-        liveScheduleForToolsDisplay = liveFlatScheduleFromDB;
-        duration = performance.now() - startTime;
-        console.log(`[PERF] ...loaded and assigned ${currentWorkingSchedule_extra.length} LIVE schedule entries as the primary data source in ${duration.toFixed(2)} ms.`);
+        // The live schedule listener below performs the initial schedule load.
+        currentWorkingSchedule_extra = [];
+        liveScheduleForToolsDisplay = [];
+        stopToServingRoutesMap_extra.clear();
 
         // --- Load RSG configurations separately ---
         startTime = performance.now();

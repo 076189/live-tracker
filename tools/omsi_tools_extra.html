@@ -1977,14 +1977,14 @@ function rsg_findOppositeDirectionConfig_ExtraPage() {
 
     if (!routeName) return null;
 
-    const expectedOppositeSignature =
-        rsg_getStopSequenceSignature_ExtraPage(
-            [...rsg_selectedStops_extra].reverse()
-        );
-
     const currentConfigKey = rsg_currentlyEditingConfigKey_extra;
     const currentDestination =
         rsgDestinationNameInput_el_extra?.value.trim().toLowerCase() || '';
+    const currentStopIDs = new Set(
+        rsg_selectedStops_extra
+            .map(stop => String(stop?.stopID || '').trim().toUpperCase())
+            .filter(Boolean)
+    );
 
     const matches = Object.entries(rsg_loadedConfigs_extra || {})
         .filter(([configKey, config]) => {
@@ -1995,25 +1995,24 @@ function rsg_findOppositeDirectionConfig_ExtraPage() {
                 .trim()
                 .toUpperCase();
 
-            const configSignature =
-                rsg_getStopSequenceSignature_ExtraPage(
-                    config.stopSequence
-                );
+            const configDestination = String(config.destinationName || '')
+                .trim()
+                .toLowerCase();
+            const configStopIDs = config.stopSequence
+                .map(stop => String(stop?.stopID || '').trim().toUpperCase())
+                .filter(Boolean);
+            const usesDifferentStops = configStopIDs.length > 0 &&
+                configStopIDs.every(stopID => !currentStopIDs.has(stopID));
 
             return (
                 configRoute === routeName &&
-                configSignature === expectedOppositeSignature
+                configDestination !== currentDestination &&
+                usesDifferentStops
             );
         })
         .map(([configKey, config]) => ({ configKey, config }));
 
-    // Prefer the opposite configuration with a different destination.
-    return (
-        matches.find(({ config }) =>
-            String(config.destinationName || '').trim().toLowerCase() !==
-            currentDestination
-        ) || matches[0] || null
-    );
+    return matches[0] || null;
 }
 
 function handleAutoReverse() {

@@ -1985,6 +1985,14 @@ function rsg_findOppositeDirectionConfig_ExtraPage() {
             .map(stop => String(stop?.stopID || '').trim().toUpperCase())
             .filter(Boolean)
     );
+    const stopLabel = stop => {
+        const stopName = String(stop?.stopName || '').trim().toLowerCase();
+        const direction = String(stop?.direction || '').trim().toLowerCase();
+        return `${stopName}|${direction}`;
+    };
+    const currentStopLabels = new Set(
+        rsg_selectedStops_extra.map(stopLabel)
+    );
 
     const matches = Object.entries(rsg_loadedConfigs_extra || {})
         .filter(([configKey, config]) => {
@@ -2003,11 +2011,15 @@ function rsg_findOppositeDirectionConfig_ExtraPage() {
                 .filter(Boolean);
             const usesDifferentStops = configStopIDs.length > 0 &&
                 configStopIDs.every(stopID => !currentStopIDs.has(stopID));
+            const usesDifferentStopIdentities = config.stopSequence
+                .map(stopLabel)
+                .every(label => !currentStopLabels.has(label));
 
             return (
                 configRoute === routeName &&
                 configDestination !== currentDestination &&
-                usesDifferentStops
+                usesDifferentStops &&
+                usesDifferentStopIdentities
             );
         })
         .map(([configKey, config]) => ({ configKey, config }));
@@ -2059,6 +2071,9 @@ function handleAutoReverse() {
         oppositeConfig.userDisplayName ||
         oppositeConfig.destinationName ||
         oppositeDirection.configKey;
+    const reversedOppositeStops = generateReverseStops(
+        JSON.parse(JSON.stringify(oppositeConfig.stopSequence))
+    );
 
     const confirmationMessage =
         `Opposite direction found:\n\n` +
@@ -2067,19 +2082,16 @@ function handleAutoReverse() {
         `Use the saved opposite-direction configuration:\n` +
         `"${oppositeDisplayName}"?\n\n` +
         `This will copy and reverse the other side's RSG sequence:\n` +
-        `${oppositeConfig.stopSequence[0]?.stopName ||
-            oppositeConfig.stopSequence[0]?.stopID} → ` +
-        `${oppositeConfig.stopSequence[oppositeConfig.stopSequence.length - 1]?.stopName ||
-            oppositeConfig.stopSequence[oppositeConfig.stopSequence.length - 1]?.stopID}`;
+        `${reversedOppositeStops[0]?.stopName || reversedOppositeStops[0]?.stopID} → ` +
+        `${reversedOppositeStops[reversedOppositeStops.length - 1]?.stopName ||
+            reversedOppositeStops[reversedOppositeStops.length - 1]?.stopID}`;
 
     if (!confirm(confirmationMessage)) {
         return;
     }
 
     // Copy the other side's stops and reverse their travel order.
-    rsg_selectedStops_extra = generateReverseStops(
-        JSON.parse(JSON.stringify(oppositeConfig.stopSequence))
-    );
+    rsg_selectedStops_extra = reversedOppositeStops;
 
     rsg_selectedRoute_extra = oppositeConfig.routeName ||
         rsg_selectedRoute_extra ||

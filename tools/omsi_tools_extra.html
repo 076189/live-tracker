@@ -15771,26 +15771,41 @@ function rsg_openCopyFromModal_ExtraPage() {
                 if (absB === null) return -1;
                 return absA - absB;
             });
+
+            const entriesByTripId = new Map();
+            relevantEntries.forEach(entry => {
+                if (!entry.tripId) return;
+                if (!entriesByTripId.has(entry.tripId)) entriesByTripId.set(entry.tripId, []);
+                entriesByTripId.get(entry.tripId).push(entry);
+            });
+            if (entriesByTripId.size > 0) {
+                const longestTripEntries = [...entriesByTripId.values()]
+                    .sort((a, b) => b.length - a.length)[0];
+                relevantEntries.length = 0;
+                relevantEntries.push(...longestTripEntries);
+                relevantEntries.sort((a, b) => getAbsMinutes(a.scheduledTime, parseInt(a.DayOffset || 0)) - getAbsMinutes(b.scheduledTime, parseInt(b.DayOffset || 0)));
+            }
             
             const firstTripSequence = [];
             if (relevantEntries.length > 0) {
                 const firstStopIDOfJourney = relevantEntries[0].stopID;
                 const firstDepartureTimeOfJourneyAbs = getAbsMinutes(relevantEntries[0].scheduledTime, parseInt(relevantEntries[0].DayOffset || 0));
+                const firstTripId = relevantEntries[0].tripId;
                 let absTimeOfPrevStopInSequence = -1; 
-                const MIN_STOPS_BEFORE_START_ID_REPEAT_CONSIDERED_NEW_TRIP = 3; 
 
                 for (let i = 0; i < relevantEntries.length; i++) {
                     const entry = relevantEntries[i];
                     if (!entry.stopID || !entry.scheduledTime) continue;
+                    if (firstTripId && entry.tripId !== firstTripId) break;
                     const currentTimeAbs = getAbsMinutes(entry.scheduledTime, parseInt(entry.DayOffset || 0));
                     if (currentTimeAbs === null) continue;
 
                     if (firstTripSequence.length > 0 && absTimeOfPrevStopInSequence !== -1) {
                         if (currentTimeAbs < absTimeOfPrevStopInSequence) break; 
-                        if (entry.stopID === firstStopIDOfJourney) {
+                        if (!firstTripId && entry.stopID === firstStopIDOfJourney) {
                             if (firstDepartureTimeOfJourneyAbs !== null && 
                                 currentTimeAbs > (firstDepartureTimeOfJourneyAbs + 15) &&
-                                firstTripSequence.length >= MIN_STOPS_BEFORE_START_ID_REPEAT_CONSIDERED_NEW_TRIP) {
+                                firstTripSequence.length >= 3) {
                                 break; 
                             }
                         }

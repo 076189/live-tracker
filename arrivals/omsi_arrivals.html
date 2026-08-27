@@ -1243,36 +1243,9 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
             activeMassCurtailments = {};
         }
 
-        const scheduleSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED));
-        const flatScheduleFromDB = [];
-        if (scheduleSnapshot.exists()) {
-            const schedulesByRoute = scheduleSnapshot.val();
-            for (const routeKey in schedulesByRoute) {
-                const routeData = schedulesByRoute[routeKey];
-                for (const profileKey in routeData) {
-                    const profileData = routeData[profileKey];
-                    for (const destKey in profileData) {
-                        const destData = profileData[destKey];
-                        if (destData && Array.isArray(destData.entries)) {
-                            destData.entries.forEach(entry => {
-                                flatScheduleFromDB.push({ ...entry });
-                            });
-                        }
-                    }
-                }
-            }
-            flatScheduleFromDB.sort((a, b) => {
-                const lineCompare = simpleCompareLineNames(a.lineName, b.lineName); if (lineCompare !== 0) return lineCompare;
-                const profileCompare = (a.OperatingProfile || "").localeCompare(b.OperatingProfile || ""); if (profileCompare !== 0) return profileCompare;
-                const destCompare = (a.destinationName || "").localeCompare(b.destinationName || ""); if (destCompare !== 0) return destCompare;
-                const timeA = (a.scheduledTime || "99:99").replace(':', ''); const timeB = (b.scheduledTime || "99:99").replace(':', ''); return timeA.localeCompare(timeB);
-            });
-            allScheduledData = flatScheduleFromDB;
-            rebuildScheduleStopIndex();
-        } else {
-             allScheduledData = [];
-             rebuildScheduleStopIndex();
-        }
+        // The live schedule listener below performs the initial schedule load.
+        allScheduledData = [];
+        rebuildScheduleStopIndex();
 
         const allDefinedStopsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
         uniqueStops = [];

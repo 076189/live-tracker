@@ -965,7 +965,6 @@ align-items: center;
          <div class="form-field-group" style="margin-top:1rem;">
             <button id="rsg-open-copy-modal-button-extra" class="button neutral">Copy Sequence/Times From...</button>
             <button id="rsg-open-paste-adj-modal-button-extra" class="button neutral">Paste Adjustments...</button>
-        <button id="autoReverseBtn" class="button neutral">Suggest Reverse Direction</button>
          </div>
     </div>
     <div class="subsection">
@@ -1488,6 +1487,7 @@ align-items: center;
         let uniqueStopsMasterList_extra = [];
         let processedExcelStopsData_extra = [];
         let rsg_selectedStops_extra = [];
+        let rsg_copySourceSelection_extra = { route: '', destination: '', profile: '' };
         let rsg_generatedPreviewEntries_extra = [];
         let rsg_loadedConfigs_extra = {};
 	let todayKeyTripEvents_extra = []; // Stores { lineName, destinationName, originStopName, departureTime, departureTimeObj, type: 'first'|'last' }
@@ -15664,6 +15664,11 @@ function rsg_openCopyFromModal_ExtraPage() {
         console.error("RSG Copy Modal: One or more essential DOM elements are missing for modal open.");
         return;
     }
+    rsg_copySourceSelection_extra = {
+        route: rsgCopySourceRouteNameSelect_el_extra.value,
+        destination: rsgCopySourceDestNameSelect_el_extra.value,
+        profile: rsgCopySourceOpProfileSelect_el_extra.value
+    };
     const uniqueRoutes = [...new Set(currentWorkingSchedule_extra.map(e => e.lineName))].filter(Boolean).sort(compareLineNames_ExtraPage); 
     
     // Populate Source Route Select
@@ -15674,6 +15679,10 @@ function rsg_openCopyFromModal_ExtraPage() {
         opt.textContent = route; 
         rsgCopySourceRouteNameSelect_el_extra.appendChild(opt); 
     }); 
+
+    if (uniqueRoutes.includes(rsg_copySourceSelection_extra.route)) {
+        rsgCopySourceRouteNameSelect_el_extra.value = rsg_copySourceSelection_extra.route;
+    }
     
     // Trigger population of dependent dropdowns (Destination, then Profile)
     // Call rsg_populateCopySourceDestinationSelect_ExtraPage which will in turn call profile population
@@ -15683,6 +15692,16 @@ function rsg_openCopyFromModal_ExtraPage() {
         if (typeof rsg_populateCopySourceOpProfileSelect_ExtraPage === 'function') {
             rsg_populateCopySourceOpProfileSelect_ExtraPage();
         }
+    }
+
+    if ([...rsgCopySourceDestNameSelect_el_extra.options].some(option => option.value === rsg_copySourceSelection_extra.destination)) {
+        rsgCopySourceDestNameSelect_el_extra.value = rsg_copySourceSelection_extra.destination;
+    }
+    if (typeof rsg_populateCopySourceOpProfileSelect_ExtraPage === 'function') {
+        rsg_populateCopySourceOpProfileSelect_ExtraPage();
+    }
+    if ([...rsgCopySourceOpProfileSelect_el_extra.options].some(option => option.value === rsg_copySourceSelection_extra.profile)) {
+        rsgCopySourceOpProfileSelect_el_extra.value = rsg_copySourceSelection_extra.profile;
     }
     
     if (rsgCopyModalStatus_el_extra) rsgCopyModalStatus_el_extra.textContent = ''; 
@@ -16881,11 +16900,6 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
             }
         });
     }
-    const autoReverseButton = document.getElementById('autoReverseBtn');
-
-if (autoReverseButton && typeof handleAutoReverse === 'function') {
-    autoReverseButton.addEventListener('click', handleAutoReverse);
-}
     const rsgPullFirstStopTimesButton_local = document.getElementById('rsg-pull-first-stop-times-button-extra');
     if (rsgPullFirstStopTimesButton_local && typeof rsg_pullCurrentFirstStopTimes_ExtraPage === 'function') {
         rsgPullFirstStopTimesButton_local.addEventListener('click', rsg_pullCurrentFirstStopTimes_ExtraPage);

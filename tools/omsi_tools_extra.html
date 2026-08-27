@@ -1309,6 +1309,12 @@ align-items: center;
                     <label for="rsg-copy-source-operatingProfile-select-extra">Source Operating Profile:</label>
                     <select id="rsg-copy-source-operatingProfile-select-extra" class="schedule-generator-input"></select>
                 </div>
+                <div class="form-field-group">
+                    <label>Stops to copy:</label>
+                    <div id="rsg-copy-source-stops-extra" style="max-height:220px; overflow-y:auto; padding:0.5rem; border:1px solid #567a9a; border-radius:0.25rem;">
+                        <p style="opacity:0.7;">Select a source route, destination, and profile first.</p>
+                    </div>
+                </div>
                 <p id="rsg-copy-modal-status-extra" style="min-height:1.2em;"></p>
                  <div class="rsg-modal-actions">
                     <button id="rsg-copy-modal-cancel-button-extra" class="button neutral">Cancel</button>
@@ -7522,6 +7528,62 @@ function populateServiceAnalyzerDropdowns_ExtraPage() {
     if (isPreviouslySelectedProfileStillValid && previouslySelectedProfile !== "") {
         rsgCopySourceOpProfileSelect_el_extra.value = previouslySelectedProfile;
     }
+    rsg_renderCopySourceStops_ExtraPage();
+}
+
+function rsg_renderCopySourceStops_ExtraPage() {
+    const container = document.getElementById('rsg-copy-source-stops-extra');
+    if (!container) return;
+
+    const sourceRoute = rsgCopySourceRouteNameSelect_el_extra?.value || '';
+    const sourceDestination = rsgCopySourceDestNameSelect_el_extra?.value || '';
+    const sourceProfile = rsgCopySourceOpProfileSelect_el_extra?.value || '';
+    const sourceConfigKey = rsg_createConfigKey_ExtraPage(sourceRoute, sourceProfile, sourceDestination);
+    const sourceConfig = rsg_loadedConfigs_extra?.[sourceConfigKey];
+
+    container.innerHTML = '';
+    if (!sourceRoute || !sourceDestination || !sourceProfile) {
+        container.innerHTML = '<p style="opacity:0.7;">Select a source route, destination, and profile first.</p>';
+        return;
+    }
+    if (!sourceConfig || !Array.isArray(sourceConfig.stopSequence) || sourceConfig.stopSequence.length === 0) {
+        container.innerHTML = '<p style="opacity:0.7;">No saved stop sequence found. All stops from the derived source trip will be copied.</p>';
+        return;
+    }
+
+    const selectAllLabel = document.createElement('label');
+    selectAllLabel.style.display = 'block';
+    selectAllLabel.style.fontWeight = 'bold';
+    const selectAll = document.createElement('input');
+    selectAll.type = 'checkbox';
+    selectAll.checked = true;
+    selectAll.style.marginRight = '0.5rem';
+    selectAllLabel.appendChild(selectAll);
+    selectAllLabel.appendChild(document.createTextNode('Select all stops'));
+    container.appendChild(selectAllLabel);
+
+    const stopCheckboxes = [];
+    sourceConfig.stopSequence.forEach((stop, index) => {
+        const label = document.createElement('label');
+        label.style.display = 'block';
+        label.style.padding = '0.2rem 0';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = true;
+        checkbox.dataset.stopIndex = String(index);
+        checkbox.style.marginRight = '0.5rem';
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(`${index + 1}. ${stop.stopName || stop.stopID} (${stop.stopID})`));
+        container.appendChild(label);
+        stopCheckboxes.push(checkbox);
+    });
+
+    selectAll.addEventListener('change', () => {
+        stopCheckboxes.forEach(checkbox => { checkbox.checked = selectAll.checked; });
+    });
+    stopCheckboxes.forEach(checkbox => checkbox.addEventListener('change', () => {
+        selectAll.checked = stopCheckboxes.every(item => item.checked);
+    }));
 }
 
 async function handleToggleStopStatusFromMasterList_ExtraPage(stopIDToToggle) {
@@ -15760,6 +15822,12 @@ function rsg_openCopyFromModal_ExtraPage() {
     const sourceRouteName = rsgCopySourceRouteNameSelect_el_extra.value;
     const sourceOpProfile = rsgCopySourceOpProfileSelect_el_extra.value;
     const sourceDestName = rsgCopySourceDestNameSelect_el_extra.value;
+    const sourceStopSelector = document.querySelector('#rsg-copy-source-stops-extra input[type="checkbox"][data-stop-index]');
+    const hasSourceStopSelector = Boolean(sourceStopSelector);
+    const selectedSourceStopIndexes = new Set(
+        Array.from(document.querySelectorAll('#rsg-copy-source-stops-extra input[type="checkbox"][data-stop-index]:checked'))
+            .map(input => Number(input.dataset.stopIndex))
+    );
 
     if (!sourceRouteName || !sourceOpProfile || !sourceDestName) {
         rsgCopyModalStatus_el_extra.textContent = "All source fields (Route, Operating Profile, Destination) must be selected.";
@@ -15872,8 +15940,29 @@ function rsg_openCopyFromModal_ExtraPage() {
     }
 
     if (sourceStopSequence.length > 0) {
-        rsg_selectedStops_extra = JSON.parse(JSON.stringify(sourceStopSequence)); 
-        if (rsgFirstStopTimesInput_el_extra) {
+        const existingStopCount = rsg_selectedStops_extra.length;
+        const existingStopIDs = new Set(
+            rsg_selectedStops_extra.map(stop => String(stop?.stopID || '').toUpperCase())
+        );
+        const stopsToAppend = JSON.parse(JSON.stringify(sourceStopSequence)).filter((stop, index) => {
+            const stopID = String(stop?.stopID || '').toUpperCase();
+            return stopID && !existingStopIDs.has(stopID) &&
+                (!hasSourceStopSelector || selectedSourceStopIndexes.has(index));
+        });
+
+            if (hasSourceStopSelector && selectedSourceStopIndexes.size === 0) {
+                rsgCopyModalStatus_el_extra.textContent = 'Select at least one source stop to copy.';
+                rsgCopyModalStatus_el_extra.style.color = '#f1c40f';
+                return;
+            }
+
+        if (existingStopCount === 0) {
+            rsg_selectedStops_extra = stopsToAppend;
+        } else {
+            rsg_selectedStops_extra.push(...stopsToAppend);
+        }
+
+        if (rsgFirstStopTimesInput_el_extra && existingStopCount === 0) {
             rsgFirstStopTimesInput_el_extra.value = sourceFirstStopTimes;
         }
         rsg_renderStopSequence_ExtraPage(); 
@@ -15887,7 +15976,7 @@ function rsg_openCopyFromModal_ExtraPage() {
         rsg_isDirty = true;
 
         if (rsgStatusMessage_el_extra) {
-            rsgStatusMessage_el_extra.textContent = `Sequence and times successfully copied from source [${sourceRouteName} / ${sourceOpProfile} / ${sourceDestName}]. Please review.`;
+            rsgStatusMessage_el_extra.textContent = `${stopsToAppend.length} stop(s) added from source [${sourceRouteName} / ${sourceOpProfile} / ${sourceDestName}]. Please review.`;
             rsgStatusMessage_el_extra.style.color = "#2ecc71";
         }
         rsg_resetPreviewState("Data copied from source. Regenerate preview if settings are complete.", "success");

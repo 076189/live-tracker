@@ -601,6 +601,12 @@ align-items: center;
                     <button id="save-app-settings-button-extra" class="button save">Save Settings</button>
                     <p id="app-settings-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
                 </div>
+                <div class="subsection" style="margin-top:1.5rem;">
+                    <h3 class="subsection-title">Mobile Arrivals Data</h3>
+                    <p style="font-size:0.9em; opacity:0.8;">Build the stop-indexed data used by the mobile arrivals display.</p>
+                    <button id="build-arrivals-index-button-extra" class="button save">Build Mobile Arrivals Index</button>
+                    <p id="build-arrivals-index-status-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+                </div>
             </div>
 
             <div id="enhanced-bulk-update-section_extra" class="tool-content-section section" style="display:none;">
@@ -9823,7 +9829,9 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
 }
 
 async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
-    if (!currentUser_extra || !window.firebaseOMSI || !Array.isArray(scheduleEntries)) return;
+    if (!currentUser_extra || !window.firebaseOMSI || !Array.isArray(scheduleEntries)) {
+        throw new Error('Live schedule data is not loaded or the user is not signed in.');
+    }
 
     const arrivalsByStop = {};
     scheduleEntries.forEach((entry, index) => {
@@ -9855,6 +9863,39 @@ async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
         stopCount: Object.keys(arrivalsByStop).length
     });
     console.log(`Arrivals index rebuilt for ${Object.keys(arrivalsByStop).length} stops.`);
+}
+
+async function handleBuildArrivalsIndex_ExtraPage() {
+    const statusEl = document.getElementById('build-arrivals-index-status-extra');
+    const button = document.getElementById('build-arrivals-index-button-extra');
+    if (!statusEl || !button) return;
+    if (window.innerWidth <= 768) {
+        statusEl.textContent = 'Please run this from a desktop browser.';
+        statusEl.style.color = '#f1c40f';
+        return;
+    }
+    if (!Array.isArray(liveScheduleForToolsDisplay) || liveScheduleForToolsDisplay.length === 0) {
+        statusEl.textContent = 'The live schedule is not loaded yet.';
+        statusEl.style.color = '#f1c40f';
+        return;
+    }
+
+    button.disabled = true;
+    statusEl.textContent = `Building index from ${liveScheduleForToolsDisplay.length} schedule entries...`;
+    statusEl.style.color = '#f1c40f';
+    try {
+        await rebuildArrivalsByStopIndex_ExtraPage(liveScheduleForToolsDisplay);
+        const { database, dbGet, dbRef } = window.firebaseOMSI;
+        const verification = await dbGet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META));
+        if (!verification.exists()) throw new Error('Firebase index metadata was not found after writing.');
+        statusEl.textContent = `Mobile arrivals index created for ${verification.val().stopCount || 0} stops.`;
+        statusEl.style.color = '#2ecc71';
+    } catch (error) {
+        statusEl.textContent = `Index build failed: ${error.message}`;
+        statusEl.style.color = '#e74c3c';
+    } finally {
+        button.disabled = false;
+    }
 }
 
 function scheduleArrivalsByStopIndexRebuild_ExtraPage() {
@@ -16349,6 +16390,11 @@ setupUMEventListeners();
 const saveSettingsButton = document.getElementById('save-app-settings-button-extra');
     if (saveSettingsButton && typeof saveAppSettings_ExtraPage === 'function') {
         saveSettingsButton.addEventListener('click', saveAppSettings_ExtraPage);
+    }
+
+const buildArrivalsIndexButton = document.getElementById('build-arrivals-index-button-extra');
+    if (buildArrivalsIndexButton && typeof handleBuildArrivalsIndex_ExtraPage === 'function') {
+        buildArrivalsIndexButton.addEventListener('click', handleBuildArrivalsIndex_ExtraPage);
     }
 
 const topMenuBar = document.getElementById('top-menu-bar_extra');

@@ -9841,18 +9841,19 @@ async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
             `${entry.tripId || entry.lineName || 'service'}_${entry.scheduledTime || index}_${index}`
         );
         if (!arrivalsByStop[stopID]) arrivalsByStop[stopID] = {};
-        arrivalsByStop[stopID][entryKey] = {
+        const indexedEntry = {
             stopID: entry.stopID,
             lineName: entry.lineName,
             destinationName: entry.destinationName,
             scheduledTime: entry.scheduledTime,
-            OperatingProfile: entry.OperatingProfile,
+            OperatingProfile: entry.OperatingProfile || '',
             DayOffset: entry.DayOffset || 0,
-            tripId: entry.tripId,
-            tripStopSequence: entry.tripStopSequence,
-            internalId: entry.internalId,
-            curtailment: entry.curtailment
+            internalId: entry.internalId || `${stopID}_${entryKey}`
         };
+        if (entry.tripId !== undefined) indexedEntry.tripId = entry.tripId;
+        if (Array.isArray(entry.tripStopSequence)) indexedEntry.tripStopSequence = entry.tripStopSequence;
+        if (entry.curtailment !== undefined) indexedEntry.curtailment = entry.curtailment;
+        arrivalsByStop[stopID][entryKey] = indexedEntry;
     });
 
     const { database, dbSet, dbRef } = window.firebaseOMSI;

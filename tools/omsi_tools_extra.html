@@ -1498,6 +1498,7 @@ align-items: center;
     let authGeneration_extra = 0;
     let dependentRenderTimer_extra = null;
     let keyDeparturesRefreshInProgress_extra = false;
+    let arrivalsIndexMigrationStarted_extra = false;
         let rsg_lastLoadedRouteName_extra = null;
         let rsg_lastLoadedDestName_extra = null;
         let rsg_lastLoadedOpProfile_extra = null;
@@ -1524,6 +1525,7 @@ align-items: center;
 	const FB_PATH_APP_SETTINGS = '/settings/appSettings'; // For new settings section
         const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute'; // New path for structured schedule data
         const FB_PATH_ARRIVALS_BY_STOP = '/arrivalsByStop';
+        const FB_PATH_ARRIVALS_BY_STOP_META = '/arrivalsByStopMeta';
 	const FB_PATH_CURTAILMENT_POINTS = '/operationalSettings/curtailmentPoints';
 	const FB_PATH_LIVE_INTERVENTIONS = '/liveServiceInterventions/curtailments';
 	const FB_PATH_SERVICE_TERMINUS_MAPPINGS = '/settings/serviceTerminusMappings';
@@ -2257,6 +2259,8 @@ function setupFirebaseListeners_ExtraPage() {
                 stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
             }
         });
+
+        ensureArrivalsByStopIndex_ExtraPage(flatLiveSchedule);
 
         if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
             populateMasterStopList_ExtraPage();
@@ -9714,12 +9718,44 @@ async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
             `${entry.tripId || entry.lineName || 'service'}_${entry.scheduledTime || index}_${index}`
         );
         if (!arrivalsByStop[stopID]) arrivalsByStop[stopID] = {};
-        arrivalsByStop[stopID][entryKey] = entry;
+        arrivalsByStop[stopID][entryKey] = {
+            stopID: entry.stopID,
+            lineName: entry.lineName,
+            destinationName: entry.destinationName,
+            scheduledTime: entry.scheduledTime,
+            OperatingProfile: entry.OperatingProfile,
+            DayOffset: entry.DayOffset || 0,
+            tripId: entry.tripId,
+            tripStopSequence: entry.tripStopSequence,
+            internalId: entry.internalId,
+            curtailment: entry.curtailment
+        };
     });
 
     const { database, dbSet, dbRef } = window.firebaseOMSI;
     await dbSet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP), arrivalsByStop);
+    await dbSet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META), {
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        stopCount: Object.keys(arrivalsByStop).length
+    });
     console.log(`Arrivals index rebuilt for ${Object.keys(arrivalsByStop).length} stops.`);
+}
+
+async function ensureArrivalsByStopIndex_ExtraPage(scheduleEntries) {
+    if (arrivalsIndexMigrationStarted_extra || window.innerWidth <= 768 || !Array.isArray(scheduleEntries)) return;
+    arrivalsIndexMigrationStarted_extra = true;
+
+    const { database, dbGet, dbRef } = window.firebaseOMSI;
+    try {
+        const metadataSnapshot = await dbGet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META));
+        if (!metadataSnapshot.exists()) {
+            await rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries);
+        }
+    } catch (error) {
+        arrivalsIndexMigrationStarted_extra = false;
+        console.error('Unable to initialise the mobile arrivals index:', error);
+    }
 }
         // --- Stop Management Functions ---
         function getBaseStopName_ExtraPage(fullStopName) { if (!fullStopName) return ""; let baseName = String(fullStopName).trim(); baseName = baseName.replace(/\s*\(Stand [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\(Bay [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\(Stop [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\([A-Z0-9]\)\s*$/i, ''); baseName = baseName.replace(/\s*-\s*Bay\s*[A-Z0-9]+\s*$/i,''); baseName = baseName.replace(/\s*Stop\s*[A-Z0-9]+\s*$/i,''); return baseName.trim(); }

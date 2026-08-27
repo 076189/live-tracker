@@ -1523,6 +1523,7 @@ align-items: center;
         const FB_PATH_SCHEDULED_DELETIONS = '/scheduledRouteDeletions';
 	const FB_PATH_APP_SETTINGS = '/settings/appSettings'; // For new settings section
         const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute'; // New path for structured schedule data
+        const FB_PATH_ARRIVALS_BY_STOP = '/arrivalsByStop';
 	const FB_PATH_CURTAILMENT_POINTS = '/operationalSettings/curtailmentPoints';
 	const FB_PATH_LIVE_INTERVENTIONS = '/liveServiceInterventions/curtailments';
 	const FB_PATH_SERVICE_TERMINUS_MAPPINGS = '/settings/serviceTerminusMappings';
@@ -9698,7 +9699,27 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     // 5. After all chunks are processed, update the ancillary data (unique stops, etc.)
     console.log("All route chunks processed. Updating ancillary data...");
     await updateAncillaryScheduleData_ExtraPage();
+    await rebuildArrivalsByStopIndex_ExtraPage(flatScheduleDataToSave);
     console.log("Chunked save process complete.");
+}
+
+async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
+    if (!currentUser_extra || !window.firebaseOMSI || !Array.isArray(scheduleEntries)) return;
+
+    const arrivalsByStop = {};
+    scheduleEntries.forEach((entry, index) => {
+        if (!entry || !entry.stopID) return;
+        const stopID = String(entry.stopID).toUpperCase();
+        const entryKey = sanitizeFirebaseKey(
+            `${entry.tripId || entry.lineName || 'service'}_${entry.scheduledTime || index}_${index}`
+        );
+        if (!arrivalsByStop[stopID]) arrivalsByStop[stopID] = {};
+        arrivalsByStop[stopID][entryKey] = entry;
+    });
+
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    await dbSet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP), arrivalsByStop);
+    console.log(`Arrivals index rebuilt for ${Object.keys(arrivalsByStop).length} stops.`);
 }
         // --- Stop Management Functions ---
         function getBaseStopName_ExtraPage(fullStopName) { if (!fullStopName) return ""; let baseName = String(fullStopName).trim(); baseName = baseName.replace(/\s*\(Stand [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\(Bay [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\(Stop [A-Z0-9]+\)\s*$/i, ''); baseName = baseName.replace(/\s*\([A-Z0-9]\)\s*$/i, ''); baseName = baseName.replace(/\s*-\s*Bay\s*[A-Z0-9]+\s*$/i,''); baseName = baseName.replace(/\s*Stop\s*[A-Z0-9]+\s*$/i,''); return baseName.trim(); }
@@ -15492,6 +15513,7 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
     try {
         console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
         await updateAncillaryScheduleData_ExtraPage();
+        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
         console.log(`Ancillary data updated successfully.`);
     } catch (error) {
         console.error(`Error updating ancillary data after saving route "${targetRouteName}":`, error);

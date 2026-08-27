@@ -696,6 +696,7 @@
 
     const FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED = '/liveSchedule/schedulesByRoute';
     const FB_PATH_ARRIVALS_BY_STOP = '/arrivalsByStop';
+    const FB_PATH_ARRIVALS_BY_STOP_META = '/arrivalsByStopMeta';
     const FB_PATH_APPSTATE = '/appState';
     const FB_PATH_SETTINGS_CUSTOM_COLOURS = '/settings/customRouteColours';
     const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
@@ -1315,15 +1316,15 @@ const massCurtailmentsSnapshot = await dbGet(dbChild(dbRef(database), FB_PATH_MA
         console.error("[ARRIVALS DEBUG] Error in loadInitialData:", error);
         if(busListElement) busListElement.innerHTML = `<li class="error-message">Error loading data. Error: ${error.message}</li>`;
     }
-    setupFirebaseListeners();
+    await setupFirebaseListeners();
 }
 
-function setupFirebaseListeners() {
+async function setupFirebaseListeners() {
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         console.error("Firebase not initialized. Cannot set up listeners for arrivals page.");
         return;
     }
-    const { database, dbOnValue, dbRef } = window.firebaseOMSI;
+    const { database, dbOnValue, dbGet, dbRef } = window.firebaseOMSI;
 
     const subscribeToIndexedStopSchedule = stopID => {
         if (indexedScheduleUnsubscribe) indexedScheduleUnsubscribe();
@@ -1346,6 +1347,7 @@ function setupFirebaseListeners() {
 
     console.log("[ARRIVALS DEBUG] Setting up Firebase listeners...");
 
+    const registerFullScheduleListener = () => {
     const liveScheduleRef = dbRef(database, FB_PATH_LIVE_SCHEDULE_DATA_STRUCTURED);
     dbOnValue(liveScheduleRef, (snapshot) => {
         if (indexedScheduleActive) return;
@@ -1398,9 +1400,18 @@ function setupFirebaseListeners() {
             displaySystemUpdateMessage();
         }
     });
+    };
 
     window.subscribeArrivalsToIndexedStop = subscribeToIndexedStopSchedule;
     if (currentSelectedStopID) subscribeToIndexedStopSchedule(currentSelectedStopID);
+
+    try {
+        const indexMetadataSnapshot = await dbGet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META));
+        if (!indexMetadataSnapshot.exists()) registerFullScheduleListener();
+    } catch (error) {
+        console.warn('[ARRIVALS DEBUG] Could not check arrivals index metadata; using full schedule fallback.', error);
+        registerFullScheduleListener();
+    }
 
     const allDefinedStopsListenerRef = dbRef(database, FB_PATH_ALL_DEFINED_STOPS);
     dbOnValue(allDefinedStopsListenerRef, (snapshot) => {

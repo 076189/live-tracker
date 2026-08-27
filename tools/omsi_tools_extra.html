@@ -1505,6 +1505,7 @@ align-items: center;
     let dependentRenderTimer_extra = null;
     let keyDeparturesRefreshInProgress_extra = false;
     let arrivalsIndexMigrationStarted_extra = false;
+    let arrivalsIndexRebuildTimer_extra = null;
         let rsg_lastLoadedRouteName_extra = null;
         let rsg_lastLoadedDestName_extra = null;
         let rsg_lastLoadedOpProfile_extra = null;
@@ -9856,6 +9857,18 @@ async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
     console.log(`Arrivals index rebuilt for ${Object.keys(arrivalsByStop).length} stops.`);
 }
 
+function scheduleArrivalsByStopIndexRebuild_ExtraPage() {
+    if (arrivalsIndexRebuildTimer_extra !== null) return;
+    arrivalsIndexRebuildTimer_extra = setTimeout(async () => {
+        arrivalsIndexRebuildTimer_extra = null;
+        try {
+            await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+        } catch (error) {
+            console.error('Unable to update the mobile arrivals index after route changes:', error);
+        }
+    }, 1500);
+}
+
 async function ensureArrivalsByStopIndex_ExtraPage(scheduleEntries) {
     if (arrivalsIndexMigrationStarted_extra || window.innerWidth <= 768 || !Array.isArray(scheduleEntries)) return;
     arrivalsIndexMigrationStarted_extra = true;
@@ -15663,7 +15676,7 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
     try {
         console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
         await updateAncillaryScheduleData_ExtraPage();
-        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+        scheduleArrivalsByStopIndexRebuild_ExtraPage();
         console.log(`Ancillary data updated successfully.`);
     } catch (error) {
         console.error(`Error updating ancillary data after saving route "${targetRouteName}":`, error);

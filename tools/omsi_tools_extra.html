@@ -14265,7 +14265,16 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
                  rsgStatusMessage_el_extra.style.color = "#3498db";
             }
             await saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName); 
-            
+
+            // Ensure the arrivals index is definitely up to date before we report success,
+            // instead of relying on the debounced rebuild scheduled internally (which could
+            // be missed if the tab is closed too soon).
+            if (arrivalsIndexRebuildTimer_extra !== null) {
+                clearTimeout(arrivalsIndexRebuildTimer_extra);
+                arrivalsIndexRebuildTimer_extra = null;
+            }
+            await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+
             if (rsgStatusMessage_el_extra) {
                 rsgStatusMessage_el_extra.textContent = `Successfully saved to Firebase. Working schedule now has ${currentWorkingSchedule_extra.length} total entries.`;
                 rsgStatusMessage_el_extra.style.color = "#2ecc71";
@@ -15758,6 +15767,15 @@ async function reloadClosedStopsFromFirebase() {
     try {
         await saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName);
 
+        // Ensure the arrivals index is definitely up to date before we report success,
+        // instead of relying on the debounced rebuild that saveSpecificRouteDataToFirebase
+        // schedules internally (which could be missed if the tab is closed too soon).
+        if (arrivalsIndexRebuildTimer_extra !== null) {
+            clearTimeout(arrivalsIndexRebuildTimer_extra);
+            arrivalsIndexRebuildTimer_extra = null;
+        }
+        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+
         const removePromises = [];
         for (const taskKey of taskKeysInBatch) {
             const taskNodeRef = dbRef(database, `${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${taskKey}`);
@@ -15851,10 +15869,13 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
     try {
         console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
         await updateAncillaryScheduleData_ExtraPage();
-        // Await directly (rather than the debounced scheduler) so the arrivals index is
-        // guaranteed to be up to date before this save is considered complete - otherwise
-        // navigating away quickly after a save can leave new routes missing from arrivals.
-        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+        // Debounced/non-blocking here: this function is often called many times in a row
+        // (e.g. one call per affected route). Awaiting a full arrivals index rebuild on
+        // every single call made batch/multi-route operations extremely slow. Callers
+        // that need a guaranteed-fresh index before reporting success (e.g. RSG "Add to
+        // working schedule", scheduled batch apply) explicitly await rebuildArrivalsByStopIndex_ExtraPage
+        // themselves once, after all their route saves are done.
+        scheduleArrivalsByStopIndexRebuild_ExtraPage();
         console.log(`Ancillary data updated successfully.`);
     } catch (error) {
         console.error(`Error updating ancillary data after saving route "${targetRouteName}":`, error);

@@ -3226,7 +3226,10 @@ function renderGlobalCustomRouteColours_ExtraPage() {
     if (!currentGlobalRouteColoursList_el_extra || !noGlobalCustomColoursMessage_el_extra) return;
 
     currentGlobalRouteColoursList_el_extra.innerHTML = '';
-    const routes = Object.keys(globalCustomRouteColours_extra).sort(compareLineNames_ExtraPage);
+    // Don't list routes whose saved colour is just the default day bus colour - that's not really an override.
+    const routes = Object.keys(globalCustomRouteColours_extra)
+        .filter(rName => (globalCustomRouteColours_extra[rName] || '').toUpperCase() !== DEFAULT_ROUTE_COLOUR_TOOLS_extra.toUpperCase())
+        .sort(compareLineNames_ExtraPage);
 
     if (routes.length === 0) {
         noGlobalCustomColoursMessage_el_extra.textContent = 'No global custom colours. Using system defaults.';
@@ -3744,7 +3747,12 @@ async function handleSaveGlobalRouteColour_ExtraPage() {
     }
 
     const previousColours = { ...globalCustomRouteColours_extra };
-    globalCustomRouteColours_extra[routeName.toUpperCase()] = color.toUpperCase();
+    if (color.toUpperCase() === DEFAULT_ROUTE_COLOUR_TOOLS_extra.toUpperCase()) {
+        // Default day bus colour means "no override" - don't clutter the list with it.
+        delete globalCustomRouteColours_extra[routeName.toUpperCase()];
+    } else {
+        globalCustomRouteColours_extra[routeName.toUpperCase()] = color.toUpperCase();
+    }
     const saved = await saveGlobalCustomRouteColours_ExtraPage();
     if (!saved) globalCustomRouteColours_extra = previousColours;
 }

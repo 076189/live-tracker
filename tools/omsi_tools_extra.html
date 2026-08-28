@@ -9885,19 +9885,39 @@ async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries, onProgress 
     const stopIDs = Object.keys(arrivalsByStop);
     // Write in batched multi-path updates instead of one dbSet per stop - with a large
     // schedule (100k+ entries / hundreds of stops) awaiting one round-trip per stop made
-    // this appear to hang for minutes with no feedback.
-    const ARRIVALS_INDEX_CHUNK_SIZE = 250;
-    for (let i = 0; i < stopIDs.length; i += ARRIVALS_INDEX_CHUNK_SIZE) {
-        const chunkStopIDs = stopIDs.slice(i, i + ARRIVALS_INDEX_CHUNK_SIZE);
-        const multiPathUpdate = {};
-        chunkStopIDs.forEach(stopID => {
-            multiPathUpdate[`${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`] = arrivalsByStop[stopID];
-        });
+    // this appear to hang for minutes with no feedback. Batch by entry count (not stop
+    // count) since a single busy stop can hold thousands of entries and blow past
+    // Firebase's per-write size limit ("Write too large") if too many stops are grouped.
+    const ARRIVALS_INDEX_MAX_ENTRIES_PER_BATCH = 1500;
+    let multiPathUpdate = {};
+    let entriesInCurrentBatch = 0;
+    let stopsWritten = 0;
+
+    const flushBatch_extra = async () => {
+        if (Object.keys(multiPathUpdate).length === 0) return;
         await dbUpdate(dbRef(database), multiPathUpdate);
+        multiPathUpdate = {};
+        entriesInCurrentBatch = 0;
+    };
+
+    for (const stopID of stopIDs) {
+        const entriesForStop = Object.keys(arrivalsByStop[stopID]).length;
+        // A single stop with more entries than the whole batch cap still has to be
+        // written on its own - Firebase will accept it as long as it's the only one.
+        if (entriesInCurrentBatch > 0 && entriesInCurrentBatch + entriesForStop > ARRIVALS_INDEX_MAX_ENTRIES_PER_BATCH) {
+            await flushBatch_extra();
+        }
+        multiPathUpdate[`${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`] = arrivalsByStop[stopID];
+        entriesInCurrentBatch += entriesForStop;
+        stopsWritten++;
+        if (entriesInCurrentBatch >= ARRIVALS_INDEX_MAX_ENTRIES_PER_BATCH) {
+            await flushBatch_extra();
+        }
         if (typeof onProgress === 'function') {
-            onProgress(Math.min(i + ARRIVALS_INDEX_CHUNK_SIZE, stopIDs.length), stopIDs.length);
+            onProgress(stopsWritten, stopIDs.length);
         }
     }
+    await flushBatch_extra();
     await dbSet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META), {
         version: 1,
         generatedAt: new Date().toISOString(),

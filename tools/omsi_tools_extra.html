@@ -5274,6 +5274,8 @@ async function handleEnhancedBulkUpdateDestination() {
     let curtailmentUpdateCount = 0;
     const curtailmentUpdatesForFirebase = {}; // These will be committed via dbUpdate
     const tempCurtailmentPoints = JSON.parse(JSON.stringify(definedCurtailmentPoints));
+    const oldDestKeySanitizedLower = sanitizeFirebaseKey(oldDest).toLowerCase();
+    const newDestKeySanitized = sanitizeFirebaseKey(newDest);
     
     console.log(`EBU Update Debug: --- Searching definedCurtailmentPoints (Total: ${Object.keys(definedCurtailmentPoints).length} top-level routeKeys) ---`);
     const sanitizedTargetRoutesSet = new Set(targetRoutes.map(routeName => sanitizeFirebaseKey(routeName).toUpperCase()));
@@ -5296,7 +5298,25 @@ async function handleEnhancedBulkUpdateDestination() {
                         }
                     });
                 }
-                if (pointsWereUpdatedInThisDestKey) {
+
+                // The destKey itself is the sanitized journey destination these points apply to
+                // (set via the RSG config's destinationName). If that journey's destination is
+                // being renamed, the curtailment points node must be MOVED to the new sanitized
+                // key too, otherwise it stays orphaned under the old (now-stale) path.
+                const destKeyIsRenamedDestination = destKey.toLowerCase() === oldDestKeySanitizedLower;
+
+                if (destKeyIsRenamedDestination) {
+                    const oldFirebasePath = `${FB_PATH_CURTAILMENT_POINTS}/${routeKey}/${destKey}`;
+                    const newFirebasePath = `${FB_PATH_CURTAILMENT_POINTS}/${routeKey}/${newDestKeySanitized}`;
+                    curtailmentUpdatesForFirebase[oldFirebasePath] = null; // Remove old node
+                    curtailmentUpdatesForFirebase[newFirebasePath] = pointsArray; // Write under new key
+                    delete tempCurtailmentPoints[routeKey][destKey];
+                    if (!tempCurtailmentPoints[routeKey][newDestKeySanitized]) {
+                        tempCurtailmentPoints[routeKey][newDestKeySanitized] = pointsArray;
+                    }
+                    if (!pointsWereUpdatedInThisDestKey) curtailmentUpdateCount++;
+                    console.log(`EBU Update Debug:     - MOVED! Curtailment points for RouteKey '${routeKey}' relocated from '${destKey}' to '${newDestKeySanitized}'.`);
+                } else if (pointsWereUpdatedInThisDestKey) {
                     const firebasePath = `${FB_PATH_CURTAILMENT_POINTS}/${routeKey}/${destKey}`;
                     curtailmentUpdatesForFirebase[firebasePath] = pointsArray; // Add updated array to batch
                 }

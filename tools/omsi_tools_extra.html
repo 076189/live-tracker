@@ -5362,6 +5362,14 @@ async function handleEnhancedBulkUpdateDestination() {
         }
         await Promise.all(saveSchedulePromises); // Wait for all route saves to complete
 
+        // Ensure the arrivals index reflects the new destination name before we report
+        // success, instead of relying on the debounced rebuild scheduled internally by
+        // saveSpecificRouteDataToFirebase (which could be missed if the tab is closed too soon).
+        if (arrivalsIndexRebuildTimer_extra !== null) {
+            clearTimeout(arrivalsIndexRebuildTimer_extra);
+            arrivalsIndexRebuildTimer_extra = null;
+        }
+        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
 
         statusEl.textContent = "Full system update complete! All destination names have been changed.";
         statusEl.style.color = '#2ecc71';
@@ -9781,7 +9789,7 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     if (!currentUser_extra || !window.firebaseOMSI) {
         throw new Error("Not logged in or Firebase not available.");
     }
-    const { database, dbSet, dbRef, dbRemove, dbGet, dbChild } = window.firebaseOMSI;
+    const { database, dbUpdate, dbRef, dbRemove, dbGet, dbChild } = window.firebaseOMSI;
 
     console.log(`Starting chunked save process for ${flatScheduleDataToSave.length} total entries...`);
 
@@ -9803,7 +9811,26 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     
     const newRouteKeys = Object.keys(newScheduleGroupedByRoute);
 
-    // 3. Process routes to be updated or added
+    // 3. Process routes to be updated or added - batched into multi-path updates (grouped
+    // by entry count, not route count) instead of one dbSet per route. With dozens of
+    // routes and 100k+ total entries, awaiting one network round-trip per route made this
+    // extremely slow; a handful of batched writes is far faster.
+    const SCHEDULE_SAVE_MAX_ENTRIES_PER_BATCH = 1500;
+    let multiPathUpdate = {};
+    let entriesInCurrentBatch = 0;
+
+    const flushScheduleBatch_extra = async () => {
+        if (Object.keys(multiPathUpdate).length === 0) return;
+        try {
+            await dbUpdate(dbRef(database), multiPathUpdate);
+        } catch (error) {
+            console.error(`Error saving a batch of route data:`, error);
+            throw new Error(`Failed to save schedule batch. Operation halted.`);
+        }
+        multiPathUpdate = {};
+        entriesInCurrentBatch = 0;
+    };
+
     for (const routeKey of newRouteKeys) {
         const entriesForThisRoute = newScheduleGroupedByRoute[routeKey];
         const saneRouteKey = sanitizeFirebaseKey(routeKey); // Assuming original route name was used as key
@@ -9819,16 +9846,17 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
             routeDataForFirebase[saneProfile][saneDest].entries.push(entry);
         });
 
-        console.log(`  -> Writing ${entriesForThisRoute.length} entries for Route: ${routeKey}`);
-        try {
-            // This is a small, targeted write for just one route
-            await dbSet(dbRef(database, routePathInFirebase), routeDataForFirebase);
-        } catch (error) {
-            console.error(`Error saving chunk for route ${routeKey}:`, error);
-            // Optionally, decide if you want to stop the whole process or continue
-            throw new Error(`Failed to save route ${routeKey}. Operation halted.`);
+        console.log(`  -> Queuing ${entriesForThisRoute.length} entries for Route: ${routeKey}`);
+        if (entriesInCurrentBatch > 0 && entriesInCurrentBatch + entriesForThisRoute.length > SCHEDULE_SAVE_MAX_ENTRIES_PER_BATCH) {
+            await flushScheduleBatch_extra();
+        }
+        multiPathUpdate[routePathInFirebase] = routeDataForFirebase;
+        entriesInCurrentBatch += entriesForThisRoute.length;
+        if (entriesInCurrentBatch >= SCHEDULE_SAVE_MAX_ENTRIES_PER_BATCH) {
+            await flushScheduleBatch_extra();
         }
     }
+    await flushScheduleBatch_extra();
 
     // 4. Process routes that need to be deleted
     for (const existingRouteKey of existingRouteKeysInFirebase) {

@@ -13400,6 +13400,23 @@ function rsg_clearProfileSelections_ExtraPage() {
             }
         }
 
+function rsg_findOtherRoutesServingStop_ExtraPage(stopID, currentRouteNameUpper) {
+    const routeNames = new Set();
+    if (!rsg_loadedConfigs_extra || typeof rsg_loadedConfigs_extra !== 'object') {
+        return [];
+    }
+    for (const configKey in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[configKey];
+        if (!config.routeName || config.routeName.toUpperCase() === currentRouteNameUpper || !Array.isArray(config.stopSequence)) {
+            continue;
+        }
+        if (config.stopSequence.some(s => s.stopID === stopID)) {
+            routeNames.add(config.routeName);
+        }
+    }
+    return Array.from(routeNames).sort(compareLineNames_ExtraPage);
+}
+
 function rsg_downloadStopsList_ExtraPage() {
     if (!rsg_selectedStops_extra || rsg_selectedStops_extra.length === 0) {
         alert('There are no stops in the current sequence to download.');
@@ -13410,10 +13427,15 @@ function rsg_downloadStopsList_ExtraPage() {
     const destinationName = (rsgDestinationNameInput_el_extra && rsgDestinationNameInput_el_extra.value.trim())
         || (rsgDestinationNameSelect_el_extra && rsgDestinationNameSelect_el_extra.value.trim())
         || 'Destination';
+    const currentRouteNameUpper = routeName.toUpperCase();
 
     const lines = [`${routeName} - ${destinationName}`, `Total Stops: ${rsg_selectedStops_extra.length}`, ''];
     rsg_selectedStops_extra.forEach((stop, index) => {
-        lines.push(`${index + 1}. ${stop.stopName} (${stop.stopID})`);
+        const otherRoutes = rsg_findOtherRoutesServingStop_ExtraPage(stop.stopID, currentRouteNameUpper);
+        const otherRoutesText = otherRoutes.length > 0
+            ? ` [Also served by ${otherRoutes.length} other route${otherRoutes.length === 1 ? '' : 's'}: ${otherRoutes.join(', ')}]`
+            : ' [No other routes serve this stop]';
+        lines.push(`${index + 1}. ${stop.stopName} (${stop.stopID})${otherRoutesText}`);
     });
 
     const blob = new Blob([lines.join('\r\n')], { type: 'text/plain;charset=utf-8' });

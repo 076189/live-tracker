@@ -975,7 +975,9 @@ align-items: center;
     </div>
     <div class="subsection">
         <h3 class="subsection-title">2. Build Stop Sequence</h3>
-        <p id="rsg-stop-count-display" style="font-size:0.9em; margin-bottom:0.75em; opacity: 0.8;">Total Stops: 0</p> <input type="text" id="rsg-stop-search-input-extra" class="schedule-generator-input" placeholder="Search for stop by name or ID...">
+        <p id="rsg-stop-count-display" style="font-size:0.9em; margin-bottom:0.75em; opacity: 0.8; display:inline-block;">Total Stops: 0</p>
+        <button id="rsg-download-stops-button-extra" class="button small-action neutral" style="margin-left:0.75rem; margin-bottom:0.75em;">Download Stops List (.txt)</button>
+        <input type="text" id="rsg-stop-search-input-extra" class="schedule-generator-input" placeholder="Search for stop by name or ID...">
         <div id="rsg-stop-search-results-extra"></div>
         <ul id="rsg-stop-sequence-list-extra" style="margin-top:1rem; list-style:none; padding:0;"></ul>
         <p id="rsg-stop-sequence-placeholder-extra" style="text-align:center; opacity:0.7; padding:1rem;">Search and add stops to build the sequence.</p>
@@ -1735,6 +1737,7 @@ const globalRouteDeletionListContainer_el_extra = document.getElementById('globa
         const rsgDestinationNameInput_el_extra = document.getElementById('rsg-destinationName-input-extra');
         const rsgStopSearchInput_el_extra = document.getElementById('rsg-stop-search-input-extra');
         const rsgStopSearchResults_el_extra = document.getElementById('rsg-stop-search-results-extra');
+        const rsgDownloadStopsButton_el_extra = document.getElementById('rsg-download-stops-button-extra');
         const rsgStopSequenceList_el_extra = document.getElementById('rsg-stop-sequence-list-extra');
         const rsgStopSequencePlaceholder_el_extra = document.getElementById('rsg-stop-sequence-placeholder-extra');
         const rsgFirstStopTimesContainer_el_extra = document.getElementById('rsg-first-stop-times-container-extra');
@@ -13397,6 +13400,34 @@ function rsg_clearProfileSelections_ExtraPage() {
             }
         }
 
+function rsg_downloadStopsList_ExtraPage() {
+    if (!rsg_selectedStops_extra || rsg_selectedStops_extra.length === 0) {
+        alert('There are no stops in the current sequence to download.');
+        return;
+    }
+
+    const routeName = (rsgRouteNameInput_el_extra && rsgRouteNameInput_el_extra.value.trim()) || 'Route';
+    const destinationName = (rsgDestinationNameInput_el_extra && rsgDestinationNameInput_el_extra.value.trim())
+        || (rsgDestinationNameSelect_el_extra && rsgDestinationNameSelect_el_extra.value.trim())
+        || 'Destination';
+
+    const lines = [`${routeName} - ${destinationName}`, `Total Stops: ${rsg_selectedStops_extra.length}`, ''];
+    rsg_selectedStops_extra.forEach((stop, index) => {
+        lines.push(`${index + 1}. ${stop.stopName} (${stop.stopID})`);
+    });
+
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const safeName = `${routeName}_${destinationName}`.replace(/[^a-z0-9_-]+/gi, '_');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}_stops.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 function rsg_renderStopSequence_ExtraPage() {
     if (!rsgStopSequenceList_el_extra || !rsgStopSequencePlaceholder_el_extra || !rsgFirstStopTimesContainer_el_extra || !rsgStopCountDisplay_el_extra) {
         console.error("RSG Render: Critical elements for rendering stop sequence are missing.");
@@ -17034,6 +17065,9 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
     }
     if (rsgStopSearchInput_el_extra && typeof rsg_handleStopSearch_ExtraPage === 'function') {
         rsgStopSearchInput_el_extra.addEventListener('input', rsg_handleStopSearch_ExtraPage);
+    }
+    if (rsgDownloadStopsButton_el_extra && typeof rsg_downloadStopsList_ExtraPage === 'function') {
+        rsgDownloadStopsButton_el_extra.addEventListener('click', rsg_downloadStopsList_ExtraPage);
     }
     if (rsgGenerateScheduleButton_el_extra && typeof rsg_handleGenerateSchedulePreview_ExtraPage === 'function') {
     rsgGenerateScheduleButton_el_extra.addEventListener('click', () => rsg_handleGenerateSchedulePreview_ExtraPage(false));

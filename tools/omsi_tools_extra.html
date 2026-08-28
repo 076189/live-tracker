@@ -2283,8 +2283,6 @@ function setupFirebaseListeners_ExtraPage() {
             }
         });
 
-        ensureArrivalsByStopIndex_ExtraPage(flatLiveSchedule);
-
         if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
             populateMasterStopList_ExtraPage();
         }
@@ -9828,7 +9826,7 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     console.log("Chunked save process complete.");
 }
 
-async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
+async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries, onProgress = null) {
     if (!currentUser_extra || !window.firebaseOMSI || !Array.isArray(scheduleEntries)) {
         throw new Error('Live schedule data is not loaded or the user is not signed in.');
     }
@@ -9857,13 +9855,24 @@ async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries) {
     });
 
     const { database, dbSet, dbRef } = window.firebaseOMSI;
-    await dbSet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP), arrivalsByStop);
+    const stopIDs = Object.keys(arrivalsByStop);
+    for (let index = 0; index < stopIDs.length; index++) {
+        const stopID = stopIDs[index];
+        await dbSet(
+            dbRef(database, `${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`),
+            arrivalsByStop[stopID]
+        );
+        if (typeof onProgress === 'function' && (index === 0 || (index + 1) % 10 === 0 || index === stopIDs.length - 1)) {
+            onProgress(index + 1, stopIDs.length);
+        }
+    }
     await dbSet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META), {
         version: 1,
         generatedAt: new Date().toISOString(),
-        stopCount: Object.keys(arrivalsByStop).length
+        stopCount: stopIDs.length,
+        entryCount: scheduleEntries.length
     });
-    console.log(`Arrivals index rebuilt for ${Object.keys(arrivalsByStop).length} stops.`);
+    console.log(`Arrivals index rebuilt for ${stopIDs.length} stops.`);
 }
 
 async function handleBuildArrivalsIndex_ExtraPage() {
@@ -9885,7 +9894,9 @@ async function handleBuildArrivalsIndex_ExtraPage() {
     statusEl.textContent = `Building index from ${liveScheduleForToolsDisplay.length} schedule entries...`;
     statusEl.style.color = '#f1c40f';
     try {
-        await rebuildArrivalsByStopIndex_ExtraPage(liveScheduleForToolsDisplay);
+        await rebuildArrivalsByStopIndex_ExtraPage(liveScheduleForToolsDisplay, (completed, total) => {
+            statusEl.textContent = `Building mobile arrivals index... ${completed} of ${total} stops written.`;
+        });
         const { database, dbGet, dbRef } = window.firebaseOMSI;
         const verification = await dbGet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META));
         if (!verification.exists()) throw new Error('Firebase index metadata was not found after writing.');

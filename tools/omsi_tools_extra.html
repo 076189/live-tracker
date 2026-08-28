@@ -9881,16 +9881,21 @@ async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries, onProgress 
         arrivalsByStop[stopID][entryKey] = indexedEntry;
     });
 
-    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    const { database, dbSet, dbUpdate, dbRef } = window.firebaseOMSI;
     const stopIDs = Object.keys(arrivalsByStop);
-    for (let index = 0; index < stopIDs.length; index++) {
-        const stopID = stopIDs[index];
-        await dbSet(
-            dbRef(database, `${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`),
-            arrivalsByStop[stopID]
-        );
-        if (typeof onProgress === 'function' && (index === 0 || (index + 1) % 10 === 0 || index === stopIDs.length - 1)) {
-            onProgress(index + 1, stopIDs.length);
+    // Write in batched multi-path updates instead of one dbSet per stop - with a large
+    // schedule (100k+ entries / hundreds of stops) awaiting one round-trip per stop made
+    // this appear to hang for minutes with no feedback.
+    const ARRIVALS_INDEX_CHUNK_SIZE = 250;
+    for (let i = 0; i < stopIDs.length; i += ARRIVALS_INDEX_CHUNK_SIZE) {
+        const chunkStopIDs = stopIDs.slice(i, i + ARRIVALS_INDEX_CHUNK_SIZE);
+        const multiPathUpdate = {};
+        chunkStopIDs.forEach(stopID => {
+            multiPathUpdate[`${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`] = arrivalsByStop[stopID];
+        });
+        await dbUpdate(dbRef(database), multiPathUpdate);
+        if (typeof onProgress === 'function') {
+            onProgress(Math.min(i + ARRIVALS_INDEX_CHUNK_SIZE, stopIDs.length), stopIDs.length);
         }
     }
     await dbSet(dbRef(database, FB_PATH_ARRIVALS_BY_STOP_META), {

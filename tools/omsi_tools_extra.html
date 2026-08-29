@@ -9070,7 +9070,33 @@ async function handleEditStopFromMasterList_ExtraPage(stopID, currentName, curre
         });
     }
 
-    if (!definitionChanged && !scheduleEntriesModified) {
+    // 3. Update occurrences of this stop cached inside saved RSG configurations. Each config's
+    // stopSequence embeds its own stopName/direction snapshot, so renaming a stop here would
+    // otherwise leave every RSG that uses it displaying the old name/"Towards" text forever.
+    let rsgConfigUpdateCount = 0;
+    const rsgConfigUpdatesForFirebase = {};
+    if (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') {
+        for (const configKey in rsg_loadedConfigs_extra) {
+            const config = rsg_loadedConfigs_extra[configKey];
+            if (!config || !Array.isArray(config.stopSequence)) continue;
+            let configChanged = false;
+            const updatedStopSequence = config.stopSequence.map(stop => {
+                if (stop && stop.stopID && stop.stopID.toUpperCase() === stopIDUpper &&
+                    (stop.stopName !== trimmedNewStopName || stop.direction !== trimmedNewDirection)) {
+                    configChanged = true;
+                    return { ...stop, stopName: trimmedNewStopName, direction: trimmedNewDirection };
+                }
+                return stop;
+            });
+            if (configChanged) {
+                config.stopSequence = updatedStopSequence;
+                rsgConfigUpdatesForFirebase[`${FB_PATH_RSG_CONFIGS}/${configKey}/stopSequence`] = updatedStopSequence;
+                rsgConfigUpdateCount++;
+            }
+        }
+    }
+
+    if (!definitionChanged && !scheduleEntriesModified && rsgConfigUpdateCount === 0) {
         if (masterStopListStatus_el_extra) masterStopListStatus_el_extra.textContent = `No changes made to Stop ID "${stopID}".`;
         return;
     }
@@ -9095,11 +9121,17 @@ async function handleEditStopFromMasterList_ExtraPage(stopID, currentName, curre
                 throw new Error("Cannot save schedule, critical function missing.");
             }
         }
+
+        if (rsgConfigUpdateCount > 0) {
+            const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+            await dbUpdate(dbRef(database), rsgConfigUpdatesForFirebase);
+        }
         
         if (masterStopListStatus_el_extra) {
             let message = `Stop ID "${stopID}" updated.`;
             if (definitionChanged) message += ` Master definition changed.`;
             if (scheduleEntriesModified) message += ` ${updatedScheduleEntryCount} live schedule entries affected.`;
+            if (rsgConfigUpdateCount > 0) message += ` ${rsgConfigUpdateCount} RSG configuration(s) updated.`;
             masterStopListStatus_el_extra.textContent = message;
             masterStopListStatus_el_extra.style.color = "#2ecc71";
         }

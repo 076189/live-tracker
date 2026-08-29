@@ -1514,6 +1514,7 @@ align-items: center;
     let keyDeparturesRefreshInProgress_extra = false;
     let arrivalsIndexMigrationStarted_extra = false;
     let arrivalsIndexRebuildTimer_extra = null;
+    let rsgScheduleRebuildToken_extra = 0; // Invalidates in-progress chunked rebuilds superseded by newer data
         let rsg_lastLoadedRouteName_extra = null;
         let rsg_lastLoadedDestName_extra = null;
         let rsg_lastLoadedOpProfile_extra = null;
@@ -2296,24 +2297,7 @@ function setupFirebaseListeners_ExtraPage() {
     firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgConfigsRef, (snapshot) => {
         console.log("[RSG Configs Listener] RSG configurations data updated.");
         rsg_loadedConfigs_extra = snapshot.exists() ? snapshot.val() || {} : {};
-
-        let flatScheduleFromConfigs = [];
-        if (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') {
-            Object.values(rsg_loadedConfigs_extra).forEach(config => {
-                if (config && config.stopSequence && config.firstStopTimes) {
-                    const trips = generateScheduleTripsFromConfig(config);
-                    trips.forEach(tripEntries => {
-                        flatScheduleFromConfigs.push(...tripEntries);
-                    });
-                }
-            });
-        }
-        currentWorkingSchedule_extra = flatScheduleFromConfigs;
-
-        // Re-populate any UI elements that depend on the full schedule list
-        if(currentUser_extra) { // Only if logged in
-             scheduleDependentRender_ExtraPage();
-        }
+        rebuildScheduleFromRsgConfigs_ExtraPage();
     }));
 
     // Listener for Defined Curtailment Points
@@ -2370,6 +2354,40 @@ function scheduleDependentRender_ExtraPage() {
         dependentRenderTimer_extra = null;
         if (currentUser_extra) renderUIDependentElements_ExtraPage();
     }, 100);
+}
+
+// Expanding every RSG config into full trip entries in one synchronous pass can block the main
+// thread long enough on phones for the browser to kill/reload the tab. Process in small chunks
+// and yield between them so the page stays responsive while "loading the routes".
+async function rebuildScheduleFromRsgConfigs_ExtraPage() {
+    const myToken = ++rsgScheduleRebuildToken_extra;
+    const configs = (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') ? Object.values(rsg_loadedConfigs_extra) : [];
+    const flatScheduleFromConfigs = [];
+    const CHUNK_SIZE = 25;
+
+    for (let i = 0; i < configs.length; i += CHUNK_SIZE) {
+        if (myToken !== rsgScheduleRebuildToken_extra) return; // Superseded by a newer Firebase update
+
+        configs.slice(i, i + CHUNK_SIZE).forEach(config => {
+            if (config && config.stopSequence && config.firstStopTimes) {
+                const trips = generateScheduleTripsFromConfig(config);
+                trips.forEach(tripEntries => {
+                    flatScheduleFromConfigs.push(...tripEntries);
+                });
+            }
+        });
+
+        if (i + CHUNK_SIZE < configs.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    if (myToken !== rsgScheduleRebuildToken_extra) return;
+    currentWorkingSchedule_extra = flatScheduleFromConfigs;
+
+    if (currentUser_extra) { // Only if logged in
+        scheduleDependentRender_ExtraPage();
+    }
 }
 
 async function refreshKeyDeparturesSafely_ExtraPage() {

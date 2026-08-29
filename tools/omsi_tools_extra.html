@@ -607,6 +607,12 @@ align-items: center;
                     <button id="build-arrivals-index-button-extra" class="button save">Build Mobile Arrivals Index</button>
                     <p id="build-arrivals-index-status-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
                 </div>
+                <div class="subsection" style="margin-top:1.5rem;">
+                    <h3 class="subsection-title">Sync RSG Stop Names</h3>
+                    <p style="font-size:0.9em; opacity:0.8;">One-time repair: updates every saved RSG configuration's cached stop names/"Towards" text to match the current Bus Stop list, for any stops renamed before this was done automatically.</p>
+                    <button id="sync-rsg-stop-names-button-extra" class="button save">Sync All RSG Configs Now</button>
+                    <p id="sync-rsg-stop-names-status-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+                </div>
             </div>
 
             <div id="enhanced-bulk-update-section_extra" class="tool-content-section section" style="display:none;">
@@ -10127,6 +10133,77 @@ async function handleBuildArrivalsIndex_ExtraPage() {
     }
 }
 
+async function handleSyncRsgStopNames_ExtraPage() {
+    const statusEl = document.getElementById('sync-rsg-stop-names-status-extra');
+    const button = document.getElementById('sync-rsg-stop-names-button-extra');
+    if (!statusEl || !button) return;
+
+    if (!rsg_loadedConfigs_extra || typeof rsg_loadedConfigs_extra !== 'object' || Object.keys(rsg_loadedConfigs_extra).length === 0) {
+        statusEl.textContent = 'No RSG configurations are loaded yet.';
+        statusEl.style.color = '#f1c40f';
+        return;
+    }
+    if (!allDefinedStops_data || typeof allDefinedStops_data !== 'object' || Object.keys(allDefinedStops_data).length === 0) {
+        statusEl.textContent = 'The master stop list is not loaded yet.';
+        statusEl.style.color = '#f1c40f';
+        return;
+    }
+
+    button.disabled = true;
+    statusEl.textContent = 'Scanning RSG configurations...';
+    statusEl.style.color = '#3498db';
+
+    // Bring every saved RSG's cached stopSequence names/directions back in line with the
+    // current master stop list, for any stops renamed before this synced automatically.
+    let configUpdateCount = 0;
+    let stopEntryUpdateCount = 0;
+    const rsgConfigUpdatesForFirebase = {};
+
+    for (const configKey in rsg_loadedConfigs_extra) {
+        const config = rsg_loadedConfigs_extra[configKey];
+        if (!config || !Array.isArray(config.stopSequence)) continue;
+
+        let configChanged = false;
+        const updatedStopSequence = config.stopSequence.map(stop => {
+            if (!stop || !stop.stopID) return stop;
+            const masterStop = allDefinedStops_data[stop.stopID.toUpperCase()];
+            if (!masterStop) return stop;
+            if (stop.stopName !== masterStop.stopName || stop.direction !== masterStop.direction) {
+                configChanged = true;
+                stopEntryUpdateCount++;
+                return { ...stop, stopName: masterStop.stopName, direction: masterStop.direction };
+            }
+            return stop;
+        });
+
+        if (configChanged) {
+            config.stopSequence = updatedStopSequence;
+            rsgConfigUpdatesForFirebase[`${FB_PATH_RSG_CONFIGS}/${configKey}/stopSequence`] = updatedStopSequence;
+            configUpdateCount++;
+        }
+    }
+
+    if (configUpdateCount === 0) {
+        statusEl.textContent = 'All RSG configurations already match the master stop list. No changes needed.';
+        statusEl.style.color = '#2ecc71';
+        button.disabled = false;
+        return;
+    }
+
+    statusEl.textContent = `Updating ${stopEntryUpdateCount} stop entries across ${configUpdateCount} RSG configuration(s)...`;
+    try {
+        const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+        await dbUpdate(dbRef(database), rsgConfigUpdatesForFirebase);
+        statusEl.textContent = `Done. Updated ${stopEntryUpdateCount} stop entries across ${configUpdateCount} RSG configuration(s).`;
+        statusEl.style.color = '#2ecc71';
+    } catch (error) {
+        statusEl.textContent = `Sync failed: ${error.message}`;
+        statusEl.style.color = '#e74c3c';
+    } finally {
+        button.disabled = false;
+    }
+}
+
 function scheduleArrivalsByStopIndexRebuild_ExtraPage() {
     if (arrivalsIndexRebuildTimer_extra !== null) return;
     arrivalsIndexRebuildTimer_extra = setTimeout(async () => {
@@ -16718,6 +16795,11 @@ const saveSettingsButton = document.getElementById('save-app-settings-button-ext
 const buildArrivalsIndexButton = document.getElementById('build-arrivals-index-button-extra');
     if (buildArrivalsIndexButton && typeof handleBuildArrivalsIndex_ExtraPage === 'function') {
         buildArrivalsIndexButton.addEventListener('click', handleBuildArrivalsIndex_ExtraPage);
+    }
+
+const syncRsgStopNamesButton = document.getElementById('sync-rsg-stop-names-button-extra');
+    if (syncRsgStopNamesButton && typeof handleSyncRsgStopNames_ExtraPage === 'function') {
+        syncRsgStopNamesButton.addEventListener('click', handleSyncRsgStopNames_ExtraPage);
     }
 
 const topMenuBar = document.getElementById('top-menu-bar_extra');

@@ -1521,6 +1521,7 @@ align-items: center;
     let arrivalsIndexMigrationStarted_extra = false;
     let arrivalsIndexRebuildTimer_extra = null;
     let rsgScheduleRebuildToken_extra = 0; // Invalidates in-progress chunked rebuilds superseded by newer data
+    let liveScheduleFlattenToken_extra = 0; // Invalidates in-progress chunked live-schedule flattens
         let rsg_lastLoadedRouteName_extra = null;
         let rsg_lastLoadedDestName_extra = null;
         let rsg_lastLoadedOpProfile_extra = null;
@@ -2251,51 +2252,7 @@ function setupFirebaseListeners_ExtraPage() {
     const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
     firebaseListenerUnsubscribers_extra.push(dbOnValue(liveScheduleRefForTools, (snapshot) => {
         console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
-        let flatLiveSchedule = [];
-        if (snapshot.exists()) {
-            const schedulesByRoute = snapshot.val();
-            if (schedulesByRoute && typeof schedulesByRoute === 'object') {
-                for (const routeKey in schedulesByRoute) {
-                    if (Object.hasOwnProperty.call(schedulesByRoute, routeKey)) {
-                        const routeData = schedulesByRoute[routeKey];
-                        if (routeData && typeof routeData === 'object') {
-                            for (const profileKey in routeData) {
-                                if (Object.hasOwnProperty.call(routeData, profileKey)) {
-                                    const profileData = routeData[profileKey];
-                                    if (profileData && typeof profileData === 'object') {
-                                        for (const destKey in profileData) {
-                                            if (Object.hasOwnProperty.call(profileData, destKey)) {
-                                                const destData = profileData[destKey];
-                                                if (destData && Array.isArray(destData.entries)) {
-                                                    destData.entries.forEach(entry => {
-                                                        if (entry) flatLiveSchedule.push(entry);
-                                                    });
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        liveScheduleForToolsDisplay = flatLiveSchedule;
-
-        stopToServingRoutesMap_extra.clear();
-        liveScheduleForToolsDisplay.forEach(entry => {
-            if (entry.stopID && entry.lineName) {
-                if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
-                    stopToServingRoutesMap_extra.set(entry.stopID, new Set());
-                }
-                stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
-            }
-        });
-
-        if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
-            populateMasterStopList_ExtraPage();
-        }
+        processLiveScheduleSnapshot_ExtraPage(snapshot);
     }));
 
     // Listener for RSG Configurations
@@ -2393,6 +2350,68 @@ async function rebuildScheduleFromRsgConfigs_ExtraPage() {
 
     if (currentUser_extra) { // Only if logged in
         scheduleDependentRender_ExtraPage();
+    }
+}
+
+// Flattening the entire system's live schedule (every route/profile/destination/entry) in one
+// synchronous nested-loop pass can block the main thread long enough on phones for the browser
+// to kill/reload the tab. Process route-by-route and yield between chunks to stay responsive.
+async function processLiveScheduleSnapshot_ExtraPage(snapshot) {
+    const myToken = ++liveScheduleFlattenToken_extra;
+
+    const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
+    const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
+    const flatLiveSchedule = [];
+    const CHUNK_SIZE = 5;
+
+    for (let i = 0; i < routeKeys.length; i += CHUNK_SIZE) {
+        if (myToken !== liveScheduleFlattenToken_extra) return; // Superseded by a newer Firebase update
+
+        routeKeys.slice(i, i + CHUNK_SIZE).forEach(routeKey => {
+            const routeData = schedulesByRoute[routeKey];
+            if (!routeData || typeof routeData !== 'object') return;
+            for (const profileKey in routeData) {
+                if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
+                const profileData = routeData[profileKey];
+                if (!profileData || typeof profileData !== 'object') continue;
+                for (const destKey in profileData) {
+                    if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
+                    const destData = profileData[destKey];
+                    if (destData && Array.isArray(destData.entries)) {
+                        destData.entries.forEach(entry => {
+                            if (entry) flatLiveSchedule.push(entry);
+                        });
+                    }
+                }
+            }
+        });
+
+        if (i + CHUNK_SIZE < routeKeys.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    if (myToken !== liveScheduleFlattenToken_extra) return;
+    liveScheduleForToolsDisplay = flatLiveSchedule;
+
+    stopToServingRoutesMap_extra.clear();
+    for (let i = 0; i < flatLiveSchedule.length; i++) {
+        if (myToken !== liveScheduleFlattenToken_extra) return;
+        const entry = flatLiveSchedule[i];
+        if (entry.stopID && entry.lineName) {
+            if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
+                stopToServingRoutesMap_extra.set(entry.stopID, new Set());
+            }
+            stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
+        }
+        if (i > 0 && i % 5000 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    if (myToken !== liveScheduleFlattenToken_extra) return;
+    if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
+        populateMasterStopList_ExtraPage();
     }
 }
 

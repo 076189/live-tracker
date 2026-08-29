@@ -3763,7 +3763,12 @@ async function handleRemoveStopSpecificRouteColour_ExtraPage(stopID, lineName) {
 }
 
 async function saveGlobalCustomRouteColours_ExtraPage(changes) {
+    console.log(`[FB_SAVE] Called with changes:`, changes);
+    console.log(`[FB_SAVE] currentUser_extra:`, currentUser_extra?.email);
+    console.log(`[FB_SAVE] window.firebaseOMSI exists:`, !!window.firebaseOMSI);
+    
     if (!currentUser_extra || !window.firebaseOMSI) {
+        console.error(`[FB_SAVE] Missing currentUser_extra or window.firebaseOMSI`);
         if(globalRouteColourStatusMessage_el_extra) {
             globalRouteColourStatusMessage_el_extra.textContent = "Not logged in or Firebase not available.";
             globalRouteColourStatusMessage_el_extra.style.color = '#e74c3c';
@@ -3779,8 +3784,10 @@ async function saveGlobalCustomRouteColours_ExtraPage(changes) {
     for (const routeKey in changes) {
         updates[`${FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS}/${routeKey}`] = changes[routeKey];
     }
+    console.log(`[FB_SAVE] Attempting update with path: ${FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS}, updates:`, updates);
     try {
         await dbUpdate(dbRef(database), updates);
+        console.log(`[FB_SAVE] SUCCESS - Firebase update completed`);
         if(globalRouteColourStatusMessage_el_extra) {
             globalRouteColourStatusMessage_el_extra.textContent = 'Global custom colours saved successfully.';
             globalRouteColourStatusMessage_el_extra.style.color = '#2ecc71';
@@ -3791,6 +3798,7 @@ async function saveGlobalCustomRouteColours_ExtraPage(changes) {
         renderUIDependentElements_ExtraPage(); 
         return true;
     } catch (error) {
+        console.error(`[FB_SAVE] FAILED with error:`, error.message, error.code, error);
         if(globalRouteColourStatusMessage_el_extra) {
             globalRouteColourStatusMessage_el_extra.textContent = 'Error saving global colours: ' + error.message;
             globalRouteColourStatusMessage_el_extra.style.color = '#e74c3c';
@@ -3820,6 +3828,10 @@ async function handleSaveGlobalRouteColour_ExtraPage() {
     const routeKey = routeName.toUpperCase();
     const isDefault = color.toUpperCase() === DEFAULT_ROUTE_COLOUR_TOOLS_extra.toUpperCase();
     const previousColours = { ...globalCustomRouteColours_extra };
+    
+    // DEBUG
+    console.log(`[SAVE] Route: ${routeName}, Key: ${routeKey}, Color: ${color}, IsDefault: ${isDefault}, CurrentUser: ${currentUser_extra?.email}`);
+    
     if (isDefault) {
         // Default day bus colour means "no override" - don't clutter the list with it.
         delete globalCustomRouteColours_extra[routeKey];
@@ -3827,6 +3839,7 @@ async function handleSaveGlobalRouteColour_ExtraPage() {
         globalCustomRouteColours_extra[routeKey] = color.toUpperCase();
     }
     const saved = await saveGlobalCustomRouteColours_ExtraPage({ [routeKey]: isDefault ? null : color.toUpperCase() });
+    console.log(`[SAVE] Result for ${routeName}: ${saved ? 'SUCCESS' : 'FAILED'}`);
     if (!saved) globalCustomRouteColours_extra = previousColours;
 }
 
@@ -9560,6 +9573,10 @@ function isStandStop_ExtraPage(stopID) {
                typeof globalCustomRouteColours_extra[upName] === 'string' &&
                globalCustomRouteColours_extra[upName].startsWith('#')) {
         color = globalCustomRouteColours_extra[upName];
+        // DEBUG: Log specific routes
+        if (upName === '232' || upName === '303') {
+            console.log(`[DEBUG] Route ${upName} has saved color in Firebase:`, color);
+        }
     }
     // Check initial (hardcoded) map - though yours is empty
     else if (initialRouteColourMapForTools_extra[upName] &&

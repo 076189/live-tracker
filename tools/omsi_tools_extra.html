@@ -5284,8 +5284,11 @@ async function handleEnhancedBulkUpdateDestination() {
         const routeScopeMatch = targetRoutes.length === 0 || sanitizedTargetRoutesSet.has(routeKey.toUpperCase());
         
         if (routeScopeMatch) {
-            for (const destKey in tempCurtailmentPoints[routeKey]) {
-                const pointsArray = tempCurtailmentPoints[routeKey][destKey];
+            // Snapshot the destKey entries before mutating, since renamed destinations delete
+            // the old key and add the new one on tempCurtailmentPoints[routeKey] below, and
+            // mutating an object while a for...in loop is iterating it is unreliable.
+            const destEntries = Object.entries(tempCurtailmentPoints[routeKey]);
+            for (const [destKey, pointsArray] of destEntries) {
                 let pointsWereUpdatedInThisDestKey = false;
 
                 if (Array.isArray(pointsArray)) {
@@ -5303,7 +5306,9 @@ async function handleEnhancedBulkUpdateDestination() {
                 // (set via the RSG config's destinationName). If that journey's destination is
                 // being renamed, the curtailment points node must be MOVED to the new sanitized
                 // key too, otherwise it stays orphaned under the old (now-stale) path.
-                const destKeyIsRenamedDestination = destKey.toLowerCase() === oldDestKeySanitizedLower;
+                // Trim, since a stray leading/trailing space on the stored key (destKey) would
+                // otherwise silently defeat this comparison against the trimmed oldDest value.
+                const destKeyIsRenamedDestination = destKey.trim().toLowerCase() === oldDestKeySanitizedLower;
 
                 if (destKeyIsRenamedDestination) {
                     const oldFirebasePath = `${FB_PATH_CURTAILMENT_POINTS}/${routeKey}/${destKey}`;
@@ -5325,8 +5330,59 @@ async function handleEnhancedBulkUpdateDestination() {
     }
     console.log(`EBU Update Debug: Found and updated ${curtailmentUpdateCount} curtailment point display names.`);
 
+    // Active/upcoming Service Leg Curtailments (massCurtailments) snapshot the destination
+    // name at the time they were activated (top-level, in suppressedServiceLegs, and in the
+    // dynamically generated return trip entries). If that destination is renamed here without
+    // also patching these records, the stored destinationName no longer matches anything in the
+    // live schedule and the curtailment stops applying/showing, even though Firebase still has
+    // the (now-stale) old name recorded against it.
+    let mccUpdateCount = 0;
+    const mccUpdatesForFirebase = {};
+    console.log(`EBU Update Debug: --- Searching massCurtailments_data (Total: ${Object.keys(massCurtailments_data).length}) ---`);
 
-    if (scheduleUpdateCount === 0 && rsgConfigUpdateCount === 0 && curtailmentUpdateCount === 0) {
+    for (const mcKey in massCurtailments_data) {
+        const mc = massCurtailments_data[mcKey];
+        const routeScopeMatch = targetRoutes.length === 0 || targetRoutes.includes(mc.routeName);
+        if (!routeScopeMatch) continue;
+
+        let mcChanged = false;
+        const updatedMc = { ...mc };
+
+        if (String(mc.destinationName || '').trim().toLocaleLowerCase() === oldDestKey) {
+            updatedMc.destinationName = newDest;
+            mcChanged = true;
+        }
+
+        if (Array.isArray(mc.suppressedServiceLegs)) {
+            updatedMc.suppressedServiceLegs = mc.suppressedServiceLegs.map(leg => {
+                if (String(leg.destinationName || '').trim().toLocaleLowerCase() === oldDestKey) {
+                    mcChanged = true;
+                    return { ...leg, destinationName: newDest };
+                }
+                return leg;
+            });
+        }
+
+        if (Array.isArray(mc.dynamicallyGeneratedTrip)) {
+            updatedMc.dynamicallyGeneratedTrip = mc.dynamicallyGeneratedTrip.map(stopEntry => {
+                if (String(stopEntry.destinationName || '').trim().toLocaleLowerCase() === oldDestKey) {
+                    mcChanged = true;
+                    return { ...stopEntry, destinationName: newDest };
+                }
+                return stopEntry;
+            });
+        }
+
+        if (mcChanged) {
+            mccUpdatesForFirebase[`${FB_PATH_MASS_CURTAILMENTS}/${mcKey}`] = updatedMc;
+            mccUpdateCount++;
+            console.log(`EBU Update Debug:     - MATCH! Active mass curtailment '${mcKey}' for Route '${mc.routeName}' updated.`);
+        }
+    }
+    console.log(`EBU Update Debug: Found and updated ${mccUpdateCount} active/upcoming service curtailment records.`);
+
+
+    if (scheduleUpdateCount === 0 && rsgConfigUpdateCount === 0 && curtailmentUpdateCount === 0 && mccUpdateCount === 0) {
         statusEl.textContent = "No instances of the old destination name were found in the selected scope.";
         statusEl.style.color = '#7f8c8d';
         console.warn("EBU Update Debug: No updates detected across all data sources. Check your 'oldDest' value and data content.");
@@ -5336,7 +5392,8 @@ async function handleEnhancedBulkUpdateDestination() {
     const confirmMsg = `This will perform the following updates across the ENTIRE system:\n\n` +
         `  - Live Schedule Entries: ${scheduleUpdateCount} updated\n` +
         `  - Saved RSG Configurations: ${rsgConfigUpdateCount} updated\n` +
-        `  - Curtailment Point Names: ${curtailmentUpdateCount} updated\n\n` +
+        `  - Curtailment Point Names: ${curtailmentUpdateCount} updated\n` +
+        `  - Active/Upcoming Service Curtailments: ${mccUpdateCount} updated\n\n` +
         `Proceed with these changes?`;
 
     if (!confirm(confirmMsg)) {
@@ -5371,6 +5428,16 @@ async function handleEnhancedBulkUpdateDestination() {
             }));
 
             Object.assign(definedCurtailmentPoints, tempCurtailmentPoints); // Update local cache
+        }
+        if (Object.keys(mccUpdatesForFirebase).length > 0) {
+            console.log("EBU Update Debug: Committing active service curtailment updates to Firebase:", mccUpdatesForFirebase);
+            await dbUpdate(dbRef(database), mccUpdatesForFirebase);
+            Object.entries(mccUpdatesForFirebase).forEach(([path, rec]) => {
+                const mcKey = path.slice(`${FB_PATH_MASS_CURTAILMENTS}/`.length);
+                massCurtailments_data[mcKey] = rec;
+            });
+            if (typeof slc_renderActiveCurtailments === 'function') slc_renderActiveCurtailments();
+            if (typeof mrc_renderActiveCurtailments === 'function') mrc_renderActiveCurtailments();
         }
         
         // Loop through affected routes and save them individually

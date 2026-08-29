@@ -1,126 +1,235 @@
-// IMPORTANT: Increment this version number every time you change this file.
-const CACHE_NAME = 'omsi-tools-extra-cache-v4'; // Incremented version
+const CACHE_NAME = 'omsi-tools-extra-cache-v3'; // NEW cache name - IMPORTANT: Increment to force update!
 const urlsToCache = [
-    '/live-tracker/omsi_tools_extra.html',
-    '/live-tracker/manifest-omsitoolsextra.json',
-    '/live-tracker/offline.html',
-    '/live-tracker/fonts/NJFont-Medium.ttf',
-    '/live-tracker/assets/icons/tools_icon-192x192.png',
-    '/live-tracker/assets/icons/tools_icon-512x512.png'
+  // Paths are absolute from the domain root (076189.github.io)
+  // These should correctly map to your files within the 'live-tracker' directory.
+  '/live-tracker/omsi_tools_extra.html',
+  '/live-tracker/manifest-omsitoolsextra.json', // Cache the manifest
+  '/live-tracker/offline.html',     // Your fallback offline page
+
+  // Add ONE OR TWO essential assets you are SURE exist.
+  // For example, if your main page uses a specific CSS or a critical image:
+  // '/live-tracker/css/main.css',
+  '/live-tracker/fonts/NJFont-Medium.ttf' // The font file
 ];
 
-// Import the Firebase SDKs using the 'compat' version for service workers
+// --- START: Firebase Messaging SDK Imports ---
+// IMPORTANT: Use the 'compat' versions for service workers as recommended by Firebase
 importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js');
+// --- END: Firebase Messaging SDK Imports ---
 
-// Initialize Firebase App within the service worker
+
+// --- START: Firebase Configuration for Service Worker ---
+// This configuration should match your Firebase project's config.
+// The messagingSenderId is CRITICAL for FCM.
 const firebaseConfig = {
     apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s",
     authDomain: "omsi-c5505.firebaseapp.com",
     projectId: "omsi-c5505",
     storageBucket: "omsi-c5505.appspot.com",
-    messagingSenderId: "503595375440",
+    messagingSenderId: "503595375440", // Ensure this matches your project's messagingSenderId
     appId: "1:503595375440:web:356be6684b77ff5909ea55",
+    measurementId: "G-VN7X65V3F9"
 };
 
+// Initialize Firebase App within the service worker
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
+// --- END: Firebase Configuration for Service Worker ---
 
-// --- CORRECTED: Background Push Notification Handler ---
-// This is the standard Firebase SDK method for handling background notifications.
-messaging.onBackgroundMessage(function(payload) {
-    console.log('[SW] Received background message.', payload);
 
-    // Extract notification data from the payload.
-    const notificationTitle = payload.notification.title;
-    const notificationOptions = {
-        body: payload.notification.body,
-        icon: payload.notification.icon || '/live-tracker/assets/icons/icon-192x192.png',
-        data: {
-            // Use the click_action from the data payload if it exists, otherwise default.
-            url: payload.data.click_action || '/live-tracker/omsi_tools_extra.html' 
-        }
-    };
-
-    // The service worker must explicitly show the notification.
-    return self.registration.showNotification(notificationTitle, notificationOptions);
+// Install event: cache the app shell
+self.addEventListener('install', event => {
+  console.log(`[SW ${CACHE_NAME}] Install event started.`);
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => {
+        console.log(`[SW ${CACHE_NAME}] Opened cache. Caching app shell:`, urlsToCache);
+        return cache.addAll(urlsToCache)
+          .then(() => {
+            console.log(`[SW ${CACHE_NAME}] All specified URLs cached successfully.`);
+          })
+          .catch(error => {
+            console.error(`[SW ${CACHE_NAME}] cache.addAll() FAILED:`, error);
+            // Log which specific URLs might have caused the failure by trying to fetch them individually.
+            urlsToCache.forEach(url => {
+              fetch(new Request(url, { mode: 'no-cors' }))
+                .then(response => {
+                  if (!response.ok && response.type !== 'opaque') {
+                        console.warn(`[SW ${CACHE_NAME}] Diagnostic fetch for ${url} failed with status: ${response.status}`);
+                  }
+                })
+                .catch(() => {
+                  console.error(`[SW ${CACHE_NAME}] Diagnostic fetch for ${url} FAILED entirely (network error or CORS if not no-cors).`);
+                });
+            });
+            throw error; // IMPORTANT: Re-throw the error to ensure install fails if addAll fails.
+          });
+      })
+      .then(() => {
+        console.log(`[SW ${CACHE_NAME}] Installation successful. Activating now (skipWaiting).`);
+        return self.skipWaiting(); // Activate the new SW immediately
+      })
+      .catch(error => {
+        // This catch is for errors from caches.open or the skipWaiting promise
+        console.error(`[SW ${CACHE_NAME}] Overall installation process FAILED:`, error);
+      })
+  );
 });
 
-// --- Standard Notification Click Handler ---
-self.addEventListener('notificationclick', function(event) {
-    console.log('[SW] Notification click received.', event);
-    event.notification.close(); // Close the notification
+// Activate event: clean up old caches
+self.addEventListener('activate', event => {
+  console.log(`[SW ${CACHE_NAME}] Activate event started.`);
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cache => {
+          if (cache !== CACHE_NAME) {
+            console.log(`[SW ${CACHE_NAME}] Clearing old cache:`, cache);
+            return caches.delete(cache);
+          }
+        })
+      );
+    }).then(() => {
+      console.log(`[SW ${CACHE_NAME}] Old caches cleared. Claiming clients.`);
+      return self.clients.claim(); // Take control of any open clients
+    })
+  );
+});
 
-    // Get the URL to open from the notification's data payload
-    const urlToOpen = event.notification.data.url || '/';
-    
-    // Open the URL and focus the window if it's already open
-    event.waitUntil(
-        clients.matchAll({
-            type: "window"
-        }).then(clientList => {
-            for (let i = 0; i < clientList.length; i++) {
-                const client = clientList[i];
-                if (client.url === urlToOpen && 'focus' in client) {
-                    return client.focus();
-                }
-            }
-            if (clients.openWindow) {
-                return clients.openWindow(urlToOpen);
-            }
+// Fetch event: serve from cache, fallback to network, then to offline page
+self.addEventListener('fetch', event => {
+  const requestUrl = new URL(event.request.url);
+
+  // Don't cache Firebase or other dynamic API calls, always go to network
+  if (requestUrl.hostname.includes('firebaseio.com') ||
+      requestUrl.hostname.includes('firestore.googleapis.com') ||
+      requestUrl.hostname.includes('fbsbx.com') ||
+      requestUrl.hostname.includes('googleapis.com') ||
+      requestUrl.hostname.includes('gstatic.com') || // Include gstatic.com for Firebase SDKs
+      requestUrl.hostname.includes('google.com')) { // Include google.com for other Google services
+    // console.log(`[SW ${CACHE_NAME}] Network request for (external API): ${event.request.url}`);
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // The HTML page itself must always be fetched fresh (network-first), otherwise a phone
+  // that already cached a buggy build keeps re-running it forever, no matter how many fixes
+  // are pushed, since a cache-first strategy would keep serving the old cached HTML.
+  if (event.request.mode === 'navigate' || requestUrl.pathname.endsWith('omsi_tools_extra.html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then(networkResponse => {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseClone));
+          return networkResponse;
+        })
+        .catch(() => {
+          console.warn(`[SW ${CACHE_NAME}] Network fetch failed for page: ${event.request.url}. Falling back to cache.`);
+          return caches.match(event.request).then(cachedResponse => cachedResponse || caches.match('/live-tracker/offline.html'));
         })
     );
+    return;
+  }
+
+  // For other requests (static app assets) cache-first is fine, they change rarely.
+  event.respondWith(
+    caches.match(event.request)
+      .then(cachedResponse => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+
+        return fetch(event.request)
+          .then(networkResponse => {
+            return networkResponse;
+          })
+          .catch(() => {
+            console.warn(`[SW ${CACHE_NAME}] Network fetch failed for: ${event.request.url}. Mode: ${event.request.mode}`);
+            if (event.request.mode === 'navigate') {
+              console.log(`[SW ${CACHE_NAME}] Serving offline fallback page.`);
+              return caches.match('/live-tracker/offline.html');
+            }
+          });
+      })
+  );
 });
 
+// --- START: Firebase Cloud Messaging (FCM) Push Event Handlers ---
 
-// --- Standard Service Worker Lifecycle Events ---
+// Handle incoming push messages
+self.addEventListener('push', function(event) {
+    console.log('[sw-omsitoolsextra.js] Received push event.', event);
 
-// Install event: cache the application shell.
-self.addEventListener('install', event => {
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then(cache => {
-                console.log(`[SW ${CACHE_NAME}] Caching app shell`);
-                return cache.addAll(urlsToCache);
-            })
-            .then(() => self.skipWaiting())
-    );
-});
-
-// Activate event: clean up old caches.
-self.addEventListener('activate', event => {
-    event.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                cacheNames.map(cache => {
-                    if (cache !== CACHE_NAME) {
-                        console.log(`[SW] Deleting old cache: ${cache}`);
-                        return caches.delete(cache);
-                    }
-                })
-            );
-        }).then(() => self.clients.claim())
-    );
-});
-
-// Fetch event: serve from cache, fallback to network.
-self.addEventListener('fetch', event => {
-    const requestUrl = new URL(event.request.url);
-
-    // Always go to the network for Firebase and Google APIs
-    if (requestUrl.hostname.includes('firebaseio.com') || requestUrl.hostname.includes('googleapis.com')) {
-        event.respondWith(fetch(event.request));
-        return;
+    let payloadData;
+    try {
+        payloadData = event.data.json();
+        console.log('[sw-omsitoolsextra.js] Push event data (parsed):', payloadData);
+    } catch (e) {
+        console.error('[sw-omsitoolsextra.js] Error parsing push event data as JSON:', e);
+        payloadData = event.data.text(); // Fallback to text if not JSON
+        console.log('[sw-omsitoolsextra.js] Push event data (raw text):', payloadData);
+        payloadData = { data: { body: payloadData } }; // Create a basic payload if it's just text
     }
 
-    // For app assets, try cache first, then network, then offline page
-    event.respondWith(
-        caches.match(event.request).then(response => {
-            return response || fetch(event.request);
-        }).catch(() => {
-            if (event.request.mode === 'navigate') {
-                return caches.match('/live-tracker/offline.html');
+    // Default values if title/body/icon are not directly in payload.notification or payload.data
+    const notificationTitle = payloadData.notification?.title || payloadData.data?.title || 'OMSI Tools Alert';
+    const notificationBody = payloadData.notification?.body || payloadData.data?.body || 'New scheduled update or departure information.';
+    const notificationIcon = payloadData.notification?.icon || payloadData.data?.icon || '/live-tracker/assets/icons/icon-192x192.png';
+    const notificationImage = payloadData.notification?.image || payloadData.data?.image; // Optional image
+
+    const notificationOptions = {
+        body: notificationBody,
+        icon: notificationIcon,
+        image: notificationImage,
+        badge: payloadData.data?.badge || '/live-tracker/assets/icons/badge-72x72.png', // Optional: badge icon for Android
+        data: payloadData.data || payloadData.notification || {} // Attach the full data/notification payload for click handling
+    };
+
+    // --- CRITICAL FIX: Explicitly show the notification ---
+    // FCM SDK provides the payload, but the Service Worker must call showNotification.
+    event.waitUntil(
+        self.registration.showNotification(notificationTitle, notificationOptions)
+        .then(() => {
+            console.log('[sw-omsitoolsextra.js] Notification successfully shown.');
+        })
+        .catch(error => {
+            console.error('[sw-omsitoolsextra.js] Error showing notification:', error);
+            // Attempt to send this error back to the main page's console if possible, though not guaranteed.
+            self.clients.matchAll().then(clients => {
+                clients.forEach(client => {
+                    client.postMessage({ type: 'NOTIFICATION_ERROR', message: error.message, stack: error.stack });
+                });
+            });
+        })
+    );
+});
+
+// Add a listener for messages from clients (like the main page)
+self.addEventListener('message', event => {
+    if (event.data && event.data.type === 'DEBUG_MESSAGE') {
+        console.log('[SW-DEBUG] Message from main page:', event.data.content);
+    }
+});
+
+
+// Handle notification clicks
+self.addEventListener('notificationclick', function(event) {
+    console.log('[sw-omsitoolsextra.js] Notification click received.', event);
+    event.notification.close(); // Close the notification after click
+
+    // Check if a URL is provided in the notification's data payload
+    // event.notification.data is where custom data attached to the notification would be
+    const click_redirect_url = event.notification.data?.url || '/live-tracker/omsi_tools_extra.html'; // Default to the tools page
+
+    event.waitUntil(
+        clients.openWindow(click_redirect_url).then(windowClient => {
+            // Optional: focus the window if it was already open
+            if (windowClient) {
+                windowClient.focus();
             }
         })
     );
 });
+
+// --- END: Firebase Cloud Messaging (FCM) Push Event Handlers ---

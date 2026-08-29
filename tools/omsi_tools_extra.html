@@ -3270,56 +3270,73 @@ function renderGlobalCustomRouteColours_ExtraPage() {
     if (!currentGlobalRouteColoursList_el_extra || !noGlobalCustomColoursMessage_el_extra) return;
 
     currentGlobalRouteColoursList_el_extra.innerHTML = '';
-    // Don't list routes whose saved colour is just the default day bus colour - that's not really an override.
-    const routes = Object.keys(globalCustomRouteColours_extra)
-        .filter(rName => (globalCustomRouteColours_extra[rName] || '').toUpperCase() !== DEFAULT_ROUTE_COLOUR_TOOLS_extra.toUpperCase())
-        .sort(compareLineNames_ExtraPage);
+
+    // Show every route currently in the schedule, not just the ones with a saved override,
+    // so day routes using the plain default colour are still visible and editable here.
+    const scheduleRouteNames = new Set((currentWorkingSchedule_extra || []).map(e => e.lineName).filter(Boolean));
+    const overrideRouteNames = Object.keys(globalCustomRouteColours_extra)
+        .filter(rName => rName !== 'NIGHT_DEFAULT' && rName !== 'SL_DEFAULT');
+    const routes = Array.from(new Set([...scheduleRouteNames, ...overrideRouteNames])).sort(compareLineNames_ExtraPage);
 
     if (routes.length === 0) {
-        noGlobalCustomColoursMessage_el_extra.textContent = 'No global custom colours. Using system defaults.';
+        noGlobalCustomColoursMessage_el_extra.textContent = 'No routes found.';
         noGlobalCustomColoursMessage_el_extra.style.display = 'block';
-    } else {
-        noGlobalCustomColoursMessage_el_extra.style.display = 'none';
-        routes.forEach(rName => {
-            let color = globalCustomRouteColours_extra[rName];
-            // Ensure color is a valid hex string, fallback to default if not.
-            if (typeof color !== 'string' || !color.startsWith('#') || (color.length !== 4 && color.length !== 7)) {
-                console.warn(`Invalid color value for route "${rName}" in globalCustomRouteColours_extra: "${color}". Defaulting.`);
-                color = DEFAULT_ROUTE_COLOUR_TOOLS_extra; 
-            }
-            color = color.toUpperCase(); // Ensure uppercase for consistency in display
+        return;
+    }
 
-            const li = document.createElement('li');
-            li.style.display = 'flex';
-            li.style.alignItems = 'center';
-            li.style.justifyContent = 'space-between'; /* Keeps the delete button aligned right */
-            li.style.padding = '0.5rem';
-            li.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+    noGlobalCustomColoursMessage_el_extra.style.display = 'none';
+    routes.forEach(rName => {
+        const hasOverride = Object.prototype.hasOwnProperty.call(globalCustomRouteColours_extra, rName);
+        // Use the same resolver the tiles use, so what's shown here always matches reality
+        // (default, override, or the Night/SL prefix fallback), instead of only reading the raw map.
+        const color = getRouteTileColour_ExtraPage(rName);
 
-            const box = document.createElement('span');
-            box.className = 'colour-preview-box'; // This class already gives it a square shape and border
-            box.style.backgroundColor = color;
-            li.appendChild(box);
+        const li = document.createElement('li');
+        li.style.display = 'flex';
+        li.style.alignItems = 'center';
+        li.style.justifyContent = 'space-between';
+        li.style.padding = '0.5rem';
+        li.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+        li.style.cursor = 'pointer';
+        li.title = 'Click to select this route above for editing.';
+
+        const box = document.createElement('span');
+        box.className = 'colour-preview-box'; // This class already gives it a square shape and border
+        box.style.backgroundColor = color;
+        li.appendChild(box);
 
             // Create the information span for "Route: X - Colour: #HEX"
             const info = document.createElement('span');
             info.style.flexGrow = '1'; // Allows it to take up available space
             info.style.marginLeft = '10px'; // Add some space between the color box and text
-            info.textContent = `Route: ${rName} - Colour: ${color}`;
+            info.textContent = `Route: ${rName} - Colour: ${color}${hasOverride ? '' : ' (default)'}`;
             li.appendChild(info);
 
-            // Add action buttons (Rename/Delete)
+            // Only routes with an actual saved override can be "removed" (reverted to default).
             const actions = document.createElement('div');
-            const btn = document.createElement('button');
-            btn.textContent = 'Remove'; // Changed from '✕' to 'Remove' for clarity, if you prefer '✕' keep it.
-            btn.classList.add('button', 'small-action', 'secondary');
-            btn.addEventListener('click', () => handleRemoveGlobalRouteColour_ExtraPage(rName));
-            actions.appendChild(btn);
+            if (hasOverride) {
+                const btn = document.createElement('button');
+                btn.textContent = 'Remove';
+                btn.classList.add('button', 'small-action', 'secondary');
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    handleRemoveGlobalRouteColour_ExtraPage(rName);
+                });
+                actions.appendChild(btn);
+            }
             li.appendChild(actions);
 
+            // Clicking the row loads this route into the picker above for editing.
+            li.addEventListener('click', () => {
+                if (selectRouteNameColour_el_extra) {
+                    selectRouteNameColour_el_extra.value = rName;
+                    selectRouteNameColour_el_extra.dispatchEvent(new Event('change'));
+                    selectRouteNameColour_el_extra.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+
             currentGlobalRouteColoursList_el_extra.appendChild(li);
-        });
-    }
+    });
 }
 
 // --- Stop-Specific Route Colour Functions (NEW) ---

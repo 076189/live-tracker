@@ -679,6 +679,7 @@ align-items: center;
                     </div>
                     <div id="currentGlobalRouteColoursListContainer_extra">
                         <h3 class="subsection-title" style="font-size: 1.1rem; margin-bottom: 0.5rem; border-bottom: none;">Current Global Custom Colours</h3>
+                        <button id="cleanupWithdrawnRouteColoursButton_extra" class="button small-action neutral" style="margin-bottom:0.5rem;">Remove Colours For Withdrawn Routes</button>
                         <ul id="currentGlobalRouteColoursList_extra" style="list-style-type: none; padding-left: 0;"></ul>
                         <p id="noGlobalCustomColoursMessage_extra" style="text-align: center; opacity:0.7; padding:0.5rem;">No global custom colours set.</p>
                     </div>
@@ -3742,7 +3743,7 @@ async function handleRemoveStopSpecificRouteColour_ExtraPage(stopID, lineName) {
     }
 }
 
-async function saveGlobalCustomRouteColours_ExtraPage() {
+async function saveGlobalCustomRouteColours_ExtraPage(changes) {
     if (!currentUser_extra || !window.firebaseOMSI) {
         if(globalRouteColourStatusMessage_el_extra) {
             globalRouteColourStatusMessage_el_extra.textContent = "Not logged in or Firebase not available.";
@@ -3750,9 +3751,17 @@ async function saveGlobalCustomRouteColours_ExtraPage() {
         }
         return false;
     }
-    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+    // Write only the specific route keys that changed (via dbUpdate), instead of overwriting
+    // the entire node with this client's local cache (via dbSet). A full-node overwrite can
+    // silently drop other routes' colours if this client's cache was stale, and made it look
+    // like saves/removals weren't reaching Firebase.
+    const updates = {};
+    for (const routeKey in changes) {
+        updates[`${FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS}/${routeKey}`] = changes[routeKey];
+    }
     try {
-        await dbSet(dbRef(database, FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS), globalCustomRouteColours_extra);
+        await dbUpdate(dbRef(database), updates);
         if(globalRouteColourStatusMessage_el_extra) {
             globalRouteColourStatusMessage_el_extra.textContent = 'Global custom colours saved successfully.';
             globalRouteColourStatusMessage_el_extra.style.color = '#2ecc71';
@@ -3789,14 +3798,16 @@ async function handleSaveGlobalRouteColour_ExtraPage() {
         return;
     }
 
+    const routeKey = routeName.toUpperCase();
+    const isDefault = color.toUpperCase() === DEFAULT_ROUTE_COLOUR_TOOLS_extra.toUpperCase();
     const previousColours = { ...globalCustomRouteColours_extra };
-    if (color.toUpperCase() === DEFAULT_ROUTE_COLOUR_TOOLS_extra.toUpperCase()) {
+    if (isDefault) {
         // Default day bus colour means "no override" - don't clutter the list with it.
-        delete globalCustomRouteColours_extra[routeName.toUpperCase()];
+        delete globalCustomRouteColours_extra[routeKey];
     } else {
-        globalCustomRouteColours_extra[routeName.toUpperCase()] = color.toUpperCase();
+        globalCustomRouteColours_extra[routeKey] = color.toUpperCase();
     }
-    const saved = await saveGlobalCustomRouteColours_ExtraPage();
+    const saved = await saveGlobalCustomRouteColours_ExtraPage({ [routeKey]: isDefault ? null : color.toUpperCase() });
     if (!saved) globalCustomRouteColours_extra = previousColours;
 }
 
@@ -3804,14 +3815,52 @@ async function handleRemoveGlobalRouteColour_ExtraPage(routeName) {
     if (!currentUser_extra) return;
     if (globalCustomRouteColours_extra.hasOwnProperty(routeName.toUpperCase()) && 
         confirm(`Are you sure you want to remove the global custom colour for route "${routeName}"? It will revert to default.`)) {
+        const routeKey = routeName.toUpperCase();
         const previousColours = { ...globalCustomRouteColours_extra };
-        delete globalCustomRouteColours_extra[routeName.toUpperCase()];
-        const saved = await saveGlobalCustomRouteColours_ExtraPage();
+        delete globalCustomRouteColours_extra[routeKey];
+        const saved = await saveGlobalCustomRouteColours_ExtraPage({ [routeKey]: null });
         if (!saved) globalCustomRouteColours_extra = previousColours;
         // If the removed route is currently selected in the dropdown, reset the color picker
         if (selectRouteNameColour_el_extra && selectRouteNameColour_el_extra.value.toUpperCase() === routeName.toUpperCase()) {
             inputRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra;
         }
+    }
+}
+
+// One-time cleanup: routes with a saved global colour that no longer appear anywhere in the
+// live schedule (e.g. withdrawn routes) never get removed automatically, so they accumulate
+// in the custom colours list indefinitely.
+async function handleCleanupWithdrawnRouteColours_ExtraPage() {
+    if (!currentUser_extra || !globalRouteColourStatusMessage_el_extra) return;
+
+    const activeRouteNames = new Set((currentWorkingSchedule_extra || []).map(e => (e.lineName || '').toUpperCase()).filter(Boolean));
+    const specialKeys = new Set(['NIGHT_DEFAULT', 'SL_DEFAULT']);
+    const withdrawnRouteKeys = Object.keys(globalCustomRouteColours_extra)
+        .filter(routeKey => !specialKeys.has(routeKey) && !activeRouteNames.has(routeKey));
+
+    if (withdrawnRouteKeys.length === 0) {
+        globalRouteColourStatusMessage_el_extra.textContent = 'No withdrawn-route colours found to remove.';
+        globalRouteColourStatusMessage_el_extra.style.color = '#2ecc71';
+        return;
+    }
+
+    if (!confirm(`Remove global custom colours for ${withdrawnRouteKeys.length} route(s) no longer in the live schedule?\n\n${withdrawnRouteKeys.join(', ')}`)) {
+        return;
+    }
+
+    const previousColours = { ...globalCustomRouteColours_extra };
+    const changes = {};
+    withdrawnRouteKeys.forEach(routeKey => {
+        delete globalCustomRouteColours_extra[routeKey];
+        changes[routeKey] = null;
+    });
+
+    const saved = await saveGlobalCustomRouteColours_ExtraPage(changes);
+    if (!saved) {
+        globalCustomRouteColours_extra = previousColours;
+    } else {
+        globalRouteColourStatusMessage_el_extra.textContent = `Removed colours for ${withdrawnRouteKeys.length} withdrawn route(s).`;
+        globalRouteColourStatusMessage_el_extra.style.color = '#2ecc71';
     }
 }
 
@@ -15703,6 +15752,15 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
         for (const routeName of Object.keys(changesByRoute)) {
             await saveSpecificRouteDataToFirebase_ExtraPage(routeName);
         }
+
+        // Ensure the arrivals index is definitely up to date before we report success,
+        // instead of relying on the debounced rebuild that saveSpecificRouteDataToFirebase
+        // schedules internally (which could still be pending when the user checks arrivals).
+        if (arrivalsIndexRebuildTimer_extra !== null) {
+            clearTimeout(arrivalsIndexRebuildTimer_extra);
+            arrivalsIndexRebuildTimer_extra = null;
+        }
+        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
         
         // MODIFICATION: Directly remove all processed tasks from Firebase.
         const removalPromises = [];
@@ -15757,7 +15815,15 @@ async function handleExecuteScheduledDeletion_ExtraPage(taskKey) {
         // 2. Update ancillary data (unique stops, last updated timestamp)
         await updateAncillaryScheduleData_ExtraPage();
 
-        // 3. Remove the task record itself from Firebase (crucial for auto-deletion)
+        // 3. Rebuild the arrivals index synchronously so the deleted route stops showing on
+        // the live arrivals display immediately, rather than relying on the debounced rebuild.
+        if (arrivalsIndexRebuildTimer_extra !== null) {
+            clearTimeout(arrivalsIndexRebuildTimer_extra);
+            arrivalsIndexRebuildTimer_extra = null;
+        }
+        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+
+        // 4. Remove the task record itself from Firebase (crucial for auto-deletion)
         await dbRemove(dbRef(database, `${FB_PATH_SCHEDULED_DELETIONS}/${taskKey}`));
 
         // Optimistically update local cache
@@ -16901,6 +16967,10 @@ if (rsgNewRouteNameInput_el_extra) {
     }
     if (saveGlobalRouteColourButton_el_extra && typeof handleSaveGlobalRouteColour_ExtraPage === 'function') {
         saveGlobalRouteColourButton_el_extra.addEventListener('click', handleSaveGlobalRouteColour_ExtraPage);
+    }
+    const cleanupWithdrawnRouteColoursButton_el_extra = document.getElementById('cleanupWithdrawnRouteColoursButton_extra');
+    if (cleanupWithdrawnRouteColoursButton_el_extra && typeof handleCleanupWithdrawnRouteColours_ExtraPage === 'function') {
+        cleanupWithdrawnRouteColoursButton_el_extra.addEventListener('click', handleCleanupWithdrawnRouteColours_ExtraPage);
     }
     // Preset buttons for global colors
     if (setGlobalDayBusColor_el_extra && inputRouteColour_el_extra) {

@@ -2324,7 +2324,7 @@ async function rebuildScheduleFromRsgConfigs_ExtraPage() {
     const myToken = ++rsgScheduleRebuildToken_extra;
     const configs = (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') ? Object.values(rsg_loadedConfigs_extra) : [];
     const flatScheduleFromConfigs = [];
-    const CHUNK_SIZE = 15; // OPTIMIZATION: Reduced from 25 for better mobile responsiveness
+    const CHUNK_SIZE = 30; // Process 30 configs per chunk - balances responsiveness vs overhead
 
     for (let i = 0; i < configs.length; i += CHUNK_SIZE) {
         if (myToken !== rsgScheduleRebuildToken_extra) return; // Superseded by a newer Firebase update
@@ -2360,7 +2360,7 @@ async function processLiveScheduleSnapshot_ExtraPage(snapshot) {
     const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
     const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
     const flatLiveSchedule = [];
-    const CHUNK_SIZE = 2; // OPTIMIZATION: Reduced from 5 to 2 for better mobile responsiveness
+    const CHUNK_SIZE = 10; // Process 10 routes per chunk - balances responsiveness vs overhead
 
     for (let i = 0; i < routeKeys.length; i += CHUNK_SIZE) {
         if (myToken !== liveScheduleFlattenToken_extra) return; // Superseded by a newer Firebase update
@@ -18015,7 +18015,7 @@ function populateStopSelectorForDeparturesView_ExtraPage() {
     }
 }
 
-function displayDeparturesForSelectedStop_ExtraPage() {
+function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
     const selectEl = document.getElementById('selectStopForDeparturesView_extra');
     const listEl = document.getElementById('stopDeparturesList_extra');
     const noDeparturesMsg = document.getElementById('noDeparturesForStopMessage_extra');
@@ -18027,6 +18027,19 @@ function displayDeparturesForSelectedStop_ExtraPage() {
 
     if (!selectedStopID) {
         noDeparturesMsg.textContent = 'Select a stop to view its scheduled departures.';
+        noDeparturesMsg.style.display = 'block';
+        return;
+    }
+
+    // OPTIMIZATION: If schedule hasn't loaded yet, show loading message and retry (max 5 retries)
+    if ((!currentWorkingSchedule_extra || currentWorkingSchedule_extra.length === 0) && retryCount < 5) {
+        noDeparturesMsg.textContent = 'Loading schedule data... please wait.';
+        noDeparturesMsg.style.display = 'block';
+        // Retry after 500ms to allow schedule to build
+        setTimeout(() => displayDeparturesForSelectedStop_ExtraPage(retryCount + 1), 500);
+        return;
+    } else if (retryCount >= 5) {
+        noDeparturesMsg.textContent = 'Schedule data did not load. Please refresh the page.';
         noDeparturesMsg.style.display = 'block';
         return;
     }

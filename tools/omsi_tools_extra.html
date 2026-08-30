@@ -17989,29 +17989,28 @@ function populateStopSelectorForDeparturesView_ExtraPage() {
     const currentVal = selectStopForDeparturesView_extra.value;
     selectStopForDeparturesView_extra.innerHTML = '<option value="">-- Select Stop --</option>';
 
-    if (currentWorkingSchedule_extra.length === 0) {
+    // OPTIMIZATION: Use allDefinedStops_data directly instead of iterating through massive currentWorkingSchedule_extra
+    const stopsToShow = Object.values(allDefinedStops_data || {}).sort((a, b) => {
+        const nameA = (a.stopName || "").toLowerCase();
+        const nameB = (b.stopName || "").toLowerCase();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        return (a.stopID || "").toLowerCase().localeCompare((b.stopID || "").toLowerCase());
+    });
+
+    if (stopsToShow.length === 0) {
         selectStopForDeparturesView_extra.innerHTML = '<option value="">-- No Stops Loaded --</option>';
         return;
     }
 
-    const stopsMap = new Map();
-    // Iterates over the globally available schedule data
-    currentWorkingSchedule_extra.forEach(e => {
-        if (e.stopID && !stopsMap.has(e.stopID.toUpperCase())) {
-            stopsMap.set(e.stopID.toUpperCase(), { stopID: e.stopID, stopName: e.stopName || e.stopID });
-        }
-    });
-    
-    const sortedStops = Array.from(stopsMap.values()).sort((a,b) => (a.stopName || "").toLowerCase().localeCompare((b.stopName || "").toLowerCase()));
-
-    sortedStops.forEach(s => {
+    stopsToShow.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s.stopID;
         opt.textContent = `${s.stopName} (${s.stopID})`;
         selectStopForDeparturesView_extra.appendChild(opt);
     });
 
-    if (stopsMap.has(currentVal.toUpperCase())) {
+    if (stopsToShow.some(s => s.stopID === currentVal)) {
         selectStopForDeparturesView_extra.value = currentVal;
     }
 }

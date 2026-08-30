@@ -938,6 +938,7 @@ align-items: center;
                         <div>
                              <button id="findDuplicateStopsByNameDirButton_extra" class="button tertiary">Find Duplicates</button>
                              <button id="refreshMasterStopListButton_extra" class="button neutral">Refresh List</button>
+                             <button id="downloadAllStopsButton_extra" class="button neutral">Download All Stops</button>
                         </div>
                     </div>
                     <p id="masterStopListStatus_extra" style="min-height:1.2em;"></p>
@@ -1732,6 +1733,7 @@ const rsgReplaceStopModalCancelButton_el_extra = document.getElementById('rsg-re
         const bulkAddNewStopsStatus_el_extra = document.getElementById('bulkAddNewStopsStatus_extra');
         const masterStopListFilterInput_el_extra = document.getElementById('masterStopListFilterInput_extra');
         const refreshMasterStopListButton_el_extra = document.getElementById('refreshMasterStopListButton_extra');
+        const downloadAllStopsButton_el_extra = document.getElementById('downloadAllStopsButton_extra');
         const masterStopListUL_el_extra = document.getElementById('masterStopListUL_extra');
         const masterStopListStatus_el_extra = document.getElementById('masterStopListStatus_extra');
         const applyMasterListStopIdChangesButton_el_extra = document.getElementById('applyMasterListStopIdChangesButton_extra');
@@ -13907,6 +13909,42 @@ function rsg_downloadStopsList_ExtraPage() {
     URL.revokeObjectURL(url);
 }
 
+function downloadAllStops_ExtraPage() {
+    if (!allDefinedStops_data || Object.keys(allDefinedStops_data).length === 0) {
+        alert('There are no stops defined to download.');
+        return;
+    }
+
+    const stopsArray = Object.values(allDefinedStops_data);
+    
+    // Create CSV format for better compatibility
+    const lines = ['Stop ID,Stop Name,Direction,Routes Served'];
+    stopsArray.forEach(stop => {
+        const routesServing = (stopToServingRoutesMap_extra && stopToServingRoutesMap_extra.get(stop.stopID))
+            ? Array.from(stopToServingRoutesMap_extra.get(stop.stopID)).sort((a, b) => {
+                const aNum = parseInt(a);
+                const bNum = parseInt(b);
+                return isNaN(aNum) || isNaN(bNum) ? a.localeCompare(b) : aNum - bNum;
+            }).join('; ')
+            : '(no routes)';
+        
+        const safeName = (stop.stopName || '').replace(/"/g, '""'); // Escape quotes for CSV
+        const safeDirection = (stop.direction || '').replace(/"/g, '""');
+        lines.push(`"${stop.stopID}","${safeName}","${safeDirection}","${routesServing}"`);
+    });
+
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `all_stops_${timestamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 function rsg_renderStopSequence_ExtraPage() {
     if (!rsgStopSequenceList_el_extra || !rsgStopSequencePlaceholder_el_extra || !rsgFirstStopTimesContainer_el_extra || !rsgStopCountDisplay_el_extra) {
         console.error("RSG Render: Critical elements for rendering stop sequence are missing.");
@@ -17532,6 +17570,9 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
                 masterStopListStatus_el_extra.textContent = "Stop list refreshed.";
             }
         });
+    }
+    if (downloadAllStopsButton_el_extra && typeof downloadAllStops_ExtraPage === 'function') {
+        downloadAllStopsButton_el_extra.addEventListener('click', downloadAllStops_ExtraPage);
     }
     if (applyMasterListStopIdChangesButton_el_extra && typeof handleApplyMasterListStopIdChangesButton_ExtraPage === 'function') {
         applyMasterListStopIdChangesButton_el_extra.addEventListener('click', handleApplyMasterListStopIdChangesButton_ExtraPage);

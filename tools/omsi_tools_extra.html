@@ -2293,9 +2293,6 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
         if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
             renderScheduledUpdatesList_ExtraPage();
         }
-        if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
-            checkAndDisplayDueUpdatesNotification_ExtraPage();
-        }
     }));
 
     const scheduledDeletionsRef = dbRef(database, FB_PATH_SCHEDULED_DELETIONS);
@@ -2305,9 +2302,6 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
         // The visibility check has been REMOVED here as well.
         if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
             renderScheduledUpdatesList_ExtraPage();
-        }
-        if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
-            checkAndDisplayDueUpdatesNotification_ExtraPage();
         }
     }));
     // *** END CORRECTION ***
@@ -6264,119 +6258,122 @@ async function prepareKeyTripTimesForAlerts_ExtraPage() {
         return;
     }
 
-    for (const opDay of operationalDatesToConsider) {
-        const currentOperationalDate = opDay.date;
-        const opDayLabel = opDay.label;
-        const dateStringYYYYMMDD = getYYYYMMDD_ExtraPage(currentOperationalDate);
+    // OPTIMIZATION: Cache operating codes per date to avoid recalculating
+    const operatingCodesCache = new Map();
+    const getCachedOperatingCodes = (date, routeName) => {
+        const key = `${date.toDateString()}|${routeName || 'general'}`;
+        if (!operatingCodesCache.has(key)) {
+            operatingCodesCache.set(key, getOperatingCodesForDate_ExtraPage(date, routeName));
+        }
+        return operatingCodesCache.get(key);
+    };
 
-        for (const configKey in rsg_loadedConfigs_extra) {
-            if (!Object.hasOwnProperty.call(rsg_loadedConfigs_extra, configKey)) continue;
-            
-            const rsgConfig = rsg_loadedConfigs_extra[configKey];
+    const configEntries = Object.entries(rsg_loadedConfigs_extra);
+    const CHUNK_SIZE = 20; // Process 20 configs per chunk
+
+    for (let chunkStart = 0; chunkStart < configEntries.length; chunkStart += CHUNK_SIZE) {
+        const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, configEntries.length);
+        
+        for (let i = chunkStart; i < chunkEnd; i++) {
+            const [configKey, rsgConfig] = configEntries[i];
+            if (!rsgConfig || !rsgConfig.routeName) continue;
+
             const configUserDisplayName = rsgConfig.userDisplayName || configKey;
             const routeName = rsgConfig.routeName;
-
-            if (!routeName) {
-                continue;
-            }
-
             const isNRoute = routeName.toUpperCase().startsWith('N');
             const futureDatePattern = /\(from\s*\d{6}\)/;
-            if (futureDatePattern.test(configUserDisplayName)) {
-                continue;
-            }
+            if (futureDatePattern.test(configUserDisplayName)) continue;
 
-            const configOperatingProfiles = (rsgConfig.operatingProfile || "").split(',').map(p => p.trim());
-            const effectiveProfilesForThisRouteOnThisDate = getOperatingCodesForDate_ExtraPage(currentOperationalDate, routeName);
-            const isActiveForThisOpDate = configOperatingProfiles.some(cop => effectiveProfilesForThisRouteOnThisDate.includes(cop));
-            
-            if (!isActiveForThisOpDate) {
-                continue;
-            }
-            
-            // --- RESTORED LOGIC BLOCK ---
-            // This block correctly skips non-N routes colored blue (24h services) from this list.
-            if (!isNRoute) {
-                const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
-                if (routeColorFor24HCheck === (globalCustomRouteColours_extra["NIGHT_DEFAULT"] || NIGHT_BUS_BLUE_COLOR_extra).toUpperCase()) {
-                    let allowThis24HourService = false;
-                    const configIsForChristmasEve = (rsgConfig.operatingProfile || "").includes("Christmas Eve");
-                    const opDayIsEffectivelyChristmasEve = effectiveProfilesForThisRouteOnThisDate.includes("Christmas Eve");
-                    if (configIsForChristmasEve && opDayIsEffectivelyChristmasEve) {
-                        allowThis24HourService = true;
-                    }
-                    const configIsForBoxingDay = (rsgConfig.operatingProfile || "").includes("Boxing Day");
-                    const opDayIsEffectivelyBoxingDay = effectiveProfilesForThisRouteOnThisDate.includes("Boxing Day");
-                    if (!allowThis24HourService && configIsForBoxingDay && opDayIsEffectivelyBoxingDay) {
-                        allowThis24HourService = true;
-                    }
-                    if (!allowThis24HourService) {
-                        continue; // This skips the route as intended.
+            for (const opDay of operationalDatesToConsider) {
+                const currentOperationalDate = opDay.date;
+                const configOperatingProfiles = (rsgConfig.operatingProfile || "").split(',').map(p => p.trim());
+                const effectiveProfilesForThisRouteOnThisDate = getCachedOperatingCodes(currentOperationalDate, routeName);
+                const isActiveForThisOpDate = configOperatingProfiles.some(cop => effectiveProfilesForThisRouteOnThisDate.includes(cop));
+                
+                if (!isActiveForThisOpDate) continue;
+                
+                if (!isNRoute) {
+                    const routeColorFor24HCheck = getRouteTileColour_ExtraPage(routeName, null).toUpperCase();
+                    if (routeColorFor24HCheck === (globalCustomRouteColours_extra["NIGHT_DEFAULT"] || NIGHT_BUS_BLUE_COLOR_extra).toUpperCase()) {
+                        let allowThis24HourService = false;
+                        const configIsForChristmasEve = (rsgConfig.operatingProfile || "").includes("Christmas Eve");
+                        const opDayIsEffectivelyChristmasEve = effectiveProfilesForThisRouteOnThisDate.includes("Christmas Eve");
+                        if (configIsForChristmasEve && opDayIsEffectivelyChristmasEve) {
+                            allowThis24HourService = true;
+                        }
+                        const configIsForBoxingDay = (rsgConfig.operatingProfile || "").includes("Boxing Day");
+                        const opDayIsEffectivelyBoxingDay = effectiveProfilesForThisRouteOnThisDate.includes("Boxing Day");
+                        if (!allowThis24HourService && configIsForBoxingDay && opDayIsEffectivelyBoxingDay) {
+                            allowThis24HourService = true;
+                        }
+                        if (!allowThis24HourService) continue;
                     }
                 }
-            }
-            // --- END OF RESTORED LOGIC BLOCK ---
 
-            if (!rsgConfig.firstStopTimes || rsgConfig.firstStopTimes.trim() === "" ||
-                !rsgConfig.stopSequence || rsgConfig.stopSequence.length === 0) {
-                continue;
-            }
-
-            const rawDepartureTimes = (rsgConfig.firstStopTimes || "").split(/\s*[\t;,]\s*/)
-                                         .map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
-            
-            if (rawDepartureTimes.length === 0) {
-                continue;
-            }
-
-            let hasLateNightTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) >= 20);
-            let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 6);
-
-            const departureTimeObjectsSorted = rawDepartureTimes.map(timeStr => {
-                let [h, m] = timeStr.split(':').map(Number);
-                let sortableMinutes = h * 60 + m;
-                if ( (isNRoute && h < 6) ||
-                     (h < 4 && hasLateNightTimesInList && hasEarlyMorningTimesInList) ) {
-                    sortableMinutes += 1440;
+                if (!rsgConfig.firstStopTimes || rsgConfig.firstStopTimes.trim() === "" ||
+                    !rsgConfig.stopSequence || rsgConfig.stopSequence.length === 0) {
+                    continue;
                 }
-                return { timeStr, sortableMinutes };
-            }).sort((a, b) => a.sortableMinutes - b.sortableMinutes);
 
-            if (departureTimeObjectsSorted.length === 0) continue;
+                const rawDepartureTimes = (rsgConfig.firstStopTimes || "").split(/\s*[\t;,]\s*/)
+                                             .map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
+                
+                if (rawDepartureTimes.length === 0) continue;
 
-            const firstDepartureTimeStr = departureTimeObjectsSorted[0].timeStr;
-            const lastDepartureTimeStr = departureTimeObjectsSorted[departureTimeObjectsSorted.length - 1].timeStr;
-            const firstStopOfSequence = rsgConfig.stopSequence[0];
-            const lastStopOfSequence = rsgConfig.stopSequence[rsgConfig.stopSequence.length - 1];
-            const headsignDestinationName = rsgConfig.destinationName;
+                let hasLateNightTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) >= 20);
+                let hasEarlyMorningTimesInList = rawDepartureTimes.some(t => parseInt(t.substring(0,2)) < 6);
 
-            const eventBaseData = {
-                lineName: routeName, headsignDestinationName: headsignDestinationName,
-                originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
-                actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
-                operatingProfile: rsgConfig.operatingProfile,
-                rsgConfigUserDisplayName: configUserDisplayName || configKey
-            };
+                const departureTimeObjectsSorted = rawDepartureTimes.map(timeStr => {
+                    let [h, m] = timeStr.split(':').map(Number);
+                    let sortableMinutes = h * 60 + m;
+                    if ( (isNRoute && h < 6) ||
+                         (h < 4 && hasLateNightTimesInList && hasEarlyMorningTimesInList) ) {
+                        sortableMinutes += 1440;
+                    }
+                    return { timeStr, sortableMinutes };
+                }).sort((a, b) => a.sortableMinutes - b.sortableMinutes);
 
-            const firstDepartureTimeObj = createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList, isNRoute);
-            const lastDepartureTimeObj = createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList, isNRoute);
-            
-            const firstTripType = isNRoute ? 'n-bus-first-trip' : 'rsg-first-trip';
-            const lastTripType = isNRoute ? 'n-bus-last-trip' : 'rsg-last-trip';
+                if (departureTimeObjectsSorted.length === 0) continue;
 
-            allPotentialEvents.push({
-                ...eventBaseData, type: firstTripType, configKey: configKey,
-                departureTime: firstDepartureTimeStr,
-                departureTimeObj: firstDepartureTimeObj,
-            });
+                const firstDepartureTimeStr = departureTimeObjectsSorted[0].timeStr;
+                const lastDepartureTimeStr = departureTimeObjectsSorted[departureTimeObjectsSorted.length - 1].timeStr;
+                const firstStopOfSequence = rsgConfig.stopSequence[0];
+                const lastStopOfSequence = rsgConfig.stopSequence[rsgConfig.stopSequence.length - 1];
+                const headsignDestinationName = rsgConfig.destinationName;
 
-            if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
+                const eventBaseData = {
+                    lineName: routeName, headsignDestinationName: headsignDestinationName,
+                    originStopName: firstStopOfSequence.stopName || firstStopOfSequence.stopID,
+                    actualTerminusName: lastStopOfSequence.stopName || lastStopOfSequence.stopID,
+                    operatingProfile: rsgConfig.operatingProfile,
+                    rsgConfigUserDisplayName: configUserDisplayName || configKey
+                };
+
+                const firstDepartureTimeObj = createEventTimeObjForAlert(firstDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList, isNRoute);
+                const lastDepartureTimeObj = createEventTimeObjForAlert(lastDepartureTimeStr, currentOperationalDate, hasLateNightTimesInList, hasEarlyMorningTimesInList, isNRoute);
+                
+                const firstTripType = isNRoute ? 'n-bus-first-trip' : 'rsg-first-trip';
+                const lastTripType = isNRoute ? 'n-bus-last-trip' : 'rsg-last-trip';
+
                 allPotentialEvents.push({
-                    ...eventBaseData, type: lastTripType, configKey: configKey,
-                    departureTime: lastDepartureTimeStr,
-                    departureTimeObj: lastDepartureTimeObj,
+                    ...eventBaseData, type: firstTripType, configKey: configKey,
+                    departureTime: firstDepartureTimeStr,
+                    departureTimeObj: firstDepartureTimeObj,
                 });
+
+                if (lastDepartureTimeStr !== firstDepartureTimeStr || departureTimeObjectsSorted.length > 1) {
+                    allPotentialEvents.push({
+                        ...eventBaseData, type: lastTripType, configKey: configKey,
+                        departureTime: lastDepartureTimeStr,
+                        departureTimeObj: lastDepartureTimeObj,
+                    });
+                }
             }
+        }
+
+        // Yield to browser if there are more chunks
+        if (chunkEnd < configEntries.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
     }
 
@@ -6825,7 +6822,7 @@ async function displayKeyDepartures_ExtraPage() {
     }
 
     if (!todayKeyTripEvents_extra || todayKeyTripEvents_extra.length === 0) {
-        const msg = "No key trip events identified for display based on current configurations and time.";
+        const msg = "No departures configured or found for today.";
         if (statusMsgEl) statusMsgEl.textContent = msg;
         firstDepListDiv.innerHTML = `<p style="opacity:0.7;">${msg}</p>`;
         lastDepListDiv.innerHTML = `<p style="opacity:0.7;">${msg}</p>`;
@@ -14855,10 +14852,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
     if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
         renderScheduledUpdatesList_ExtraPage();
     }
-    // Also update the due tasks banner in case this new task is immediately due
-    if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
-        checkAndDisplayDueUpdatesNotification_ExtraPage();
-    }
     
     // Close modal after a delay
     setTimeout(
@@ -14924,9 +14917,6 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
             
             if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
                 renderScheduledUpdatesList_ExtraPage();
-            }
-            if (typeof checkAndDisplayDueUpdatesNotification_ExtraPage === 'function') {
-                checkAndDisplayDueUpdatesNotification_ExtraPage();
             }
         }
 
@@ -16010,11 +16000,6 @@ async function handleExecuteScheduledDeletion_ExtraPage(taskKey) {
             "function"
         )
             loadAndDisplayScheduledUpdates_ExtraPage();
-        if (
-            typeof checkAndDisplayDueUpdatesNotification_ExtraPage ===
-            "function"
-        )
-            checkAndDisplayDueUpdatesNotification_ExtraPage();
 
         const successMsg = `${userFriendlyTaskName} for "${routeNameForConfirm}" (Profile: ${profileForConfirm}, Go-Live: ${goLiveForConfirm}) has been cancelled/record deleted.`;
         if (rsgStatusMessage_el_extra) {

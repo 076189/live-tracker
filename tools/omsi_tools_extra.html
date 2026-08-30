@@ -8,6 +8,17 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+    <!-- Eruda for mobile debugging -->
+    <script src="https://cdn.jsdelivr.net/npm/eruda@2.4.1/dist/eruda.min.js" defer></script>
+    <script defer>
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                if (typeof eruda !== 'undefined') eruda.init();
+            });
+        } else {
+            if (typeof eruda !== 'undefined') eruda.init();
+        }
+    </script>
     <link rel="manifest" href="manifest-omsitoolsextra.json">
     <link rel="apple-touch-icon" href="/live-tracker/assets/icons/tools_icon-192x192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="/live-tracker/assets/icons/tools_icon-192x192.png">
@@ -463,24 +474,6 @@ align-items: center;
     #op-copy-eligible-points-container-extra {
         max-height: none !important;
         overflow-y: visible !important;
-    }
-
-    /* MOBILE OPTIMIZATION: Hide unnecessary sections to prevent app crash */
-    #day-profile-override-section_extra,
-    #global-route-deletion-section_extra,
-    #route-profile-deletion-section_extra,
-    #scheduled-route-deletion-section_extra,
-    #calendar-view-section_extra {
-        display: none !important;
-    }
-
-    /* Hide menu buttons for hidden sections */
-    button[data-section="day-profile-override-section_extra"],
-    button[data-section="global-route-deletion-section_extra"],
-    button[data-section="route-profile-deletion-section_extra"],
-    button[data-section="scheduled-route-deletion-section_extra"],
-    button[data-section="calendar-view-section_extra"] {
-        display: none !important;
     }
 
 </style>
@@ -2339,33 +2332,49 @@ function scheduleDependentRender_ExtraPage() {
 // thread long enough on phones for the browser to kill/reload the tab. Process in small chunks
 // and yield between them so the page stays responsive while "loading the routes".
 async function rebuildScheduleFromRsgConfigs_ExtraPage() {
-    const myToken = ++rsgScheduleRebuildToken_extra;
-    const configs = (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') ? Object.values(rsg_loadedConfigs_extra) : [];
-    const flatScheduleFromConfigs = [];
-    const CHUNK_SIZE = 30; // Process 30 configs per chunk - balances responsiveness vs overhead
+    try {
+        console.log('[SCHEDULE BUILD] Starting rebuildScheduleFromRsgConfigs_ExtraPage');
+        const myToken = ++rsgScheduleRebuildToken_extra;
+        const configs = (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') ? Object.values(rsg_loadedConfigs_extra) : [];
+        console.log('[SCHEDULE BUILD] Loaded configs count:', configs.length);
+        const flatScheduleFromConfigs = [];
+        const CHUNK_SIZE = 30; // Process 30 configs per chunk - balances responsiveness vs overhead
 
-    for (let i = 0; i < configs.length; i += CHUNK_SIZE) {
-        if (myToken !== rsgScheduleRebuildToken_extra) return; // Superseded by a newer Firebase update
+        for (let i = 0; i < configs.length; i += CHUNK_SIZE) {
+            if (myToken !== rsgScheduleRebuildToken_extra) return; // Superseded by a newer Firebase update
+            console.log('[SCHEDULE BUILD] Processing chunk', Math.floor(i / CHUNK_SIZE) + 1, 'of', Math.ceil(configs.length / CHUNK_SIZE));
 
-        configs.slice(i, i + CHUNK_SIZE).forEach(config => {
-            if (config && config.stopSequence && config.firstStopTimes) {
-                const trips = generateScheduleTripsFromConfig(config);
-                trips.forEach(tripEntries => {
-                    flatScheduleFromConfigs.push(...tripEntries);
-                });
+            configs.slice(i, i + CHUNK_SIZE).forEach((config, idx) => {
+                try {
+                    if (config && config.stopSequence && config.firstStopTimes) {
+                        const trips = generateScheduleTripsFromConfig(config);
+                        trips.forEach(tripEntries => {
+                            flatScheduleFromConfigs.push(...tripEntries);
+                        });
+                    }
+                } catch (e) {
+                    console.error('[SCHEDULE BUILD] Error processing config at index', i + idx, ':', e.message);
+                }
+            });
+
+            if (i + CHUNK_SIZE < configs.length) {
+                console.log('[SCHEDULE BUILD] Chunk processed, yielding to event loop...');
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
-        });
-
-        if (i + CHUNK_SIZE < configs.length) {
-            await new Promise(resolve => setTimeout(resolve, 0));
         }
-    }
 
-    if (myToken !== rsgScheduleRebuildToken_extra) return;
-    currentWorkingSchedule_extra = flatScheduleFromConfigs;
+        if (myToken !== rsgScheduleRebuildToken_extra) return;
+        console.log('[SCHEDULE BUILD] All chunks processed. Total schedule entries:', flatScheduleFromConfigs.length);
+        currentWorkingSchedule_extra = flatScheduleFromConfigs;
+        console.log('[SCHEDULE BUILD] currentWorkingSchedule_extra updated');
 
-    if (currentUser_extra) { // Only if logged in
-        scheduleDependentRender_ExtraPage();
+        if (currentUser_extra) { // Only if logged in
+            console.log('[SCHEDULE BUILD] Calling scheduleDependentRender_ExtraPage');
+            scheduleDependentRender_ExtraPage();
+            console.log('[SCHEDULE BUILD] Done!');
+        }
+    } catch (error) {
+        console.error('[SCHEDULE BUILD] FATAL ERROR in rebuildScheduleFromRsgConfigs_ExtraPage:', error);
     }
 }
 
@@ -2373,61 +2382,78 @@ async function rebuildScheduleFromRsgConfigs_ExtraPage() {
 // synchronous nested-loop pass can block the main thread long enough on phones for the browser
 // to kill/reload the tab. Process route-by-route and yield between chunks to stay responsive.
 async function processLiveScheduleSnapshot_ExtraPage(snapshot) {
-    const myToken = ++liveScheduleFlattenToken_extra;
+    try {
+        console.log('[LIVE SCHEDULE] Starting processLiveScheduleSnapshot_ExtraPage');
+        const myToken = ++liveScheduleFlattenToken_extra;
 
-    const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
-    const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
-    const flatLiveSchedule = [];
-    const CHUNK_SIZE = 10; // Process 10 routes per chunk - balances responsiveness vs overhead
+        const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
+        const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
+        console.log('[LIVE SCHEDULE] Routes to process:', routeKeys.length);
+        const flatLiveSchedule = [];
+        const CHUNK_SIZE = 10; // Process 10 routes per chunk - balances responsiveness vs overhead
 
-    for (let i = 0; i < routeKeys.length; i += CHUNK_SIZE) {
-        if (myToken !== liveScheduleFlattenToken_extra) return; // Superseded by a newer Firebase update
+        for (let i = 0; i < routeKeys.length; i += CHUNK_SIZE) {
+            if (myToken !== liveScheduleFlattenToken_extra) return; // Superseded by a newer Firebase update
+            console.log('[LIVE SCHEDULE] Processing chunk', Math.floor(i / CHUNK_SIZE) + 1, 'of', Math.ceil(routeKeys.length / CHUNK_SIZE));
 
-        routeKeys.slice(i, i + CHUNK_SIZE).forEach(routeKey => {
-            const routeData = schedulesByRoute[routeKey];
-            if (!routeData || typeof routeData !== 'object') return;
-            for (const profileKey in routeData) {
-                if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
-                const profileData = routeData[profileKey];
-                if (!profileData || typeof profileData !== 'object') continue;
-                for (const destKey in profileData) {
-                    if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
-                    const destData = profileData[destKey];
-                    if (destData && Array.isArray(destData.entries)) {
-                        destData.entries.forEach(entry => {
-                            if (entry) flatLiveSchedule.push(entry);
-                        });
+            routeKeys.slice(i, i + CHUNK_SIZE).forEach((routeKey, idx) => {
+                try {
+                    const routeData = schedulesByRoute[routeKey];
+                    if (!routeData || typeof routeData !== 'object') return;
+                    for (const profileKey in routeData) {
+                        if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
+                        const profileData = routeData[profileKey];
+                        if (!profileData || typeof profileData !== 'object') continue;
+                        for (const destKey in profileData) {
+                            if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
+                            const destData = profileData[destKey];
+                            if (destData && Array.isArray(destData.entries)) {
+                                destData.entries.forEach(entry => {
+                                    if (entry) flatLiveSchedule.push(entry);
+                                });
+                            }
+                        }
                     }
+                } catch (e) {
+                    console.error('[LIVE SCHEDULE] Error processing route', routeKey, ':', e.message);
                 }
-            }
-        });
+            });
 
         if (i + CHUNK_SIZE < routeKeys.length) {
+            console.log('[LIVE SCHEDULE] Chunk processed, yielding to event loop...');
             await new Promise(resolve => setTimeout(resolve, 0));
         }
-    }
+        }
 
-    if (myToken !== liveScheduleFlattenToken_extra) return;
-    liveScheduleForToolsDisplay = flatLiveSchedule;
-
-    stopToServingRoutesMap_extra.clear();
-    for (let i = 0; i < flatLiveSchedule.length; i++) {
         if (myToken !== liveScheduleFlattenToken_extra) return;
-        const entry = flatLiveSchedule[i];
-        if (entry.stopID && entry.lineName) {
-            if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
-                stopToServingRoutesMap_extra.set(entry.stopID, new Set());
-            }
-            stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
-        }
-        if (i > 0 && i % 5000 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-    }
+        console.log('[LIVE SCHEDULE] All chunks processed. Total live schedule entries:', flatLiveSchedule.length);
+        liveScheduleForToolsDisplay = flatLiveSchedule;
+        console.log('[LIVE SCHEDULE] Building stopToServingRoutesMap...');
 
-    if (myToken !== liveScheduleFlattenToken_extra) return;
-    if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
-        populateMasterStopList_ExtraPage();
+        stopToServingRoutesMap_extra.clear();
+        for (let i = 0; i < flatLiveSchedule.length; i++) {
+            if (myToken !== liveScheduleFlattenToken_extra) return;
+            const entry = flatLiveSchedule[i];
+            if (entry.stopID && entry.lineName) {
+                if (!stopToServingRoutesMap_extra.has(entry.stopID)) {
+                    stopToServingRoutesMap_extra.set(entry.stopID, new Set());
+                }
+                stopToServingRoutesMap_extra.get(entry.stopID).add(entry.lineName);
+            }
+            if (i > 0 && i % 5000 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        if (myToken !== liveScheduleFlattenToken_extra) return;
+        console.log('[LIVE SCHEDULE] Map built. Total unique stops:', stopToServingRoutesMap_extra.size);
+        if (document.getElementById('stop-manager-tool-section_extra').style.display !== 'none' && typeof populateMasterStopList_ExtraPage === 'function') {
+            console.log('[LIVE SCHEDULE] Updating Master Stop List');
+            populateMasterStopList_ExtraPage();
+        }
+        console.log('[LIVE SCHEDULE] Done!');
+    } catch (error) {
+        console.error('[LIVE SCHEDULE] FATAL ERROR in processLiveScheduleSnapshot_ExtraPage:', error);
     }
 }
 
@@ -16604,12 +16630,6 @@ function rsg_openCopyFromModal_ExtraPage() {
         s.style.display = "none";
     });
 
-    // MOBILE OPTIMIZATION: Skip initialization for hidden sections to prevent unnecessary data loading
-    const hiddenSectionIds = ['day-profile-override-section_extra', 'global-route-deletion-section_extra', 'route-profile-deletion-section_extra', 'scheduled-route-deletion-section_extra', 'calendar-view-section_extra'];
-    if (hiddenSectionIds.includes(sectionId)) {
-        return;
-    }
-
     const sectionToShow = document.getElementById(sectionId);
     if (sectionToShow) {
         sectionToShow.style.display = "block";
@@ -16880,6 +16900,9 @@ function renderUIDependentElements_ExtraPage() {
         }
         if (typeof rsg_populateRouteTiles_ExtraPage === 'function') {
             rsg_populateRouteTiles_ExtraPage();
+        }
+        if (typeof populateGlobalRouteToDeleteList_ExtraPage === 'function') {
+            populateGlobalRouteToDeleteList_ExtraPage();
         }
         if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') {
             populateStopSelectorForDeparturesView_ExtraPage();

@@ -2253,7 +2253,9 @@ function setupFirebaseListeners_ExtraPage() {
     const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
     firebaseListenerUnsubscribers_extra.push(dbOnValue(liveScheduleRefForTools, (snapshot) => {
         console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
-        processLiveScheduleSnapshot_ExtraPage(snapshot);
+        // OPTIMIZATION: Schedule processing asynchronously so the listener callback returns immediately
+        // and doesn't block the message handler for 4+ seconds on mobile
+        setTimeout(() => processLiveScheduleSnapshot_ExtraPage(snapshot), 0);
     }));
 
     // Listener for RSG Configurations
@@ -2261,7 +2263,8 @@ function setupFirebaseListeners_ExtraPage() {
     firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgConfigsRef, (snapshot) => {
         console.log("[RSG Configs Listener] RSG configurations data updated.");
         rsg_loadedConfigs_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        rebuildScheduleFromRsgConfigs_ExtraPage();
+        // OPTIMIZATION: Schedule processing asynchronously so the listener returns immediately
+        setTimeout(() => rebuildScheduleFromRsgConfigs_ExtraPage(), 0);
     }));
 
     // Listener for Defined Curtailment Points
@@ -2327,7 +2330,7 @@ async function rebuildScheduleFromRsgConfigs_ExtraPage() {
     const myToken = ++rsgScheduleRebuildToken_extra;
     const configs = (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') ? Object.values(rsg_loadedConfigs_extra) : [];
     const flatScheduleFromConfigs = [];
-    const CHUNK_SIZE = 25;
+    const CHUNK_SIZE = 15; // OPTIMIZATION: Reduced from 25 for better mobile responsiveness
 
     for (let i = 0; i < configs.length; i += CHUNK_SIZE) {
         if (myToken !== rsgScheduleRebuildToken_extra) return; // Superseded by a newer Firebase update
@@ -2363,7 +2366,7 @@ async function processLiveScheduleSnapshot_ExtraPage(snapshot) {
     const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
     const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
     const flatLiveSchedule = [];
-    const CHUNK_SIZE = 5;
+    const CHUNK_SIZE = 2; // OPTIMIZATION: Reduced from 5 to 2 for better mobile responsiveness
 
     for (let i = 0; i < routeKeys.length; i += CHUNK_SIZE) {
         if (myToken !== liveScheduleFlattenToken_extra) return; // Superseded by a newer Firebase update

@@ -750,20 +750,11 @@ align-items: center;
             <div id="vehicle-allocation-management-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>Vehicle Allocations</h2>
                 <p style="font-size:0.9em; margin-bottom:1em; opacity: 0.8;">
-                    Import your fleet list, then pick which routes each vehicle can serve. The Live Tracker uses this to randomly assign a vehicle to each running trip: routes it normally uses (common), and routes it can cover if needed (rare).
+                    Pick a route, then paste in the vehicles that serve it. The Live Tracker uses this to randomly assign a vehicle to each running trip: routes it normally uses (common), and routes it can cover if needed (rare).
                 </p>
 
                 <div class="subsection">
-                    <h3 class="subsection-title">1. Import Fleet List</h3>
-                    <p style="font-size:0.85em; opacity:0.8;">Upload your fleet spreadsheet (.xlsx). Expected columns: Fleet Number, Reg Number, Livery, Previous Reg No, Previous Fleet No, Previous Garage, Routes Allocated To. Rows without both a fleet number and registration (e.g. section headers) are skipped. Importing updates the master fleet list without touching route assignments already saved.</p>
-                    <input type="file" id="vehicleFleetImportInput_extra" accept=".xlsx" class="schedule-generator-input" style="max-width:400px;">
-                    <button id="vehicleFleetImportButton_extra" class="button neutral" style="margin-top:0.5rem;">Import Fleet List</button>
-                    <p id="vehicleFleetImportStatus_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
-                </div>
-
-                <div class="subsection" style="margin-top:1.5rem;">
-                    <h3 class="subsection-title">2. Assign Vehicles to a Route</h3>
-                    <p style="font-size:0.85em; opacity:0.8;">Pick a route, then tick which vehicles serve it (Common = normally uses it, Rare = only used as backup). Use the per-garage buttons to tick a whole garage at once instead of one-by-one.</p>
+                    <h3 class="subsection-title">Assign Vehicles to a Route</h3>
                     <div class="form-grid" style="grid-template-columns: 1fr auto; align-items:end; gap:0.75rem;">
                         <div>
                             <label for="selectVehicleAllocRoute_extra">Route Name</label>
@@ -777,11 +768,17 @@ align-items: center;
                         </div>
                     </div>
 
-                    <label for="vehicleFleetSearchInput_extra" style="margin-top:0.75rem; display:block;">Search Fleet Number / Registration / Livery / Garage:</label>
-                    <input type="text" id="vehicleFleetSearchInput_extra" class="schedule-generator-input" placeholder="e.g. 39213, BN61 MWM, or AB">
-
-                    <div id="vehicleFleetGarageGroups_extra" style="max-height:400px; overflow-y:auto; border:1px solid #4A5568; border-radius:0.25rem; margin-top:0.5rem; padding:0.5rem;"></div>
-                    <p id="noVehicleFleetMessage_extra" style="text-align:center; opacity:0.7; padding:0.5rem;">No fleet vehicles imported yet.</p>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap:0.75rem; margin-top:0.75rem;">
+                        <div>
+                            <label for="vehicleAllocCommonTextarea_extra">Common Vehicles (one per line: Fleet Number, then Tab, then Registration - pastes straight from Excel):</label>
+                            <textarea id="vehicleAllocCommonTextarea_extra" class="schedule-generator-input" rows="10" style="width:100%; font-family:monospace;" placeholder="39213	BN61 MWM
+39214	BN61 MWN"></textarea>
+                        </div>
+                        <div>
+                            <label for="vehicleAllocRareTextarea_extra">Rare Vehicles (one per line, same format):</label>
+                            <textarea id="vehicleAllocRareTextarea_extra" class="schedule-generator-input" rows="10" style="width:100%; font-family:monospace;" placeholder="39301	BN61 MXA"></textarea>
+                        </div>
+                    </div>
 
                     <button id="saveVehicleAllocationButton_extra" class="button tertiary" style="margin-top:0.75rem;">Save Vehicles &amp; Rare Chance For This Route</button>
                     <p id="vehicleAllocationStatusMessage_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
@@ -1567,7 +1564,6 @@ align-items: center;
 	let tripAlertIntervalId_extra = null; // To store the setInterval ID
     let firebaseListenerUnsubscribers_extra = [];
     let vehicleAllocationData_extra = {};
-    let vehicleFleetData_extra = {};
     let authGeneration_extra = 0;
     let dependentRenderTimer_extra = null;
     let keyDeparturesRefreshInProgress_extra = false;
@@ -1612,7 +1608,6 @@ align-items: center;
         const FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS = '/settings/customRouteColours';
         const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
         const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
-        const FB_PATH_VEHICLE_FLEET = '/vehicleFleet';
         const FB_PATH_RSG_CONFIGS = '/rsgConfigs';
         const FB_PATH_ALL_DEFINED_STOPS = '/allDefinedStops';
         const FB_PATH_SCHEDULED_UPDATES = '/scheduledUpdates';
@@ -1694,18 +1689,14 @@ const setGlobalRailReplacementColor_el_extra = document.getElementById('setGloba
 
 const selectVehicleAllocRoute_el_extra = document.getElementById('selectVehicleAllocRoute_extra');
 const vehicleAllocRareChanceInput_el_extra = document.getElementById('vehicleAllocRareChanceInput_extra');
+const vehicleAllocCommonTextarea_el_extra = document.getElementById('vehicleAllocCommonTextarea_extra');
+const vehicleAllocRareTextarea_el_extra = document.getElementById('vehicleAllocRareTextarea_extra');
 const saveVehicleAllocationButton_el_extra = document.getElementById('saveVehicleAllocationButton_extra');
 const vehicleAllocationStatusMessage_el_extra = document.getElementById('vehicleAllocationStatusMessage_extra');
 const currentVehicleAllocationsList_el_extra = document.getElementById('currentVehicleAllocationsList_extra');
 const noVehicleAllocationsMessage_el_extra = document.getElementById('noVehicleAllocationsMessage_extra');
 const clearAllVehicleAllocationsButton_el_extra = document.getElementById('clearAllVehicleAllocationsButton_extra');
 
-const vehicleFleetImportInput_el_extra = document.getElementById('vehicleFleetImportInput_extra');
-const vehicleFleetImportButton_el_extra = document.getElementById('vehicleFleetImportButton_extra');
-const vehicleFleetImportStatus_el_extra = document.getElementById('vehicleFleetImportStatus_extra');
-const vehicleFleetSearchInput_el_extra = document.getElementById('vehicleFleetSearchInput_extra');
-const vehicleFleetGarageGroups_el_extra = document.getElementById('vehicleFleetGarageGroups_extra');
-const noVehicleFleetMessage_el_extra = document.getElementById('noVehicleFleetMessage_extra');
 	const rsgStopCountDisplay_el_extra = document.getElementById('rsg-stop-count-display');
 	const rsgOpenPasteAdjModalButton_el_extra = document.getElementById('rsg-open-paste-adj-modal-button-extra');
 const rsgPasteAdjModal_el_extra = document.getElementById('rsg-paste-adjustments-modal-extra');
@@ -2351,15 +2342,7 @@ function setupFirebaseListeners_ExtraPage() {
         console.log("[Vehicle Allocations Listener] Vehicle allocation data updated via listener.");
         vehicleAllocationData_extra = snapshot.exists() ? snapshot.val() || {} : {};
         if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
-        if (typeof renderVehicleFleetAssignmentForRoute_ExtraPage === 'function') renderVehicleFleetAssignmentForRoute_ExtraPage();
-    }));
-
-    // Listener for the imported Vehicle Fleet master list
-    const vehicleFleetRef = dbRef(database, FB_PATH_VEHICLE_FLEET);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(vehicleFleetRef, (snapshot) => {
-        console.log("[Vehicle Fleet Listener] Vehicle fleet data updated via listener.");
-        vehicleFleetData_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        if (typeof renderVehicleFleetAssignmentForRoute_ExtraPage === 'function') renderVehicleFleetAssignmentForRoute_ExtraPage();
+        if (typeof populateVehicleAllocFormForRoute_ExtraPage === 'function') populateVehicleAllocFormForRoute_ExtraPage();
     }));
 
     // Listener for User Data
@@ -3367,200 +3350,6 @@ function getVehicleKeyForVehicle_ExtraPage(v) {
     return String((v && v.registration) || '').trim().toUpperCase();
 }
 
-// Section-header rows in the fleet spreadsheet look like "First (AB)(B5TL DD 10.5m)" - only column A
-// is filled in for those. We use them to tag every vehicle row that follows with its garage code/type,
-// until the next header row is hit.
-function getVehicleGarageAndTypeFromHeader_ExtraPage(headerText) {
-    const match = String(headerText || '').match(/\(([^)]+)\)\(([^)]+)\)/);
-    if (match) return { garage: match[1].trim(), vehicleType: match[2].trim() };
-    return { garage: 'Unassigned', vehicleType: '' };
-}
-
-async function handleImportVehicleFleet_ExtraPage() {
-    if (!currentUser_extra || !window.firebaseOMSI) return;
-    if (!vehicleFleetImportInput_el_extra || !vehicleFleetImportInput_el_extra.files || vehicleFleetImportInput_el_extra.files.length === 0) {
-        if (vehicleFleetImportStatus_el_extra) { vehicleFleetImportStatus_el_extra.textContent = 'Please choose an .xlsx file first.'; vehicleFleetImportStatus_el_extra.style.color = '#f1c40f'; }
-        return;
-    }
-    const file = vehicleFleetImportInput_el_extra.files[0];
-    if (vehicleFleetImportStatus_el_extra) { vehicleFleetImportStatus_el_extra.textContent = `Processing ${file.name}...`; vehicleFleetImportStatus_el_extra.style.color = ''; }
-
-    const reader = new FileReader();
-    reader.onload = async function(e) {
-        try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-            const updates = {};
-            let importedCount = 0;
-            let currentGarage = 'Unassigned';
-            let currentVehicleType = '';
-            rows.forEach(row => {
-                if (!Array.isArray(row)) return;
-                const fleetNumber = String(row[0] || '').trim();
-                const registration = String(row[1] || '').trim();
-                if (!fleetNumber) return;
-                if (!registration) {
-                    // Section-header row (e.g. garage/depot heading) - update the garage context for the rows that follow.
-                    const parsed = getVehicleGarageAndTypeFromHeader_ExtraPage(fleetNumber);
-                    currentGarage = parsed.garage;
-                    currentVehicleType = parsed.vehicleType;
-                    return;
-                }
-                const key = sanitizeFirebaseKey(fleetNumber.toUpperCase());
-                updates[`${FB_PATH_VEHICLE_FLEET}/${key}`] = {
-                    fleetNumber: fleetNumber,
-                    registration: registration,
-                    livery: String(row[2] || '').trim(),
-                    previousRegNo: String(row[3] || '').trim(),
-                    previousFleetNo: String(row[4] || '').trim(),
-                    previousGarage: String(row[5] || '').trim(),
-                    routesAllocatedToRaw: String(row[6] || '').trim(),
-                    garage: currentGarage,
-                    vehicleType: currentVehicleType
-                };
-                importedCount++;
-            });
-
-            if (importedCount === 0) {
-                if (vehicleFleetImportStatus_el_extra) { vehicleFleetImportStatus_el_extra.textContent = 'No valid vehicle rows found (need both a fleet number and registration).'; vehicleFleetImportStatus_el_extra.style.color = '#e74c3c'; }
-                return;
-            }
-
-            const { database, dbUpdate, dbRef } = window.firebaseOMSI;
-            await dbUpdate(dbRef(database), updates);
-            Object.keys(updates).forEach(path => {
-                const key = path.split('/').pop();
-                vehicleFleetData_extra[key] = updates[path];
-            });
-            renderVehicleFleetAssignmentForRoute_ExtraPage();
-            if (vehicleFleetImportStatus_el_extra) { vehicleFleetImportStatus_el_extra.textContent = `Imported/updated ${importedCount} vehicles.`; vehicleFleetImportStatus_el_extra.style.color = '#2ecc71'; }
-            vehicleFleetImportInput_el_extra.value = '';
-        } catch (error) {
-            console.error('[Vehicle Fleet Import] Failed:', error);
-            if (vehicleFleetImportStatus_el_extra) { vehicleFleetImportStatus_el_extra.textContent = 'Error importing fleet list: ' + error.message; vehicleFleetImportStatus_el_extra.style.color = '#e74c3c'; }
-        }
-    };
-    reader.onerror = function() {
-        if (vehicleFleetImportStatus_el_extra) { vehicleFleetImportStatus_el_extra.textContent = 'Could not read the file.'; vehicleFleetImportStatus_el_extra.style.color = '#e74c3c'; }
-    };
-    reader.readAsArrayBuffer(file);
-}
-
-// Tracks which vehicles (by key) are ticked as Common/Rare for the currently-selected route, before saving.
-let vehicleAllocRouteSelection_extra = { common: new Set(), rare: new Set() };
-
-function getVehicleGroupsByGarage_ExtraPage(filterText) {
-    const groups = new Map();
-    Object.values(vehicleFleetData_extra || {})
-        .filter(v => v && v.fleetNumber)
-        .filter(v => !filterText || `${v.fleetNumber} ${v.registration} ${v.livery} ${v.garage || ''}`.toLowerCase().includes(filterText))
-        .forEach(v => {
-            const garage = v.garage || 'Unassigned';
-            if (!groups.has(garage)) groups.set(garage, []);
-            groups.get(garage).push(v);
-        });
-    groups.forEach(list => list.sort((a, b) => String(a.fleetNumber).localeCompare(String(b.fleetNumber), undefined, { numeric: true })));
-    return new Map([...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])));
-}
-
-function renderVehicleFleetAssignmentForRoute_ExtraPage() {
-    if (!vehicleFleetGarageGroups_el_extra || !noVehicleFleetMessage_el_extra) return;
-    vehicleFleetGarageGroups_el_extra.innerHTML = '';
-
-    if (Object.keys(vehicleFleetData_extra || {}).length === 0) {
-        noVehicleFleetMessage_el_extra.textContent = 'No fleet vehicles imported yet.';
-        noVehicleFleetMessage_el_extra.style.display = 'block';
-        return;
-    }
-
-    const filterText = (vehicleFleetSearchInput_el_extra ? vehicleFleetSearchInput_el_extra.value : '').toLowerCase().trim();
-    const groups = getVehicleGroupsByGarage_ExtraPage(filterText);
-
-    if (groups.size === 0) {
-        noVehicleFleetMessage_el_extra.textContent = 'No vehicles match your search.';
-        noVehicleFleetMessage_el_extra.style.display = 'block';
-        return;
-    }
-    noVehicleFleetMessage_el_extra.style.display = 'none';
-
-    groups.forEach((vehicles, garage) => {
-        const groupDiv = document.createElement('div');
-        groupDiv.style.cssText = 'margin-bottom:0.75rem; border:1px solid rgba(127,140,141,0.3); border-radius:0.25rem; padding:0.5rem;';
-
-        const headerDiv = document.createElement('div');
-        headerDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.4rem;';
-        headerDiv.innerHTML = `<strong>Garage: ${garage}</strong> <small style="opacity:0.7;">(${vehicles.length} vehicles)</small>`;
-
-        const btnGroup = document.createElement('span');
-        const makeGarageBtn = (label, cssClass, onClick) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = `button small-action ${cssClass}`;
-            btn.textContent = label;
-            btn.style.marginLeft = '0.3rem';
-            btn.addEventListener('click', onClick);
-            return btn;
-        };
-        btnGroup.appendChild(makeGarageBtn('All Common', 'save', () => {
-            vehicles.forEach(v => {
-                const key = getVehicleKeyForVehicle_ExtraPage(v);
-                vehicleAllocRouteSelection_extra.common.add(key);
-                vehicleAllocRouteSelection_extra.rare.delete(key);
-            });
-            renderVehicleFleetAssignmentForRoute_ExtraPage();
-        }));
-        btnGroup.appendChild(makeGarageBtn('All Rare', 'neutral', () => {
-            vehicles.forEach(v => {
-                const key = getVehicleKeyForVehicle_ExtraPage(v);
-                vehicleAllocRouteSelection_extra.rare.add(key);
-                vehicleAllocRouteSelection_extra.common.delete(key);
-            });
-            renderVehicleFleetAssignmentForRoute_ExtraPage();
-        }));
-        btnGroup.appendChild(makeGarageBtn('Clear', 'secondary', () => {
-            vehicles.forEach(v => {
-                const key = getVehicleKeyForVehicle_ExtraPage(v);
-                vehicleAllocRouteSelection_extra.common.delete(key);
-                vehicleAllocRouteSelection_extra.rare.delete(key);
-            });
-            renderVehicleFleetAssignmentForRoute_ExtraPage();
-        }));
-        headerDiv.appendChild(btnGroup);
-        groupDiv.appendChild(headerDiv);
-
-        const list = document.createElement('ul');
-        list.style.cssText = 'list-style-type:none; padding-left:0; margin:0;';
-        vehicles.forEach(v => {
-            const key = getVehicleKeyForVehicle_ExtraPage(v);
-            const li = document.createElement('li');
-            li.style.cssText = 'display:flex; align-items:center; gap:0.75rem; padding:0.25rem 0; border-bottom:1px dashed rgba(127,140,141,0.15);';
-            li.innerHTML = `
-                <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.85em;"><input type="checkbox" data-key="${key}" data-mode="common" ${vehicleAllocRouteSelection_extra.common.has(key) ? 'checked' : ''}> Common</label>
-                <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.85em;"><input type="checkbox" data-key="${key}" data-mode="rare" ${vehicleAllocRouteSelection_extra.rare.has(key) ? 'checked' : ''}> Rare</label>
-                <span style="flex-grow:1; font-size:0.9em;">${v.fleetNumber} <small style="opacity:0.8;">${v.registration || ''}${v.livery ? ' &mdash; ' + v.livery : ''}</small></span>
-            `;
-            list.appendChild(li);
-            li.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                cb.addEventListener('change', () => {
-                    const mode = cb.dataset.mode;
-                    if (cb.checked) {
-                        vehicleAllocRouteSelection_extra[mode].add(key);
-                        vehicleAllocRouteSelection_extra[mode === 'common' ? 'rare' : 'common'].delete(key);
-                    } else {
-                        vehicleAllocRouteSelection_extra[mode].delete(key);
-                    }
-                    renderVehicleFleetAssignmentForRoute_ExtraPage();
-                });
-            });
-        });
-        groupDiv.appendChild(list);
-        vehicleFleetGarageGroups_el_extra.appendChild(groupDiv);
-    });
-}
-
 function populateVehicleAllocRouteSelect_ExtraPage() {
     if (!selectVehicleAllocRoute_el_extra) return;
     const currentVal = selectVehicleAllocRoute_el_extra.value;
@@ -3581,18 +3370,25 @@ function populateVehicleAllocRouteSelect_ExtraPage() {
     selectVehicleAllocRoute_el_extra.dispatchEvent(new Event('change'));
 }
 
+function vehiclesToTextareaValue_ExtraPage(vehicles) {
+    return (vehicles || []).map(v => `${v.fleetNumber || ''}\t${v.registration || ''}`).join('\n');
+}
+
+function parseVehicleTextareaValue_ExtraPage(text) {
+    return String(text || '')
+        .split('\n')
+        .map(line => line.split('\t').map(s => s.trim()))
+        .filter(parts => parts[0])
+        .map(parts => ({ fleetNumber: parts[0], registration: parts[1] || '' }));
+}
+
 function populateVehicleAllocFormForRoute_ExtraPage() {
     if (!selectVehicleAllocRoute_el_extra || !vehicleAllocRareChanceInput_el_extra) return;
     const routeKey = selectVehicleAllocRoute_el_extra.value.toUpperCase();
     const alloc = vehicleAllocationData_extra[routeKey];
     vehicleAllocRareChanceInput_el_extra.value = alloc ? Math.round((alloc.rareChance || 0) * 100) : 5;
-
-    vehicleAllocRouteSelection_extra = { common: new Set(), rare: new Set() };
-    if (alloc) {
-        (alloc.commonVehicles || []).forEach(v => vehicleAllocRouteSelection_extra.common.add(getVehicleKeyForVehicle_ExtraPage(v)));
-        (alloc.rareVehicles || []).forEach(v => vehicleAllocRouteSelection_extra.rare.add(getVehicleKeyForVehicle_ExtraPage(v)));
-    }
-    renderVehicleFleetAssignmentForRoute_ExtraPage();
+    if (vehicleAllocCommonTextarea_el_extra) vehicleAllocCommonTextarea_el_extra.value = vehiclesToTextareaValue_ExtraPage(alloc ? alloc.commonVehicles : []);
+    if (vehicleAllocRareTextarea_el_extra) vehicleAllocRareTextarea_el_extra.value = vehiclesToTextareaValue_ExtraPage(alloc ? alloc.rareVehicles : []);
 }
 
 function renderVehicleAllocationsList_ExtraPage() {
@@ -3642,17 +3438,10 @@ async function handleSaveVehicleAllocation_ExtraPage() {
     const rareChancePercent = parseFloat(vehicleAllocRareChanceInput_el_extra.value) || 0;
     const rareChance = Math.min(100, Math.max(0, rareChancePercent)) / 100;
 
-    const vehiclesByKey = {};
-    Object.values(vehicleFleetData_extra || {}).forEach(v => { vehiclesByKey[getVehicleKeyForVehicle_ExtraPage(v)] = v; });
-    const toEntry = (key) => {
-        const v = vehiclesByKey[key];
-        return v ? { fleetNumber: v.fleetNumber, registration: v.registration } : { fleetNumber: key, registration: '' };
-    };
-
     const existing = vehicleAllocationData_extra[routeKey] || {};
     const allocation = {
-        commonVehicles: Array.from(vehicleAllocRouteSelection_extra.common).map(toEntry),
-        rareVehicles: Array.from(vehicleAllocRouteSelection_extra.rare).map(toEntry),
+        commonVehicles: parseVehicleTextareaValue_ExtraPage(vehicleAllocCommonTextarea_el_extra ? vehicleAllocCommonTextarea_el_extra.value : ''),
+        rareVehicles: parseVehicleTextareaValue_ExtraPage(vehicleAllocRareTextarea_el_extra ? vehicleAllocRareTextarea_el_extra.value : ''),
         restrictedVehicles: existing.restrictedVehicles || [],
         rareChance
     };
@@ -3682,7 +3471,7 @@ async function handleDeleteVehicleAllocation_ExtraPage(routeName) {
         await dbRemove(dbRef(database, `${FB_PATH_VEHICLE_ALLOCATIONS}/${routeKey}`));
         delete vehicleAllocationData_extra[routeKey];
         renderVehicleAllocationsList_ExtraPage();
-        renderVehicleFleetAssignmentForRoute_ExtraPage();
+        populateVehicleAllocFormForRoute_ExtraPage();
         if (vehicleAllocationStatusMessage_el_extra) {
             vehicleAllocationStatusMessage_el_extra.textContent = `Removed vehicle allocation for route ${routeName}.`;
             vehicleAllocationStatusMessage_el_extra.style.color = '#2ecc71';
@@ -3698,14 +3487,14 @@ async function handleDeleteVehicleAllocation_ExtraPage(routeName) {
 
 async function handleClearAllVehicleAllocations_ExtraPage() {
     if (!currentUser_extra || !window.firebaseOMSI) return;
-    if (!confirm('This will permanently remove ALL saved route vehicle allocations (common/rare vehicles and rare chance for every route). Your imported fleet list will NOT be affected. Continue?')) return;
+    if (!confirm('This will permanently remove ALL saved route vehicle allocations (common/rare vehicles and rare chance for every route). Continue?')) return;
 
     const { database, dbRemove, dbRef } = window.firebaseOMSI;
     try {
         await dbRemove(dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS));
         vehicleAllocationData_extra = {};
         renderVehicleAllocationsList_ExtraPage();
-        renderVehicleFleetAssignmentForRoute_ExtraPage();
+        populateVehicleAllocFormForRoute_ExtraPage();
         if (vehicleAllocationStatusMessage_el_extra) {
             vehicleAllocationStatusMessage_el_extra.textContent = 'All route vehicle allocations cleared.';
             vehicleAllocationStatusMessage_el_extra.style.color = '#2ecc71';
@@ -17176,7 +16965,6 @@ function rsg_openCopyFromModal_ExtraPage() {
         } else if (sectionId === 'vehicle-allocation-management-section_extra') {
              if (typeof populateVehicleAllocRouteSelect_ExtraPage === 'function') populateVehicleAllocRouteSelect_ExtraPage();
              if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
-             if (typeof renderVehicleFleetAssignmentForRoute_ExtraPage === 'function') renderVehicleFleetAssignmentForRoute_ExtraPage();
         }
         // --- END OF MODIFICATION ---
     }
@@ -17264,7 +17052,6 @@ async function loadInitialData_ExtraPage() {
     liveScheduleForToolsDisplay = [];
     closedStopIDs_extra = [];
     vehicleAllocationData_extra = {};
-    vehicleFleetData_extra = {};
     appSettings_extra = { autoLogoutMinutes: 30 }; // Reset to default
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
@@ -17320,9 +17107,6 @@ async function loadInitialData_ExtraPage() {
         const vehicleAllocationsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_VEHICLE_ALLOCATIONS));
         vehicleAllocationData_extra = vehicleAllocationsSnap.exists() ? vehicleAllocationsSnap.val() || {} : {};
 
-        const vehicleFleetSnap = await dbGet(dbChild(dbRef(database), FB_PATH_VEHICLE_FLEET));
-        vehicleFleetData_extra = vehicleFleetSnap.exists() ? vehicleFleetSnap.val() || {} : {};
-        
         const allDefinedStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
         allDefinedStops_data = allDefinedStopsSnap.exists() ? allDefinedStopsSnap.val() || {} : {};
         
@@ -17389,9 +17173,6 @@ function renderUIDependentElements_ExtraPage() {
         }
         if (typeof renderVehicleAllocationsList_ExtraPage === 'function') {
             renderVehicleAllocationsList_ExtraPage();
-        }
-        if (typeof renderVehicleFleetAssignmentForRoute_ExtraPage === 'function') {
-            renderVehicleFleetAssignmentForRoute_ExtraPage();
         }
         if (typeof rsg_populateRouteTiles_ExtraPage === 'function') {
             rsg_populateRouteTiles_ExtraPage();

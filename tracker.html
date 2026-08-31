@@ -191,7 +191,7 @@
         </tbody>
     </table>
 
-    <h2 id="curtailments-heading">Curtailments Today</h2>
+    <h2 id="curtailed-heading">Curtailments Today</h2>
     <table>
         <thead>
             <tr>
@@ -328,7 +328,7 @@
 
         const routeSightings = vehicleRouteHistoryMap.get(routeUpper);
         if (!routeSightings || !routeSightings[ident]) {
-            return true; // Never recorded before -> rare
+            return true;
         }
 
         const lastSeenTimestamp = routeSightings[ident];
@@ -380,8 +380,8 @@
         if (localScheduleData.length > 0) processAndDisplayAllData();
     }
 
-const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
-let serviceInstanceVehicleCache = new Map();
+    const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
+    let serviceInstanceVehicleCache = new Map();
 
     let clockTimeElement, clockDateElement, trackerTableBody, busCounterElement,
         updateTimeElement, nextUpdateTimerElement, availableStopsSelect,
@@ -407,6 +407,7 @@ let serviceInstanceVehicleCache = new Map();
                         .replace(/'/g, "&#039;");
     }
 
+    // Fully decodes HTML entities back to raw text strings for safe usage
     function unescapeHtml(safe) {
         if (safe === null || typeof safe === 'undefined') return '';
         const txt = document.createElement('textarea');
@@ -490,23 +491,24 @@ let serviceInstanceVehicleCache = new Map();
         reader.onload = function(event) {
             try {
                 const fileContent = event.target.result;
-                const parsed = parseScheduleFileContent(fileContent, file.name); 
-                if (parsed && parsed.allScheduledBusData && parsed.uniqueBusStops) {
-                    localScheduleData = parsed.allScheduledBusData;
-                    localUniqueStops = parsed.uniqueBusStops;
-                    try {
-                        localStorage.setItem(LOCAL_SCHEDULE_STORAGE_KEY, JSON.stringify({
-                            data: localScheduleData, stops: localUniqueStops, fileName: file.name, loadTime: new Date().toISOString()
-                        }));
-                        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Successfully loaded ${localScheduleData.length} entries from ${file.name}.`;
-                    } catch (storageError) {
-                        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded ${localScheduleData.length} entries (localStorage full/unavailable).`;
+                parseScheduleFileContentAsync(fileContent, file.name, (parsed) => {
+                    if (parsed && parsed.allScheduledBusData && parsed.uniqueBusStops) {
+                        localScheduleData = parsed.allScheduledBusData;
+                        localUniqueStops = parsed.uniqueBusStops;
+                        try {
+                            localStorage.setItem(LOCAL_SCHEDULE_STORAGE_KEY, JSON.stringify({
+                                data: localScheduleData, stops: localUniqueStops, fileName: file.name, loadTime: new Date().toISOString()
+                            }));
+                            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Successfully loaded ${localScheduleData.length} entries from ${file.name}.`;
+                        } catch (storageError) {
+                            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded ${localScheduleData.length} entries (localStorage full/unavailable).`;
+                        }
+                        generateVehicleBlocks(localScheduleData);
+                        processAndDisplayAllData(); 
+                        populateStopsFilter(); 
+                        generateAndDisplayRouteSequences();
                     }
-                    generateVehicleBlocks(localScheduleData);
-                    processAndDisplayAllData(); 
-                    populateStopsFilter(); 
-                    generateAndDisplayRouteSequences();
-                }
+                });
             } catch (error) {
                 if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Error: ${error.message}`;
                 localScheduleData = []; 
@@ -518,6 +520,76 @@ let serviceInstanceVehicleCache = new Map();
         };
         reader.readAsText(file);
         scheduleFileInput.value = ""; 
+    }
+
+    function parseScheduleFileContentAsync(fileContent, fileName, callback) {
+        setTimeout(() => {
+            try {
+                let rawEntries;
+                if (fileName.endsWith('.json')) {
+                    rawEntries = JSON.parse(fileContent); 
+                    if (!Array.isArray(rawEntries)) throw new Error("JSON data must be an array.");
+                } else if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
+                    const lines = fileContent.split(/\r?\n/); 
+                    if (lines.length < 1) throw new Error("CSV file is empty or not formatted correctly.");
+                    const headerLine = lines[0].trim(); const headers = headerLine.split(',').map(h => h.trim());
+                    const requiredHeaders = ['tripId', 'StopID', 'StopName', 'LineName', 'DestinationName', 'ScheduledTime', 'OperatingProfile'];
+                    const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
+                    if (missingHeaders.length > 0) { throw new Error(`Missing required CSV headers: ${missingHeaders.join(', ')}`); }
+                    rawEntries = [];
+                    for (let i = 1; i < lines.length; i++) {
+                        if (lines[i].trim() === '') continue; 
+                        const values = lines[i].split(','); 
+                        const entry = {};
+                        headers.forEach((header, index) => { entry[header] = values[index] ? values[index].trim() : ''; });
+                        rawEntries.push(entry);
+                    }
+                } else { throw new Error("Unsupported file type. Please use .csv or .json"); }
+                
+                if (!rawEntries || rawEntries.length === 0) { throw new Error("No entries found in the file after parsing."); }
+                
+                const scheduleEntries = []; 
+                const stopMap = new Map();
+                
+                rawEntries.forEach((item, index) => {
+                    let scheduledTime = String(item.ScheduledTime || item.scheduledTime || "").trim();
+                    if (scheduledTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { 
+                        const parts = scheduledTime.split(':'); 
+                        scheduledTime = `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}`; 
+                    } else if (scheduledTime.length === 4 && !scheduledTime.includes(':')) { 
+                        scheduledTime = `${scheduledTime.substring(0,2)}:${scheduledTime.substring(2,4)}`; 
+                    } else if (scheduledTime.length === 3 && !scheduledTime.includes(':')) { 
+                        scheduledTime = `0${scheduledTime.substring(0,1)}:${scheduledTime.substring(1,3)}`; 
+                    }
+                    const entry = {
+                        tripId: String(item.tripId || item.TripID || `NO_TRIPID_${index}`).trim(),
+                        internalId: item.internalId || `${String(item.StopID||item.stopID||'s').trim().toUpperCase()}_${String(item.LineName||item.lineName||'l').trim().toUpperCase()}_${scheduledTime.replace(':','')}_${index}_localupload`,
+                        stopID: String(item.StopID || item.stopID || "").trim().toUpperCase(), 
+                        stopName: unescapeHtml(String(item.StopName || item.stopName || "")).trim(),
+                        direction: String(item.Direction || item.direction || "").trim(), 
+                        lineName: String(item.LineName || item.lineName || "").trim().toUpperCase(),
+                        destinationName: unescapeHtml(String(item.DestinationName || item.destinationName || "")).trim(), 
+                        scheduledTime: scheduledTime,
+                        OperatingProfile: String(item.OperatingProfile || item.operatingProfile || "").trim(), 
+                        DayOffset: String(item.DayOffset || item.dayOffset || "0").trim(),
+                        fleetNumber: item.fleetNumber || null, 
+                        vehicleReg: item.vehicleReg || null
+                    };
+                    if (!entry.stopID) return;
+                    scheduleEntries.push(entry);
+                    if (entry.stopID && !stopMap.has(entry.stopID)) { 
+                        stopMap.set(entry.stopID, { stopID: entry.stopID, stopName: entry.stopName, direction: entry.direction }); 
+                    }
+                });
+
+                if (scheduleEntries.length === 0) { throw new Error("No valid schedule entries processed from file."); }
+                const uniqueBusStops = Array.from(stopMap.values()).sort((a,b) => (a.stopName||"").localeCompare(b.stopName||""));
+                callback({ allScheduledBusData: scheduleEntries, uniqueBusStops: uniqueBusStops });
+            } catch (error) {
+                if(fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `File parsing error: ${error.message}`;
+                callback(null);
+            }
+        }, 10);
     }
 
     function loadScheduleFromLocalStorage() {
@@ -535,53 +607,6 @@ let serviceInstanceVehicleCache = new Map();
         } catch (e) { localStorage.removeItem(LOCAL_SCHEDULE_STORAGE_KEY); }
         if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = "No schedule loaded. Please upload a file.";
         return false;
-    }
-
-    function parseScheduleFileContent(fileContent, fileName) {
-        const scheduleEntries = []; const stopMap = new Map();
-        try {
-            let rawEntries;
-            if (fileName.endsWith('.json')) {
-                rawEntries = JSON.parse(fileContent); if (!Array.isArray(rawEntries)) throw new Error("JSON data must be an array.");
-            } else if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
-                const lines = fileContent.split(/\r?\n/); if (lines.length < 1) throw new Error("CSV file is empty or not formatted correctly.");
-                const headerLine = lines[0].trim(); const headers = headerLine.split(',').map(h => h.trim());
-                const requiredHeaders = ['tripId', 'StopID', 'StopName', 'LineName', 'DestinationName', 'ScheduledTime', 'OperatingProfile'];
-                const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
-                if (missingHeaders.length > 0) { throw new Error(`Missing required CSV headers: ${missingHeaders.join(', ')}`); }
-                rawEntries = [];
-                for (let i = 1; i < lines.length; i++) {
-                    if (lines[i].trim() === '') continue; const values = lines[i].split(','); const entry = {};
-                    headers.forEach((header, index) => { entry[header] = values[index] ? values[index].trim() : ''; });
-                    rawEntries.push(entry);
-                }
-            } else { throw new Error("Unsupported file type. Please use .csv or .json"); }
-            if (!rawEntries || rawEntries.length === 0) { throw new Error("No entries found in the file after parsing."); }
-            rawEntries.forEach((item, index) => {
-                let scheduledTime = String(item.ScheduledTime || item.scheduledTime || "").trim();
-                if (scheduledTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { const parts = scheduledTime.split(':'); scheduledTime = `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}`; }
-                else if (scheduledTime.length === 4 && !scheduledTime.includes(':')) { scheduledTime = `${scheduledTime.substring(0,2)}:${scheduledTime.substring(2,4)}`; }
-                else if (scheduledTime.length === 3 && !scheduledTime.includes(':')) { scheduledTime = `0${scheduledTime.substring(0,1)}:${scheduledTime.substring(1,3)}`; }
-                const entry = {
-                    tripId: String(item.tripId || item.TripID || `NO_TRIPID_${index}`).trim(),
-                    internalId: item.internalId || `${String(item.StopID||item.stopID||'s').trim().toUpperCase()}_${String(item.LineName||item.lineName||'l').trim().toUpperCase()}_${scheduledTime.replace(':','')}_${index}_localupload`,
-                    stopID: String(item.StopID || item.stopID || "").trim().toUpperCase(), stopName: unescapeHtml(String(item.StopName || item.stopName || "")).trim(),
-                    direction: String(item.Direction || item.direction || "").trim(), lineName: String(item.LineName || item.lineName || "").trim().toUpperCase(),
-                    destinationName: unescapeHtml(String(item.DestinationName || item.destinationName || "")).trim(), scheduledTime: scheduledTime,
-                    OperatingProfile: String(item.OperatingProfile || item.operatingProfile || "").trim(), DayOffset: String(item.DayOffset || item.dayOffset || "0").trim(),
-                    fleetNumber: item.fleetNumber || null, vehicleReg: item.vehicleReg || null
-                };
-                if (!entry.stopID) return;
-                scheduleEntries.push(entry);
-                if (entry.stopID && !stopMap.has(entry.stopID)) { stopMap.set(entry.stopID, { stopID: entry.stopID, stopName: entry.stopName, direction: entry.direction }); }
-            });
-            if (scheduleEntries.length === 0) { throw new Error("No valid schedule entries processed from file."); }
-            const uniqueBusStops = Array.from(stopMap.values()).sort((a,b) => (a.stopName||"").localeCompare(b.stopName||""));
-            return { allScheduledBusData: scheduleEntries, uniqueBusStops: uniqueBusStops };
-        } catch (error) {
-            if(fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `File parsing error: ${error.message}`;
-            return null;
-        }
     }
 
     function initializeTracker() {
@@ -617,11 +642,11 @@ let serviceInstanceVehicleCache = new Map();
             const routeValue = routeSearchInput.value.trim().toUpperCase(); 
             if (routeValue) { 
                 currentRouteFilter = routeValue; 
-                if (mainHeadingElement) mainHeadingElement.textContent = isRarePageActive ? `OMSI Rare Workings Page - Route ${escapeHtml(currentRouteFilter)}` : `OMSI Live Tracker - Route ${escapeHtml(currentRouteFilter)}`; 
+                if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? `OMSI Rare Workings Page - Route ${currentRouteFilter}` : `OMSI Live Tracker - Route ${currentRouteFilter}`); 
                 if(searchStatusMessage) searchStatusMessage.textContent = `Showing route ${escapeHtml(currentRouteFilter)}.`; 
             } else { 
                 currentRouteFilter = null; 
-                if (mainHeadingElement) mainHeadingElement.textContent = isRarePageActive ? "OMSI Rare Workings Page" : "OMSI Live Tracker (Standalone)"; 
+                if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? "OMSI Rare Workings Page" : "OMSI Live Tracker (Standalone)"); 
                 if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
             } 
             processAndDisplayAllData(); generateAndDisplayRouteSequences(); 
@@ -631,7 +656,7 @@ let serviceInstanceVehicleCache = new Map();
     function handleClearRouteFilter() { 
         currentRouteFilter = null; 
         if (routeSearchInput) routeSearchInput.value = ""; 
-        if (mainHeadingElement) mainHeadingElement.textContent = isRarePageActive ? "OMSI Rare Workings Page" : "OMSI Live Tracker (Standalone)"; 
+        if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? "OMSI Rare Workings Page" : "OMSI Live Tracker (Standalone)"); 
         if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
         processAndDisplayAllData(); generateAndDisplayRouteSequences(); 
     }
@@ -639,14 +664,14 @@ let serviceInstanceVehicleCache = new Map();
     function handleToggleRarePage() {
         isRarePageActive = !isRarePageActive;
         if (rarePageToggleButton) {
-            rarePageToggleButton.textContent = isRarePageActive ? "Exit Rare Workings Page" : "Open Rare Workings Page";
+            rarePageToggleButton.textContent = unescapeHtml(isRarePageActive ? "Exit Rare Workings Page" : "Open Rare Workings Page");
             rarePageToggleButton.style.backgroundColor = isRarePageActive ? "#dc3545" : "#6f42c1";
         }
         if (mainHeadingElement) {
             if (isRarePageActive) {
-                mainHeadingElement.textContent = currentRouteFilter ? `OMSI Rare Workings Page - Route ${escapeHtml(currentRouteFilter)}` : "OMSI Rare Workings Page";
+                mainHeadingElement.textContent = unescapeHtml(currentRouteFilter ? `OMSI Rare Workings Page - Route ${currentRouteFilter}` : "OMSI Rare Workings Page");
             } else {
-                mainHeadingElement.textContent = currentRouteFilter ? `OMSI Live Tracker - Route ${escapeHtml(currentRouteFilter)}` : "OMSI Live Tracker (Standalone)";
+                mainHeadingElement.textContent = unescapeHtml(currentRouteFilter ? `OMSI Live Tracker - Route ${currentRouteFilter}` : "OMSI Live Tracker (Standalone)");
             }
         }
         processAndDisplayAllData();
@@ -1066,7 +1091,6 @@ let serviceInstanceVehicleCache = new Map();
         });
         currentTrackedServices = Array.from(vehicleNextActivityMap.values());
 
-        // If Rare Page mode is active, filter for vehicles not seen on that route in over 2 months
         if (isRarePageActive) {
             currentTrackedServices = currentTrackedServices.filter(service => 
                 isVehicleRareOnRoute(service.trueLineName, service.assignedFleetNumber, service.assignedRegistration)
@@ -1113,10 +1137,10 @@ let serviceInstanceVehicleCache = new Map();
             if (!isWatched && service.assignedRegistration && service.assignedRegistration !== "---" && watchedBuses.has(service.assignedRegistration.toUpperCase())) isWatched = true; 
             if (!isWatched && service.assignedFleetNumber && service.assignedFleetNumber !== "N/A" && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) isWatched = true; 
             if(isWatched) row.classList.add('watched-bus'); 
-            row.insertCell().textContent = escapeHtml(service.assignedFleetNumber); 
-            row.insertCell().textContent = escapeHtml(service.assignedRegistration); 
-            row.insertCell().textContent = escapeHtml(unescapeHtml(service.displayDestination || '?')); 
-            row.insertCell().textContent = escapeHtml(unescapeHtml(service.nextStopName || '?')); 
+            row.insertCell().textContent = unescapeHtml(service.assignedFleetNumber); 
+            row.insertCell().textContent = unescapeHtml(service.assignedRegistration); 
+            row.insertCell().textContent = unescapeHtml(service.displayDestination || '?'); 
+            row.insertCell().textContent = unescapeHtml(service.nextStopName || '?'); 
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
                 const time = service.nextStopActualTime; 
@@ -1126,7 +1150,7 @@ let serviceInstanceVehicleCache = new Map();
                 displayTimeText = `${hours}:${minutes}:${seconds}`; 
             } else { 
                 const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); 
-                displayTimeText = escapeHtml(fallbackEtaText || '?'); 
+                displayTimeText = unescapeHtml(fallbackEtaText || '?'); 
             } 
             row.insertCell().textContent = displayTimeText; 
         }); 
@@ -1146,7 +1170,8 @@ let serviceInstanceVehicleCache = new Map();
             t.innerHTML='<option value="">All</option>';
             [...n].sort((a,b)=>String(a).localeCompare(String(b))).forEach(item=>{
                 if(item){
-                    const opt = new Option(unescapeHtml(item), item);
+                    const rawClean = unescapeHtml(item);
+                    const opt = new Option(rawClean, rawClean);
                     t.add(opt);
                 }
             });
@@ -1211,7 +1236,7 @@ let serviceInstanceVehicleCache = new Map();
             return; 
         } 
         const vehicleIdentifier = serviceRunData.assignedFleetNumber && serviceRunData.assignedFleetNumber !== "N/A" ? serviceRunData.assignedFleetNumber : serviceRunData.serviceId.split('_')[1] || serviceRunData.serviceId; 
-        vehiclePredictionTitle.textContent = `Upcoming Stops for ${escapeHtml(vehicleIdentifier)} to ${escapeHtml(unescapeHtml(serviceRunData.displayDestination))}`; 
+        vehiclePredictionTitle.textContent = unescapeHtml(`Upcoming Stops for ${vehicleIdentifier} to ${serviceRunData.displayDestination}`); 
         const nowForModal = new Date(); 
         const upcomingStops = serviceRunData.stops.map(stop => { 
             const { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText } = calculatePreciseStopTimingsForTracker(stop, nowForModal); 
@@ -1223,7 +1248,7 @@ let serviceInstanceVehicleCache = new Map();
         } else { 
             let tableHTML = '<table><thead><tr><th>ETA/Status</th><th>Stop ID</th><th>Stop Name</th></tr></thead><tbody>'; 
             upcomingStops.forEach((stop) => { 
-                let displayEtaText = escapeHtml(stop.calculatedArrivalText || '?'); 
+                let displayEtaText = unescapeHtml(stop.calculatedArrivalText || '?'); 
                 if (stop.calculatedArrivalText === "Departed" && stop.preciseScheduledDateTime instanceof Date) { 
                     const time = stop.preciseScheduledDateTime; 
                     displayEtaText = `Departed ${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`; 
@@ -1233,7 +1258,7 @@ let serviceInstanceVehicleCache = new Map();
                     const time = stop.preciseScheduledDateTime; 
                     displayEtaText = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; 
                 } 
-                tableHTML += `<tr><td>${displayEtaText}</td><td>${escapeHtml(stop.stopID)}</td><td>${escapeHtml(unescapeHtml(stop.stopName))}</td></tr>`; 
+                tableHTML += `<tr><td>${unescapeHtml(displayEtaText)}</td><td>${unescapeHtml(stop.stopID)}</td><td>${unescapeHtml(stop.stopName)}</td></tr>`; 
             }); 
             tableHTML += "</tbody></table>"; 
             vehiclePredictionList.innerHTML = tableHTML; 
@@ -1256,9 +1281,9 @@ let serviceInstanceVehicleCache = new Map();
             default: e += "Status (FB): " + escapeHtml(status); t = "alert-minor";
         }
         if (message && typeof message === "string" && message.trim() !== "" && status !== "offline") {
-            e += ` Message: ${escapeHtml(message.trim())}`;
+            e += ` Message: ${unescapeHtml(message.trim())}`;
         }
-        serviceAlertsContentElement.textContent = e;
+        serviceAlertsContentElement.textContent = unescapeHtml(e);
         if (t) serviceAlertsContainerElement.classList.add(t);
     }
     
@@ -1282,8 +1307,8 @@ let serviceInstanceVehicleCache = new Map();
         curtailedTrips.sort((a, b) => (a.lineName || "").localeCompare(b.lineName || "") || String(a.scheduledTime || "").localeCompare(String(b.scheduledTime || "")));
         curtailedTrips.forEach(entry => {
             const row = curtailedBusesTableBody.insertRow();
-            row.insertCell().textContent = escapeHtml(entry.lineName || "N/A");
-            row.insertCell().textContent = escapeHtml(entry.scheduledTime ? `${entry.scheduledTime} to ${unescapeHtml(entry.destinationName || '?' )}` : (entry.tripId || "N/A"));
+            row.insertCell().textContent = unescapeHtml(entry.lineName || "N/A");
+            row.insertCell().textContent = unescapeHtml(entry.scheduledTime ? `${entry.scheduledTime} to ${entry.destinationName || '?' }` : (entry.tripId || "N/A"));
             row.insertCell().textContent = unescapeHtml(entry.curtailment.newDestinationName || "N/A");
             let appliedTimeText = "N/A";
             if (entry.curtailment.appliedAt) {
@@ -1325,8 +1350,8 @@ let serviceInstanceVehicleCache = new Map();
         let dir1Name = destinationNames[0] || "Direction 1";
         let dir2Name = destinationNames.length > 1 ? destinationNames[1] : (destinationNames[0] ? `Return from ${destinationNames[0]}` : "Direction 2");
         if (dir1Name === dir2Name && destinationNames.length > 1) { dir2Name = `Opposite to ${dir1Name}`; }
-        if(document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = `Sequence: Towards ${escapeHtml(dir1Name)}`;
-        if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = `Sequence: Towards ${escapeHtml(dir2Name)}`;
+        if(document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir1Name}`);
+        if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir2Name}`);
         displaySequenceInList(outboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir1Name));
         displaySequenceInList(inboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir2Name));
     }
@@ -1341,7 +1366,7 @@ let serviceInstanceVehicleCache = new Map();
         const e = document.createElement("ol");
         stopsNames.forEach(t => {
             const n = document.createElement("li");
-            n.textContent = escapeHtml(unescapeHtml(t || "?"));
+            n.textContent = unescapeHtml(t || "?");
             e.appendChild(n);
         });
         listElement.appendChild(e);
@@ -1425,7 +1450,7 @@ let serviceInstanceVehicleCache = new Map();
             if(t && t.stopID && t.stopName){
                 const n = document.createElement("option");
                 n.value = t.stopID;
-                n.textContent = `${escapeHtml(unescapeHtml(t.stopName))} (${escapeHtml(t.stopID)})`;
+                n.textContent = unescapeHtml(`${t.stopName} (${t.stopID})`);
                 availableStopsSelect.appendChild(n);
             }
         });

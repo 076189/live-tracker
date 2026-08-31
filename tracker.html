@@ -979,7 +979,8 @@
                     serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
                     trueLineName: trueLineName, displayDestination: unescapeHtml(busEntry.destinationName), stops: [],
                     originalDataFleetNo: busEntry.fleetNumber, originalDataRegNo: busEntry.vehicleReg,
-                    isRareWorking: isRare
+                    isRareWorking: isRare,
+                    blockId: blockId
                 });
             }
             const { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText } = calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing);
@@ -1015,6 +1016,7 @@
                 fullServiceRunDataMap.set(serviceRun.serviceId, serviceRun); 
                 servicesWithARelevantNextStop.push({ 
                     serviceId: serviceRun.serviceId, 
+                    blockId: serviceRun.blockId,
                     assignedFleetNumber: serviceRun.assignedFleetNumber, 
                     assignedRegistration: serviceRun.assignedRegistration, 
                     trueLineName: serviceRun.trueLineName, 
@@ -1027,15 +1029,16 @@
             }
         });
 
-        const vehicleNextActivityMap = new Map();
+        // Dedup by blockId (or vehicle assignment) so that if multiple service instances map to the same duty/block, only the nearest upcoming trip is listed.
+        const blockNextActivityMap = new Map();
         servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
-            const vehicleKey = `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
-            const existingVehicleEntry = vehicleNextActivityMap.get(vehicleKey);
-            if (!existingVehicleEntry || serviceWithNextStop._timeToNextStopSec < existingVehicleEntry._timeToNextStopSec) {
-                vehicleNextActivityMap.set(vehicleKey, serviceWithNextStop);
+            const key = serviceWithNextStop.blockId || `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
+            const existing = blockNextActivityMap.get(key);
+            if (!existing || serviceWithNextStop._timeToNextStopSec < existing._timeToNextStopSec) {
+                blockNextActivityMap.set(key, serviceWithNextStop);
             }
         });
-        currentTrackedServices = Array.from(vehicleNextActivityMap.values());
+        currentTrackedServices = Array.from(blockNextActivityMap.values());
 
         if (isRarePageActive) {
             const midnightToday = new Date(nowForProcessing);

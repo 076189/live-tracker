@@ -514,6 +514,7 @@ align-items: center;
 		<button class="menu-button" data-section="enhanced-bulk-update-section_extra">Enhanced Destination Update</button>
 		<button class="menu-button" data-section="global-route-colour-management-section-extra">Global Route Colours</button>
 		<button class="menu-button" data-section="stop-specific-route-colour-management-section-extra">Stop-Specific Colours</button>
+		<button class="menu-button" data-section="vehicle-allocation-management-section_extra">Vehicle Allocations</button>
 		<button class="menu-button" data-section="settings-section_extra">App Settings</button>
 		<button class="menu-button" data-section="user-management-section_extra">User Management</button>
             </div>
@@ -745,7 +746,50 @@ align-items: center;
                     </div>
                 </div>
             </div>
-            
+
+            <div id="vehicle-allocation-management-section_extra" class="tool-content-section section" style="display:none;">
+                <h2>Vehicle Allocations</h2>
+                <p style="font-size:0.9em; margin-bottom:1em; opacity: 0.8;">
+                    Define which vehicles the Live Tracker can randomly assign to each route: vehicles it normally uses, vehicles it can use if needed (rare), and vehicles it must never use.
+                </p>
+                <div class="subsection">
+                    <h3 class="subsection-title">Define/Update Allocation for a Route</h3>
+                    <div class="form-grid" style="grid-template-columns: 1fr; gap:0.75rem;">
+                        <div>
+                            <label for="selectVehicleAllocRoute_extra">Route Name</label>
+                            <select id="selectVehicleAllocRoute_extra" class="schedule-generator-input">
+                                <option value="">-- Select Route --</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="vehicleAllocCommonInput_extra">Vehicles This Route Normally Uses (one per line, "Fleet Number, Registration"):</label>
+                            <textarea id="vehicleAllocCommonInput_extra" class="schedule-generator-input" rows="5" placeholder="SE115, LF20XMX&#10;SE120, LF20XMY"></textarea>
+                        </div>
+                        <div>
+                            <label for="vehicleAllocRareInput_extra">Vehicles This Route Can Use If Needed (rare, one per line, "Fleet Number, Registration"):</label>
+                            <textarea id="vehicleAllocRareInput_extra" class="schedule-generator-input" rows="3" placeholder="GOLD4, AU79OMS"></textarea>
+                        </div>
+                        <div>
+                            <label for="vehicleAllocRareChanceInput_extra">Chance of Using a Rare Vehicle (%):</label>
+                            <input type="number" id="vehicleAllocRareChanceInput_extra" class="schedule-generator-input" value="5" min="0" max="100" step="1">
+                        </div>
+                        <div>
+                            <label for="vehicleAllocRestrictedInput_extra">Vehicles This Route Cannot Use (one per line, fleet number or registration):</label>
+                            <textarea id="vehicleAllocRestrictedInput_extra" class="schedule-generator-input" rows="3" placeholder="SE125&#10;LF70YWC"></textarea>
+                        </div>
+                        <div>
+                            <button id="saveVehicleAllocationButton_extra" class="button tertiary">Save Allocation For This Route</button>
+                        </div>
+                    </div>
+                    <p id="vehicleAllocationStatusMessage_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+                </div>
+                <div id="currentVehicleAllocationsListContainer_extra" style="margin-top:1.5rem;">
+                    <h3 class="subsection-title" style="font-size: 1.1rem; margin-bottom: 0.5rem; border-bottom: none;">Currently Configured Routes</h3>
+                    <ul id="currentVehicleAllocationsList_extra" style="list-style-type: none; padding-left: 0;"></ul>
+                    <p id="noVehicleAllocationsMessage_extra" style="text-align: center; opacity:0.7; padding:0.5rem;">No vehicle allocations configured yet.</p>
+                </div>
+            </div>
+
             <div id="route-curtailment-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>Service Leg Curtailment</h2>
                 <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">
@@ -1517,6 +1561,7 @@ align-items: center;
 	let lastAlertDataPreparedDate_extra = null; // To know when to refresh todayKeyTripEvents_extra
 	let tripAlertIntervalId_extra = null; // To store the setInterval ID
     let firebaseListenerUnsubscribers_extra = [];
+    let vehicleAllocationData_extra = {};
     let authGeneration_extra = 0;
     let dependentRenderTimer_extra = null;
     let keyDeparturesRefreshInProgress_extra = false;
@@ -1560,6 +1605,7 @@ align-items: center;
         const FB_PATH_APPSTATE_CLOSED_STOPS = '/appState/closedStopIDs';
         const FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS = '/settings/customRouteColours';
         const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
+        const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
         const FB_PATH_RSG_CONFIGS = '/rsgConfigs';
         const FB_PATH_ALL_DEFINED_STOPS = '/allDefinedStops';
         const FB_PATH_SCHEDULED_UPDATES = '/scheduledUpdates';
@@ -1638,6 +1684,16 @@ const setGlobalDayBusColor_el_extra = document.getElementById('setGlobalDayBusCo
 const setGlobalNightBusColor_el_extra = document.getElementById('setGlobalNightBusColor_extra');
 const setGlobalSchoolBusColor_el_extra = document.getElementById('setGlobalSchoolBusColor_extra');
 const setGlobalRailReplacementColor_el_extra = document.getElementById('setGlobalRailReplacementColor_extra');
+
+const selectVehicleAllocRoute_el_extra = document.getElementById('selectVehicleAllocRoute_extra');
+const vehicleAllocCommonInput_el_extra = document.getElementById('vehicleAllocCommonInput_extra');
+const vehicleAllocRareInput_el_extra = document.getElementById('vehicleAllocRareInput_extra');
+const vehicleAllocRareChanceInput_el_extra = document.getElementById('vehicleAllocRareChanceInput_extra');
+const vehicleAllocRestrictedInput_el_extra = document.getElementById('vehicleAllocRestrictedInput_extra');
+const saveVehicleAllocationButton_el_extra = document.getElementById('saveVehicleAllocationButton_extra');
+const vehicleAllocationStatusMessage_el_extra = document.getElementById('vehicleAllocationStatusMessage_extra');
+const currentVehicleAllocationsList_el_extra = document.getElementById('currentVehicleAllocationsList_extra');
+const noVehicleAllocationsMessage_el_extra = document.getElementById('noVehicleAllocationsMessage_extra');
 	const rsgStopCountDisplay_el_extra = document.getElementById('rsg-stop-count-display');
 	const rsgOpenPasteAdjModalButton_el_extra = document.getElementById('rsg-open-paste-adj-modal-button-extra');
 const rsgPasteAdjModal_el_extra = document.getElementById('rsg-paste-adjustments-modal-extra');
@@ -1837,7 +1893,8 @@ function applyRoleBasedAccessControl(userRole) {
             'config-data-section_extra', 'key-departures-section_extra',
             'calendar-view-section_extra', 'curtailment-config-section_extra',
             'enhanced-bulk-update-section_extra', 'global-route-colour-management-section-extra',
-            'stop-specific-route-colour-management-section-extra', 'settings-section_extra',
+            'stop-specific-route-colour-management-section-extra', 'vehicle-allocation-management-section_extra',
+            'settings-section_extra',
             'user-management-section_extra'
         ],
         'Controller': [
@@ -2274,6 +2331,14 @@ function setupFirebaseListeners_ExtraPage() {
     firebaseListenerUnsubscribers_extra.push(dbOnValue(curtailmentPointsRef, (snapshot) => {
         console.log("[CurtailmentPoints Listener] CurtailmentPoints data updated via listener.");
         definedCurtailmentPoints = snapshot.exists() ? snapshot.val() || {} : {};
+    }));
+
+    // Listener for Vehicle Allocations (per-route common/rare/restricted vehicle lists)
+    const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(vehicleAllocationsRef, (snapshot) => {
+        console.log("[Vehicle Allocations Listener] Vehicle allocation data updated via listener.");
+        vehicleAllocationData_extra = snapshot.exists() ? snapshot.val() || {} : {};
+        if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
     }));
 
     // Listener for User Data
@@ -3269,6 +3334,163 @@ function updateRsgStopCountDisplay() {
     if (rsgStopCountDisplay_el_extra) {
         const count = rsg_selectedStops_extra ? rsg_selectedStops_extra.length : 0;
         rsgStopCountDisplay_el_extra.textContent = `Total Stops: ${count}`;
+    }
+}
+
+// --- Vehicle Allocation Management Functions ---
+
+// Parses lines of "Fleet Number, Registration" (registration optional) into vehicle objects.
+function parseVehicleListInput_ExtraPage(rawText) {
+    return String(rawText || "").split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => {
+            const parts = line.split(',').map(p => p.trim());
+            return { fleetNumber: parts[0] || "", registration: parts[1] || "" };
+        })
+        .filter(v => v.fleetNumber);
+}
+
+// Parses lines of restricted fleet numbers/registrations into a flat string array.
+function parseRestrictedListInput_ExtraPage(rawText) {
+    return String(rawText || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+}
+
+function populateVehicleAllocRouteSelect_ExtraPage() {
+    if (!selectVehicleAllocRoute_el_extra) return;
+    const currentVal = selectVehicleAllocRoute_el_extra.value;
+    selectVehicleAllocRoute_el_extra.innerHTML = '<option value="">-- Select Route --</option>';
+
+    const scheduleRouteNames = new Set((currentWorkingSchedule_extra || []).map(e => e.lineName).filter(Boolean));
+    const savedRouteNames = new Set(Object.keys(vehicleAllocationData_extra || {}));
+    const lines = Array.from(new Set([...scheduleRouteNames, ...savedRouteNames])).sort(compareLineNames_ExtraPage);
+
+    lines.forEach(ln => {
+        const opt = document.createElement('option');
+        opt.value = ln;
+        opt.textContent = ln;
+        selectVehicleAllocRoute_el_extra.appendChild(opt);
+    });
+
+    if (lines.includes(currentVal)) selectVehicleAllocRoute_el_extra.value = currentVal;
+    selectVehicleAllocRoute_el_extra.dispatchEvent(new Event('change'));
+}
+
+function populateVehicleAllocFormForRoute_ExtraPage() {
+    if (!selectVehicleAllocRoute_el_extra) return;
+    const routeKey = selectVehicleAllocRoute_el_extra.value.toUpperCase();
+    const alloc = vehicleAllocationData_extra[routeKey];
+
+    const vehiclesToLines = (list) => (Array.isArray(list) ? list : [])
+        .map(v => [v.fleetNumber, v.registration].filter(Boolean).join(', '))
+        .join('\n');
+
+    if (vehicleAllocCommonInput_el_extra) vehicleAllocCommonInput_el_extra.value = alloc ? vehiclesToLines(alloc.commonVehicles) : '';
+    if (vehicleAllocRareInput_el_extra) vehicleAllocRareInput_el_extra.value = alloc ? vehiclesToLines(alloc.rareVehicles) : '';
+    if (vehicleAllocRareChanceInput_el_extra) vehicleAllocRareChanceInput_el_extra.value = alloc ? Math.round((alloc.rareChance || 0) * 100) : 5;
+    if (vehicleAllocRestrictedInput_el_extra) vehicleAllocRestrictedInput_el_extra.value = alloc && Array.isArray(alloc.restrictedVehicles) ? alloc.restrictedVehicles.join('\n') : '';
+}
+
+function renderVehicleAllocationsList_ExtraPage() {
+    if (!currentVehicleAllocationsList_el_extra || !noVehicleAllocationsMessage_el_extra) return;
+    currentVehicleAllocationsList_el_extra.innerHTML = '';
+
+    const routes = Object.keys(vehicleAllocationData_extra || {}).sort(compareLineNames_ExtraPage);
+    if (routes.length === 0) {
+        noVehicleAllocationsMessage_el_extra.style.display = 'block';
+        return;
+    }
+    noVehicleAllocationsMessage_el_extra.style.display = 'none';
+
+    routes.forEach(routeName => {
+        const alloc = vehicleAllocationData_extra[routeName] || {};
+        const commonCount = Array.isArray(alloc.commonVehicles) ? alloc.commonVehicles.length : 0;
+        const rareCount = Array.isArray(alloc.rareVehicles) ? alloc.rareVehicles.length : 0;
+        const restrictedCount = Array.isArray(alloc.restrictedVehicles) ? alloc.restrictedVehicles.length : 0;
+
+        const li = document.createElement('li');
+        li.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.5rem; border-bottom:1px solid rgba(127,140,141,0.2);';
+        li.innerHTML = `
+            <span><strong>${routeName}</strong>
+                <small style="opacity:0.8;"> &mdash; ${commonCount} common, ${rareCount} rare (${Math.round((alloc.rareChance || 0) * 100)}%), ${restrictedCount} restricted</small>
+            </span>
+            <span>
+                <button type="button" class="button small-action neutral" data-edit-route="${routeName}">Edit</button>
+                <button type="button" class="button small-action secondary" data-delete-route="${routeName}">Delete</button>
+            </span>
+        `;
+        currentVehicleAllocationsList_el_extra.appendChild(li);
+    });
+
+    currentVehicleAllocationsList_el_extra.querySelectorAll('[data-edit-route]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (selectVehicleAllocRoute_el_extra) {
+                selectVehicleAllocRoute_el_extra.value = btn.getAttribute('data-edit-route');
+                selectVehicleAllocRoute_el_extra.dispatchEvent(new Event('change'));
+                selectVehicleAllocRoute_el_extra.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+    });
+    currentVehicleAllocationsList_el_extra.querySelectorAll('[data-delete-route]').forEach(btn => {
+        btn.addEventListener('click', () => handleDeleteVehicleAllocation_ExtraPage(btn.getAttribute('data-delete-route')));
+    });
+}
+
+async function handleSaveVehicleAllocation_ExtraPage() {
+    if (!currentUser_extra || !window.firebaseOMSI) return;
+    if (!selectVehicleAllocRoute_el_extra || !vehicleAllocationStatusMessage_el_extra) return;
+
+    const routeName = selectVehicleAllocRoute_el_extra.value;
+    if (!routeName) {
+        vehicleAllocationStatusMessage_el_extra.textContent = 'Please select a route name.';
+        vehicleAllocationStatusMessage_el_extra.style.color = '#f1c40f';
+        return;
+    }
+
+    const routeKey = routeName.toUpperCase();
+    const rareChancePercent = parseFloat(vehicleAllocRareChanceInput_el_extra.value) || 0;
+    const allocation = {
+        commonVehicles: parseVehicleListInput_ExtraPage(vehicleAllocCommonInput_el_extra.value),
+        rareVehicles: parseVehicleListInput_ExtraPage(vehicleAllocRareInput_el_extra.value),
+        rareChance: Math.min(100, Math.max(0, rareChancePercent)) / 100,
+        restrictedVehicles: parseRestrictedListInput_ExtraPage(vehicleAllocRestrictedInput_el_extra.value)
+    };
+
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    try {
+        await dbSet(dbRef(database, `${FB_PATH_VEHICLE_ALLOCATIONS}/${routeKey}`), allocation);
+        vehicleAllocationData_extra[routeKey] = allocation;
+        renderVehicleAllocationsList_ExtraPage();
+        vehicleAllocationStatusMessage_el_extra.textContent = `Vehicle allocation saved for route ${routeName}.`;
+        vehicleAllocationStatusMessage_el_extra.style.color = '#2ecc71';
+        setTimeout(() => { if (vehicleAllocationStatusMessage_el_extra) vehicleAllocationStatusMessage_el_extra.textContent = ''; }, 3000);
+    } catch (error) {
+        console.error('[Vehicle Allocations] Save failed:', error);
+        vehicleAllocationStatusMessage_el_extra.textContent = 'Error saving vehicle allocation: ' + error.message;
+        vehicleAllocationStatusMessage_el_extra.style.color = '#e74c3c';
+    }
+}
+
+async function handleDeleteVehicleAllocation_ExtraPage(routeName) {
+    if (!currentUser_extra || !window.firebaseOMSI || !routeName) return;
+    if (!confirm(`Remove the vehicle allocation for route "${routeName}"? The Live Tracker will fall back to no specific vehicle for this route.`)) return;
+
+    const routeKey = routeName.toUpperCase();
+    const { database, dbRemove, dbRef } = window.firebaseOMSI;
+    try {
+        await dbRemove(dbRef(database, `${FB_PATH_VEHICLE_ALLOCATIONS}/${routeKey}`));
+        delete vehicleAllocationData_extra[routeKey];
+        renderVehicleAllocationsList_ExtraPage();
+        if (vehicleAllocationStatusMessage_el_extra) {
+            vehicleAllocationStatusMessage_el_extra.textContent = `Removed vehicle allocation for route ${routeName}.`;
+            vehicleAllocationStatusMessage_el_extra.style.color = '#2ecc71';
+        }
+    } catch (error) {
+        console.error('[Vehicle Allocations] Delete failed:', error);
+        if (vehicleAllocationStatusMessage_el_extra) {
+            vehicleAllocationStatusMessage_el_extra.textContent = 'Error removing vehicle allocation: ' + error.message;
+            vehicleAllocationStatusMessage_el_extra.style.color = '#e74c3c';
+        }
     }
 }
 
@@ -16726,6 +16948,9 @@ function rsg_openCopyFromModal_ExtraPage() {
             if (typeof ebu_populateOldDestinationSelect_ExtraPage === 'function') ebu_populateOldDestinationSelect_ExtraPage();
         } else if (sectionId === 'global-route-colour-management-section-extra' || sectionId === 'stop-specific-route-colour-management-section-extra') {
              if (typeof renderUIDependentElements_ExtraPage === 'function') renderUIDependentElements_ExtraPage();
+        } else if (sectionId === 'vehicle-allocation-management-section_extra') {
+             if (typeof populateVehicleAllocRouteSelect_ExtraPage === 'function') populateVehicleAllocRouteSelect_ExtraPage();
+             if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
         }
         // --- END OF MODIFICATION ---
     }
@@ -16812,6 +17037,7 @@ async function loadInitialData_ExtraPage() {
     globalCustomRouteColours_extra = {};
     liveScheduleForToolsDisplay = [];
     closedStopIDs_extra = [];
+    vehicleAllocationData_extra = {};
     appSettings_extra = { autoLogoutMinutes: 30 }; // Reset to default
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
@@ -16863,6 +17089,9 @@ async function loadInitialData_ExtraPage() {
         // --- Load other ancillary data ---
         const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
         globalCustomRouteColours_extra = globalColoursSnap.exists() ? globalColoursSnap.val() || {} : {};
+
+        const vehicleAllocationsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_VEHICLE_ALLOCATIONS));
+        vehicleAllocationData_extra = vehicleAllocationsSnap.exists() ? vehicleAllocationsSnap.val() || {} : {};
         
         const allDefinedStopsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_ALL_DEFINED_STOPS));
         allDefinedStops_data = allDefinedStopsSnap.exists() ? allDefinedStopsSnap.val() || {} : {};
@@ -16924,6 +17153,12 @@ function renderUIDependentElements_ExtraPage() {
         }
         if (typeof renderStopSpecificRouteColours_ExtraPage === 'function') {
             renderStopSpecificRouteColours_ExtraPage();
+        }
+        if (typeof populateVehicleAllocRouteSelect_ExtraPage === 'function') {
+            populateVehicleAllocRouteSelect_ExtraPage();
+        }
+        if (typeof renderVehicleAllocationsList_ExtraPage === 'function') {
+            renderVehicleAllocationsList_ExtraPage();
         }
         if (typeof rsg_populateRouteTiles_ExtraPage === 'function') {
             rsg_populateRouteTiles_ExtraPage();
@@ -17062,6 +17297,14 @@ if (rsgNewRouteNameInput_el_extra) {
     }
     if (saveGlobalRouteColourButton_el_extra && typeof handleSaveGlobalRouteColour_ExtraPage === 'function') {
         saveGlobalRouteColourButton_el_extra.addEventListener('click', handleSaveGlobalRouteColour_ExtraPage);
+    }
+
+// --- Vehicle Allocation Management Section Listeners ---
+    if (selectVehicleAllocRoute_el_extra && typeof populateVehicleAllocFormForRoute_ExtraPage === 'function') {
+        selectVehicleAllocRoute_el_extra.addEventListener('change', populateVehicleAllocFormForRoute_ExtraPage);
+    }
+    if (saveVehicleAllocationButton_el_extra && typeof handleSaveVehicleAllocation_ExtraPage === 'function') {
+        saveVehicleAllocationButton_el_extra.addEventListener('click', handleSaveVehicleAllocation_ExtraPage);
     }
     const cleanupWithdrawnRouteColoursButton_el_extra = document.getElementById('cleanupWithdrawnRouteColoursButton_extra');
     if (cleanupWithdrawnRouteColoursButton_el_extra && typeof handleCleanupWithdrawnRouteColours_ExtraPage === 'function') {

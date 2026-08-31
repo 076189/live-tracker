@@ -37,6 +37,8 @@
         tr.watched-bus.ghost-bus td { color: #856404; font-style: italic; }
         td[colspan] { text-align: center; font-style: italic; color: #6c757d; padding: 15px 8px; white-space: normal; }
         td:nth-child(3), td:nth-child(4) { white-space: normal; }
+        .clickable-ident { color: #007bff; text-decoration: underline; cursor: pointer; }
+        .clickable-ident:hover { color: #0056b3; }
         #stop-selector-container { text-align: center; margin-bottom: 20px; }
         #stop-selector-container label { margin-right: 10px; font-weight: bold; }
         #available-stops-select { padding: 8px; font-size: 1em; border: 1px solid #ced4da; border-radius: 4px; min-width: 250px; }
@@ -333,7 +335,6 @@
         saveRouteHistoryToStorage();
     }
 
-    // Global vehicle-centric log: Map<identUpper, Array<{routeName, timestamp}>>
     const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v1';
     let vehicleDetailedLogMap = new Map();
 
@@ -371,11 +372,9 @@
             const logs = vehicleDetailedLogMap.get(ident);
             const routeUp = routeName.toUpperCase();
             
-            // Avoid duplicate log entries within the exact same minute for the same route
             const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
             if (!lastLog || lastLog.routeName !== routeUp || (now - lastLog.timestamp) > 60000) {
                 logs.push({ routeName: routeUp, timestamp: now });
-                // Keep max last 50 sightings per vehicle to save storage
                 if (logs.length > 50) logs.shift();
             }
         });
@@ -1201,45 +1200,45 @@
             if (!isWatched && service.assignedFleetNumber && service.assignedFleetNumber !== "N/A" && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) isWatched = true; 
             if(isWatched) row.classList.add('watched-bus'); 
 
-            // Fleet Number Cell (Click to view history)
+            // Fleet Number Cell
             const fleetCell = row.insertCell();
-            fleetCell.textContent = unescapeHtml(service.assignedFleetNumber);
-            if (service.assignedFleetNumber && service.assignedFleetNumber !== "N/A") {
-                fleetCell.style.color = '#007bff';
-                fleetCell.style.textDecoration = 'underline';
-                fleetCell.style.cursor = 'pointer';
+            const fleetVal = unescapeHtml(service.assignedFleetNumber);
+            fleetCell.textContent = fleetVal;
+            if (fleetVal && fleetVal !== "N/A") {
+                fleetCell.classList.add('clickable-ident');
                 fleetCell.title = "Click to view vehicle history";
                 fleetCell.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    displayVehicleHistoryModal(service.assignedFleetNumber);
+                    displayVehicleHistoryModal(fleetVal);
                 });
             }
 
-            // Registration Cell (Click to view history)
+            // Registration Cell
             const regCell = row.insertCell();
-            regCell.textContent = unescapeHtml(service.assignedRegistration);
-            if (service.assignedRegistration && service.assignedRegistration !== "---") {
-                regCell.style.color = '#007bff';
-                regCell.style.textDecoration = 'underline';
-                regCell.style.cursor = 'pointer';
+            const regVal = unescapeHtml(service.assignedRegistration);
+            regCell.textContent = regVal;
+            if (regVal && regVal !== "---") {
+                regCell.classList.add('clickable-ident');
                 regCell.title = "Click to view vehicle history";
                 regCell.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    displayVehicleHistoryModal(service.assignedRegistration);
+                    displayVehicleHistoryModal(regVal);
                 });
             }
 
-            // Destination, Stop, ETA cells (Click row to view predictions modal)
+            // Destination
             const destCell = row.insertCell();
             destCell.textContent = unescapeHtml(service.displayDestination || '?');
             destCell.style.cursor = 'pointer';
             destCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
 
+            // Next Stop
             const stopCell = row.insertCell();
             stopCell.textContent = unescapeHtml(service.nextStopName || '?');
             stopCell.style.cursor = 'pointer';
             stopCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
 
+            // ETA / Last Seen
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
                 const time = service.nextStopActualTime; 
@@ -1264,7 +1263,6 @@
         vehicleHistoryTitle.textContent = unescapeHtml(`Sighting History for Vehicle: ${cleanIdent}`);
 
         let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
-        // Fallback search if lookup misses due to case formatting
         if (logs.length === 0) {
             for (const [key, val] of vehicleDetailedLogMap.entries()) {
                 if (key.includes(cleanIdent) || cleanIdent.includes(key)) {
@@ -1278,7 +1276,6 @@
             vehicleHistoryList.innerHTML = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
         } else {
             let tableHTML = '<table><thead><tr><th>Route</th><th>Sighting Timestamp</th></tr></thead><tbody>';
-            // Sort newest first
             const sortedLogs = [...logs].sort((a, b) => b.timestamp - a.timestamp);
             sortedLogs.forEach(log => {
                 const dateObj = new Date(log.timestamp);

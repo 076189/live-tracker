@@ -522,7 +522,7 @@
                 mainHeadingElement.textContent = unescapeHtml(currentRouteFilter ? `OMSI Live Tracker - Route ${currentRouteFilter}` : "OMSI Live Tracker");
             }
         }
-        if (isRarePageActive) {
+        if (isRarePageActive && !currentRouteFilter) {
             loadAllRoutesMetadataAndData();
         } else {
             throttledProcessAndDisplay();
@@ -1157,10 +1157,12 @@
         }
 
         if (logs.length === 0) {
+            // Also check if this identifier matches any currently active cache assignment across any route/block
             for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
                 const f = String(vehicle.fleetNumber || "").toUpperCase();
                 const r = String(vehicle.registration || "").toUpperCase();
                 if (f.includes(cleanIdent) || r.includes(cleanIdent)) {
+                    // Extract route from blockId or default
                     const parts = blockId.split('_');
                     const rName = parts.length > 0 ? parts[0] : "Active";
                     logs.push({ routeName: rName, timestamp: Date.now() });
@@ -1277,7 +1279,7 @@
         }
 
         if (identToSearch) {
-            displayVehicleHistoryModal(identToSearch);
+            displayVehicleHistoryModal(identStr = identToSearch);
             searchStatusMessage.textContent = `Showing history for ${escapeHtml(identToSearch)}.`;
             vehicleSearchInput.value = "";
             return;

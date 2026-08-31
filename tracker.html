@@ -563,8 +563,12 @@ let serviceInstanceVehicleCache = new Map();
         loadVehicleCacheFromStorage(); setupUIListeners(); updateClock(); setInterval(updateClock, 1000); 
         fetchBankHolidays(); loadWatchedBuses(); 
         setupFirebaseDependentListeners(); 
-        if (await loadScheduleFromLocalStorage()) { await processAndDisplayAllData(); populateStopsFilter(); generateAndDisplayRouteSequences(); }
-        else { if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please upload a schedule file to begin.</td></tr>`; }
+        if (await loadScheduleFromLocalStorage()) { 
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
+            populateStopsFilter(); 
+        } else { 
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please upload a schedule file to begin.</td></tr>`; 
+        }
         if(nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Load File"; clearInterval(countdownTimerId);
     }
 
@@ -867,13 +871,7 @@ let serviceInstanceVehicleCache = new Map();
             return;
         }
 
-        await resolveActiveVehicleAssignments();
-        populateCurtailmentsTable();
-
-        let dataToProcess = localScheduleData;
-        if (currentRouteFilter) {
-            dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter);
-        } else {
+        if (!currentRouteFilter) {
             if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
             if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
             currentTrackedServices = []; populateTableFilters();
@@ -881,14 +879,19 @@ let serviceInstanceVehicleCache = new Map();
             if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
             return;
         }
-        
-        if (dataToProcess.length === 0 && currentRouteFilter) { 
+
+        let dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter);
+
+        if (dataToProcess.length === 0) { 
             if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in the loaded file.</td></tr>`; 
             if (busCounterElement) busCounterElement.textContent = `Tracked Services: 0`; 
             currentTrackedServices = []; populateTableFilters(); 
             if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
             return; 
         }
+
+        await resolveActiveVehicleAssignments();
+        populateCurtailmentsTable();
 
         const nowForProcessing = new Date();
         const activeServicesMap = new Map();
@@ -927,18 +930,6 @@ let serviceInstanceVehicleCache = new Map();
             if (i % 500 === 0) await yieldToMain();
         }
         saveVehicleCacheToStorage(); 
-        
-        const allActiveBlockIds = new Set();
-        localScheduleData.forEach(entry => {
-            if (!entry || typeof entry !== 'object' || !entry.stopID) return;
-            allActiveBlockIds.add(computeServiceInstanceIds(entry).blockId);
-        });
-        for (const key of serviceInstanceVehicleCache.keys()) { 
-            if (!allActiveBlockIds.has(key)) { 
-                serviceInstanceVehicleCache.delete(key); 
-            } 
-        }
-        saveVehicleCacheToStorage();
 
         let servicesWithARelevantNextStop = [];
         activeServicesMap.forEach((serviceRun, serviceRunKey) => {
@@ -969,7 +960,7 @@ let serviceInstanceVehicleCache = new Map();
         currentTrackedServices = Array.from(vehicleNextActivityMap.values());
         currentTrackedServices.sort((a, b) => { const fleetComparison = naturalSortCompareFleet(a.assignedFleetNumber, b.assignedFleetNumber); if (fleetComparison !== 0) return fleetComparison; const timeA = a._timeToNextStopSec || 99999; const timeB = b._timeToNextStopSec || 99999; return timeA - timeB; });
 
-        if (currentRouteFilter && currentTrackedServices.length === 0 && trackerTableBody && dataToProcess.length > 0) { 
+        if (currentTrackedServices.length === 0 && trackerTableBody) { 
             trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:10px;">No live/upcoming services for route ${escapeHtml(currentRouteFilter)} in ~30 mins.</td></tr>`; 
         }
         if (busCounterElement) busCounterElement.textContent = `Tracked Services: ${currentTrackedServices.length}`;

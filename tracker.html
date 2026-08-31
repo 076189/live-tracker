@@ -472,7 +472,6 @@
         loadWatchedBuses(); 
         setupFirebaseDependentListeners(); 
 
-        // Global delegation for clickable identifiers (Fleet & Reg)
         document.addEventListener('click', function(event) {
             const clickable = event.target.closest('.clickable-ident');
             if (clickable) {
@@ -936,14 +935,7 @@
             if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) { return; }
 
             let busEntry = busEntryRaw;
-            if (busEntry.curtailment) {
-                const stopSequence = busEntry.tripStopSequence || [];
-                const currentStopIndex = stopSequence.indexOf(busEntry.stopID);
-                const curtailStopIndex = stopSequence.indexOf(busEntry.curtailment.curtailAtStopID);
-                if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) { return; }
-                busEntry = { ...busEntry, destinationName: unescapeHtml(busEntry.curtailment.newDestinationName) };
-            }
-
+            
             const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(busEntry);
 
             if (!activeServicesMap.has(serviceInstanceKey)) {
@@ -1071,13 +1063,15 @@
         updateWatchedBusHighlighting(); 
     }
 
-    function renderTrackerTable(servicesToDisplay, targetTbodyId, directionFilterName) { 
+    function renderTrackerTable(servicesToDisplay, targetTbodyId, targetDestinations) { 
         const tbody = document.getElementById(targetTbodyId);
         if (!tbody) return; 
         
+        const destList = Array.isArray(targetDestinations) ? targetDestinations.map(d => d.toUpperCase()) : [String(targetDestinations || "").toUpperCase()];
+
         const filteredByDirection = servicesToDisplay.filter(service => {
-            if (!directionFilterName) return true;
-            return unescapeHtml(service.displayDestination).toUpperCase() === directionFilterName.toUpperCase();
+            if (!targetDestinations || targetDestinations.length === 0) return true;
+            return destList.includes(unescapeHtml(service.displayDestination).toUpperCase());
         });
 
         if (!filteredByDirection || filteredByDirection.length === 0) { 
@@ -1236,23 +1230,45 @@
             if (rareTableContainer) rareTableContainer.style.display = "none";
             if (standardTableA) standardTableA.style.display = "table";
 
-            let routeDestinations = [];
+            let allUniqueDestinations = [];
             if (currentRouteFilter) {
-                routeDestinations = [...new Set(localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
+                allUniqueDestinations = [...new Set(localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
             }
-            const dir1 = routeDestinations[0] || null;
-            const dir2 = routeDestinations[1] || null;
 
-            if (dir1) {
-                if (directionAHeading) directionAHeading.textContent = unescapeHtml(`Live Services (Towards ${dir1})`);
+            let dir1Destinations = [];
+            let dir2Destinations = [];
+
+            if (allUniqueDestinations.length > 0) {
+                const primaryTerminus1 = allUniqueDestinations[0];
+                const primaryTerminus2 = allUniqueDestinations.length > 1 ? allUniqueDestinations[allUniqueDestinations.length - 1] : null;
+
+                allUniqueDestinations.forEach(dest => {
+                    if (primaryTerminus2 && dest !== primaryTerminus1) {
+                        const distTo1 = dest.toLowerCase().includes(primaryTerminus1.toLowerCase()) || primaryTerminus1.toLowerCase().includes(dest.toLowerCase());
+                        if (distTo1 && dest !== primaryTerminus2) {
+                            dir1Destinations.push(dest);
+                        } else {
+                            dir2Destinations.push(dest);
+                        }
+                    } else {
+                        dir1Destinations.push(dest);
+                    }
+                });
+                if (dir1Destinations.length === 0) dir1Destinations.push(primaryTerminus1);
+                if (primaryTerminus2 && dir2Destinations.length === 0) dir2Destinations.push(primaryTerminus2);
+            }
+
+            const mainTerminus1 = dir1Destinations[0] || "Direction A";
+            const mainTerminus2 = dir2Destinations.length > 0 ? dir2Destinations[0] : null;
+
+            if (directionAHeading) {
+                directionAHeading.textContent = unescapeHtml(`Live Services (Towards ${mainTerminus1})`);
                 directionAHeading.style.display = "block";
-            } else {
-                if (directionAHeading) directionAHeading.textContent = "Live Services (Direction A)";
             }
 
-            if (dir2) {
+            if (mainTerminus2) {
                 if (directionBHeading) {
-                    directionBHeading.textContent = unescapeHtml(`Live Services (Towards ${dir2})`);
+                    directionBHeading.textContent = unescapeHtml(`Live Services (Towards ${mainTerminus2})`);
                     directionBHeading.style.display = "block";
                 }
                 if (directionBTableContainer) directionBTableContainer.style.display = "table";
@@ -1261,9 +1277,9 @@
                 if (directionBTableContainer) directionBTableContainer.style.display = "none";
             }
 
-            renderTrackerTable(currentTrackedServices, 'tracker-table-body-a', dir1);
-            if (dir2) {
-                renderTrackerTable(currentTrackedServices, 'tracker-table-body-b', dir2);
+            renderTrackerTable(currentTrackedServices, 'tracker-table-body-a', dir1Destinations);
+            if (mainTerminus2) {
+                renderTrackerTable(currentTrackedServices, 'tracker-table-body-b', dir2Destinations);
             }
         }
 
@@ -1377,13 +1393,13 @@
         }
 
         let dir1Name = destinationNames[0];
-        let dir2Name = destinationNames.length > 1 ? destinationNames[1] : null;
+        let dir2Name = destinationNames.length > 1 ? destinationNames[destinationNames.length - 1] : null;
 
         if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir1Name}`);
         displaySequenceInTable(outboundSequenceTableContainer, extractStopSequenceForDirection(currentRouteFilter, dir1Name));
         if(container1) container1.style.display = "block";
 
-        if (dir2Name) {
+        if (dir2Name && dir2Name !== dir1Name) {
             if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir2Name}`);
             displaySequenceInTable(inboundSequenceTableContainer, extractStopSequenceForDirection(currentRouteFilter, dir2Name));
             if(container2) container2.style.display = "block";

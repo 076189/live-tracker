@@ -314,9 +314,13 @@
     let vehicleAllocationData = { ...defaultVehicleAllocationData };
     let hasReceivedInitialVehicleAllocations = false;
 
+    // Merges Firebase-configured allocations (from OMSI Tools Extra) over the hardcoded defaults,
+    // so routes without a saved Firebase allocation still fall back to something sensible.
     function applyLiveVehicleAllocations(snapshot) {
         const liveAllocations = snapshot.exists() ? snapshot.val() || {} : {};
         vehicleAllocationData = { ...defaultVehicleAllocationData, ...liveAllocations };
+        // Skip clearing on the initial snapshot (fires immediately on subscribe) so previously
+        // cached/persisted vehicle assignments survive a page reload instead of reshuffling every time.
         if (!hasReceivedInitialVehicleAllocations) {
             hasReceivedInitialVehicleAllocations = true;
             return;
@@ -344,10 +348,6 @@ let serviceInstanceVehicleCache = new Map();
 
     function debugLog(message, ...optionalParams) { }
     function escapeHtml(unsafe){if(unsafe===null||typeof unsafe==='undefined')return'N/A';return String(unsafe).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");}
-    
-    // Unescape helper to decode entities back to regular characters when needed (e.g. curtailment destinations)
-    function unescapeHtml(safe){if(safe===null||typeof safe==='undefined')return'N5A';const txt = document.createElement('textarea');txt.innerHTML = safe;return txt.value;}
-
     function naturalSortCompareFleet(aStr, bStr) { const sA = String(aStr || "").trim(); const sB = String(bStr || "").trim(); const regex = /^([a-zA-Z]*)(\d+)?(.*)$/; const partsA = sA.match(regex); const partsB = sB.match(regex); if (partsA && partsB) { const prefixA = (partsA[1] || "").toUpperCase(); const prefixB = (partsB[1] || "").toUpperCase(); if (prefixA < prefixB) return -1; if (prefixA > prefixB) return 1; const numA = partsA[2] ? parseInt(partsA[2], 10) : -1; const numB = partsB[2] ? parseInt(partsB[2], 10) : -1; if (numA !== -1 && numB !== -1) { if (numA < numB) return -1; if (numA > numB) return 1; } else if (numA !== -1) { return -1; } else if (numB !== -1) { return 1; } const suffixA = (partsA[3] || "").toUpperCase(); const suffixB = (partsB[3] || "").toUpperCase(); if (suffixA < suffixB) return -1; if (suffixA > suffixB) return 1; return 0; } return sA.localeCompare(sB, undefined, {numeric: true, sensitivity: 'base'}); }
     
     function loadWatchedBuses() { const stored = localStorage.getItem(WATCHED_BUSES_STORAGE_KEY); watchedBuses = new Set(stored ? JSON.parse(stored) : []); displayWatchedBusesList(); }
@@ -584,13 +584,15 @@ function loadScheduleFromLocalStorage() {
     dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
 }
 
+// Flattens the RSG-managed live schedule (schedulesByRoute) into the flat entry list the tracker expects,
+// so every route configured in OMSI Tools Extra's RSG shows up here automatically.
 function applyLiveRSGSchedule(snapshot) {
     const myToken = ++liveScheduleFlattenToken;
     const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
     const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
 
     if (routeKeys.length === 0) {
-        if (!isUsingLiveRSGSchedule) return; 
+        if (!isUsingLiveRSGSchedule) return; // Nothing live yet; keep whatever local/uploaded data is shown.
     }
 
     const flatLiveSchedule = [];
@@ -611,7 +613,7 @@ function applyLiveRSGSchedule(snapshot) {
         }
     });
 
-    if (myToken !== liveScheduleFlattenToken) return; 
+    if (myToken !== liveScheduleFlattenToken) return; // Superseded by a newer Firebase update
 
     isUsingLiveRSGSchedule = true;
     localScheduleData = flatLiveSchedule;
@@ -734,6 +736,8 @@ function applyLiveRSGSchedule(snapshot) {
         return vehicle;
     }
 
+    // Derives the same serviceInstanceKey/blockId used for vehicle-cache lookups, so callers
+    // (both the filtered display loop and the full-dataset cache cleanup) stay in sync.
     function computeServiceInstanceIds(busEntry) {
         const trueLineName = busEntry.lineName ? busEntry.lineName.toUpperCase() : "UNKNOWN_ROUTE";
         let serviceInstanceKey;
@@ -753,6 +757,7 @@ function applyLiveRSGSchedule(snapshot) {
         return { trueLineName, serviceInstanceKey, blockId };
     }
 
+    // Identifies a vehicle for cross-route reservation purposes (fleet number, falling back to registration).
     function getVehicleKey(vehicle) {
         if (!vehicle) return '';
         const fleet = String(vehicle.fleetNumber || '').trim().toUpperCase();
@@ -771,6 +776,10 @@ function applyLiveRSGSchedule(snapshot) {
         });
     }
 
+    // A real vehicle can only be in one place at once. This scans every route's currently-active
+    // trips (not just the one being displayed) and re-resolves the vehicle cache so the same
+    // vehicle is never double-booked across two concurrently-running blocks, with a route where a
+    // vehicle is "common" always taking priority over a route where it's only "rare".
     function resolveActiveVehicleAssignments() {
         const nowForProcessing = new Date();
         const blockRouteMap = new Map();
@@ -798,6 +807,7 @@ function applyLiveRSGSchedule(snapshot) {
         });
 
         const needsCommonPass = [];
+        // Pass 1: keep existing assignments that are still valid as the block's OWN common vehicle - these are locked in first.
         activeBlockIds.forEach(blockId => {
             if (blockStaticVehicle.has(blockId)) return;
             const cached = serviceInstanceVehicleCache.get(blockId);
@@ -809,6 +819,7 @@ function applyLiveRSGSchedule(snapshot) {
             needsCommonPass.push(blockId);
         });
 
+        // Pass 2: assign a free common vehicle to any block that doesn't have one locked in yet.
         const needsRarePass = [];
         needsCommonPass.forEach(blockId => {
             const commonPool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'commonVehicles').filter(v => !reserved.has(getVehicleKey(v)));
@@ -821,6 +832,7 @@ function applyLiveRSGSchedule(snapshot) {
             }
         });
 
+        // Pass 3: no common vehicle free - fall back to the route's rare pool, keeping a still-valid cached pick if possible.
         const needsFallback = [];
         needsRarePass.forEach(blockId => {
             const rarePool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'rareVehicles');
@@ -839,6 +851,7 @@ function applyLiveRSGSchedule(snapshot) {
             }
         });
 
+        // Pass 4: every vehicle this route could use is already in service elsewhere right now - show no vehicle rather than duplicate one.
         needsFallback.forEach(blockId => serviceInstanceVehicleCache.delete(blockId));
 
         saveVehicleCacheToStorage();
@@ -885,6 +898,7 @@ function applyLiveRSGSchedule(snapshot) {
     dataToProcess.forEach((busEntryRaw, entryIndex) => {
         if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID ) { return; }
 
+        // A curtailed trip shows its new destination and drops any stops beyond the curtailment point.
         let busEntry = busEntryRaw;
         if (busEntry.curtailment) {
             const stopSequence = busEntry.tripStopSequence || [];
@@ -915,6 +929,8 @@ function applyLiveRSGSchedule(snapshot) {
     });
     saveVehicleCacheToStorage(); 
     
+    // Cache cleanup must consider the FULL schedule, not just the currently route-filtered view,
+    // otherwise switching route filters would wipe (and re-randomise) other routes' cached vehicles.
     const allActiveBlockIds = new Set();
     localScheduleData.forEach(entry => {
         if (!entry || typeof entry !== 'object' || !entry.stopID) return;
@@ -976,7 +992,8 @@ function applyLiveRSGSchedule(snapshot) {
     window.hideVehiclePredictionModal = function() { if (vehiclePredictionModal) vehiclePredictionModal.style.display = 'none'; }
     
     function displayServiceAlert(status, message) { if(!serviceAlertsContainerElement||!serviceAlertsContentElement)return;serviceAlertsContainerElement.className="service-alerts-container";let e="Service Status: ",t="";switch(status){case"simulating_scheduled_update_downtime":e+="System Update. FB data may be unavailable.",t="alert-minor";break;case"idle":e+="Normal Operation (FB).",t="alert-good";break;case"offline":e=message || "Firebase features offline.";t="alert-error";break;default:e+="Status (FB): "+escapeHtml(status),t="alert-minor"}message&&typeof message=="string"&&message.trim()!==""&&status!=="offline"&&(e+=` Message: ${escapeHtml(message.trim())}`),serviceAlertsContentElement.textContent=e,t&&serviceAlertsContainerElement.classList.add(t)}
-    
+    // Derives currently-curtailed trips directly from the schedule's own .curtailment fields
+    // (set by Tools Extra's Live Trip Intervention), instead of the unused legacy '/curtailments/all' path.
     function populateCurtailmentsTable() {
         if (!curtailedBusesTableBody) return;
         curtailedBusesTableBody.innerHTML = "";
@@ -998,8 +1015,8 @@ function applyLiveRSGSchedule(snapshot) {
         curtailedTrips.forEach(entry => {
             const row = curtailedBusesTableBody.insertRow();
             row.insertCell().textContent = escapeHtml(entry.lineName || "N/A");
-            row.insertCell().textContent = escapeHtml(entry.scheduledTime ? `${entry.scheduledTime} to ${unescapeHtml(entry.destinationName || '?')}` : (entry.tripId || "N/A"));
-            row.insertCell().textContent = unescapeHtml(entry.curtailment.newDestinationName || "N/A");
+            row.insertCell().textContent = escapeHtml(entry.scheduledTime ? `${entry.scheduledTime} to ${entry.destinationName || '?'}` : (entry.tripId || "N/A"));
+            row.insertCell().textContent = escapeHtml(entry.curtailment.newDestinationName || "N/A");
             let appliedTimeText = "N/A";
             if (entry.curtailment.appliedAt) {
                 const appliedDate = new Date(entry.curtailment.appliedAt);
@@ -1033,10 +1050,7 @@ function applyLiveRSGSchedule(snapshot) {
             const filteredEntries = localScheduleData.filter(entry => entry.lineName === routeToDisplay && entry.destinationName === targetDestination && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") && !entry.tripId.startsWith("FILE_TRIP_") );
             filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: entry.stopName, preciseScheduledDateTime: finalAdjustedSchedTime }); } });
             serviceRunsMap.forEach((stopsArray, tripId) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
-            if (longestRunStops.length > 0) { 
-                const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); 
-                return sortedStops; 
-            }
+            if (longestRunStops.length > 0) { const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); return sortedStops; }
             return [];
         };
         const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName === currentRouteFilter).map(entry => entry.destinationName).filter(Boolean))].sort();

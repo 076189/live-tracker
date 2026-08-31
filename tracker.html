@@ -4,12 +4,11 @@
     <title>OMSI Live Tracker - Standalone</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="manifest" href="/live-tracker/manifest-omsi.json">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="OMSI Tracker SA">
     <meta name="theme-color" content="#2b5876">
-    <link rel="apple-touch-icon" href="/live-tracker/assets/icons/apple-touch-icon-180x180.png">
 
     <style>
         body, html { margin: 0; padding: 0; box-sizing: border-box; }
@@ -36,7 +35,6 @@
         td[colspan] { text-align: center; font-style: italic; color: #6c757d; padding: 15px 8px; white-space: normal; }
         td:nth-child(3), td:nth-child(4) { white-space: normal; }
         
-        /* Only fleet and reg cells get the pointer and interactive style */
         td.clickable-ident { color: #007bff !important; text-decoration: underline; cursor: pointer; font-weight: bold; }
         td.clickable-ident:hover { color: #0056b3 !important; }
 
@@ -293,11 +291,92 @@
     let watchedBuses = new Set(); 
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
     const LOCAL_SCHEDULE_STORAGE_KEY = 'omsiTrackerLocalSchedule_v1';
+    const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v1';
+    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v1';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     let isUsingLiveRSGSchedule = false;
     let liveScheduleFlattenToken = 0;
+
+    let vehicleRouteHistoryMap = new Map();
+    let vehicleDetailedLogMap = new Map();
+
+    function loadRouteHistoryFromStorage() {
+        try {
+            const stored = localStorage.getItem(ROUTE_HISTORY_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                vehicleRouteHistoryMap = new Map(Object.entries(parsed));
+            }
+        } catch (e) {
+            vehicleRouteHistoryMap = new Map();
+        }
+    }
+
+    function saveRouteHistoryToStorage() {
+        try {
+            const obj = Object.fromEntries(vehicleRouteHistoryMap);
+            localStorage.setItem(ROUTE_HISTORY_STORAGE_KEY, JSON.stringify(obj));
+        } catch (e) {}
+    }
+
+    function recordVehicleSighting(routeName, fleetNumber, registration) {
+        if (!routeName || (!fleetNumber && !registration)) return;
+        const routeUpper = routeName.toUpperCase();
+        const ident = (fleetNumber && fleetNumber !== "N/A" ? fleetNumber : registration).toUpperCase();
+        if (!ident || ident === "---") return;
+
+        if (!vehicleRouteHistoryMap.has(routeUpper)) {
+            vehicleRouteHistoryMap.set(routeUpper, {});
+        }
+        const routeSightings = vehicleRouteHistoryMap.get(routeUpper);
+        routeSightings[ident] = Date.now();
+        saveRouteHistoryToStorage();
+    }
+
+    function loadDetailedLogFromStorage() {
+        try {
+            const stored = localStorage.getItem(VEHICLE_DETAILED_LOG_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                vehicleDetailedLogMap = new Map(Object.entries(parsed));
+            }
+        } catch (e) {
+            vehicleDetailedLogMap = new Map();
+        }
+    }
+
+    function saveDetailedLogToStorage() {
+        try {
+            const obj = Object.fromEntries(vehicleDetailedLogMap);
+            localStorage.setItem(VEHICLE_DETAILED_LOG_KEY, JSON.stringify(obj));
+        } catch (e) {}
+    }
+
+    function recordDetailedVehicleSighting(routeName, fleetNumber, registration) {
+        if (!routeName) return;
+        const idents = [];
+        if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
+        if (registration && registration !== "---") idents.push(registration.toUpperCase());
+        if (idents.length === 0) return;
+
+        const now = Date.now();
+        idents.forEach(ident => {
+            if (!vehicleDetailedLogMap.has(ident)) {
+                vehicleDetailedLogMap.set(ident, []);
+            }
+            const logs = vehicleDetailedLogMap.get(ident);
+            const routeUp = routeName.toUpperCase();
+            
+            const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
+            if (!lastLog || lastLog.routeName !== routeUp || (now - lastLog.timestamp) > 60000) {
+                logs.push({ routeName: routeUp, timestamp: now });
+                if (logs.length > 50) logs.shift();
+            }
+        });
+        saveDetailedLogToStorage();
+    }
 
     const defaultVehicleAllocationData = {};
     let vehicleAllocationData = { ...defaultVehicleAllocationData };
@@ -1011,7 +1090,6 @@
                 recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
                 recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
 
-                // Determine if this assigned vehicle is rare based on Firebase data for this route
                 const routeAlloc = vehicleAllocationData[trueLineName] || vehicleAllocationData[trueLineName.toUpperCase()];
                 let isRare = false;
                 if (routeAlloc) {
@@ -1490,7 +1568,6 @@
     }
     
     document.addEventListener('DOMContentLoaded', initializeTracker);
-    if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/live-tracker/sw-omsi.js'); }); }
     </script>
 </body>
 </html>

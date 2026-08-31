@@ -47,6 +47,7 @@
         #watch-bus-button { background-color: #ffc107; color: black !important; } #watch-bus-button:hover { background-color: #e0a800; }
         #route-search-button { background-color: #28a745; } #route-search-button:hover { background-color: #1e7e34; }
         #clear-route-filter-button { background-color: #6c757d; } #clear-route-filter-button:hover { background-color: #5a6268; }
+        #toggle-view-button { background-color: #6f42c1; } #toggle-view-button:hover { background-color: #5a32a3; }
         #search-status-message { width: 100%; text-align: center; margin-top: 5px; font-weight: bold; min-height: 1.2em; }
         #watched-buses-display { width: 100%; text-align: center; margin-top: 10px; padding-bottom: 10px; }
         #watched-buses-display span { display: inline-block; background-color: #e9ecef; padding: 3px 8px; margin: 3px; border-radius: 12px; font-size: 0.9em; }
@@ -151,6 +152,7 @@
         <input type="text" id="route-search-input" placeholder="Enter Route Number" aria-label="Route Search Input" autocomplete="off" style="margin-top: 5px;">
         <button id="route-search-button" type="button">Show Route</button>
         <button id="clear-route-filter-button" type="button">Clear Route</button>
+        <button id="toggle-view-button" type="button">Show Rare Workings</button>
 
         <div id="search-status-message"></div>
     </div>
@@ -268,6 +270,7 @@
 
     let currentSelectedStopID_filter = null; 
     let currentRouteFilter = null; 
+    let showingRareWorkingsOnly = false;
 
     const REFRESH_INTERVAL_SECONDS = 300; 
     let countdownValue = REFRESH_INTERVAL_SECONDS;
@@ -275,13 +278,69 @@
     let watchedBuses = new Set(); 
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
     const LOCAL_SCHEDULE_STORAGE_KEY = 'omsiTrackerLocalSchedule_v1';
+    const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v1';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     let isUsingLiveRSGSchedule = false;
     let liveScheduleFlattenToken = 0;
 
-    // Fallback vehicle pools used until/unless a route has an allocation configured in Firebase (via OMSI Tools Extra).
+    let vehicleRouteHistoryMap = new Map();
+
+    function loadRouteHistoryFromStorage() {
+        try {
+            const stored = localStorage.getItem(ROUTE_HISTORY_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                vehicleRouteHistoryMap = new Map(Object.entries(parsed));
+            }
+        } catch (e) {
+            vehicleRouteHistoryMap = new Map();
+        }
+    }
+
+    function saveRouteHistoryToStorage() {
+        try {
+            const obj = Object.fromEntries(vehicleRouteHistoryMap);
+            localStorage.setItem(ROUTE_HISTORY_STORAGE_KEY, JSON.stringify(obj));
+        } catch (e) {}
+    }
+
+    function recordVehicleSighting(routeName, fleetNumber, registration) {
+        if (!routeName || (!fleetNumber && !registration)) return;
+        const routeUpper = routeName.toUpperCase();
+        const ident = (fleetNumber && fleetNumber !== "N/A" ? fleetNumber : registration).toUpperCase();
+        const key = `${routeUpper}_${ident}`;
+        const nowTime = Date.now();
+
+        if (!vehicleRouteHistoryMap.has(routeUpper)) {
+            vehicleRouteHistoryMap.set(routeUpper, {});
+        }
+        const routeSightings = vehicleRouteHistoryMap.get(routeUpper);
+        routeSightings[ident] = nowTime;
+        saveRouteHistoryToStorage();
+    }
+
+    function isVehicleRareOnRoute(routeName, fleetNumber, registration) {
+        if (!routeName) return false;
+        const routeUpper = routeName.toUpperCase();
+        const ident = (fleetNumber && fleetNumber !== "N/A" ? fleetNumber : registration).toUpperCase();
+        if (!ident || ident === "---") return false;
+
+        const routeSightings = vehicleRouteHistoryMap.get(routeUpper);
+        if (!routeSightings || !routeSightings[ident]) {
+            // Never seen before or no history -> treat as rare sighting
+            return true;
+        }
+
+        const lastSeenTimestamp = routeSightings[ident];
+        const twoMonthsMs = 60 * 24 * 60 * 60 * 1000;
+        const diff = Date.now() - lastSeenTimestamp;
+
+        // If last seen more than 2 months ago, it's rare
+        return diff > twoMonthsMs;
+    }
+
     const defaultVehicleAllocationData = {
   "4": { "commonVehicles": [ { "fleetNumber": "SE115", "registration": "LF20XMX" }, { "fleetNumber": "SE120", "registration": "LF20XMY" }, { "fleetNumber": "SE125", "registration": "LF70YWC" } ], "rareVehicles": [ { "fleetNumber": "GOLD4", "registration": "AU79OMS" } ], "rareChance": 0.05 },
   "6": { "commonVehicles": [ { "fleetNumber":"AEL1","registration": "YX73AGU" }, { "fleetNumber":"AEL2","registration": "YX73AGV" }, { "fleetNumber":"AEL3","registration": "YX73AGW" }, { "fleetNumber":"AEL4","registration": "YX73AGX" }, { "fleetNumber":"AEL5","registration": "YX73AGY" }, { "fleetNumber":"AEL6","registration": "YX73AGZ" }, { "fleetNumber":"AEL7","registration": "YX73AHA" } ], "rareVehicles": [ { "fleetNumber": "RETRO6", "registration": "OLD006X" } ], "rareChance": 0.10 },
@@ -335,7 +394,7 @@ let serviceInstanceVehicleCache = new Map();
         curtailedBusesTableBody, outboundSequenceList, inboundSequenceList,
         vehicleSearchInput, watchBusInput, searchStatusMessage, watchedBusesDisplay,
         vehiclePredictionModal, vehiclePredictionTitle, vehiclePredictionList,
-        routeSearchInput, routeSearchButton, clearRouteFilterButton,
+        routeSearchInput, routeSearchButton, clearRouteFilterButton, toggleViewButton,
         mainHeadingElement, scheduleFileInput, loadScheduleButton, fileUploadStatusMessageEl;
 
     let tripBlockMapping = new Map();
@@ -344,7 +403,6 @@ let serviceInstanceVehicleCache = new Map();
 
     function debugLog(message, ...optionalParams) { }
     
-    // Updated escapeHtml to prevent double-encoding apostrophes if they are already converted entities
     function escapeHtml(unsafe) {
         if (unsafe === null || typeof unsafe === 'undefined') return 'N/A';
         const stringVal = String(unsafe);
@@ -356,7 +414,6 @@ let serviceInstanceVehicleCache = new Map();
                         .replace(/'/g, "&#039;");
     }
 
-    // Global unescape helper to clean up any encoded apostrophes (&amp;#039; or &#039;) back into standard text
     function unescapeHtml(safe) {
         if (safe === null || typeof safe === 'undefined') return '';
         const txt = document.createElement('textarea');
@@ -535,8 +592,10 @@ function loadScheduleFromLocalStorage() {
     }
 
     function initializeTracker() {
-        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBody = document.getElementById('tracker-table-body'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); availableStopsSelect = document.getElementById('available-stops-select'); serviceAlertsContentElement = document.getElementById('service-alerts-content'); serviceAlertsContainerElement = document.getElementById('service-alerts-container'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceList = document.getElementById('outbound-sequence-list'); inboundSequenceList = document.getElementById('inbound-sequence-list'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehiclePredictionModal = document.getElementById('vehicle-prediction-modal'); vehiclePredictionTitle = document.getElementById('vehicle-prediction-title'); vehiclePredictionList = document.getElementById('vehicle-prediction-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); mainHeadingElement = document.getElementById('main-heading'); filterServiceIdSelect = document.getElementById('filter-service-id'); filterRegSelect = document.getElementById('filter-reg'); filterDestinationSelect = document.getElementById('filter-destination'); filterStopSelect = document.getElementById('filter-stop'); filterArrivalSelect = document.getElementById('filter-arrival');
+        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBody = document.getElementById('tracker-table-body'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); availableStopsSelect = document.getElementById('available-stops-select'); serviceAlertsContentElement = document.getElementById('service-alerts-content'); serviceAlertsContainerElement = document.getElementById('service-alerts-container'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceList = document.getElementById('outbound-sequence-list'); inboundSequenceList = document.getElementById('inbound-sequence-list'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehiclePredictionModal = document.getElementById('vehicle-prediction-modal'); vehiclePredictionTitle = document.getElementById('vehicle-prediction-title'); vehiclePredictionList = document.getElementById('vehicle-prediction-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); toggleViewButton = document.getElementById('toggle-view-button'); mainHeadingElement = document.getElementById('main-heading'); filterServiceIdSelect = document.getElementById('filter-service-id'); filterRegSelect = document.getElementById('filter-reg'); filterDestinationSelect = document.getElementById('filter-destination'); filterStopSelect = document.getElementById('filter-stop'); filterArrivalSelect = document.getElementById('filter-arrival');
         scheduleFileInput = document.getElementById('schedule-file-input'); loadScheduleButton = document.getElementById('load-schedule-button'); fileUploadStatusMessageEl = document.getElementById('file-upload-status-message');
+        
+        loadRouteHistoryFromStorage();
         loadVehicleCacheFromStorage(); setupUIListeners(); updateClock(); setInterval(updateClock, 1000); 
         fetchBankHolidays(); loadWatchedBuses(); 
         setupFirebaseDependentListeners(); 
@@ -555,6 +614,7 @@ function loadScheduleFromLocalStorage() {
         if (routeSearchButton) routeSearchButton.addEventListener('click', handleRouteSearch);
         if (routeSearchInput) routeSearchInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') handleRouteSearch(); });
         if (clearRouteFilterButton) clearRouteFilterButton.addEventListener('click', handleClearRouteFilter);
+        if (toggleViewButton) toggleViewButton.addEventListener('click', handleToggleRareWorkingsView);
         const filters = [filterServiceIdSelect, filterRegSelect, filterDestinationSelect, filterStopSelect, filterArrivalSelect];
         filters.forEach(filterElement => { if (filterElement) filterElement.addEventListener('change', applyTableFilters); });
     }
@@ -562,16 +622,31 @@ function loadScheduleFromLocalStorage() {
     function handleRouteSearch() { 
         if (routeSearchInput) { 
             const routeValue = routeSearchInput.value.trim().toUpperCase(); 
-            if (routeValue) { currentRouteFilter = routeValue; if (mainHeadingElement) mainHeadingElement.textContent = `OMSI Live Tracker - Route ${escapeHtml(currentRouteFilter)}`; if(searchStatusMessage) searchStatusMessage.textContent = `Showing route ${escapeHtml(currentRouteFilter)}.`; } 
-            else { currentRouteFilter = null; if (mainHeadingElement) mainHeadingElement.textContent = "OMSI Live Tracker (Standalone)"; if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; } 
+            if (routeValue) { currentRouteFilter = routeValue; if (mainHeadingElement) mainHeadingElement.textContent = showingRareWorkingsOnly ? `OMSI Live Tracker - Rare Workings (Route ${escapeHtml(currentRouteFilter)})` : `OMSI Live Tracker - Route ${escapeHtml(currentRouteFilter)}`; if(searchStatusMessage) searchStatusMessage.textContent = `Showing route ${escapeHtml(currentRouteFilter)}.`; } 
+            else { currentRouteFilter = null; if (mainHeadingElement) mainHeadingElement.textContent = showingRareWorkingsOnly ? "OMSI Live Tracker - Rare Workings" : "OMSI Live Tracker (Standalone)"; if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; } 
             processAndDisplayAllData(); generateAndDisplayRouteSequences(); 
         } 
     }
     function handleClearRouteFilter() { 
         currentRouteFilter = null; 
-        if (routeSearchInput) routeSearchInput.value = ""; if (mainHeadingElement) mainHeadingElement.textContent = "OMSI Live Tracker (Standalone)"; 
+        if (routeSearchInput) routeSearchInput.value = ""; if (mainHeadingElement) mainHeadingElement.textContent = showingRareWorkingsOnly ? "OMSI Live Tracker - Rare Workings" : "OMSI Live Tracker (Standalone)"; 
         if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
         processAndDisplayAllData(); generateAndDisplayRouteSequences(); 
+    }
+
+    function handleToggleRareWorkingsView() {
+        showingRareWorkingsOnly = !showingRareWorkingsOnly;
+        if (toggleViewButton) {
+            toggleViewButton.textContent = showingRareWorkingsOnly ? "Show All Services" : "Show Rare Workings";
+        }
+        if (mainHeadingElement) {
+            if (showingRareWorkingsOnly) {
+                mainHeadingElement.textContent = currentRouteFilter ? `OMSI Live Tracker - Rare Workings (Route ${escapeHtml(currentRouteFilter)})` : "OMSI Live Tracker - Rare Workings";
+            } else {
+                mainHeadingElement.textContent = currentRouteFilter ? `OMSI Live Tracker - Route ${escapeHtml(currentRouteFilter)}` : "OMSI Live Tracker (Standalone)";
+            }
+        }
+        processAndDisplayAllData();
     }
 
     function setupFirebaseDependentListeners() {
@@ -926,6 +1001,10 @@ function applyLiveRSGSchedule(snapshot) {
             } else {
                 assignedVehicle = getAssignedVehicle(blockId, trueLineName); 
             }
+            
+            // Record active vehicle sighting for route history tracking
+            recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
+
             activeServicesMap.set(serviceInstanceKey, {
                 serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
                 trueLineName: trueLineName, displayDestination: unescapeHtml(busEntry.destinationName), stops: [],
@@ -976,6 +1055,14 @@ function applyLiveRSGSchedule(snapshot) {
         }
     });
     currentTrackedServices = Array.from(vehicleNextActivityMap.values());
+
+    // Apply Rare Workings view filter based on 2-month threshold check
+    if (showingRareWorkingsOnly) {
+        currentTrackedServices = currentTrackedServices.filter(service => 
+            isVehicleRareOnRoute(service.trueLineName, service.assignedFleetNumber, service.assignedRegistration)
+        );
+    }
+
     currentTrackedServices.sort((a, b) => { const fleetComparison = naturalSortCompareFleet(a.assignedFleetNumber, b.assignedFleetNumber); if (fleetComparison !== 0) return fleetComparison; const timeA = a._timeToNextStopSec || 99999; const timeB = b._timeToNextStopSec || 99999; return timeA - timeB; });
 
     if (currentRouteFilter && currentTrackedServices.length === 0 && trackerTableBody && dataToProcess.length > 0) { 

@@ -238,11 +238,13 @@
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
     const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v1';
     const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v1';
+    const ROUTE_CACHE_STORAGE_KEY = 'omsiRouteCache_v1';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
-    let isUsingLiveRSGSchedule = false;
-    let liveScheduleFlattenToken = 0;
     let updateThrottleTimer = null;
+
+    let routeCacheMap = new Map(); // routeName -> { entries: [], timestamp: number }
+    let routeMetaMap = new Map(); // routeName -> checksum/hash
 
     let vehicleRouteHistoryMap = new Map();
     let vehicleDetailedLogMap = new Map();
@@ -471,7 +473,7 @@
         setupFirebaseDependentListeners(); 
 
         if(trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above.</td></tr>`; 
-        if(nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Live (RSG)";
+        if(nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Lazy Load (Cached)";
     }
 
     function setupUIListeners() {
@@ -491,13 +493,16 @@
             if (routeValue) { 
                 currentRouteFilter = routeValue; 
                 if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? `OMSI Rare Workings Page - Route ${currentRouteFilter}` : `OMSI Live Tracker - Route ${currentRouteFilter}`); 
-                if(searchStatusMessage) searchStatusMessage.textContent = `Showing route ${escapeHtml(currentRouteFilter)}.`; 
+                if(searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(currentRouteFilter)}...`; 
+                loadRouteDataOnDemand(currentRouteFilter);
             } else { 
                 currentRouteFilter = null; 
                 if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? "OMSI Rare Workings Page" : "OMSI Live Tracker"); 
                 if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
+                localScheduleData = [];
+                throttledProcessAndDisplay(); 
+                generateAndDisplayRouteSequences(); 
             } 
-            throttledProcessAndDisplay(); generateAndDisplayRouteSequences(); 
         } 
     }
     
@@ -506,7 +511,9 @@
         if (routeSearchInput) routeSearchInput.value = ""; 
         if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? "OMSI Rare Workings Page" : "OMSI Live Tracker"); 
         if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
-        throttledProcessAndDisplay(); generateAndDisplayRouteSequences(); 
+        localScheduleData = [];
+        throttledProcessAndDisplay(); 
+        generateAndDisplayRouteSequences(); 
     }
 
     function handleToggleRarePage() {
@@ -522,7 +529,11 @@
                 mainHeadingElement.textContent = unescapeHtml(currentRouteFilter ? `OMSI Live Tracker - Route ${currentRouteFilter}` : "OMSI Live Tracker");
             }
         }
-        throttledProcessAndDisplay();
+        if (isRarePageActive && !currentRouteFilter) {
+            loadAllRoutesMetadataAndData();
+        } else {
+            throttledProcessAndDisplay();
+        }
     }
 
     function setupFirebaseDependentListeners() {
@@ -548,11 +559,86 @@
             } 
         });
 
-        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-        dbOnValue(schedulesByRouteRef, (snapshot) => { applyLiveRSGSchedule(snapshot); });
-
         const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
         dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
+    }
+
+    function loadRouteDataOnDemand(routeKey) {
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
+        const { database, dbRef, dbGet, dbChild } = window.firebaseOMSI_SA;
+        const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
+
+        dbGet(routeRef).then((snapshot) => {
+            if (snapshot.exists()) {
+                const routeData = snapshot.val();
+                const flatEntries = flattenSingleRouteData(routeKey, routeData);
+                
+                // Merge into localScheduleData (replace entries for this route)
+                localScheduleData = localScheduleData.filter(e => String(e.lineName).toUpperCase() !== routeKey.toUpperCase());
+                localScheduleData.push(...flatEntries);
+
+                generateVehicleBlocks(localScheduleData);
+                if(searchStatusMessage) searchStatusMessage.textContent = `Loaded route ${escapeHtml(routeKey)}.`;
+                throttledProcessAndDisplay();
+                generateAndDisplayRouteSequences();
+            } else {
+                if(searchStatusMessage) searchStatusMessage.textContent = `Route ${escapeHtml(routeKey)} not found in database.`;
+                if(trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(routeKey)}.</td></tr>`;
+            }
+        }).catch(err => {
+            if(searchStatusMessage) searchStatusMessage.textContent = `Error loading route ${escapeHtml(routeKey)}.`;
+        });
+    }
+
+    function loadAllRoutesMetadataAndData() {
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
+        if(searchStatusMessage) searchStatusMessage.textContent = "Loading all routes for Rare Workings...";
+        const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
+        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+
+        dbGet(schedulesByRouteRef).then((snapshot) => {
+            if (snapshot.exists()) {
+                const schedulesByRoute = snapshot.val();
+                const routeKeys = Object.keys(schedulesByRoute);
+                const flatLiveSchedule = [];
+                routeKeys.forEach(routeKey => {
+                    const routeData = schedulesByRoute[routeKey];
+                    const entries = flattenSingleRouteData(routeKey, routeData);
+                    flatLiveSchedule.push(...entries);
+                });
+                localScheduleData = flatLiveSchedule;
+                generateVehicleBlocks(localScheduleData);
+                if(searchStatusMessage) searchStatusMessage.textContent = "Rare workings loaded successfully.";
+                throttledProcessAndDisplay();
+            }
+        }).catch(err => {
+            if(searchStatusMessage) searchStatusMessage.textContent = "Error loading rare workings data.";
+        });
+    }
+
+    function flattenSingleRouteData(routeKey, routeData) {
+        const flatEntries = [];
+        if (!routeData || typeof routeData !== 'object') return flatEntries;
+        for (const profileKey in routeData) {
+            if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
+            const profileData = routeData[profileKey];
+            if (!profileData || typeof profileData !== 'object') continue;
+            for (const destKey in profileData) {
+                if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
+                const destData = profileData[destKey];
+                if (destData && Array.isArray(destData.entries)) {
+                    destData.entries.forEach(entry => { 
+                        if (entry) {
+                            if (!entry.lineName) entry.lineName = routeKey;
+                            if (entry.destinationName) entry.destinationName = unescapeHtml(entry.destinationName);
+                            if (entry.stopName) entry.stopName = unescapeHtml(entry.stopName);
+                            flatEntries.push(entry); 
+                        } 
+                    });
+                }
+            }
+        }
+        return flatEntries;
     }
 
     function throttledProcessAndDisplay() {
@@ -561,46 +647,6 @@
             updateThrottleTimer = null;
             processAndDisplayAllData();
         }, 150);
-    }
-
-    function applyLiveRSGSchedule(snapshot) {
-        const myToken = ++liveScheduleFlattenToken;
-        const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
-        const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
-
-        if (routeKeys.length === 0) return;
-
-        const flatLiveSchedule = [];
-        routeKeys.forEach(routeKey => {
-            const routeData = schedulesByRoute[routeKey];
-            if (!routeData || typeof routeData !== 'object') return;
-            for (const profileKey in routeData) {
-                if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
-                const profileData = routeData[profileKey];
-                if (!profileData || typeof profileData !== 'object') continue;
-                for (const destKey in profileData) {
-                    if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
-                    const destData = profileData[destKey];
-                    if (destData && Array.isArray(destData.entries)) {
-                        destData.entries.forEach(entry => { 
-                            if (entry) {
-                                if (entry.destinationName) entry.destinationName = unescapeHtml(entry.destinationName);
-                                if (entry.stopName) entry.stopName = unescapeHtml(entry.stopName);
-                                flatLiveSchedule.push(entry); 
-                            } 
-                        });
-                    }
-                }
-            }
-        });
-
-        if (myToken !== liveScheduleFlattenToken) return; 
-
-        isUsingLiveRSGSchedule = true;
-        localScheduleData = flatLiveSchedule;
-        generateVehicleBlocks(localScheduleData);
-        throttledProcessAndDisplay();
-        generateAndDisplayRouteSequences();
     }
 
     function calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing) {
@@ -847,13 +893,16 @@
         fullServiceRunDataMap.clear();
 
         if (!localScheduleData || localScheduleData.length === 0) {
-            if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Waiting for live schedule data from Firebase...</td></tr>`;
-            if (trackerTableBodyB) trackerTableBodyB.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Waiting for live schedule data from Firebase...</td></tr>`;
-            if (trackerTableBodyRare) trackerTableBodyRare.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px;">Waiting for live schedule data from Firebase...</td></tr>`;
+            if (!isRarePageActive && !currentRouteFilter) {
+                if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above.</td></tr>`;
+            } else {
+                if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data loaded for this route.</td></tr>`;
+            }
+            if (trackerTableBodyB) trackerTableBodyB.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No Direction B services.</td></tr>`;
+            if (trackerTableBodyRare) trackerTableBodyRare.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px;">No rare workings found.</td></tr>`;
             if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
             currentTrackedServices = []; 
             populateCurtailmentsTable();
-            if (searchStatusMessage) searchStatusMessage.textContent = "Waiting for live schedule data.";
             if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
             return;
         }
@@ -863,26 +912,11 @@
 
         let dataToProcess = localScheduleData;
         if (!isRarePageActive && currentRouteFilter) {
-            dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter);
-        } else if (!isRarePageActive) {
-            if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
-            if (trackerTableBodyB) trackerTableBodyB.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
-            if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
-            currentTrackedServices = []; 
-            populateCurtailmentsTable();
-            if (searchStatusMessage) searchStatusMessage.textContent = "Please enter a route to display services.";
-            if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
+            dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase());
+        } else if (!isRarePageActive && !currentRouteFilter) {
+            currentTrackedServices = [];
+            applyTableDisplay();
             return;
-        }
-        
-        if (dataToProcess.length === 0 && currentRouteFilter && !isRarePageActive) { 
-            if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in Firebase.</td></tr>`; 
-            if (trackerTableBodyB) trackerTableBodyB.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in Firebase.</td></tr>`; 
-            if (busCounterElement) busCounterElement.textContent = `Tracked Services: 0`; 
-            currentTrackedServices = []; 
-            populateCurtailmentsTable();
-            if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-            return; 
         }
 
         const nowForProcessing = new Date();
@@ -1014,7 +1048,7 @@
             });
 
             if (currentRouteFilter) {
-                currentTrackedServices = currentTrackedServices.filter(service => service.trueLineName.toUpperCase() === currentRouteFilter);
+                currentTrackedServices = currentTrackedServices.filter(service => service.trueLineName.toUpperCase() === currentRouteFilter.toUpperCase());
             }
         }
 
@@ -1194,7 +1228,7 @@
 
             let routeDestinations = [];
             if (currentRouteFilter) {
-                routeDestinations = [...new Set(localScheduleData.filter(e => e.lineName === currentRouteFilter).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
+                routeDestinations = [...new Set(localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
             }
             const dir1 = routeDestinations[0] || null;
             const dir2 = routeDestinations[1] || null;
@@ -1269,7 +1303,7 @@
         const curtailedTrips = [];
         (localScheduleData || []).forEach(entry => {
             if (!entry || !entry.curtailment || !entry.tripId || seenTripIds.has(entry.tripId)) return;
-            if (entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter) {
+            if (entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()) {
                 seenTripIds.add(entry.tripId);
                 curtailedTrips.push(entry);
             }
@@ -1314,22 +1348,16 @@
             if(inboundSequenceTableContainer) inboundSequenceTableContainer.innerHTML="<p>Route data unavailable.</p>";
             return;
         }
-        let availableRoutes = [...new Set(localScheduleData.map(entry => entry.lineName).filter(Boolean))];
-        if (!availableRoutes.includes(currentRouteFilter)) {
-            if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML = `<p>No sequence data for route ${escapeHtml(currentRouteFilter)} in Firebase.</p>`;
-            if(container1) container1.style.display = "block";
-            if(container2) container2.style.display = "none";
-            return;
-        }
+
         const extractStopSequenceForDirection = (routeToDisplay, targetDestination) => {
             let longestRunStops = []; let maxStopsInRun = 0; const serviceRunsMap = new Map();
-            const filteredEntries = localScheduleData.filter(entry => entry.lineName === routeToDisplay && unescapeHtml(entry.destinationName) === unescapeHtml(targetDestination) && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") && !entry.tripId.startsWith("FILE_TRIP_") );
+            const filteredEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeToDisplay.toUpperCase() && unescapeHtml(entry.destinationName) === unescapeHtml(targetDestination) && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") && !entry.tripId.startsWith("FILE_TRIP_") );
             filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: unescapeHtml(entry.stopName), preciseScheduledDateTime: finalAdjustedSchedTime }); } });
             serviceRunsMap.forEach((stopsArray) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
             if (longestRunStops.length > 0) { const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); return sortedStops; }
             return [];
         };
-        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName === currentRouteFilter).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))].sort();
+        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))].sort();
         
         if (destinationNames.length === 0) {
             if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML = "<p>No destinations found for this route.</p>";

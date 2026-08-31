@@ -918,6 +918,17 @@
         const nowForProcessing = new Date();
         const activeServicesMap = new Map();
 
+        const tripFinalDestinations = new Map();
+        if (currentRouteFilter) {
+            localScheduleData.forEach(entry => {
+                if (entry && entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase() && entry.tripId) {
+                    if (!tripFinalDestinations.has(entry.tripId)) {
+                        tripFinalDestinations.set(entry.tripId, unescapeHtml(entry.destinationName));
+                    }
+                }
+            });
+        }
+
         dataToProcess.forEach((busEntryRaw) => {
             if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) { return; }
 
@@ -962,9 +973,14 @@
 
                 const isRare = isAllocatedRare && isOlderThan60Days;
 
+                let finalDest = unescapeHtml(busEntry.destinationName);
+                if (busEntry.tripId && tripFinalDestinations.has(busEntry.tripId)) {
+                    finalDest = tripFinalDestinations.get(busEntry.tripId);
+                }
+
                 activeServicesMap.set(serviceInstanceKey, {
                     serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
-                    trueLineName: trueLineName, displayDestination: unescapeHtml(busEntry.destinationName), stops: [],
+                    trueLineName: trueLineName, displayDestination: finalDest, stops: [],
                     originalDataFleetNo: busEntry.fleetNumber, originalDataRegNo: busEntry.vehicleReg,
                     isRareWorking: isRare,
                     blockId: blockId
@@ -1007,7 +1023,7 @@
                     assignedFleetNumber: serviceRun.assignedFleetNumber, 
                     assignedRegistration: serviceRun.assignedRegistration, 
                     trueLineName: serviceRun.trueLineName, 
-                    displayDestination: unescapeHtml(serviceRun.displayDestination), 
+                    displayDestination: serviceRun.displayDestination, 
                     nextStopName: unescapeHtml(nextLiveStopForThisRun.stopName), 
                     nextStopActualTime: nextLiveStopForThisRun.actualArrivalTime, 
                     _timeToNextStopSec: nextLiveStopForThisRun.timeToStationInSeconds,
@@ -1201,7 +1217,14 @@
 
             let allUniqueDestinations = [];
             if (currentRouteFilter) {
-                allUniqueDestinations = [...new Set(localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
+                const routeEntries = localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase());
+                const destMap = new Map();
+                routeEntries.forEach(e => {
+                    if (e.tripId && e.destinationName) {
+                        if (!destMap.has(e.tripId)) destMap.set(e.tripId, unescapeHtml(e.destinationName));
+                    }
+                });
+                allUniqueDestinations = [...new Set(Array.from(destMap.values()))].sort();
             }
 
             let dir1Destinations = [];
@@ -1263,7 +1286,6 @@
 
         const upperInput = rawInput.toUpperCase();
 
-        // Check if user typed HISTORY command
         if (upperInput.startsWith("HISTORY ")) {
             const ident = upperInput.replace("HISTORY", "").trim();
             if (ident) {
@@ -1272,6 +1294,13 @@
                 vehicleSearchInput.value = "";
                 return;
             }
+        }
+
+        if (vehicleDetailedLogMap.has(upperInput) || Array.from(vehicleDetailedLogMap.keys()).some(k => k.includes(upperInput))) {
+            displayVehicleHistoryModal(upperInput);
+            searchStatusMessage.textContent = `Showing history for ${escapeHtml(upperInput)}.`;
+            vehicleSearchInput.value = "";
+            return;
         }
 
         let t = false; 
@@ -1322,7 +1351,7 @@
             return;
         }
 
-        curtailedTrips.sort((a, b) => (a.lineName || "").localeCompare(b.lineName || "") || String(a.scheduledTime || "").localeCompare(String(b.scheduledTime || "")));
+        curtailedTrips.sort((a, b) => (a.lineName || "").localeCompare("") || String(a.scheduledTime || "").localeCompare(String(b.scheduledTime || "")));
         let curtailedRowsHTML = "";
         curtailedTrips.forEach(entry => {
             const rName = unescapeHtml(entry.lineName || "N/A");
@@ -1365,7 +1394,16 @@
             if (longestRunStops.length > 0) { const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); return sortedStops; }
             return [];
         };
-        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))].sort();
+
+        // Use full uncurtailed final destinations from schedule dataset to match both ends properly
+        const routeEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase());
+        const destMap = new Map();
+        routeEntries.forEach(entry => {
+            if (entry.tripId && entry.destinationName) {
+                if (!destMap.has(entry.tripId)) destMap.set(entry.tripId, unescapeHtml(entry.destinationName));
+            }
+        });
+        const destinationNames = [...new Set(Array.from(destMap.values()))].sort();
         
         if (destinationNames.length === 0) {
             if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML = "<p>No destinations found for this route.</p>";
@@ -1377,12 +1415,12 @@
         let dir1Name = destinationNames[0];
         let dir2Name = destinationNames.length > 1 ? destinationNames[destinationNames.length - 1] : null;
 
-        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir1Name}`);
+        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir1Name})`);
         displaySequenceInTable(outboundSequenceTableContainer, extractStopSequenceForDirection(currentRouteFilter, dir1Name));
         if(container1) container1.style.display = "block";
 
         if (dir2Name && dir2Name !== dir1Name) {
-            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir2Name}`);
+            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir2Name})`);
             displaySequenceInTable(inboundSequenceTableContainer, extractStopSequenceForDirection(currentRouteFilter, dir2Name));
             if(container2) container2.style.display = "block";
         } else {

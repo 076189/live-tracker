@@ -233,6 +233,19 @@
         </div>
     </div>
 
+    <!-- Vehicle History Modal -->
+    <div id="vehicle-history-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3 id="vehicle-history-title">Vehicle Sighting History</h3>
+            <div id="vehicle-history-list" class="modal-content">
+                <p>Loading history...</p>
+            </div>
+            <div class="modal-buttons">
+                <button type="button" onclick="hideVehicleHistoryModal()" class="cancel-button">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
       import { getAuth } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
@@ -320,6 +333,55 @@
         saveRouteHistoryToStorage();
     }
 
+    // Global vehicle-centric log: Map<identUpper, Array<{routeName, timestamp}>>
+    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v1';
+    let vehicleDetailedLogMap = new Map();
+
+    function loadDetailedLogFromStorage() {
+        try {
+            const stored = localStorage.getItem(VEHICLE_DETAILED_LOG_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                vehicleDetailedLogMap = new Map(Object.entries(parsed));
+            }
+        } catch (e) {
+            vehicleDetailedLogMap = new Map();
+        }
+    }
+
+    function saveDetailedLogToStorage() {
+        try {
+            const obj = Object.fromEntries(vehicleDetailedLogMap);
+            localStorage.setItem(VEHICLE_DETAILED_LOG_KEY, JSON.stringify(obj));
+        } catch (e) {}
+    }
+
+    function recordDetailedVehicleSighting(routeName, fleetNumber, registration) {
+        if (!routeName) return;
+        const idents = [];
+        if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
+        if (registration && registration !== "---") idents.push(registration.toUpperCase());
+        if (idents.length === 0) return;
+
+        const now = Date.now();
+        idents.forEach(ident => {
+            if (!vehicleDetailedLogMap.has(ident)) {
+                vehicleDetailedLogMap.set(ident, []);
+            }
+            const logs = vehicleDetailedLogMap.get(ident);
+            const routeUp = routeName.toUpperCase();
+            
+            // Avoid duplicate log entries within the exact same minute for the same route
+            const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
+            if (!lastLog || lastLog.routeName !== routeUp || (now - lastLog.timestamp) > 60000) {
+                logs.push({ routeName: routeUp, timestamp: now });
+                // Keep max last 50 sightings per vehicle to save storage
+                if (logs.length > 50) logs.shift();
+            }
+        });
+        saveDetailedLogToStorage();
+    }
+
     function isVehicleRareOnRoute(routeName, fleetNumber, registration) {
         if (!routeName) return false;
         const routeUpper = routeName.toUpperCase();
@@ -389,6 +451,7 @@
         curtailedBusesTableBody, outboundSequenceList, inboundSequenceList,
         vehicleSearchInput, watchBusInput, searchStatusMessage, watchedBusesDisplay,
         vehiclePredictionModal, vehiclePredictionTitle, vehiclePredictionList,
+        vehicleHistoryModal, vehicleHistoryTitle, vehicleHistoryList,
         routeSearchInput, routeSearchButton, clearRouteFilterButton, rarePageToggleButton,
         mainHeadingElement, scheduleFileInput, loadScheduleButton, fileUploadStatusMessageEl;
 
@@ -407,7 +470,6 @@
                         .replace(/'/g, "&#039;");
     }
 
-    // Fully decodes HTML entities back to raw text strings for safe usage
     function unescapeHtml(safe) {
         if (safe === null || typeof safe === 'undefined') return '';
         const txt = document.createElement('textarea');
@@ -610,10 +672,11 @@
     }
 
     function initializeTracker() {
-        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBody = document.getElementById('tracker-table-body'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); availableStopsSelect = document.getElementById('available-stops-select'); serviceAlertsContentElement = document.getElementById('service-alerts-content'); serviceAlertsContainerElement = document.getElementById('service-alerts-container'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceList = document.getElementById('outbound-sequence-list'); inboundSequenceList = document.getElementById('inbound-sequence-list'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehiclePredictionModal = document.getElementById('vehicle-prediction-modal'); vehiclePredictionTitle = document.getElementById('vehicle-prediction-title'); vehiclePredictionList = document.getElementById('vehicle-prediction-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); rarePageToggleButton = document.getElementById('rare-page-toggle-button'); mainHeadingElement = document.getElementById('main-heading'); filterServiceIdSelect = document.getElementById('filter-service-id'); filterRegSelect = document.getElementById('filter-reg'); filterDestinationSelect = document.getElementById('filter-destination'); filterStopSelect = document.getElementById('filter-stop'); filterArrivalSelect = document.getElementById('filter-arrival');
+        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBody = document.getElementById('tracker-table-body'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); availableStopsSelect = document.getElementById('available-stops-select'); serviceAlertsContentElement = document.getElementById('service-alerts-content'); serviceAlertsContainerElement = document.getElementById('service-alerts-container'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceList = document.getElementById('outbound-sequence-list'); inboundSequenceList = document.getElementById('inbound-sequence-list'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehiclePredictionModal = document.getElementById('vehicle-prediction-modal'); vehiclePredictionTitle = document.getElementById('vehicle-prediction-title'); vehiclePredictionList = document.getElementById('vehicle-prediction-list'); vehicleHistoryModal = document.getElementById('vehicle-history-modal'); vehicleHistoryTitle = document.getElementById('vehicle-history-title'); vehicleHistoryList = document.getElementById('vehicle-history-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); rarePageToggleButton = document.getElementById('rare-page-toggle-button'); mainHeadingElement = document.getElementById('main-heading'); filterServiceIdSelect = document.getElementById('filter-service-id'); filterRegSelect = document.getElementById('filter-reg'); filterDestinationSelect = document.getElementById('filter-destination'); filterStopSelect = document.getElementById('filter-stop'); filterArrivalSelect = document.getElementById('filter-arrival');
         scheduleFileInput = document.getElementById('schedule-file-input'); loadScheduleButton = document.getElementById('load-schedule-button'); fileUploadStatusMessageEl = document.getElementById('file-upload-status-message');
         
         loadRouteHistoryFromStorage();
+        loadDetailedLogFromStorage();
         loadVehicleCacheFromStorage(); setupUIListeners(); updateClock(); setInterval(updateClock, 1000); 
         fetchBankHolidays(); loadWatchedBuses(); 
         setupFirebaseDependentListeners(); 
@@ -1030,6 +1093,7 @@
                 }
                 
                 recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
+                recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
 
                 activeServicesMap.set(serviceInstanceKey, {
                     serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
@@ -1130,17 +1194,52 @@
         servicesToDisplay.forEach((service) => { 
             const row = trackerTableBody.insertRow(); 
             row.dataset.serviceInstanceKey = service.serviceId; 
-            row.style.cursor = 'pointer'; 
-            row.addEventListener('click', () => displayServicePredictionsModal(service.serviceId)); 
+
             let isWatched = false; 
             if (service.serviceId && watchedBuses.has(service.serviceId)) isWatched = true; 
             if (!isWatched && service.assignedRegistration && service.assignedRegistration !== "---" && watchedBuses.has(service.assignedRegistration.toUpperCase())) isWatched = true; 
             if (!isWatched && service.assignedFleetNumber && service.assignedFleetNumber !== "N/A" && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) isWatched = true; 
             if(isWatched) row.classList.add('watched-bus'); 
-            row.insertCell().textContent = unescapeHtml(service.assignedFleetNumber); 
-            row.insertCell().textContent = unescapeHtml(service.assignedRegistration); 
-            row.insertCell().textContent = unescapeHtml(service.displayDestination || '?'); 
-            row.insertCell().textContent = unescapeHtml(service.nextStopName || '?'); 
+
+            // Fleet Number Cell (Click to view history)
+            const fleetCell = row.insertCell();
+            fleetCell.textContent = unescapeHtml(service.assignedFleetNumber);
+            if (service.assignedFleetNumber && service.assignedFleetNumber !== "N/A") {
+                fleetCell.style.color = '#007bff';
+                fleetCell.style.textDecoration = 'underline';
+                fleetCell.style.cursor = 'pointer';
+                fleetCell.title = "Click to view vehicle history";
+                fleetCell.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    displayVehicleHistoryModal(service.assignedFleetNumber);
+                });
+            }
+
+            // Registration Cell (Click to view history)
+            const regCell = row.insertCell();
+            regCell.textContent = unescapeHtml(service.assignedRegistration);
+            if (service.assignedRegistration && service.assignedRegistration !== "---") {
+                regCell.style.color = '#007bff';
+                regCell.style.textDecoration = 'underline';
+                regCell.style.cursor = 'pointer';
+                regCell.title = "Click to view vehicle history";
+                regCell.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    displayVehicleHistoryModal(service.assignedRegistration);
+                });
+            }
+
+            // Destination, Stop, ETA cells (Click row to view predictions modal)
+            const destCell = row.insertCell();
+            destCell.textContent = unescapeHtml(service.displayDestination || '?');
+            destCell.style.cursor = 'pointer';
+            destCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
+
+            const stopCell = row.insertCell();
+            stopCell.textContent = unescapeHtml(service.nextStopName || '?');
+            stopCell.style.cursor = 'pointer';
+            stopCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
+
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
                 const time = service.nextStopActualTime; 
@@ -1152,9 +1251,49 @@
                 const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); 
                 displayTimeText = unescapeHtml(fallbackEtaText || '?'); 
             } 
-            row.insertCell().textContent = displayTimeText; 
+            const timeCell = row.insertCell();
+            timeCell.textContent = displayTimeText;
+            timeCell.style.cursor = 'pointer';
+            timeCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
         }); 
     }
+
+    function displayVehicleHistoryModal(identifier) {
+        if (!vehicleHistoryModal || !vehicleHistoryTitle || !vehicleHistoryList) return;
+        const cleanIdent = String(identifier || "").trim().toUpperCase();
+        vehicleHistoryTitle.textContent = unescapeHtml(`Sighting History for Vehicle: ${cleanIdent}`);
+
+        let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
+        // Fallback search if lookup misses due to case formatting
+        if (logs.length === 0) {
+            for (const [key, val] of vehicleDetailedLogMap.entries()) {
+                if (key.includes(cleanIdent) || cleanIdent.includes(key)) {
+                    logs = val;
+                    break;
+                }
+            }
+        }
+
+        if (logs.length === 0) {
+            vehicleHistoryList.innerHTML = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
+        } else {
+            let tableHTML = '<table><thead><tr><th>Route</th><th>Sighting Timestamp</th></tr></thead><tbody>';
+            // Sort newest first
+            const sortedLogs = [...logs].sort((a, b) => b.timestamp - a.timestamp);
+            sortedLogs.forEach(log => {
+                const dateObj = new Date(log.timestamp);
+                const timeString = isNaN(dateObj.getTime()) ? 'Unknown' : dateObj.toLocaleString();
+                tableHTML += `<tr><td><strong>Route ${escapeHtml(log.routeName)}</strong></td><td>${escapeHtml(timeString)}</td></tr>`;
+            });
+            tableHTML += '</tbody></table>';
+            vehicleHistoryList.innerHTML = tableHTML;
+        }
+        vehicleHistoryModal.style.display = 'flex';
+    }
+
+    window.hideVehicleHistoryModal = function() {
+        if (vehicleHistoryModal) vehicleHistoryModal.style.display = 'none';
+    };
 
     function populateTableFilters() { 
         const e = {fleetNumber:new Set, reg:new Set, destination:new Set, stop:new Set};

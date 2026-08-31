@@ -40,12 +40,9 @@
         tr:hover { background-color: #e9ecef; }
         tr.watched-bus td { background-color: #fff3cd !important; border-left: 3px solid #ffeeba !important; border-right: 3px solid #ffeeba !important; font-weight: bold; color: #856404; }
         td[colspan] { text-align: center; font-style: italic; color: #6c757d; padding: 15px 8px; white-space: normal; }
-        
-        td.clickable-ident { color: #007bff !important; text-decoration: underline; cursor: pointer; font-weight: bold; }
-        td.clickable-ident:hover { color: #0056b3 !important; }
 
         #top-search-container { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #dfe4ea; }
-        #top-search-container input[type="text"] { width: auto; max-width: 180px; padding: 8px; font-size: 1em; border: 1px solid #ced4da; border-radius: 4px; flex-grow: 1; }
+        #top-search-container input[type="text"] { width: auto; max-width: 220px; padding: 8px; font-size: 1em; border: 1px solid #ced4da; border-radius: 4px; flex-grow: 1; }
         #top-search-container button { padding: 8px 15px; font-size: 1em; cursor: pointer; color: white; border: none; border-radius: 4px; flex-shrink: 0; }
         #vehicle-search-button { background-color: #007bff; } #vehicle-search-button:hover { background-color: #0056b3; }
         #watch-bus-button { background-color: #ffc107; color: black !important; } #watch-bus-button:hover { background-color: #e0a800; }
@@ -83,8 +80,8 @@
     </div>
 
     <div id="top-search-container">
-        <input type="text" id="vehicle-search-input" placeholder="Enter Vehicle ID" aria-label="Vehicle Search Input" autocomplete="off">
-        <button id="vehicle-search-button" type="button">Find Vehicle</button>
+        <input type="text" id="vehicle-search-input" placeholder='Type "HISTORY [ID]" e.g. HISTORY DDE1' aria-label="Vehicle Search Input" autocomplete="off">
+        <button id="vehicle-search-button" type="button">Find / History</button>
         <input type="text" id="watch-bus-input" placeholder="Watch Vehicle ID" aria-label="Watch Bus Input" autocomplete="off">
         <button id="watch-bus-button" type="button">Watch</button>
 
@@ -471,16 +468,6 @@
         fetchBankHolidays(); 
         loadWatchedBuses(); 
         setupFirebaseDependentListeners(); 
-
-        document.addEventListener('click', function(event) {
-            const clickable = event.target.closest('.clickable-ident');
-            if (clickable) {
-                const identifier = clickable.dataset.ident;
-                if (identifier && identifier !== "N/A" && identifier !== "---") {
-                    displayVehicleHistoryModal(identifier);
-                }
-            }
-        });
 
         if(trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above.</td></tr>`; 
         if(nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Lazy Load (Cached)";
@@ -1029,7 +1016,6 @@
             }
         });
 
-        // Dedup by blockId (or vehicle assignment) so that if multiple service instances map to the same duty/block, only the nearest upcoming trip is listed.
         const blockNextActivityMap = new Map();
         servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
             const key = serviceWithNextStop.blockId || `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
@@ -1106,18 +1092,8 @@
                 displayTimeText = unescapeHtml(fallbackEtaText || '?'); 
             } 
 
-            const fleetCell = row.insertCell();
-            fleetCell.textContent = fleetVal;
-            fleetCell.className = 'clickable-ident';
-            fleetCell.title = "Click to view vehicle history";
-            fleetCell.dataset.ident = fleetVal;
-
-            const regCell = row.insertCell();
-            regCell.textContent = regVal;
-            regCell.className = 'clickable-ident';
-            regCell.title = "Click to view vehicle history";
-            regCell.dataset.ident = regVal;
-
+            row.insertCell().textContent = fleetVal;
+            row.insertCell().textContent = regVal;
             row.insertCell().textContent = destVal;
             row.insertCell().textContent = stopVal;
             row.insertCell().textContent = displayTimeText;
@@ -1161,18 +1137,8 @@
             const routeCell = row.insertCell();
             routeCell.innerHTML = `<strong>${routeVal}</strong>`;
 
-            const fleetCell = row.insertCell();
-            fleetCell.textContent = fleetVal;
-            fleetCell.className = 'clickable-ident';
-            fleetCell.title = "Click to view vehicle history";
-            fleetCell.dataset.ident = fleetVal;
-
-            const regCell = row.insertCell();
-            regCell.textContent = regVal;
-            regCell.className = 'clickable-ident';
-            regCell.title = "Click to view vehicle history";
-            regCell.dataset.ident = regVal;
-
+            row.insertCell().textContent = fleetVal;
+            row.insertCell().textContent = regVal;
             row.insertCell().textContent = destVal;
             row.insertCell().textContent = stopVal;
             row.insertCell().textContent = displayTimeText;
@@ -1291,11 +1257,24 @@
 
     function searchForVehicleInTable() { 
         if (!vehicleSearchInput || !searchStatusMessage) return; 
-        const e = vehicleSearchInput.value.trim().toUpperCase(); 
+        const rawInput = vehicleSearchInput.value.trim();
         searchStatusMessage.textContent = ""; 
-        if (!e) { searchStatusMessage.textContent = "Enter Vehicle ID/Reg to find."; return; } 
-        let t = false; 
+        if (!rawInput) { searchStatusMessage.textContent = "Enter Vehicle ID/Reg or 'HISTORY [ID]'."; return; } 
 
+        const upperInput = rawInput.toUpperCase();
+
+        // Check if user typed HISTORY command
+        if (upperInput.startsWith("HISTORY ")) {
+            const ident = upperInput.replace("HISTORY", "").trim();
+            if (ident) {
+                displayVehicleHistoryModal(ident);
+                searchStatusMessage.textContent = `Showing history for ${escapeHtml(ident)}.`;
+                vehicleSearchInput.value = "";
+                return;
+            }
+        }
+
+        let t = false; 
         const tablesToCheck = isRarePageActive 
             ? [trackerTableBodyRare] 
             : [trackerTableBodyA, trackerTableBodyB];
@@ -1308,7 +1287,7 @@
                 const cellIndexOffset = isRarePageActive ? 1 : 0;
                 const r = o.cells[0 + cellIndexOffset] ? o.cells[0 + cellIndexOffset].textContent.toUpperCase() : "";
                 const s = o.cells[1 + cellIndexOffset] ? o.cells[1 + cellIndexOffset].textContent.toUpperCase() : ""; 
-                if ("N/A" !== r && r.includes(e) || "---" !== s && s.includes(e)) {
+                if ("N/A" !== r && r.includes(upperInput) || "---" !== s && s.includes(upperInput)) {
                     o.style.backgroundColor = "rgba(255, 223, 186, 0.7)"; 
                     if (!t) o.scrollIntoView({ behavior: "smooth", block: "center" }); 
                     t = true; 
@@ -1316,7 +1295,7 @@
             }
         });
 
-        searchStatusMessage.textContent = t ? `Matches for "${escapeHtml(e)}".` : `No services for "${escapeHtml(e)}" in view.`; 
+        searchStatusMessage.textContent = t ? `Matches for "${escapeHtml(rawInput)}".` : `No services for "${escapeHtml(rawInput)}" in view.`; 
     }
     
     function populateCurtailmentsTable() {

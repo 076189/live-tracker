@@ -4,7 +4,7 @@
     <title>OMSI Live Tracker - Standalone</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="manifest" href="/live-tracker/manifest-tracker.json">
+    <link rel="manifest" href="/live-tracker/manifest-omsi.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="OMSI Tracker SA">
@@ -281,7 +281,6 @@
     let isUsingLiveRSGSchedule = false;
     let liveScheduleFlattenToken = 0;
 
-    // Fallback vehicle pools used until/unless a route has an allocation configured in Firebase (via OMSI Tools Extra).
     const defaultVehicleAllocationData = {
   "4": { "commonVehicles": [ { "fleetNumber": "SE115", "registration": "LF20XMX" }, { "fleetNumber": "SE120", "registration": "LF20XMY" }, { "fleetNumber": "SE125", "registration": "LF70YWC" } ], "rareVehicles": [ { "fleetNumber": "GOLD4", "registration": "AU79OMS" } ], "rareChance": 0.05 },
   "6": { "commonVehicles": [ { "fleetNumber":"AEL1","registration": "YX73AGU" }, { "fleetNumber":"AEL2","registration": "YX73AGV" }, { "fleetNumber":"AEL3","registration": "YX73AGW" }, { "fleetNumber":"AEL4","registration": "YX73AGX" }, { "fleetNumber":"AEL5","registration": "YX73AGY" }, { "fleetNumber":"AEL6","registration": "YX73AGZ" }, { "fleetNumber":"AEL7","registration": "YX73AHA" } ], "rareVehicles": [ { "fleetNumber": "RETRO6", "registration": "OLD006X" } ], "rareChance": 0.10 },
@@ -314,13 +313,9 @@
     let vehicleAllocationData = { ...defaultVehicleAllocationData };
     let hasReceivedInitialVehicleAllocations = false;
 
-    // Merges Firebase-configured allocations (from OMSI Tools Extra) over the hardcoded defaults,
-    // so routes without a saved Firebase allocation still fall back to something sensible.
     function applyLiveVehicleAllocations(snapshot) {
         const liveAllocations = snapshot.exists() ? snapshot.val() || {} : {};
         vehicleAllocationData = { ...defaultVehicleAllocationData, ...liveAllocations };
-        // Skip clearing on the initial snapshot (fires immediately on subscribe) so previously
-        // cached/persisted vehicle assignments survive a page reload instead of reshuffling every time.
         if (!hasReceivedInitialVehicleAllocations) {
             hasReceivedInitialVehicleAllocations = true;
             return;
@@ -330,8 +325,8 @@
         if (localScheduleData.length > 0) processAndDisplayAllData();
     }
 
-const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
-let serviceInstanceVehicleCache = new Map();
+    const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
+    let serviceInstanceVehicleCache = new Map();
 
     let clockTimeElement, clockDateElement, trackerTableBody, busCounterElement,
         updateTimeElement, nextUpdateTimerElement, availableStopsSelect,
@@ -346,7 +341,6 @@ let serviceInstanceVehicleCache = new Map();
 
     let filterServiceIdSelect, filterRegSelect, filterDestinationSelect, filterStopSelect, filterArrivalSelect;
 
-    function debugLog(message, ...optionalParams) { }
     function escapeHtml(unsafe){if(unsafe===null||typeof unsafe==='undefined')return'N/A';return String(unsafe).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");}
     function naturalSortCompareFleet(aStr, bStr) { const sA = String(aStr || "").trim(); const sB = String(bStr || "").trim(); const regex = /^([a-zA-Z]*)(\d+)?(.*)$/; const partsA = sA.match(regex); const partsB = sB.match(regex); if (partsA && partsB) { const prefixA = (partsA[1] || "").toUpperCase(); const prefixB = (partsB[1] || "").toUpperCase(); if (prefixA < prefixB) return -1; if (prefixA > prefixB) return 1; const numA = partsA[2] ? parseInt(partsA[2], 10) : -1; const numB = partsB[2] ? parseInt(partsB[2], 10) : -1; if (numA !== -1 && numB !== -1) { if (numA < numB) return -1; if (numA > numB) return 1; } else if (numA !== -1) { return -1; } else if (numB !== -1) { return 1; } const suffixA = (partsA[3] || "").toUpperCase(); const suffixB = (partsB[3] || "").toUpperCase(); if (suffixA < suffixB) return -1; if (suffixA > suffixB) return 1; return 0; } return sA.localeCompare(sB, undefined, {numeric: true, sensitivity: 'base'}); }
     
@@ -361,160 +355,200 @@ let serviceInstanceVehicleCache = new Map();
     function saveVehicleCacheToStorage() { try { const objectToStore = Object.fromEntries(serviceInstanceVehicleCache); localStorage.setItem(VEHICLE_CACHE_STORAGE_KEY, JSON.stringify(objectToStore)); } catch (error) { } }
 
     function generateVehicleBlocks(scheduleData) {
-    tripBlockMapping.clear();
-    const tripDetails = {};
-    scheduleData.forEach(entry => {
-        if (!entry.tripId || entry.tripId.startsWith("NO_TRIPID")) return;
-        const tripKey = `${entry.lineName}_${entry.OperatingProfile}_${entry.tripId}`;
-        let timeStr = String(entry.scheduledTime).trim();
-        let mins = 0;
-        if (timeStr.includes(':')) {
-            const p = timeStr.split(':');
-            mins = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
-        } else if (!isNaN(parseFloat(timeStr))) {
-            mins = Math.round(parseFloat(timeStr) * 1440);
-        }
-        if (!tripDetails[tripKey]) {
-            tripDetails[tripKey] = {
-                tripId: entry.tripId, lineName: entry.lineName, profile: entry.OperatingProfile,
-                startTime: mins, endTime: mins, tripKey: tripKey
-            };
-        } else {
-            if (mins < tripDetails[tripKey].startTime) tripDetails[tripKey].startTime = mins;
-            if (mins > tripDetails[tripKey].endTime) tripDetails[tripKey].endTime = mins;
-        }
-    });
-    const routesProfiles = {};
-    Object.values(tripDetails).forEach(trip => {
-        const rpKey = `${trip.lineName}_${trip.profile}`;
-        if (!routesProfiles[rpKey]) routesProfiles[rpKey] = [];
-        routesProfiles[rpKey].push(trip);
-    });
-    Object.keys(routesProfiles).forEach(rpKey => {
-        const trips = routesProfiles[rpKey].sort((a, b) => a.startTime - b.startTime);
-        const blocks = [];
-        trips.forEach(trip => {
-            let assignedBlockIndex = -1;
-            for (let i = 0; i < blocks.length; i++) {
-                if (blocks[i] <= trip.startTime) {
-                    assignedBlockIndex = i;
-                    break;
-                }
+        tripBlockMapping.clear();
+        const tripDetails = {};
+        scheduleData.forEach(entry => {
+            if (!entry.tripId || entry.tripId.startsWith("NO_TRIPID")) return;
+            const tripKey = `${entry.lineName}_${entry.OperatingProfile}_${entry.tripId}`;
+            let timeStr = String(entry.scheduledTime).trim();
+            let mins = 0;
+            if (timeStr.includes(':')) {
+                const p = timeStr.split(':');
+                mins = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+            } else if (!isNaN(parseFloat(timeStr))) {
+                mins = Math.round(parseFloat(timeStr) * 1440);
             }
-            if (assignedBlockIndex === -1) {
-                assignedBlockIndex = blocks.length;
-                blocks.push(trip.endTime);
+            if (!tripDetails[tripKey]) {
+                tripDetails[tripKey] = {
+                    tripId: entry.tripId, lineName: entry.lineName, profile: entry.OperatingProfile,
+                    startTime: mins, endTime: mins, tripKey: tripKey
+                };
             } else {
-                blocks[assignedBlockIndex] = trip.endTime;
+                if (mins < tripDetails[tripKey].startTime) tripDetails[tripKey].startTime = mins;
+                if (mins > tripDetails[tripKey].endTime) tripDetails[tripKey].endTime = mins;
             }
-            const blockId = `${rpKey}_BLOCK_${assignedBlockIndex}`;
-            tripBlockMapping.set(trip.tripKey, blockId);
         });
-    });
-}
+        const routesProfiles = {};
+        Object.values(tripDetails).forEach(trip => {
+            const rpKey = `${trip.lineName}_${trip.profile}`;
+            if (!routesProfiles[rpKey]) routesProfiles[rpKey] = [];
+            routesProfiles[rpKey].push(trip);
+        });
+        Object.keys(routesProfiles).forEach(rpKey => {
+            const trips = routesProfiles[rpKey].sort((a, b) => a.startTime - b.startTime);
+            const blocks = [];
+            trips.forEach(trip => {
+                let assignedBlockIndex = -1;
+                for (let i = 0; i < blocks.length; i++) {
+                    if (blocks[i] <= trip.startTime) {
+                        assignedBlockIndex = i;
+                        break;
+                    }
+                }
+                if (assignedBlockIndex === -1) {
+                    assignedBlockIndex = blocks.length;
+                    blocks.push(trip.endTime);
+                } else {
+                    blocks[assignedBlockIndex] = trip.endTime;
+                }
+                const blockId = `${rpKey}_BLOCK_${assignedBlockIndex}`;
+                tripBlockMapping.set(trip.tripKey, blockId);
+            });
+        });
+    }
 
     function handleScheduleFileUpload() {
-    if (!scheduleFileInput || !scheduleFileInput.files || scheduleFileInput.files.length === 0) {
-        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = 'Please select a schedule file first.';
-        return;
+        if (!scheduleFileInput || !scheduleFileInput.files || scheduleFileInput.files.length === 0) {
+            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = 'Please select a schedule file first.';
+            return;
+        }
+        const file = scheduleFileInput.files[0];
+        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loading ${file.name}...`;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const fileContent = event.target.result;
+                parseScheduleFileContentAsync(fileContent, file.name, (parsed) => {
+                    if (parsed && parsed.allScheduledBusData && parsed.uniqueBusStops) {
+                        localScheduleData = parsed.allScheduledBusData;
+                        localUniqueStops = parsed.uniqueBusStops;
+                        try {
+                            localStorage.setItem(LOCAL_SCHEDULE_STORAGE_KEY, JSON.stringify({
+                                data: localScheduleData, stops: localUniqueStops, fileName: file.name, loadTime: new Date().toISOString()
+                            }));
+                            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Successfully loaded ${localScheduleData.length} entries from ${file.name}.`;
+                        } catch (storageError) {
+                            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded ${localScheduleData.length} entries (localStorage full/unavailable).`;
+                        }
+                        generateVehicleBlocks(localScheduleData);
+                        processAndDisplayAllData(); 
+                        populateStopsFilter(); 
+                        generateAndDisplayRouteSequences();
+                    }
+                });
+            } catch (error) {
+                if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Error: ${error.message}`;
+                localScheduleData = []; 
+                localUniqueStops = [];
+            }
+        };
+        reader.onerror = function() { 
+            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = 'Could not read the file.'; 
+        };
+        reader.readAsText(file);
+        scheduleFileInput.value = ""; 
     }
-    const file = scheduleFileInput.files[0];
-    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loading ${file.name}...`;
-    const reader = new FileReader();
-    reader.onload = function(event) {
+
+    function loadScheduleFromLocalStorage() {
         try {
-            const fileContent = event.target.result;
-            const parsed = parseScheduleFileContent(fileContent, file.name); 
-            if (parsed && parsed.allScheduledBusData && parsed.uniqueBusStops) {
-                localScheduleData = parsed.allScheduledBusData;
-                localUniqueStops = parsed.uniqueBusStops;
-                try {
-                    localStorage.setItem(LOCAL_SCHEDULE_STORAGE_KEY, JSON.stringify({
-                        data: localScheduleData, stops: localUniqueStops, fileName: file.name, loadTime: new Date().toISOString()
-                    }));
-                    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Successfully loaded ${localScheduleData.length} entries from ${file.name}.`;
-                } catch (storageError) {
-                    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded ${localScheduleData.length} entries (localStorage full/unavailable).`;
+            const storedSchedule = localStorage.getItem(LOCAL_SCHEDULE_STORAGE_KEY);
+            if (storedSchedule) {
+                const parsedStorage = JSON.parse(storedStorage);
+                if (parsedStorage.data && parsedStorage.stops) {
+                    localScheduleData = parsedStorage.data; localUniqueStops = parsedStorage.stops;
+                    generateVehicleBlocks(localScheduleData);
+                    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Using schedule from last session: ${parsedStorage.fileName || 'Unknown'}. Upload new file to update.`;
+                    return true;
                 }
-                generateVehicleBlocks(localScheduleData);
-                processAndDisplayAllData(); 
-                populateStopsFilter(); 
-                generateAndDisplayRouteSequences();
             }
-        } catch (error) {
-            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Error: ${error.message}`;
-            localScheduleData = []; 
-            localUniqueStops = [];
-        }
-    };
-    reader.onerror = function() { 
-        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = 'Could not read the file.'; 
-    };
-    reader.readAsText(file);
-    scheduleFileInput.value = ""; 
-}
+        } catch (e) { localStorage.removeItem(LOCAL_SCHEDULE_STORAGE_KEY); }
+        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = "No schedule loaded. Please upload a file.";
+        return false;
+    }
 
-function loadScheduleFromLocalStorage() {
-    try {
-        const storedSchedule = localStorage.getItem(LOCAL_SCHEDULE_STORAGE_KEY);
-        if (storedSchedule) {
-            const parsedStorage = JSON.parse(storedSchedule);
-            if (parsedStorage.data && parsedStorage.stops) {
-                localScheduleData = parsedStorage.data; localUniqueStops = parsedStorage.stops;
-                generateVehicleBlocks(localScheduleData);
-                if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Using schedule from last session: ${parsedStorage.fileName || 'Unknown'}. Upload new file to update.`;
-                return true;
-            }
-        }
-    } catch (e) { localStorage.removeItem(LOCAL_SCHEDULE_STORAGE_KEY); }
-    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = "No schedule loaded. Please upload a file.";
-    return false;
-}
-
-    function parseScheduleFileContent(fileContent, fileName) {
-        const scheduleEntries = []; const stopMap = new Map();
+    // Chunked non-blocking schedule parser to prevent iPhone memory spikes and crashes
+    function parseScheduleFileContentAsync(fileContent, fileName, callback) {
         try {
             let rawEntries;
             if (fileName.endsWith('.json')) {
-                rawEntries = JSON.parse(fileContent); if (!Array.isArray(rawEntries)) throw new Error("JSON data must be an array.");
+                rawEntries = JSON.parse(fileContent); 
+                if (!Array.isArray(rawEntries)) throw new Error("JSON data must be an array.");
             } else if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
-                const lines = fileContent.split(/\r?\n/); if (lines.length < 1) throw new Error("CSV file is empty or not formatted correctly.");
+                const lines = fileContent.split(/\r?\n/); 
+                if (lines.length < 1) throw new Error("CSV file is empty or not formatted correctly.");
                 const headerLine = lines[0].trim(); const headers = headerLine.split(',').map(h => h.trim());
                 const requiredHeaders = ['tripId', 'StopID', 'StopName', 'LineName', 'DestinationName', 'ScheduledTime', 'OperatingProfile'];
                 const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
                 if (missingHeaders.length > 0) { throw new Error(`Missing required CSV headers: ${missingHeaders.join(', ')}`); }
                 rawEntries = [];
                 for (let i = 1; i < lines.length; i++) {
-                    if (lines[i].trim() === '') continue; const values = lines[i].split(','); const entry = {};
+                    if (lines[i].trim() === '') continue; 
+                    const values = lines[i].split(','); const entry = {};
                     headers.forEach((header, index) => { entry[header] = values[index] ? values[index].trim() : ''; });
                     rawEntries.push(entry);
                 }
             } else { throw new Error("Unsupported file type. Please use .csv or .json"); }
+
             if (!rawEntries || rawEntries.length === 0) { throw new Error("No entries found in the file after parsing."); }
-            rawEntries.forEach((item, index) => {
-                let scheduledTime = String(item.ScheduledTime || item.scheduledTime || "").trim();
-                if (scheduledTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { const parts = scheduledTime.split(':'); scheduledTime = `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}`; }
-                else if (scheduledTime.length === 4 && !scheduledTime.includes(':')) { scheduledTime = `${scheduledTime.substring(0,2)}:${scheduledTime.substring(2,4)}`; }
-                else if (scheduledTime.length === 3 && !scheduledTime.includes(':')) { scheduledTime = `0${scheduledTime.substring(0,1)}:${scheduledTime.substring(1,3)}`; }
-                const entry = {
-                    tripId: String(item.tripId || item.TripID || `NO_TRIPID_${index}`).trim(),
-                    internalId: item.internalId || `${String(item.StopID||item.stopID||'s').trim().toUpperCase()}_${String(item.LineName||item.lineName||'l').trim().toUpperCase()}_${scheduledTime.replace(':','')}_${index}_localupload`,
-                    stopID: String(item.StopID || item.stopID || "").trim().toUpperCase(), stopName: String(item.StopName || item.stopName || "").trim(),
-                    direction: String(item.Direction || item.direction || "").trim(), lineName: String(item.LineName || item.lineName || "").trim().toUpperCase(),
-                    destinationName: String(item.DestinationName || item.destinationName || "").trim(), scheduledTime: scheduledTime,
-                    OperatingProfile: String(item.OperatingProfile || item.operatingProfile || "").trim(), DayOffset: String(item.DayOffset || item.dayOffset || "0").trim(),
-                    fleetNumber: item.fleetNumber || null, vehicleReg: item.vehicleReg || null
-                };
-                if (!entry.stopID) return;
-                scheduleEntries.push(entry);
-                if (entry.stopID && !stopMap.has(entry.stopID)) { stopMap.set(entry.stopID, { stopID: entry.stopID, stopName: entry.stopName, direction: entry.direction }); }
-            });
-            if (scheduleEntries.length === 0) { throw new Error("No valid schedule entries processed from file."); }
-            const uniqueBusStops = Array.from(stopMap.values()).sort((a,b) => (a.stopName||"").localeCompare(b.stopName||""));
-            return { allScheduledBusData: scheduleEntries, uniqueBusStops: uniqueBusStops };
+
+            const scheduleEntries = []; 
+            const stopMap = new Map();
+            let index = 0;
+            const total = rawEntries.length;
+            const chunkSize = 1000; // Process in small batches so Safari's GC can keep up
+
+            function processChunk() {
+                const end = Math.min(index + chunkSize, total);
+                for (let i = index; i < end; i++) {
+                    const item = rawEntries[i];
+                    let scheduledTime = String(item.ScheduledTime || item.scheduledTime || "").trim();
+                    if (scheduledTime.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { 
+                        const parts = scheduledTime.split(':'); 
+                        scheduledTime = `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}`; 
+                    } else if (scheduledTime.length === 4 && !scheduledTime.includes(':')) { 
+                        scheduledTime = `${scheduledTime.substring(0,2)}:${scheduledTime.substring(2,4)}`; 
+                    } else if (scheduledTime.length === 3 && !scheduledTime.includes(':')) { 
+                        scheduledTime = `0${scheduledTime.substring(0,1)}:${scheduledTime.substring(1,3)}`; 
+                    }
+                    const entry = {
+                        tripId: String(item.tripId || item.TripID || `NO_TRIPID_${i}`).trim(),
+                        internalId: item.internalId || `${String(item.StopID||item.stopID||'s').trim().toUpperCase()}_${String(item.LineName||item.lineName||'l').trim().toUpperCase()}_${scheduledTime.replace(':','')}_${i}_localupload`,
+                        stopID: String(item.StopID || item.stopID || "").trim().toUpperCase(), 
+                        stopName: String(item.StopName || item.stopName || "").trim(),
+                        direction: String(item.Direction || item.direction || "").trim(), 
+                        lineName: String(item.LineName || item.lineName || "").trim().toUpperCase(),
+                        destinationName: String(item.DestinationName || item.destinationName || "").trim(), 
+                        scheduledTime: scheduledTime,
+                        OperatingProfile: String(item.OperatingProfile || item.operatingProfile || "").trim(), 
+                        DayOffset: String(item.DayOffset || item.dayOffset || "0").trim(),
+                        fleetNumber: item.fleetNumber || null, 
+                        vehicleReg: item.vehicleReg || null
+                    };
+                    if (!entry.stopID) continue;
+                    scheduleEntries.push(entry);
+                    if (entry.stopID && !stopMap.has(entry.stopID)) { 
+                        stopMap.set(entry.stopID, { stopID: entry.stopID, stopName: entry.stopName, direction: entry.direction }); 
+                    }
+                }
+
+                index = end;
+                if (index < total) {
+                    if (fileUploadStatusMessageEl) {
+                        fileUploadStatusMessageEl.textContent = `Processing schedule... (${Math.round((index/total)*100)}%)`;
+                    }
+                    setTimeout(processChunk, 0); // Yield thread back to iOS Safari
+                } else {
+                    if (scheduleEntries.length === 0) { throw new Error("No valid schedule entries processed from file."); }
+                    const uniqueBusStops = Array.from(stopMap.values()).sort((a,b) => (a.stopName||"").localeCompare(b.stopName||""));
+                    callback({ allScheduledBusData: scheduleEntries, uniqueBusStops: uniqueBusStops });
+                }
+            }
+
+            processChunk();
+
         } catch (error) {
-            if(fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `File parsing error: ${error.message}`;
-            return null;
+            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `File parsing error: ${error.message}`;
+            callback(null);
         }
     }
 
@@ -559,143 +593,140 @@ function loadScheduleFromLocalStorage() {
     }
 
     function setupFirebaseDependentListeners() {
-    if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
-        globalCustomRouteColours = {}; stopSpecificRouteColours = {}; closedStopIDsGlobal = [];
-        displayServiceAlert('offline', "Firebase features (allocations, colors, alerts) are offline."); populateCurtailmentsTable(); return;
-    }
-    const { database, dbOnValue, dbRef } = window.firebaseOMSI_SA;
-    const globalColoursRef = dbRef(database, '/settings/customRouteColours'); 
-    dbOnValue(globalColoursRef, (s) => { globalCustomRouteColours = s.exists() ? s.val() : {}; if (localScheduleData.length > 0 && currentRouteFilter) processAndDisplayAllData(); });
-    const stopSpecificColoursRef = dbRef(database, '/settings/stopSpecificRouteColours'); 
-    dbOnValue(stopSpecificColoursRef, (s) => { stopSpecificRouteColours = s.exists() ? s.val() : {}; if (localScheduleData.length > 0 && currentRouteFilter) processAndDisplayAllData(); });
-    const appStateRef = dbRef(database, '/appState'); 
-    dbOnValue(appStateRef, (s) => { if(s.exists()){ const a=s.val(); const fbClosedStops = a.closedStopIDs || {}; let newClosed = []; for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID); } if(JSON.stringify(closedStopIDsGlobal.sort())!==JSON.stringify(newClosed.sort())){ closedStopIDsGlobal=newClosed; if (localScheduleData.length > 0) processAndDisplayAllData(); } displayServiceAlert(a.scheduleStatus||'idle',a.systemMessage); } else { displayServiceAlert('idle',"Service status source offline."); } });
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
+            globalCustomRouteColours = {}; stopSpecificRouteColours = {}; closedStopIDsGlobal = [];
+            displayServiceAlert('offline', "Firebase features (allocations, colors, alerts) are offline."); populateCurtailmentsTable(); return;
+        }
+        const { database, dbOnValue, dbRef } = window.firebaseOMSI_SA;
+        const globalColoursRef = dbRef(database, '/settings/customRouteColours'); 
+        dbOnValue(globalColoursRef, (s) => { globalCustomRouteColours = s.exists() ? s.val() : {}; if (localScheduleData.length > 0 && currentRouteFilter) processAndDisplayAllData(); });
+        const stopSpecificColoursRef = dbRef(database, '/settings/stopSpecificRouteColours'); 
+        dbOnValue(stopSpecificColoursRef, (s) => { stopSpecificRouteColours = s.exists() ? s.val() : {}; if (localScheduleData.length > 0 && currentRouteFilter) processAndDisplayAllData(); });
+        const appStateRef = dbRef(database, '/appState'); 
+        dbOnValue(appStateRef, (s) => { if(s.exists()){ const a=s.val(); const fbClosedStops = a.closedStopIDs || {}; let newClosed = []; for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID); } if(JSON.stringify(closedStopIDsGlobal.sort())!==JSON.stringify(newClosed.sort())){ closedStopIDsGlobal=newClosed; if (localScheduleData.length > 0) processAndDisplayAllData(); } displayServiceAlert(a.scheduleStatus||'idle',a.systemMessage); } else { displayServiceAlert('idle',"Service status source offline."); } });
 
-    const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-    dbOnValue(schedulesByRouteRef, (snapshot) => { applyLiveRSGSchedule(snapshot); });
-    const liveUniqueStopsRef = dbRef(database, FB_PATH_LIVE_UNIQUE_STOPS);
-    dbOnValue(liveUniqueStopsRef, (snapshot) => {
-        if (!isUsingLiveRSGSchedule) return;
-        localUniqueStops = snapshot.exists() ? snapshot.val() : [];
-        populateStopsFilter();
-    });
+        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+        dbOnValue(schedulesByRouteRef, (snapshot) => { applyLiveRSGSchedule(snapshot); });
+        const liveUniqueStopsRef = dbRef(database, FB_PATH_LIVE_UNIQUE_STOPS);
+        dbOnValue(liveUniqueStopsRef, (snapshot) => {
+            if (!isUsingLiveRSGSchedule) return;
+            localUniqueStops = snapshot.exists() ? snapshot.val() : [];
+            populateStopsFilter();
+        });
 
-    const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
-    dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
-}
-
-// Flattens the RSG-managed live schedule (schedulesByRoute) into the flat entry list the tracker expects,
-// so every route configured in OMSI Tools Extra's RSG shows up here automatically.
-function applyLiveRSGSchedule(snapshot) {
-    const myToken = ++liveScheduleFlattenToken;
-    const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
-    const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
-
-    if (routeKeys.length === 0) {
-        if (!isUsingLiveRSGSchedule) return; // Nothing live yet; keep whatever local/uploaded data is shown.
+        const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
+        dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
     }
 
-    const flatLiveSchedule = [];
-    routeKeys.forEach(routeKey => {
-        const routeData = schedulesByRoute[routeKey];
-        if (!routeData || typeof routeData !== 'object') return;
-        for (const profileKey in routeData) {
-            if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
-            const profileData = routeData[profileKey];
-            if (!profileData || typeof profileData !== 'object') continue;
-            for (const destKey in profileData) {
-                if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
-                const destData = profileData[destKey];
-                if (destData && Array.isArray(destData.entries)) {
-                    destData.entries.forEach(entry => { if (entry) flatLiveSchedule.push(entry); });
+    function applyLiveRSGSchedule(snapshot) {
+        const myToken = ++liveScheduleFlattenToken;
+        const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
+        const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
+
+        if (routeKeys.length === 0) {
+            if (!isUsingLiveRSGSchedule) return; 
+        }
+
+        const flatLiveSchedule = [];
+        routeKeys.forEach(routeKey => {
+            const routeData = schedulesByRoute[routeKey];
+            if (!routeData || typeof routeData !== 'object') return;
+            for (const profileKey in routeData) {
+                if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
+                const profileData = routeData[profileKey];
+                if (!profileData || typeof profileData !== 'object') continue;
+                for (const destKey in profileData) {
+                    if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
+                    const destData = profileData[destKey];
+                    if (destData && Array.isArray(destData.entries)) {
+                        destData.entries.forEach(entry => { if (entry) flatLiveSchedule.push(entry); });
+                    }
                 }
             }
-        }
-    });
+        });
 
-    if (myToken !== liveScheduleFlattenToken) return; // Superseded by a newer Firebase update
+        if (myToken !== liveScheduleFlattenToken) return; 
 
-    isUsingLiveRSGSchedule = true;
-    localScheduleData = flatLiveSchedule;
-    generateVehicleBlocks(localScheduleData);
-    processAndDisplayAllData();
-    populateStopsFilter();
-    generateAndDisplayRouteSequences();
-    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Live schedule connected (${flatLiveSchedule.length} entries across ${routeKeys.length} routes) via RSG in OMSI Tools Extra.`;
-    if (nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Live (RSG)";
-}
-
+        isUsingLiveRSGSchedule = true;
+        localScheduleData = flatLiveSchedule;
+        generateVehicleBlocks(localScheduleData);
+        processAndDisplayAllData();
+        populateStopsFilter();
+        generateAndDisplayRouteSequences();
+        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Live schedule connected (${flatLiveSchedule.length} entries across ${routeKeys.length} routes) via RSG in OMSI Tools Extra.`;
+        if (nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Live (RSG)";
+    }
 
     function calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing) {
-    if (!busEntry || !busEntry.OperatingProfile || typeof busEntry.OperatingProfile !== 'string' || busEntry.OperatingProfile.trim() === "") return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
-    let timeStrForParsing = String(busEntry.scheduledTime).trim();
-    const numTimeForParsing = parseFloat(timeStrForParsing);
-    if (!isNaN(numTimeForParsing) && numTimeForParsing >= 0 && numTimeForParsing < 1 && !timeStrForParsing.includes(':')) {
-        const totalMins = Math.round(numTimeForParsing * 1440);
-        timeStrForParsing = `${String(Math.floor(totalMins / 60)).padStart(2, '0')}:${String(totalMins % 60).padStart(2, '0')}`;
-    }
-    const tempParts = timeStrForParsing.match(/^(\d{1,2}):(\d{2})$/);
-    let hrs = -1, mins = -1;
-    if (tempParts) {
-        const parsedHrs = parseInt(tempParts[1], 10);
-        const parsedMins = parseInt(tempParts[2], 10);
-        if (!isNaN(parsedHrs) && parsedHrs >= 0 && !isNaN(parsedMins) && parsedMins >= 0 && parsedMins <= 59) {
-            hrs = parsedHrs;
-            mins = parsedMins;
+        if (!busEntry || !busEntry.OperatingProfile || typeof busEntry.OperatingProfile !== 'string' || busEntry.OperatingProfile.trim() === "") return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
+        let timeStrForParsing = String(busEntry.scheduledTime).trim();
+        const numTimeForParsing = parseFloat(timeStrForParsing);
+        if (!isNaN(numTimeForParsing) && numTimeForParsing >= 0 && numTimeForParsing < 1 && !timeStrForParsing.includes(':')) {
+            const totalMins = Math.round(numTimeForParsing * 1440);
+            timeStrForParsing = `${String(Math.floor(totalMins / 60)).padStart(2, '0')}:${String(totalMins % 60).padStart(2, '0')}`;
         }
-    }
-    if (hrs === -1 || mins === -1) return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
-    const busOpCodesLower = busEntry.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
-    let dayOffsetFromFile = parseInt(busEntry.DayOffset || "0", 10) || 0;
-    if (hrs >= 24) {
-        dayOffsetFromFile += Math.floor(hrs / 24);
-        hrs = hrs % 24;
-    }
-    let determinedOperationalDayDate = null;
-    const todayCalDateForCheck = new Date(nowForProcessing);
-    todayCalDateForCheck.setHours(0, 0, 0, 0);
-    const todayCodes = getCodesForCalendarDay(new Date(nowForProcessing)).map(c => c.toLowerCase());
-    if (dayOffsetFromFile > 0 && hrs >= 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() < earlyMorningThresholdHours) {
-        const yesterdayCalDateCheck = new Date(nowForProcessing);
-        yesterdayCalDateCheck.setDate(nowForProcessing.getDate() - 1);
-        yesterdayCalDateCheck.setHours(0, 0, 0, 0);
-        const yesterdayCodes = getCodesForCalendarDay(yesterdayCalDateCheck).map(c => c.toLowerCase());
-        if (busOpCodesLower.some(boc => yesterdayCodes.includes(boc))) determinedOperationalDayDate = yesterdayCalDateCheck;
-        else if (todayCodes.some(boc => busOpCodesLower.includes(boc))) determinedOperationalDayDate = new Date(todayCalDateForCheck);
-    }
-    if (!determinedOperationalDayDate && todayCodes.some(boc => busOpCodesLower.includes(boc))) determinedOperationalDayDate = new Date(todayCalDateForCheck);
-    const lateEveningThresholdHours = 23;
-    if (!determinedOperationalDayDate && dayOffsetFromFile === 0 && nowForProcessing.getHours() < earlyMorningThresholdHours) {
-        const yesterdayCalDateCheck = new Date(nowForProcessing);
-        yesterdayCalDateCheck.setDate(nowForProcessing.getDate() - 1);
-        yesterdayCalDateCheck.setHours(0, 0, 0, 0);
-        const yesterdayCodes = getCodesForCalendarDay(yesterdayCalDateCheck).map(c => c.toLowerCase());
-        if (busOpCodesLower.some(boc => yesterdayCodes.includes(boc))) determinedOperationalDayDate = yesterdayCalDateCheck;
-    }
-    if (!determinedOperationalDayDate && nowForProcessing.getHours() >= lateEveningThresholdHours) {
-        const tomorrowCalDateCheck = new Date(nowForProcessing);
-        tomorrowCalDateCheck.setDate(nowForProcessing.getDate() + 1);
-        tomorrowCalDateCheck.setHours(0, 0, 0, 0);
-        const tomorrowCodes = getCodesForCalendarDay(tomorrowCalDateCheck).map(c => c.toLowerCase());
-        if (busOpCodesLower.some(boc => tomorrowCodes.includes(boc))) determinedOperationalDayDate = tomorrowCalDateCheck;
-    }
-    const isDaily = busOpCodesLower.length === 0 || busOpCodesLower.includes("") || busOpCodesLower.includes("daily") || busOpCodesLower.includes("everyday");
-    if (!determinedOperationalDayDate) {
-        if (isDaily) {
-            determinedOperationalDayDate = new Date(todayCalDateForCheck);
-        } else {
-            return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
+        const tempParts = timeStrForParsing.match(/^(\d{1,2}):(\d{2})$/);
+        let hrs = -1, mins = -1;
+        if (tempParts) {
+            const parsedHrs = parseInt(tempParts[1], 10);
+            const parsedMins = parseInt(tempParts[2], 10);
+            if (!isNaN(parsedHrs) && parsedHrs >= 0 && !isNaN(parsedMins) && parsedMins >= 0 && parsedMins <= 59) {
+                hrs = parsedHrs;
+                mins = parsedMins;
+            }
         }
+        if (hrs === -1 || mins === -1) return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
+        const busOpCodesLower = busEntry.OperatingProfile.split(',').map(c => c.trim().toLowerCase());
+        let dayOffsetFromFile = parseInt(busEntry.DayOffset || "0", 10) || 0;
+        if (hrs >= 24) {
+            dayOffsetFromFile += Math.floor(hrs / 24);
+            hrs = hrs % 24;
+        }
+        let determinedOperationalDayDate = null;
+        const todayCalDateForCheck = new Date(nowForProcessing);
+        todayCalDateForCheck.setHours(0, 0, 0, 0);
+        const todayCodes = getCodesForCalendarDay(new Date(nowForProcessing)).map(c => c.toLowerCase());
+        if (dayOffsetFromFile > 0 && hrs >= 0 && hrs < earlyMorningThresholdHours && nowForProcessing.getHours() < earlyMorningThresholdHours) {
+            const yesterdayCalDateCheck = new Date(nowForProcessing);
+            yesterdayCalDateCheck.setDate(nowForProcessing.getDate() - 1);
+            yesterdayCalDateCheck.setHours(0, 0, 0, 0);
+            const yesterdayCodes = getCodesForCalendarDay(yesterdayCalDateCheck).map(c => c.toLowerCase());
+            if (busOpCodesLower.some(boc => yesterdayCodes.includes(boc))) determinedOperationalDayDate = yesterdayCalDateCheck;
+            else if (todayCodes.some(boc => busOpCodesLower.includes(boc))) determinedOperationalDayDate = new Date(todayCalDateForCheck);
+        }
+        if (!determinedOperationalDayDate && todayCodes.some(boc => busOpCodesLower.includes(boc))) determinedOperationalDayDate = new Date(todayCalDateForCheck);
+        const lateEveningThresholdHours = 23;
+        if (!determinedOperationalDayDate && dayOffsetFromFile === 0 && nowForProcessing.getHours() < earlyMorningThresholdHours) {
+            const yesterdayCalDateCheck = new Date(nowForProcessing);
+            yesterdayCalDateCheck.setDate(nowForProcessing.getDate() - 1);
+            yesterdayCalDateCheck.setHours(0, 0, 0, 0);
+            const yesterdayCodes = getCodesForCalendarDay(yesterdayCalDateCheck).map(c => c.toLowerCase());
+            if (busOpCodesLower.some(boc => yesterdayCodes.includes(boc))) determinedOperationalDayDate = yesterdayCalDateCheck;
+        }
+        if (!determinedOperationalDayDate && nowForProcessing.getHours() >= lateEveningThresholdHours) {
+            const tomorrowCalDateCheck = new Date(nowForProcessing);
+            tomorrowCalDateCheck.setDate(nowForProcessing.getDate() + 1);
+            tomorrowCalDateCheck.setHours(0, 0, 0, 0);
+            const tomorrowCodes = getCodesForCalendarDay(tomorrowCalDateCheck).map(c => c.toLowerCase());
+            if (busOpCodesLower.some(boc => tomorrowCodes.includes(boc))) determinedOperationalDayDate = tomorrowCalDateCheck;
+        }
+        const isDaily = busOpCodesLower.length === 0 || busOpCodesLower.includes("") || busOpCodesLower.includes("daily") || busOpCodesLower.includes("everyday");
+        if (!determinedOperationalDayDate) {
+            if (isDaily) {
+                determinedOperationalDayDate = new Date(todayCalDateForCheck);
+            } else {
+                return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
+            }
+        }
+        const finalSchedTime = new Date(determinedOperationalDayDate.getFullYear(), determinedOperationalDayDate.getMonth(), determinedOperationalDayDate.getDate() + dayOffsetFromFile, hrs, mins, 0);
+        let finalAdjustedSchedTime = new Date(finalSchedTime.getTime());
+        if (dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && (nowForProcessing.getTime() - finalSchedTime.getTime()) > (earlyMorningThresholdHours * 60 * 60 * 1000) && nowForProcessing.getHours() >= lateEveningThresholdHours) {
+            finalAdjustedSchedTime.setDate(finalSchedTime.getDate() + 1);
+        }
+        const timeToStationInSeconds = Math.round((finalAdjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
+        const arrivalText = generateArrivalText(timeToStationInSeconds);
+        return { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText };
     }
-    const finalSchedTime = new Date(determinedOperationalDayDate.getFullYear(), determinedOperationalDayDate.getMonth(), determinedOperationalDayDate.getDate() + dayOffsetFromFile, hrs, mins, 0);
-    let finalAdjustedSchedTime = new Date(finalSchedTime.getTime());
-    if (dayOffsetFromFile === 0 && hrs < earlyMorningThresholdHours && (nowForProcessing.getTime() - finalSchedTime.getTime()) > (earlyMorningThresholdHours * 60 * 60 * 1000) && nowForProcessing.getHours() >= lateEveningThresholdHours) {
-        finalAdjustedSchedTime.setDate(finalSchedTime.getDate() + 1);
-    }
-    const timeToStationInSeconds = Math.round((finalAdjustedSchedTime.getTime() - nowForProcessing.getTime()) / 1000);
-    const arrivalText = generateArrivalText(timeToStationInSeconds);
-    return { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText };
-}
     
     function getAssignedVehicle(serviceInstanceKey, routeName) {
         let vehicleFromCache = serviceInstanceVehicleCache.get(serviceInstanceKey);
@@ -736,8 +767,6 @@ function applyLiveRSGSchedule(snapshot) {
         return vehicle;
     }
 
-    // Derives the same serviceInstanceKey/blockId used for vehicle-cache lookups, so callers
-    // (both the filtered display loop and the full-dataset cache cleanup) stay in sync.
     function computeServiceInstanceIds(busEntry) {
         const trueLineName = busEntry.lineName ? busEntry.lineName.toUpperCase() : "UNKNOWN_ROUTE";
         let serviceInstanceKey;
@@ -757,7 +786,6 @@ function applyLiveRSGSchedule(snapshot) {
         return { trueLineName, serviceInstanceKey, blockId };
     }
 
-    // Identifies a vehicle for cross-route reservation purposes (fleet number, falling back to registration).
     function getVehicleKey(vehicle) {
         if (!vehicle) return '';
         const fleet = String(vehicle.fleetNumber || '').trim().toUpperCase();
@@ -776,10 +804,6 @@ function applyLiveRSGSchedule(snapshot) {
         });
     }
 
-    // A real vehicle can only be in one place at once. This scans every route's currently-active
-    // trips (not just the one being displayed) and re-resolves the vehicle cache so the same
-    // vehicle is never double-booked across two concurrently-running blocks, with a route where a
-    // vehicle is "common" always taking priority over a route where it's only "rare".
     function resolveActiveVehicleAssignments() {
         const nowForProcessing = new Date();
         const blockRouteMap = new Map();
@@ -807,7 +831,6 @@ function applyLiveRSGSchedule(snapshot) {
         });
 
         const needsCommonPass = [];
-        // Pass 1: keep existing assignments that are still valid as the block's OWN common vehicle - these are locked in first.
         activeBlockIds.forEach(blockId => {
             if (blockStaticVehicle.has(blockId)) return;
             const cached = serviceInstanceVehicleCache.get(blockId);
@@ -819,7 +842,6 @@ function applyLiveRSGSchedule(snapshot) {
             needsCommonPass.push(blockId);
         });
 
-        // Pass 2: assign a free common vehicle to any block that doesn't have one locked in yet.
         const needsRarePass = [];
         needsCommonPass.forEach(blockId => {
             const commonPool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'commonVehicles').filter(v => !reserved.has(getVehicleKey(v)));
@@ -832,7 +854,6 @@ function applyLiveRSGSchedule(snapshot) {
             }
         });
 
-        // Pass 3: no common vehicle free - fall back to the route's rare pool, keeping a still-valid cached pick if possible.
         const needsFallback = [];
         needsRarePass.forEach(blockId => {
             const rarePool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'rareVehicles');
@@ -851,137 +872,133 @@ function applyLiveRSGSchedule(snapshot) {
             }
         });
 
-        // Pass 4: every vehicle this route could use is already in service elsewhere right now - show no vehicle rather than duplicate one.
         needsFallback.forEach(blockId => serviceInstanceVehicleCache.delete(blockId));
 
         saveVehicleCacheToStorage();
     }
 
     function processAndDisplayAllData() {
-    fullServiceRunDataMap.clear();
+        fullServiceRunDataMap.clear();
 
-    if (!localScheduleData || localScheduleData.length === 0) {
-        if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data loaded. Please upload a schedule file.</td></tr>`;
-        if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
-        currentTrackedServices = []; populateTableFilters();
-        if (searchStatusMessage) searchStatusMessage.textContent = "Upload schedule file to see services.";
-        if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-        return;
-    }
-
-    resolveActiveVehicleAssignments();
-    populateCurtailmentsTable();
-
-    let dataToProcess = localScheduleData;
-    if (currentRouteFilter) {
-        dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter);
-    } else {
-        if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
-        if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
-        currentTrackedServices = []; populateTableFilters();
-        if (searchStatusMessage) searchStatusMessage.textContent = "Please enter a route to display services.";
-        if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-        return;
-    }
-    
-    if (dataToProcess.length === 0 && currentRouteFilter) { 
-        if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in the loaded file.</td></tr>`; 
-        if (busCounterElement) busCounterElement.textContent = `Tracked Services: 0`; 
-        currentTrackedServices = []; populateTableFilters(); 
-        if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-        return; 
-    }
-
-    const nowForProcessing = new Date();
-    const activeServicesMap = new Map();
-
-    dataToProcess.forEach((busEntryRaw, entryIndex) => {
-        if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID ) { return; }
-
-        // A curtailed trip shows its new destination and drops any stops beyond the curtailment point.
-        let busEntry = busEntryRaw;
-        if (busEntry.curtailment) {
-            const stopSequence = busEntry.tripStopSequence || [];
-            const currentStopIndex = stopSequence.indexOf(busEntry.stopID);
-            const curtailStopIndex = stopSequence.indexOf(busEntry.curtailment.curtailAtStopID);
-            if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) { return; }
-            busEntry = { ...busEntry, destinationName: busEntry.curtailment.newDestinationName };
+        if (!localScheduleData || localScheduleData.length === 0) {
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data loaded. Please upload a schedule file.</td></tr>`;
+            if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
+            currentTrackedServices = []; populateTableFilters();
+            if (searchStatusMessage) searchStatusMessage.textContent = "Upload schedule file to see services.";
+            if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
+            return;
         }
 
-        const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(busEntry);
+        resolveActiveVehicleAssignments();
+        populateCurtailmentsTable();
 
-        if (!activeServicesMap.has(serviceInstanceKey)) {
-            let assignedVehicle;
-            if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
-                assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };
-                serviceInstanceVehicleCache.set(blockId, assignedVehicle);
-            } else {
-                assignedVehicle = getAssignedVehicle(blockId, trueLineName); 
+        let dataToProcess = localScheduleData;
+        if (currentRouteFilter) {
+            dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter);
+        } else {
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
+            if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
+            currentTrackedServices = []; populateTableFilters();
+            if (searchStatusMessage) searchStatusMessage.textContent = "Please enter a route to display services.";
+            if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
+            return;
+        }
+        
+        if (dataToProcess.length === 0 && currentRouteFilter) { 
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in the loaded file.</td></tr>`; 
+            if (busCounterElement) busCounterElement.textContent = `Tracked Services: 0`; 
+            currentTrackedServices = []; populateTableFilters(); 
+            if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
+            return; 
+        }
+
+        const nowForProcessing = new Date();
+        const activeServicesMap = new Map();
+
+        dataToProcess.forEach((busEntryRaw, entryIndex) => {
+            if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID ) { return; }
+
+            let busEntry = busEntryRaw;
+            if (busEntry.curtailment) {
+                const stopSequence = busEntry.tripStopSequence || [];
+                const currentStopIndex = stopSequence.indexOf(busEntry.stopID);
+                const curtailStopIndex = stopSequence.indexOf(busEntry.curtailment.curtailAtStopID);
+                if (curtailStopIndex !== -1 && currentStopIndex > curtailStopIndex) { return; }
+                busEntry = { ...busEntry, destinationName: busEntry.curtailment.newDestinationName };
             }
-            activeServicesMap.set(serviceInstanceKey, {
-                serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
-                trueLineName: trueLineName, displayDestination: busEntry.destinationName, stops: [],
-                originalDataFleetNo: busEntry.fleetNumber, originalDataRegNo: busEntry.vehicleReg     
-            });
-        }
-        const { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText } = calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing);
-        if (finalAdjustedSchedTime) { activeServicesMap.get(serviceInstanceKey).stops.push({ ...busEntry, preciseScheduledDateTime: finalAdjustedSchedTime, timeToStationInSeconds: timeToStationInSeconds, calculatedArrivalText: arrivalText }); }
-    });
-    saveVehicleCacheToStorage(); 
-    
-    // Cache cleanup must consider the FULL schedule, not just the currently route-filtered view,
-    // otherwise switching route filters would wipe (and re-randomise) other routes' cached vehicles.
-    const allActiveBlockIds = new Set();
-    localScheduleData.forEach(entry => {
-        if (!entry || typeof entry !== 'object' || !entry.stopID) return;
-        allActiveBlockIds.add(computeServiceInstanceIds(entry).blockId);
-    });
-    for (const key of serviceInstanceVehicleCache.keys()) { 
-        if (!allActiveBlockIds.has(key)) { 
-            serviceInstanceVehicleCache.delete(key); 
-        } 
-    }
-    saveVehicleCacheToStorage();
 
-    let servicesWithARelevantNextStop = [];
-    activeServicesMap.forEach((serviceRun, serviceRunKey) => {
-        if (serviceRun.stops.length > 0) { serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));}
-        let nextLiveStopForThisRun = null;
-        for (const stop of serviceRun.stops) {
-            if (!stop.preciseScheduledDateTime) continue;
-            if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
-            if (stop.timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER && stop.timeToStationInSeconds <= MAX_UPCOMING_SECONDS_TRACKER) {
-                nextLiveStopForThisRun = { stopName: stop.stopName, stopID: stop.stopID, actualArrivalTime: stop.preciseScheduledDateTime, timeToStationInSeconds: stop.timeToStationInSeconds, calculatedArrivalText: stop.calculatedArrivalText };
-                break; 
+            const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(busEntry);
+
+            if (!activeServicesMap.has(serviceInstanceKey)) {
+                let assignedVehicle;
+                if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
+                    assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };
+                    serviceInstanceVehicleCache.set(blockId, assignedVehicle);
+                } else {
+                    assignedVehicle = getAssignedVehicle(blockId, trueLineName); 
+                }
+                activeServicesMap.set(serviceInstanceKey, {
+                    serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
+                    trueLineName: trueLineName, displayDestination: busEntry.destinationName, stops: [],
+                    originalDataFleetNo: busEntry.fleetNumber, originalDataRegNo: busEntry.vehicleReg     
+                });
             }
+            const { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText } = calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing);
+            if (finalAdjustedSchedTime) { activeServicesMap.get(serviceInstanceKey).stops.push({ ...busEntry, preciseScheduledDateTime: finalAdjustedSchedTime, timeToStationInSeconds: timeToStationInSeconds, calculatedArrivalText: arrivalText }); }
+        });
+        saveVehicleCacheToStorage(); 
+        
+        const allActiveBlockIds = new Set();
+        localScheduleData.forEach(entry => {
+            if (!entry || typeof entry !== 'object' || !entry.stopID) return;
+            allActiveBlockIds.add(computeServiceInstanceIds(entry).blockId);
+        });
+        for (const key of serviceInstanceVehicleCache.keys()) { 
+            if (!allActiveBlockIds.has(key)) { 
+                serviceInstanceVehicleCache.delete(key); 
+            } 
         }
-        if (nextLiveStopForThisRun) {
-            fullServiceRunDataMap.set(serviceRun.serviceId, serviceRun); 
-            servicesWithARelevantNextStop.push({ serviceId: serviceRun.serviceId, assignedFleetNumber: serviceRun.assignedFleetNumber, assignedRegistration: serviceRun.assignedRegistration, trueLineName: serviceRun.trueLineName, displayDestination: serviceRun.displayDestination, nextStopName: nextLiveStopForThisRun.stopName, nextStopActualTime: nextLiveStopForThisRun.actualArrivalTime, _timeToNextStopSec: nextLiveStopForThisRun.timeToStationInSeconds });
-        }
-    });
+        saveVehicleCacheToStorage();
 
-    const vehicleNextActivityMap = new Map();
-    servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
-        const vehicleKey = `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
-        const existingVehicleEntry = vehicleNextActivityMap.get(vehicleKey);
-        if (!existingVehicleEntry || serviceWithNextStop._timeToNextStopSec < existingVehicleEntry._timeToNextStopSec) {
-            vehicleNextActivityMap.set(vehicleKey, serviceWithNextStop);
-        }
-    });
-    currentTrackedServices = Array.from(vehicleNextActivityMap.values());
-    currentTrackedServices.sort((a, b) => { const fleetComparison = naturalSortCompareFleet(a.assignedFleetNumber, b.assignedFleetNumber); if (fleetComparison !== 0) return fleetComparison; const timeA = a._timeToNextStopSec || 99999; const timeB = b._timeToNextStopSec || 99999; return timeA - timeB; });
+        let servicesWithARelevantNextStop = [];
+        activeServicesMap.forEach((serviceRun, serviceRunKey) => {
+            if (serviceRun.stops.length > 0) { serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));}
+            let nextLiveStopForThisRun = null;
+            for (const stop of serviceRun.stops) {
+                if (!stop.preciseScheduledDateTime) continue;
+                if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
+                if (stop.timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER && stop.timeToStationInSeconds <= MAX_UPCOMING_SECONDS_TRACKER) {
+                    nextLiveStopForThisRun = { stopName: stop.stopName, stopID: stop.stopID, actualArrivalTime: stop.preciseScheduledDateTime, timeToStationInSeconds: stop.timeToStationInSeconds, calculatedArrivalText: stop.calculatedArrivalText };
+                    break; 
+                }
+            }
+            if (nextLiveStopForThisRun) {
+                fullServiceRunDataMap.set(serviceRun.serviceId, serviceRun); 
+                servicesWithARelevantNextStop.push({ serviceId: serviceRun.serviceId, assignedFleetNumber: serviceRun.assignedFleetNumber, assignedRegistration: serviceRun.assignedRegistration, trueLineName: serviceRun.trueLineName, displayDestination: serviceRun.displayDestination, nextStopName: nextLiveStopForThisRun.stopName, nextStopActualTime: nextLiveStopForThisRun.actualArrivalTime, _timeToNextStopSec: nextLiveStopForThisRun.timeToStationInSeconds });
+            }
+        });
 
-    if (currentRouteFilter && currentTrackedServices.length === 0 && trackerTableBody && dataToProcess.length > 0) { 
-        trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:10px;">No live/upcoming services for route ${escapeHtml(currentRouteFilter)} in ~30 mins.</td></tr>`; 
+        const vehicleNextActivityMap = new Map();
+        servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
+            const vehicleKey = `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
+            const existingVehicleEntry = vehicleNextActivityMap.get(vehicleKey);
+            if (!existingVehicleEntry || serviceWithNextStop._timeToNextStopSec < existingVehicleEntry._timeToNextStopSec) {
+                vehicleNextActivityMap.set(vehicleKey, serviceWithNextStop);
+            }
+        });
+        currentTrackedServices = Array.from(vehicleNextActivityMap.values());
+        currentTrackedServices.sort((a, b) => { const fleetComparison = naturalSortCompareFleet(a.assignedFleetNumber, b.assignedFleetNumber); if (fleetComparison !== 0) return fleetComparison; const timeA = a._timeToNextStopSec || 99999; const timeB = b._timeToNextStopSec || 99999; return timeA - timeB; });
+
+        if (currentRouteFilter && currentTrackedServices.length === 0 && trackerTableBody && dataToProcess.length > 0) { 
+            trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:10px;">No live/upcoming services for route ${escapeHtml(currentRouteFilter)} in ~30 mins.</td></tr>`; 
+        }
+        if (busCounterElement) busCounterElement.textContent = `Tracked Services: ${currentTrackedServices.length}`;
+        if (updateTimeElement) updateTimeElement.textContent = `Data Loaded: ${new Date().toLocaleTimeString()}`;
+        
+        populateTableFilters(); 
+        applyTableFilters(); 
+        updateWatchedBusHighlighting(); 
     }
-    if (busCounterElement) busCounterElement.textContent = `Tracked Services: ${currentTrackedServices.length}`;
-    if (updateTimeElement) updateTimeElement.textContent = `Data Loaded: ${new Date().toLocaleTimeString()}`;
-    
-    populateTableFilters(); 
-    applyTableFilters(); 
-    updateWatchedBusHighlighting(); 
-}
 
     function renderTrackerTable(servicesToDisplay) { if (!trackerTableBody) return; trackerTableBody.innerHTML = ''; if (!servicesToDisplay || servicesToDisplay.length === 0) { let message = "No services match criteria."; if (currentTrackedServices.length === 0 && currentRouteFilter) { message = `No live/upcoming for route ${escapeHtml(currentRouteFilter)}.`; } else if (localScheduleData.length === 0) { message = "Upload schedule file."; } else if (currentTrackedServices.length === 0 && !currentRouteFilter) { message = "Enter route to see services.";} trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">${escapeHtml(message)}</td></tr>`; return; } servicesToDisplay.forEach((service) => { const row = trackerTableBody.insertRow(); row.dataset.serviceInstanceKey = service.serviceId; row.style.cursor = 'pointer'; row.addEventListener('click', () => displayServicePredictionsModal(service.serviceId)); let isWatched = false; if (service.serviceId && watchedBuses.has(service.serviceId)) isWatched = true; if (!isWatched && service.assignedRegistration && service.assignedRegistration !== "---" && watchedBuses.has(service.assignedRegistration.toUpperCase())) isWatched = true; if (!isWatched && service.assignedFleetNumber && service.assignedFleetNumber !== "N/A" && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) isWatched = true; if(isWatched) row.classList.add('watched-bus'); row.insertCell().textContent = escapeHtml(service.assignedFleetNumber); row.insertCell().textContent = escapeHtml(service.assignedRegistration); row.insertCell().textContent = escapeHtml(service.displayDestination || '?'); row.insertCell().textContent = escapeHtml(service.nextStopName || '?'); let displayTimeText = '?'; if (service.nextStopActualTime instanceof Date) { const time = service.nextStopActualTime; const hours = String(time.getHours()).padStart(2, '0'); const minutes = String(time.getMinutes()).padStart(2, '0'); const seconds = String(time.getSeconds()).padStart(2, '0'); displayTimeText = `${hours}:${minutes}:${seconds}`; } else { const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); displayTimeText = escapeHtml(fallbackEtaText || '?'); } row.insertCell().textContent = displayTimeText; }); }
     function populateTableFilters() { const e={fleetNumber:new Set,reg:new Set,destination:new Set,stop:new Set};currentTrackedServices.forEach(t=>{t.assignedFleetNumber&&"N/A"!==t.assignedFleetNumber&&e.fleetNumber.add(t.assignedFleetNumber),t.assignedRegistration&&"---"!==t.assignedRegistration&&e.reg.add(t.assignedRegistration),t.displayDestination&&e.destination.add(t.displayDestination),t.nextStopName&&e.stop.add(t.nextStopName)});const t=(t,n)=>{if(!t)return;const o=t.value;t.innerHTML='<option value="">All</option>',[...n].sort((e,t)=>String(e).localeCompare(String(t))).forEach(e=>{if(e){const n=new Option(escapeHtml(e),e);t.add(n)}}),([...t.options].some(e=>e.value===o)?t.value=o:t.value="")};t(filterServiceIdSelect,e.fleetNumber),t(filterRegSelect,e.reg),t(filterDestinationSelect,e.destination),t(filterStopSelect,e.stop),filterArrivalSelect&&(filterArrivalSelect.innerHTML='<option value="">All</option>')}
@@ -992,8 +1009,7 @@ function applyLiveRSGSchedule(snapshot) {
     window.hideVehiclePredictionModal = function() { if (vehiclePredictionModal) vehiclePredictionModal.style.display = 'none'; }
     
     function displayServiceAlert(status, message) { if(!serviceAlertsContainerElement||!serviceAlertsContentElement)return;serviceAlertsContainerElement.className="service-alerts-container";let e="Service Status: ",t="";switch(status){case"simulating_scheduled_update_downtime":e+="System Update. FB data may be unavailable.",t="alert-minor";break;case"idle":e+="Normal Operation (FB).",t="alert-good";break;case"offline":e=message || "Firebase features offline.";t="alert-error";break;default:e+="Status (FB): "+escapeHtml(status),t="alert-minor"}message&&typeof message=="string"&&message.trim()!==""&&status!=="offline"&&(e+=` Message: ${escapeHtml(message.trim())}`),serviceAlertsContentElement.textContent=e,t&&serviceAlertsContainerElement.classList.add(t)}
-    // Derives currently-curtailed trips directly from the schedule's own .curtailment fields
-    // (set by Tools Extra's Live Trip Intervention), instead of the unused legacy '/curtailments/all' path.
+    
     function populateCurtailmentsTable() {
         if (!curtailedBusesTableBody) return;
         curtailedBusesTableBody.innerHTML = "";
@@ -1049,8 +1065,17 @@ function applyLiveRSGSchedule(snapshot) {
             let longestRunStops = []; let maxStopsInRun = 0; const serviceRunsMap = new Map();
             const filteredEntries = localScheduleData.filter(entry => entry.lineName === routeToDisplay && entry.destinationName === targetDestination && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") && !entry.tripId.startsWith("FILE_TRIP_") );
             filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: entry.stopName, preciseScheduledDateTime: finalAdjustedSchedTime }); } });
-            serviceRunsMap.forEach((stopsArray, tripId) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
-            if (longestRunStops.length > 0) { const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); return sortedStops; }
+            
+            serviceRunsMap.forEach((stopsArray, tripId) => { 
+                if (stopsArray.length > 0) {
+                    stopsArray.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime());
+                    if (stopsArray.length > maxStopsInRun) { 
+                        maxStopsInRun = stopsArray.length; 
+                        longestRunStops = stopsArray; 
+                    }
+                }
+            });
+            if (longestRunStops.length > 0) { return longestRunStops.map(stop => stop.stopName); }
             return [];
         };
         const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName === currentRouteFilter).map(entry => entry.destinationName).filter(Boolean))].sort();

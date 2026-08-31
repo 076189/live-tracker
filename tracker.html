@@ -57,11 +57,10 @@
         #route-sequences { margin-top: 30px; padding-top: 20px; border-top: 1px solid #dfe4ea; display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; }
         .sequence-container { flex: 1; min-width: 280px; background-color: #fff; padding: 15px; border: 1px solid #e0e0e0; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .sequence-container h3 { margin-top: 0; margin-bottom: 10px; font-size: 1.1em; text-align: left; border: none; padding: 0; color: #34495e; font-weight: bold; }
-        .sequence-list-container { max-height: 400px; overflow-y: auto; font-size: 0.85em; line-height: 1.5; }
-        .sequence-list-container ol { padding-left: 30px; margin: 0; }
-        .sequence-list-container li { padding: 3px 0; border-bottom: 1px dotted #f0f0f0; }
-        .sequence-list-container li:last-child { border-bottom: none; }
-        .sequence-list-container p { font-style: italic; color: #6c757d; padding: 10px 0; }
+        .sequence-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 0.9em; background-color: #fff; box-shadow: none; border-radius: 3px; overflow: hidden; }
+        .sequence-table th { background-color: #e9ecef; text-align: left; padding: 6px 8px; border: 1px solid #dfe4ea; color: #495057; font-weight: bold; }
+        .sequence-table td { padding: 6px 8px; border: 1px solid #dfe4ea; text-align: left; }
+        .sequence-container p { font-style: italic; color: #6c757d; padding: 10px 0; margin: 0; }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center; z-index: 1040; }
         .modal-box { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2); text-align: left; width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
         .modal-box h3 { margin-top: 0; text-align: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #eee; flex-shrink: 0; font-size: 1.2em; color: #34495e; font-weight: bold;}
@@ -209,13 +208,13 @@
     </table>
 
     <div id="route-sequences">
-        <div class="sequence-container">
+        <div class="sequence-container" id="sequence-container-1">
             <h3 id="outbound-sequence-heading">Route Sequence (Direction 1)</h3>
             <div id="outbound-sequence-list" class="sequence-list-container">
                 <p>Upload a schedule and enter a route number to see its sequence.</p>
             </div>
         </div>
-        <div class="sequence-container">
+        <div class="sequence-container" id="sequence-container-2">
             <h3 id="inbound-sequence-heading">Route Sequence (Direction 2)</h3>
              <div id="inbound-sequence-list" class="sequence-list-container">
                  <p>Upload a schedule and enter a route number to see its sequence.</p>
@@ -1456,9 +1455,14 @@
     }
     
     function generateAndDisplayRouteSequences() { 
+        const container1 = document.getElementById('sequence-container-1');
+        const container2 = document.getElementById('sequence-container-2');
+
         if (!currentRouteFilter) {
             if(outboundSequenceList) outboundSequenceList.innerHTML = "<p>Enter route to see sequence.</p>";
             if(inboundSequenceList) inboundSequenceList.innerHTML = "<p>Enter route to see sequence.</p>";
+            if(container1) container1.style.display = "block";
+            if(container2) container2.style.display = "block";
             if(document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = `Route Sequence (Direction 1)`;
             if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = `Route Sequence (Direction 2)`;
             return;
@@ -1471,7 +1475,8 @@
         let availableRoutes = [...new Set(localScheduleData.map(entry => entry.lineName).filter(Boolean))];
         if (!availableRoutes.includes(currentRouteFilter)) {
             if(outboundSequenceList) outboundSequenceList.innerHTML = `<p>No sequence data for route ${escapeHtml(currentRouteFilter)} in loaded file.</p>`;
-            if(inboundSequenceList) inboundSequenceList.innerHTML = `<p>No sequence data for route ${escapeHtml(currentRouteFilter)} in loaded file.</p>`;
+            if(container1) container1.style.display = "block";
+            if(container2) container2.style.display = "none";
             return;
         }
         const extractStopSequenceForDirection = (routeToDisplay, targetDestination) => {
@@ -1483,29 +1488,51 @@
             return [];
         };
         const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName === currentRouteFilter).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))].sort();
-        let dir1Name = destinationNames[0] || "Direction 1";
-        let dir2Name = destinationNames.length > 1 ? destinationNames[1] : (destinationNames[0] ? `Return from ${destinationNames[0]}` : "Direction 2");
-        if (dir1Name === dir2Name && destinationNames.length > 1) { dir2Name = `Opposite to ${dir1Name}`; }
-        if(document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir1Name}`);
-        if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir2Name}`);
-        displaySequenceInList(outboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir1Name));
-        displaySequenceInList(inboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir2Name));
+        
+        if (destinationNames.length === 0) {
+            if(outboundSequenceList) outboundSequenceList.innerHTML = "<p>No destinations found for this route.</p>";
+            if(container1) container1.style.display = "block";
+            if(container2) container2.style.display = "none";
+            return;
+        }
+
+        let dir1Name = destinationNames[0];
+        let dir2Name = destinationNames.length > 1 ? destinationNames[1] : null;
+
+        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir1Name}`);
+        displaySequenceInTable(outboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir1Name));
+        if(container1) container1.style.display = "block";
+
+        if (dir2Name) {
+            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Sequence: Towards ${dir2Name}`);
+            displaySequenceInTable(inboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir2Name));
+            if(container2) container2.style.display = "block";
+        } else {
+            if(container2) container2.style.display = "none";
+        }
     }
 
-    function displaySequenceInList(listElement, stopsNames) { 
+    function displaySequenceInTable(listElement, stopsNames) { 
         if(!listElement) return;
         listElement.innerHTML = "";
         if(!stopsNames || stopsNames.length === 0){
             listElement.innerHTML = "<p>No stops for this sequence.</p>";
             return;
         }
-        const e = document.createElement("ol");
-        stopsNames.forEach(t => {
-            const n = document.createElement("li");
-            n.textContent = unescapeHtml(t || "?");
-            e.appendChild(n);
+        const table = document.createElement("table");
+        table.className = "sequence-table";
+        const thead = document.createElement("thead");
+        thead.innerHTML = "<tr><th>No.</th><th>Stop Name</th></tr>";
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        stopsNames.forEach((stopName, index) => {
+            const row = tbody.insertRow();
+            row.insertCell().textContent = index + 1;
+            row.insertCell().textContent = unescapeHtml(stopName || "?");
         });
-        listElement.appendChild(e);
+        table.appendChild(tbody);
+        listElement.appendChild(table);
     }
 
     function updateClock() { 

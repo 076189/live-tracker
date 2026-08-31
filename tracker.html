@@ -170,6 +170,8 @@
         <div class="counter" id="bus-counter">Tracked Services: 0</div>
     </div>
 
+    <!-- Direction A Table Container -->
+    <h2 id="direction-a-heading">Live Services (Direction A)</h2>
     <table>
         <thead>
             <tr>
@@ -180,15 +182,39 @@
                 <th>ETA / Last Seen</th>
             </tr>
             <tr class="filter-row">
-                <td><select id="filter-service-id"><option value="">All</option></select></td>
-                <td><select id="filter-reg"><option value="">All</option></select></td>
-                <td><select id="filter-destination"><option value="">All</option></select></td>
-                <td><select id="filter-stop"><option value="">All</option></select></td>
-                <td><select id="filter-arrival"><option value="">All</option></select></td>
+                <td><select id="filter-service-id-a"><option value="">All</option></select></td>
+                <td><select id="filter-reg-a"><option value="">All</option></select></td>
+                <td><select id="filter-destination-a"><option value="">All</option></select></td>
+                <td><select id="filter-stop-a"><option value="">All</option></select></td>
+                <td><select id="filter-arrival-a"><option value="">All</option></select></td>
             </tr>
         </thead>
-        <tbody id="tracker-table-body">
+        <tbody id="tracker-table-body-a">
             <tr><td colspan="5" style="text-align:center; padding: 20px;">Please upload a schedule file to begin.</td></tr>
+        </tbody>
+    </table>
+
+    <!-- Direction B Table Container -->
+    <h2 id="direction-b-heading" style="display:none;">Live Services (Direction B)</h2>
+    <table id="direction-b-table-container" style="display:none;">
+        <thead>
+            <tr>
+                <th>Fleet Number</th>
+                <th>Registration</th>
+                <th>Destination</th>
+                <th>Next Stop / Last Known Stop</th>
+                <th>ETA / Last Seen</th>
+            </tr>
+            <tr class="filter-row">
+                <td><select id="filter-service-id-b"><option value="">All</option></select></td>
+                <td><select id="filter-reg-b"><option value="">All</option></select></td>
+                <td><select id="filter-destination-b"><option value="">All</option></select></td>
+                <td><select id="filter-stop-b"><option value="">All</option></select></td>
+                <td><select id="filter-arrival-b"><option value="">All</option></select></td>
+            </tr>
+        </thead>
+        <tbody id="tracker-table-body-b">
+            <tr><td colspan="5" style="text-align:center; padding: 20px;">No Direction B services.</td></tr>
         </tbody>
     </table>
 
@@ -203,7 +229,7 @@
             </tr>
         </thead>
         <tbody id="curtailed-buses-table-body">
-            <tr><td colspan="4">Curtailment data may still load from Firebase if configured.</td></tr>
+            <tr><td colspan="4">Enter a route number to view curtailments.</td></tr>
         </tbody>
     </table>
 
@@ -443,7 +469,7 @@
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
     let serviceInstanceVehicleCache = new Map();
 
-    let clockTimeElement, clockDateElement, trackerTableBody, busCounterElement,
+    let clockTimeElement, clockDateElement, trackerTableBodyA, trackerTableBodyB, busCounterElement,
         updateTimeElement, nextUpdateTimerElement, availableStopsSelect,
         serviceAlertsContentElement, serviceAlertsContainerElement,
         curtailedBusesTableBody, outboundSequenceTableContainer, inboundSequenceTableContainer,
@@ -451,11 +477,13 @@
         vehiclePredictionModal, vehiclePredictionTitle, vehiclePredictionList,
         vehicleHistoryModal, vehicleHistoryTitle, vehicleHistoryList,
         routeSearchInput, routeSearchButton, clearRouteFilterButton, rarePageToggleButton,
-        mainHeadingElement, scheduleFileInput, loadScheduleButton, fileUploadStatusMessageEl;
+        mainHeadingElement, scheduleFileInput, loadScheduleButton, fileUploadStatusMessageEl,
+        directionAHeading, directionBHeading, directionBTableContainer;
 
     let tripBlockMapping = new Map();
 
-    let filterServiceIdSelect, filterRegSelect, filterDestinationSelect, filterStopSelect, filterArrivalSelect;
+    let filterServiceIdA, filterRegA, filterDestinationA, filterStopA, filterArrivalA;
+    let filterServiceIdB, filterRegB, filterDestinationB, filterStopB, filterArrivalB;
 
     function escapeHtml(unsafe) {
         if (unsafe === null || typeof unsafe === 'undefined') return 'N/A';
@@ -482,7 +510,21 @@
     function addBusToWatchlist() { if (!watchBusInput) return; const busId = watchBusInput.value.trim().toUpperCase(); if (busId) { watchedBuses.add(busId); saveWatchedBuses(); displayWatchedBusesList(); updateWatchedBusHighlighting(); watchBusInput.value = ''; if (searchStatusMessage) searchStatusMessage.textContent = `Watching ${escapeHtml(busId)}.`; } else { if (searchStatusMessage) searchStatusMessage.textContent = `Enter Vehicle ID to watch.`; } }
     function removeBusFromWatchlist(busId) { watchedBuses.delete(busId); saveWatchedBuses(); displayWatchedBusesList(); updateWatchedBusHighlighting(); if (searchStatusMessage) searchStatusMessage.textContent = `No longer watching ${escapeHtml(busId)}.`; }
     function displayWatchedBusesList() { if (!watchedBusesDisplay) return; watchedBusesDisplay.innerHTML = ''; if (watchedBuses.size > 0) { const p = document.createElement('p'); p.style.fontWeight = 'bold'; p.textContent = 'Watching: '; watchedBusesDisplay.appendChild(p); [...watchedBuses].sort().forEach(busId => { const span = document.createElement('span'); span.textContent = escapeHtml(busId); const removeBtn = document.createElement('button'); removeBtn.innerHTML = '&times;'; removeBtn.title = `Stop watching ${escapeHtml(busId)}`; removeBtn.onclick = () => removeBusFromWatchlist(busId); span.appendChild(removeBtn); watchedBusesDisplay.appendChild(span); }); } }
-    function updateWatchedBusHighlighting() { if (!trackerTableBody) return; const rows = trackerTableBody.getElementsByTagName("tr"); for (let row of rows) { const fleetNoCell = row.cells && row.cells[0] ? row.cells[0].textContent : ""; const regCell = row.cells && row.cells[1] ? row.cells[1].textContent : ""; let isWatched = false; if (fleetNoCell && fleetNoCell !== "N/A" && watchedBuses.has(fleetNoCell.toUpperCase())) isWatched = true; if (!isWatched && regCell && regCell !== "---" && watchedBuses.has(regCell.toUpperCase())) isWatched = true; row.classList.toggle('watched-bus', isWatched); } }
+    
+    function updateWatchedBusHighlighting() { 
+        [trackerTableBodyA, trackerTableBodyB].forEach(tbody => {
+            if (!tbody) return; 
+            const rows = tbody.getElementsByTagName("tr"); 
+            for (let row of rows) { 
+                const fleetNoCell = row.cells && row.cells[0] ? row.cells[0].textContent : ""; 
+                const regCell = row.cells && row.cells[1] ? row.cells[1].textContent : ""; 
+                let isWatched = false; 
+                if (fleetNoCell && fleetNoCell !== "N/A" && watchedBuses.has(fleetNoCell.toUpperCase())) isWatched = true; 
+                if (!isWatched && regCell && regCell !== "---" && watchedBuses.has(regCell.toUpperCase())) isWatched = true; 
+                row.classList.toggle('watched-bus', isWatched); 
+            }
+        });
+    }
 
     function loadVehicleCacheFromStorage() { try { const storedCache = localStorage.getItem(VEHICLE_CACHE_STORAGE_KEY); if (storedCache) { const parsedCache = JSON.parse(storedCache); if (typeof parsedCache === 'object' && parsedCache !== null) { serviceInstanceVehicleCache = new Map(Object.entries(parsedCache)); } else { serviceInstanceVehicleCache = new Map(); } } else { serviceInstanceVehicleCache = new Map(); } } catch (error) { serviceInstanceVehicleCache = new Map(); localStorage.removeItem(VEHICLE_CACHE_STORAGE_KEY); } }
     function saveVehicleCacheToStorage() { try { const objectToStore = Object.fromEntries(serviceInstanceVehicleCache); localStorage.setItem(VEHICLE_CACHE_STORAGE_KEY, JSON.stringify(objectToStore)); } catch (error) { } }
@@ -670,7 +712,15 @@
     }
 
     function initializeTracker() {
-        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBody = document.getElementById('tracker-table-body'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); availableStopsSelect = document.getElementById('available-stops-select'); serviceAlertsContentElement = document.getElementById('service-alerts-content'); serviceAlertsContainerElement = document.getElementById('service-alerts-container'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceTableContainer = document.getElementById('outbound-sequence-table-container'); inboundSequenceTableContainer = document.getElementById('inbound-sequence-table-container'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehiclePredictionModal = document.getElementById('vehicle-prediction-modal'); vehiclePredictionTitle = document.getElementById('vehicle-prediction-title'); vehiclePredictionList = document.getElementById('vehicle-prediction-list'); vehicleHistoryModal = document.getElementById('vehicle-history-modal'); vehicleHistoryTitle = document.getElementById('vehicle-history-title'); vehicleHistoryList = document.getElementById('vehicle-history-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); rarePageToggleButton = document.getElementById('rare-page-toggle-button'); mainHeadingElement = document.getElementById('main-heading'); filterServiceIdSelect = document.getElementById('filter-service-id'); filterRegSelect = document.getElementById('filter-reg'); filterDestinationSelect = document.getElementById('filter-destination'); filterStopSelect = document.getElementById('filter-stop'); filterArrivalSelect = document.getElementById('filter-arrival');
+        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBodyA = document.getElementById('tracker-table-body-a'); trackerTableBodyB = document.getElementById('tracker-table-body-b'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); availableStopsSelect = document.getElementById('available-stops-select'); serviceAlertsContentElement = document.getElementById('service-alerts-content'); serviceAlertsContainerElement = document.getElementById('service-alerts-container'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceTableContainer = document.getElementById('outbound-sequence-table-container'); inboundSequenceTableContainer = document.getElementById('inbound-sequence-table-container'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehiclePredictionModal = document.getElementById('vehicle-prediction-modal'); vehiclePredictionTitle = document.getElementById('vehicle-prediction-title'); vehiclePredictionList = document.getElementById('vehicle-prediction-list'); vehicleHistoryModal = document.getElementById('vehicle-history-modal'); vehicleHistoryTitle = document.getElementById('vehicle-history-title'); vehicleHistoryList = document.getElementById('vehicle-history-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); rarePageToggleButton = document.getElementById('rare-page-toggle-button'); mainHeadingElement = document.getElementById('main-heading'); 
+
+        filterServiceIdA = document.getElementById('filter-service-id-a'); filterRegA = document.getElementById('filter-reg-a'); filterDestinationA = document.getElementById('filter-destination-a'); filterStopA = document.getElementById('filter-stop-a'); filterArrivalA = document.getElementById('filter-arrival-a');
+        filterServiceIdB = document.getElementById('filter-service-id-b'); filterRegB = document.getElementById('filter-reg-b'); filterDestinationB = document.getElementById('filter-destination-b'); filterStopB = document.getElementById('filter-stop-b'); filterArrivalB = document.getElementById('filter-arrival-b');
+
+        directionAHeading = document.getElementById('direction-a-heading');
+        directionBHeading = document.getElementById('direction-b-heading');
+        directionBTableContainer = document.getElementById('direction-b-table-container');
+
         scheduleFileInput = document.getElementById('schedule-file-input'); loadScheduleButton = document.getElementById('load-schedule-button'); fileUploadStatusMessageEl = document.getElementById('file-upload-status-message');
         
         loadRouteHistoryFromStorage();
@@ -679,7 +729,9 @@
         fetchBankHolidays(); loadWatchedBuses(); 
         setupFirebaseDependentListeners(); 
         if (loadScheduleFromLocalStorage()) { processAndDisplayAllData(); populateStopsFilter(); generateAndDisplayRouteSequences(); }
-        else { if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please upload a schedule file to begin.</td></tr>`; }
+        else { 
+            if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please upload a schedule file to begin.</td></tr>`; 
+        }
         if(nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Load File"; clearInterval(countdownTimerId);
     }
 
@@ -694,8 +746,9 @@
         if (routeSearchInput) routeSearchInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') handleRouteSearch(); });
         if (clearRouteFilterButton) clearRouteFilterButton.addEventListener('click', handleClearRouteFilter);
         if (rarePageToggleButton) rarePageToggleButton.addEventListener('click', handleToggleRarePage);
-        const filters = [filterServiceIdSelect, filterRegSelect, filterDestinationSelect, filterStopSelect, filterArrivalSelect];
-        filters.forEach(filterElement => { if (filterElement) filterElement.addEventListener('change', applyTableFilters); });
+        
+        [filterServiceIdA, filterRegA, filterDestinationA, filterStopA, filterArrivalA].forEach(el => { if (el) el.addEventListener('change', applyTableFilters); });
+        [filterServiceIdB, filterRegB, filterDestinationB, filterStopB, filterArrivalB].forEach(el => { if (el) el.addEventListener('change', applyTableFilters); });
     }
 
     function handleRouteSearch() { 
@@ -1033,9 +1086,11 @@
         fullServiceRunDataMap.clear();
 
         if (!localScheduleData || localScheduleData.length === 0) {
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data loaded. Please upload a schedule file.</td></tr>`;
+            if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data loaded. Please upload a schedule file.</td></tr>`;
+            if (trackerTableBodyB) trackerTableBodyB.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data loaded. Please upload a schedule file.</td></tr>`;
             if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
             currentTrackedServices = []; populateTableFilters();
+            populateCurtailmentsTable();
             if (searchStatusMessage) searchStatusMessage.textContent = "Upload schedule file to see services.";
             if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
             return;
@@ -1048,18 +1103,22 @@
         if (currentRouteFilter) {
             dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter);
         } else if (!isRarePageActive) {
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
+            if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
+            if (trackerTableBodyB) trackerTableBodyB.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
             if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
             currentTrackedServices = []; populateTableFilters();
+            populateCurtailmentsTable();
             if (searchStatusMessage) searchStatusMessage.textContent = "Please enter a route to display services.";
             if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
             return;
         }
         
         if (dataToProcess.length === 0 && currentRouteFilter) { 
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in the loaded file.</td></tr>`; 
+            if (trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in the loaded file.</td></tr>`; 
+            if (trackerTableBodyB) trackerTableBodyB.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in the loaded file.</td></tr>`; 
             if (busCounterElement) busCounterElement.textContent = `Tracked Services: 0`; 
             currentTrackedServices = []; populateTableFilters(); 
+            populateCurtailmentsTable();
             if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
             return; 
         }
@@ -1161,9 +1220,6 @@
 
         currentTrackedServices.sort((a, b) => { const fleetComparison = naturalSortCompareFleet(a.assignedFleetNumber, b.assignedFleetNumber); if (fleetComparison !== 0) return fleetComparison; const timeA = a._timeToNextStopSec || 99999; const timeB = b._timeToNextStopSec || 99999; return timeA - timeB; });
 
-        if (currentRouteFilter && currentTrackedServices.length === 0 && trackerTableBody && dataToProcess.length > 0) { 
-            trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:10px;">No matching services found.</td></tr>`; 
-        }
         if (busCounterElement) busCounterElement.textContent = `Tracked Services: ${currentTrackedServices.length}`;
         if (updateTimeElement) updateTimeElement.textContent = `Data Loaded: ${new Date().toLocaleTimeString()}`;
         
@@ -1172,25 +1228,23 @@
         updateWatchedBusHighlighting(); 
     }
 
-    function renderTrackerTable(servicesToDisplay) { 
-        if (!trackerTableBody) return; 
-        trackerTableBody.innerHTML = ''; 
-        if (!servicesToDisplay || servicesToDisplay.length === 0) { 
-            let message = "No services match criteria."; 
-            if (currentTrackedServices.length === 0 && currentRouteFilter) { 
-                message = isRarePageActive ? `No rare workings found for route ${escapeHtml(currentRouteFilter)}.` : `No live/upcoming for route ${escapeHtml(currentRouteFilter)}.`; 
-            } else if (isRarePageActive && currentTrackedServices.length === 0 && !currentRouteFilter) {
-                message = "No rare workings found across active services.";
-            } else if (localScheduleData.length === 0) { 
-                message = "Upload schedule file."; 
-            } else if (currentTrackedServices.length === 0 && !currentRouteFilter) { 
-                message = "Enter route to see services.";
-            } 
-            trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">${escapeHtml(message)}</td></tr>`; 
+    function renderTrackerTable(servicesToDisplay, targetTbodyId, directionFilterName) { 
+        const tbody = document.getElementById(targetTbodyId);
+        if (!tbody) return; 
+        tbody.innerHTML = ''; 
+
+        const filteredByDirection = servicesToDisplay.filter(service => {
+            if (!directionFilterName) return true;
+            return unescapeHtml(service.displayDestination).toUpperCase() === directionFilterName.toUpperCase();
+        });
+
+        if (!filteredByDirection || filteredByDirection.length === 0) { 
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No services for this direction.</td></tr>`; 
             return; 
         } 
-        servicesToDisplay.forEach((service) => { 
-            const row = trackerTableBody.insertRow(); 
+
+        filteredByDirection.forEach((service) => { 
+            const row = tbody.insertRow(); 
             row.dataset.serviceInstanceKey = service.serviceId; 
 
             let isWatched = false; 
@@ -1204,12 +1258,12 @@
             const fleetVal = unescapeHtml(service.assignedFleetNumber);
             fleetCell.textContent = fleetVal;
             if (fleetVal && fleetVal !== "N/A") {
-                fleetCell.classList.add('clickable-ident');
+                fleetCell.className = 'clickable-ident';
                 fleetCell.title = "Click to view vehicle history";
-                fleetCell.addEventListener('click', (e) => {
+                fleetCell.onclick = (e) => {
                     e.stopPropagation();
                     displayVehicleHistoryModal(fleetVal);
-                });
+                };
             }
 
             // Registration Cell
@@ -1217,25 +1271,25 @@
             const regVal = unescapeHtml(service.assignedRegistration);
             regCell.textContent = regVal;
             if (regVal && regVal !== "---") {
-                regCell.classList.add('clickable-ident');
+                regCell.className = 'clickable-ident';
                 regCell.title = "Click to view vehicle history";
-                regCell.addEventListener('click', (e) => {
+                regCell.onclick = (e) => {
                     e.stopPropagation();
                     displayVehicleHistoryModal(regVal);
-                });
+                };
             }
 
             // Destination
             const destCell = row.insertCell();
             destCell.textContent = unescapeHtml(service.displayDestination || '?');
             destCell.style.cursor = 'pointer';
-            destCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
+            destCell.onclick = () => displayServicePredictionsModal(service.serviceId);
 
             // Next Stop
             const stopCell = row.insertCell();
             stopCell.textContent = unescapeHtml(service.nextStopName || '?');
             stopCell.style.cursor = 'pointer';
-            stopCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
+            stopCell.onclick = () => displayServicePredictionsModal(service.serviceId);
 
             // ETA / Last Seen
             let displayTimeText = '?'; 
@@ -1252,7 +1306,7 @@
             const timeCell = row.insertCell();
             timeCell.textContent = displayTimeText;
             timeCell.style.cursor = 'pointer';
-            timeCell.addEventListener('click', () => displayServicePredictionsModal(service.serviceId));
+            timeCell.onclick = () => displayServicePredictionsModal(service.serviceId);
         }); 
     }
 
@@ -1292,52 +1346,119 @@
     };
 
     function populateTableFilters() { 
-        const e = {fleetNumber:new Set, reg:new Set, destination:new Set, stop:new Set};
+        const destsA = new Set();
+        const destsB = new Set();
+        const fleetsA = new Set(), regsA = new Set(), stopsA = new Set();
+        const fleetsB = new Set(), regsB = new Set(), stopsB = new Set();
+
+        let routeDestinations = [];
+        if (currentRouteFilter) {
+            routeDestinations = [...new Set(localScheduleData.filter(e => e.lineName === currentRouteFilter).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
+        }
+
+        const dir1 = routeDestinations[0] || null;
+        const dir2 = routeDestinations[1] || null;
+
         currentTrackedServices.forEach(t => {
-            t.assignedFleetNumber && "N/A" !== t.assignedFleetNumber && e.fleetNumber.add(t.assignedFleetNumber);
-            t.assignedRegistration && "---" !== t.assignedRegistration && e.reg.add(t.assignedRegistration);
-            t.displayDestination && e.destination.add(unescapeHtml(t.displayDestination));
-            t.nextStopName && e.stop.add(unescapeHtml(t.nextStopName));
+            const dest = unescapeHtml(t.displayDestination);
+            if (dir2 && dest.toUpperCase() === dir2.toUpperCase()) {
+                t.assignedFleetNumber && "N/A" !== t.assignedFleetNumber && fleetsB.add(t.assignedFleetNumber);
+                t.assignedRegistration && "---" !== t.assignedRegistration && regsB.add(t.assignedRegistration);
+                destsB.add(dest);
+                t.nextStopName && stopsB.add(unescapeHtml(t.nextStopName));
+            } else {
+                t.assignedFleetNumber && "N/A" !== t.assignedFleetNumber && fleetsA.add(t.assignedFleetNumber);
+                t.assignedRegistration && "---" !== t.assignedRegistration && regsA.add(t.assignedRegistration);
+                destsA.add(dest);
+                t.nextStopName && stopsA.add(unescapeHtml(t.nextStopName));
+            }
         });
-        const t = (t, n) => {
-            if(!t)return;
-            const o=t.value;
-            t.innerHTML='<option value="">All</option>';
-            [...n].sort((a,b)=>String(a).localeCompare(String(b))).forEach(item=>{
+
+        const populateSelect = (selectEl, valuesSet, currentVal) => {
+            if (!selectEl) return;
+            selectEl.innerHTML = '<option value="">All</option>';
+            [...valuesSet].sort((a,b)=>String(a).localeCompare(String(b))).forEach(item => {
                 if(item){
                     const rawClean = unescapeHtml(item);
-                    const opt = new Option(rawClean, rawClean);
-                    t.add(opt);
+                    selectEl.add(new Option(rawClean, rawClean));
                 }
             });
-            ([...t.options].some(opt=>opt.value===o)?t.value=o:t.value="");
+            selectEl.value = [...selectEl.options].some(opt => opt.value === currentVal) ? currentVal : "";
         };
-        t(filterServiceIdSelect, e.fleetNumber);
-        t(filterRegSelect, e.reg);
-        t(filterDestinationSelect, e.destination);
-        t(filterStopSelect, e.stop);
-        if(filterArrivalSelect) filterArrivalSelect.innerHTML='<option value="">All</option>';
-    }
 
-    function getCurrentFilters() { 
-        return {
-            fleetNumber: filterServiceIdSelect ? filterServiceIdSelect.value : "",
-            reg: filterRegSelect ? filterRegSelect.value : "",
-            destination: filterDestinationSelect ? filterDestinationSelect.value : "",
-            stop: filterStopSelect ? filterStopSelect.value : ""
-        };
+        populateSelect(filterServiceIdA, fleetsA, filterServiceIdA ? filterServiceIdA.value : "");
+        populateSelect(filterRegA, regsA, filterRegA ? filterRegA.value : "");
+        populateSelect(filterDestinationA, destsA, filterDestinationA ? filterDestinationA.value : "");
+        populateSelect(filterStopA, stopsA, filterStopA ? filterStopA.value : "");
+        if(filterArrivalA) filterArrivalA.innerHTML = '<option value="">All</option>';
+
+        populateSelect(filterServiceIdB, fleetsB, filterServiceIdB ? filterServiceIdB.value : "");
+        populateSelect(filterRegB, regsB, filterRegB ? filterRegB.value : "");
+        populateSelect(filterDestinationB, destsB, filterDestinationB ? filterDestinationB.value : "");
+        populateSelect(filterStopB, stopsB, filterStopB ? filterStopB.value : "");
+        if(filterArrivalB) filterArrivalB.innerHTML = '<option value="">All</option>';
     }
 
     function applyTableFilters() { 
-        const e = getCurrentFilters();
-        const t = currentTrackedServices.filter(t => {
-            const n = !e.fleetNumber || t.assignedFleetNumber && t.assignedFleetNumber === e.fleetNumber;
-            const o = !e.reg || t.assignedRegistration && t.assignedRegistration === e.reg;
-            const r = !e.destination || unescapeHtml(t.displayDestination) === unescapeHtml(e.destination);
-            const s = !e.stop || unescapeHtml(t.nextStopName) === unescapeHtml(e.stop);
+        let routeDestinations = [];
+        if (currentRouteFilter) {
+            routeDestinations = [...new Set(localScheduleData.filter(e => e.lineName === currentRouteFilter).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
+        }
+        const dir1 = routeDestinations[0] || null;
+        const dir2 = routeDestinations[1] || null;
+
+        if (dir1) {
+            if (directionAHeading) directionAHeading.textContent = unescapeHtml(`Live Services (Towards ${dir1})`);
+            directionAHeading.style.display = "block";
+        } else {
+            if (directionAHeading) directionAHeading.textContent = "Live Services (Direction A)";
+        }
+
+        if (dir2) {
+            if (directionBHeading) {
+                directionBHeading.textContent = unescapeHtml(`Live Services (Towards ${dir2})`);
+                directionBHeading.style.display = "block";
+            }
+            if (directionBTableContainer) directionBTableContainer.style.display = "table";
+        } else {
+            if (directionBHeading) directionBHeading.style.display = "none";
+            if (directionBTableContainer) directionBTableContainer.style.display = "none";
+        }
+
+        // Filter A
+        const filtersA = {
+            fleetNumber: filterServiceIdA ? filterServiceIdA.value : "",
+            reg: filterRegA ? filterRegA.value : "",
+            destination: filterDestinationA ? filterDestinationA.value : "",
+            stop: filterStopA ? filterStopA.value : ""
+        };
+        const listA = currentTrackedServices.filter(t => {
+            const n = !filtersA.fleetNumber || t.assignedFleetNumber === filtersA.fleetNumber;
+            const o = !filtersA.reg || t.assignedRegistration === filtersA.reg;
+            const r = !filtersA.destination || unescapeHtml(t.displayDestination) === unescapeHtml(filtersA.destination);
+            const s = !filtersA.stop || unescapeHtml(t.nextStopName) === unescapeHtml(filtersA.stop);
             return n && o && r && s;
         });
-        renderTrackerTable(t);
+        renderTrackerTable(listA, 'tracker-table-body-a', dir1);
+
+        // Filter B
+        if (dir2) {
+            const filtersB = {
+                fleetNumber: filterServiceIdB ? filterServiceIdB.value : "",
+                reg: filterRegB ? filterRegB.value : "",
+                destination: filterDestinationB ? filterDestinationB.value : "",
+                stop: filterStopB ? filterStopB.value : ""
+            };
+            const listB = currentTrackedServices.filter(t => {
+                const n = !filtersB.fleetNumber || t.assignedFleetNumber === filtersB.fleetNumber;
+                const o = !filtersB.reg || t.assignedRegistration === filtersB.reg;
+                const r = !filtersB.destination || unescapeHtml(t.displayDestination) === unescapeHtml(filtersB.destination);
+                const s = !filtersB.stop || unescapeHtml(t.nextStopName) === unescapeHtml(filtersB.stop);
+                return n && o && r && s;
+            });
+            renderTrackerTable(listB, 'tracker-table-body-b', dir2);
+        }
+
         updateWatchedBusHighlighting();
     }
 
@@ -1347,17 +1468,21 @@
         searchStatusMessage.textContent = ""; 
         if (!e) { searchStatusMessage.textContent = "Enter Vehicle ID/Reg to find."; return; } 
         let t = false; 
-        if (!trackerTableBody) return; 
-        const n = trackerTableBody.getElementsByTagName("tr"); 
-        for (let o of n) { 
-            o.style.backgroundColor = ""; 
-            const r = o.cells[0] ? o.cells[0].textContent.toUpperCase() : "", s = o.cells[1] ? o.cells[1].textContent.toUpperCase() : ""; 
-            if ("N/A" !== r && r.includes(e) || "---" !== s && s.includes(e)) {
-                o.style.backgroundColor = "rgba(255, 223, 186, 0.7)"; 
-                if (!t) o.scrollIntoView({ behavior: "smooth", block: "center" }); 
-                t = true; 
-            } 
-        } 
+
+        [trackerTableBodyA, trackerTableBodyB].forEach(tbody => {
+            if (!tbody) return;
+            const n = tbody.getElementsByTagName("tr"); 
+            for (let o of n) { 
+                o.style.backgroundColor = ""; 
+                const r = o.cells[0] ? o.cells[0].textContent.toUpperCase() : "", s = o.cells[1] ? o.cells[1].textContent.toUpperCase() : ""; 
+                if ("N/A" !== r && r.includes(e) || "---" !== s && s.includes(e)) {
+                    o.style.backgroundColor = "rgba(255, 223, 186, 0.7)"; 
+                    if (!t) o.scrollIntoView({ behavior: "smooth", block: "center" }); 
+                    t = true; 
+                } 
+            }
+        });
+
         searchStatusMessage.textContent = t ? `Matches for "${escapeHtml(e)}".` : `No services for "${escapeHtml(e)}" in view.`; 
     }
 
@@ -1426,16 +1551,23 @@
         if (!curtailedBusesTableBody) return;
         curtailedBusesTableBody.innerHTML = "";
 
+        if (!currentRouteFilter) {
+            curtailedBusesTableBody.innerHTML = '<tr><td colspan="4">Enter a route number to view curtailments.</td></tr>';
+            return;
+        }
+
         const seenTripIds = new Set();
         const curtailedTrips = [];
         (localScheduleData || []).forEach(entry => {
             if (!entry || !entry.curtailment || !entry.tripId || seenTripIds.has(entry.tripId)) return;
-            seenTripIds.add(entry.tripId);
-            curtailedTrips.push(entry);
+            if (entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter) {
+                seenTripIds.add(entry.tripId);
+                curtailedTrips.push(entry);
+            }
         });
 
         if (curtailedTrips.length === 0) {
-            curtailedBusesTableBody.innerHTML = '<tr><td colspan="4">No curtailments currently active.</td></tr>';
+            curtailedBusesTableBody.innerHTML = `<tr><td colspan="4">No curtailments currently active for route ${escapeHtml(currentRouteFilter)}.</td></tr>`;
             return;
         }
 

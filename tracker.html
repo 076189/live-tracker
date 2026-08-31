@@ -227,6 +227,7 @@
 
     const MAX_UPCOMING_SECONDS_TRACKER = 1800; 
     const MIN_RELEVANT_PAST_SECONDS_TRACKER = -59; 
+    const MAX_PAST_SECONDS_TRACKER = -1800; // 30-minute timeout buffer after passing a stop
 
     let currentRouteFilter = null; 
     let isRarePageActive = false;
@@ -823,7 +824,7 @@
             }
             if (activeBlockIds.has(blockId) || closedStopIDsGlobal.includes(busEntry.stopID)) return;
             const { finalAdjustedSchedTime, timeToStationInSeconds } = calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing);
-            if (finalAdjustedSchedTime && timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER && timeToStationInSeconds <= MAX_UPCOMING_SECONDS_TRACKER) {
+            if (finalAdjustedSchedTime && timeToStationInSeconds >= MAX_PAST_SECONDS_TRACKER && timeToStationInSeconds <= MAX_UPCOMING_SECONDS_TRACKER) {
                 activeBlockIds.add(blockId);
             }
         });
@@ -986,16 +987,31 @@
         let servicesWithARelevantNextStop = [];
         activeServicesMap.forEach((serviceRun) => {
             if (serviceRun.stops.length > 0) { serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));}
-            let nextLiveStopForThisRun = null;
+            
+            // Find the closest upcoming stop, or fallback to the most recently passed stop within the timeout window
+            let bestStopForThisRun = null;
+            let smallestFutureDiff = Infinity;
+            let largestPastDiff = -Infinity;
+
             for (const stop of serviceRun.stops) {
                 if (!stop.preciseScheduledDateTime) continue;
                 if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
-                if (stop.timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER && stop.timeToStationInSeconds <= MAX_UPCOMING_SECONDS_TRACKER) {
-                    nextLiveStopForThisRun = { stopName: unescapeHtml(stop.stopName), stopID: stop.stopID, actualArrivalTime: stop.preciseScheduledDateTime, timeToStationInSeconds: stop.timeToStationInSeconds, calculatedArrivalText: stop.calculatedArrivalText };
-                    break; 
+
+                const diff = stop.timeToStationInSeconds;
+                if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
+                    if (diff < smallestFutureDiff) {
+                        smallestFutureDiff = diff;
+                        bestStopForThisRun = stop;
+                    }
+                } else if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
+                    if (diff > largestPastDiff && smallestFutureDiff === Infinity) {
+                        largestPastDiff = diff;
+                        bestStopForThisRun = stop;
+                    }
                 }
             }
-            if (nextLiveStopForThisRun) {
+
+            if (bestStopForThisRun) {
                 fullServiceRunDataMap.set(serviceRun.serviceId, serviceRun); 
                 servicesWithARelevantNextStop.push({ 
                     serviceId: serviceRun.serviceId, 
@@ -1004,9 +1020,9 @@
                     assignedRegistration: serviceRun.assignedRegistration, 
                     trueLineName: serviceRun.trueLineName, 
                     displayDestination: serviceRun.displayDestination, 
-                    nextStopName: unescapeHtml(nextLiveStopForThisRun.stopName), 
-                    nextStopActualTime: nextLiveStopForThisRun.actualArrivalTime, 
-                    _timeToNextStopSec: nextLiveStopForThisRun.timeToStationInSeconds,
+                    nextStopName: unescapeHtml(bestStopForThisRun.stopName), 
+                    nextStopActualTime: bestStopForThisRun.preciseScheduledDateTime, 
+                    _timeToNextStopSec: bestStopForThisRun.timeToStationInSeconds,
                     isRareWorking: serviceRun.isRareWorking
                 });
             }
@@ -1016,7 +1032,7 @@
         servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
             const key = serviceWithNextStop.blockId || `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
             const existing = blockNextActivityMap.get(key);
-            if (!existing || serviceWithNextStop._timeToNextStopSec < existing._timeToNextStopSec) {
+            if (!existing || Math.abs(serviceWithNextStop._timeToNextStopSec) < Math.abs(existing._timeToNextStopSec)) {
                 blockNextActivityMap.set(key, serviceWithNextStop);
             }
         });
@@ -1079,10 +1095,19 @@
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
                 const time = service.nextStopActualTime; 
-                const hours = String(time.getHours()).padStart(2, '0'); 
-                const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                const seconds = String(time.getSeconds()).padStart(2, '0'); 
-                displayTimeText = `${hours}:${minutes}:${seconds}`; 
+                if (service._timeToNextStopSec < 0) {
+                    const day = String(time.getDate()).padStart(2, '0');
+                    const month = String(time.getMonth() + 1).padStart(2, '0');
+                    const hours = String(time.getHours()).padStart(2, '0'); 
+                    const minutes = String(time.getMinutes()).padStart(2, '0'); 
+                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
+                    displayTimeText = `${day}/${month} ${hours}:${minutes}:${seconds}`;
+                } else {
+                    const hours = String(time.getHours()).padStart(2, '0'); 
+                    const minutes = String(time.getMinutes()).padStart(2, '0'); 
+                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
+                    displayTimeText = `${hours}:${minutes}:${seconds}`; 
+                }
             } else { 
                 const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); 
                 displayTimeText = unescapeHtml(fallbackEtaText || '?'); 
@@ -1121,10 +1146,19 @@
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
                 const time = service.nextStopActualTime; 
-                const hours = String(time.getHours()).padStart(2, '0'); 
-                const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                const seconds = String(time.getSeconds()).padStart(2, '0'); 
-                displayTimeText = `${hours}:${minutes}:${seconds}`; 
+                if (service._timeToNextStopSec < 0) {
+                    const day = String(time.getDate()).padStart(2, '0');
+                    const month = String(time.getMonth() + 1).padStart(2, '0');
+                    const hours = String(time.getHours()).padStart(2, '0'); 
+                    const minutes = String(time.getMinutes()).padStart(2, '0'); 
+                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
+                    displayTimeText = `${day}/${month} ${hours}:${minutes}:${seconds}`;
+                } else {
+                    const hours = String(time.getHours()).padStart(2, '0'); 
+                    const minutes = String(time.getMinutes()).padStart(2, '0'); 
+                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
+                    displayTimeText = `${hours}:${minutes}:${seconds}`; 
+                }
             } else { 
                 const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); 
                 displayTimeText = unescapeHtml(fallbackEtaText || '?'); 
@@ -1157,12 +1191,10 @@
         }
 
         if (logs.length === 0) {
-            // Also check if this identifier matches any currently active cache assignment across any route/block
             for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
                 const f = String(vehicle.fleetNumber || "").toUpperCase();
                 const r = String(vehicle.registration || "").toUpperCase();
                 if (f.includes(cleanIdent) || r.includes(cleanIdent)) {
-                    // Extract route from blockId or default
                     const parts = blockId.split('_');
                     const rName = parts.length > 0 ? parts[0] : "Active";
                     logs.push({ routeName: rName, timestamp: Date.now() });
@@ -1279,7 +1311,7 @@
         }
 
         if (identToSearch) {
-            displayVehicleHistoryModal(identStr = identToSearch);
+            displayVehicleHistoryModal(identToSearch);
             searchStatusMessage.textContent = `Showing history for ${escapeHtml(identToSearch)}.`;
             vehicleSearchInput.value = "";
             return;

@@ -235,13 +235,9 @@
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
     const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v1';
     const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v1';
-    const ROUTE_CACHE_STORAGE_KEY = 'omsiRouteCache_v1';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     let updateThrottleTimer = null;
-
-    let routeCacheMap = new Map();
-    let routeMetaMap = new Map();
 
     let vehicleRouteHistoryMap = new Map();
     let vehicleDetailedLogMap = new Map();
@@ -918,17 +914,6 @@
         const nowForProcessing = new Date();
         const activeServicesMap = new Map();
 
-        const tripFinalDestinations = new Map();
-        if (currentRouteFilter) {
-            localScheduleData.forEach(entry => {
-                if (entry && entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase() && entry.tripId) {
-                    if (!tripFinalDestinations.has(entry.tripId)) {
-                        tripFinalDestinations.set(entry.tripId, unescapeHtml(entry.destinationName));
-                    }
-                }
-            });
-        }
-
         dataToProcess.forEach((busEntryRaw) => {
             if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) { return; }
 
@@ -973,14 +958,9 @@
 
                 const isRare = isAllocatedRare && isOlderThan60Days;
 
-                let finalDest = unescapeHtml(busEntry.destinationName);
-                if (busEntry.tripId && tripFinalDestinations.has(busEntry.tripId)) {
-                    finalDest = tripFinalDestinations.get(busEntry.tripId);
-                }
-
                 activeServicesMap.set(serviceInstanceKey, {
                     serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
-                    trueLineName: trueLineName, displayDestination: finalDest, stops: [],
+                    trueLineName: trueLineName, displayDestination: unescapeHtml(busEntry.destinationName), stops: [],
                     originalDataFleetNo: busEntry.fleetNumber, originalDataRegNo: busEntry.vehicleReg,
                     isRareWorking: isRare,
                     blockId: blockId
@@ -1217,14 +1197,7 @@
 
             let allUniqueDestinations = [];
             if (currentRouteFilter) {
-                const routeEntries = localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase());
-                const destMap = new Map();
-                routeEntries.forEach(e => {
-                    if (e.tripId && e.destinationName) {
-                        if (!destMap.has(e.tripId)) destMap.set(e.tripId, unescapeHtml(e.destinationName));
-                    }
-                });
-                allUniqueDestinations = [...new Set(Array.from(destMap.values()))].sort();
+                allUniqueDestinations = [...new Set(localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
             }
 
             let dir1Destinations = [];
@@ -1296,9 +1269,18 @@
             }
         }
 
-        if (vehicleDetailedLogMap.has(upperInput) || Array.from(vehicleDetailedLogMap.keys()).some(k => k.includes(upperInput))) {
-            displayVehicleHistoryModal(upperInput);
-            searchStatusMessage.textContent = `Showing history for ${escapeHtml(upperInput)}.`;
+        // Direct lookup popup if found in history map
+        let foundKey = null;
+        for (const key of vehicleDetailedLogMap.keys()) {
+            if (key === upperInput || key.includes(upperInput) || upperInput.includes(key)) {
+                foundKey = key;
+                break;
+            }
+        }
+
+        if (foundKey) {
+            displayVehicleHistoryModal(foundKey);
+            searchStatusMessage.textContent = `Showing history for ${escapeHtml(foundKey)}.`;
             vehicleSearchInput.value = "";
             return;
         }
@@ -1394,16 +1376,7 @@
             if (longestRunStops.length > 0) { const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); return sortedStops; }
             return [];
         };
-
-        // Use full uncurtailed final destinations from schedule dataset to match both ends properly
-        const routeEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase());
-        const destMap = new Map();
-        routeEntries.forEach(entry => {
-            if (entry.tripId && entry.destinationName) {
-                if (!destMap.has(entry.tripId)) destMap.set(entry.tripId, unescapeHtml(entry.destinationName));
-            }
-        });
-        const destinationNames = [...new Set(Array.from(destMap.values()))].sort();
+        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))].sort();
         
         if (destinationNames.length === 0) {
             if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML = "<p>No destinations found for this route.</p>";

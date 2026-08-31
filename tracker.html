@@ -39,6 +39,7 @@
         tr:nth-child(even) { background-color: #f8f9fa; }
         tr:hover { background-color: #e9ecef; }
         tr.watched-bus td { background-color: #fff3cd !important; border-left: 3px solid #ffeeba !important; border-right: 3px solid #ffeeba !important; font-weight: bold; color: #856404; }
+        tr.past-stopped-bus td { color: #888888 !important; font-style: italic !important; }
         td[colspan] { text-align: center; font-style: italic; color: #6c757d; padding: 15px 8px; white-space: normal; }
 
         #top-search-container { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #dfe4ea; }
@@ -988,7 +989,6 @@
         activeServicesMap.forEach((serviceRun) => {
             if (serviceRun.stops.length > 0) { serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));}
             
-            // Find the closest upcoming stop, or fallback to the most recently passed stop within the timeout window
             let bestStopForThisRun = null;
             let smallestFutureDiff = Infinity;
             let largestPastDiff = -Infinity;
@@ -1083,6 +1083,9 @@
         tbody.innerHTML = "";
         filteredByDirection.forEach((service) => { 
             const row = tbody.insertRow();
+            const isPast = service._timeToNextStopSec < 0;
+            if (isPast) row.classList.add('past-stopped-bus');
+
             if (service.serviceId && watchedBuses.has(service.serviceId)) row.classList.add('watched-bus');
             else if (service.assignedRegistration && watchedBuses.has(service.assignedRegistration.toUpperCase())) row.classList.add('watched-bus');
             else if (service.assignedFleetNumber && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) row.classList.add('watched-bus');
@@ -1095,13 +1098,20 @@
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
                 const time = service.nextStopActualTime; 
-                if (service._timeToNextStopSec < 0) {
-                    const day = String(time.getDate()).padStart(2, '0');
-                    const month = String(time.getMonth() + 1).padStart(2, '0');
+                if (isPast) {
+                    const now = new Date();
+                    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                     const hours = String(time.getHours()).padStart(2, '0'); 
                     const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
-                    displayTimeText = `${day}/${month} ${hours}:${minutes}:${seconds}`;
+
+                    if (time.getTime() >= midnight.getTime()) {
+                        displayTimeText = `Last seen ${hours}:${minutes}`;
+                    } else {
+                        const day = String(time.getDate()).padStart(2, '0');
+                        const month = String(time.getMonth() + 1).padStart(2, '0');
+                        const year = time.getFullYear();
+                        displayTimeText = `Last seen ${day}/${month}/${year} - ${hours}:${minutes}`;
+                    }
                 } else {
                     const hours = String(time.getHours()).padStart(2, '0'); 
                     const minutes = String(time.getMinutes()).padStart(2, '0'); 
@@ -1133,6 +1143,9 @@
         tbody.innerHTML = "";
         servicesToDisplay.forEach((service) => {
             const row = tbody.insertRow();
+            const isPast = service._timeToNextStopSec < 0;
+            if (isPast) row.classList.add('past-stopped-bus');
+
             if (service.serviceId && watchedBuses.has(service.serviceId)) row.classList.add('watched-bus');
             else if (service.assignedRegistration && watchedBuses.has(service.assignedRegistration.toUpperCase())) row.classList.add('watched-bus');
             else if (service.assignedFleetNumber && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) row.classList.add('watched-bus');
@@ -1146,13 +1159,20 @@
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
                 const time = service.nextStopActualTime; 
-                if (service._timeToNextStopSec < 0) {
-                    const day = String(time.getDate()).padStart(2, '0');
-                    const month = String(time.getMonth() + 1).padStart(2, '0');
+                if (isPast) {
+                    const now = new Date();
+                    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                     const hours = String(time.getHours()).padStart(2, '0'); 
                     const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
-                    displayTimeText = `${day}/${month} ${hours}:${minutes}:${seconds}`;
+
+                    if (time.getTime() >= midnight.getTime()) {
+                        displayTimeText = `Last seen ${hours}:${minutes}`;
+                    } else {
+                        const day = String(time.getDate()).padStart(2, '0');
+                        const month = String(time.getMonth() + 1).padStart(2, '0');
+                        const year = time.getFullYear();
+                        displayTimeText = `Last seen ${day}/${month}/${year} - ${hours}:${minutes}`;
+                    }
                 } else {
                     const hours = String(time.getHours()).padStart(2, '0'); 
                     const minutes = String(time.getMinutes()).padStart(2, '0'); 

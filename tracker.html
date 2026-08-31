@@ -522,7 +522,7 @@
                 mainHeadingElement.textContent = unescapeHtml(currentRouteFilter ? `OMSI Live Tracker - Route ${currentRouteFilter}` : "OMSI Live Tracker");
             }
         }
-        if (isRarePageActive && !currentRouteFilter) {
+        if (isRarePageActive) {
             loadAllRoutesMetadataAndData();
         } else {
             throttledProcessAndDisplay();
@@ -1157,6 +1157,18 @@
         }
 
         if (logs.length === 0) {
+            for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
+                const f = String(vehicle.fleetNumber || "").toUpperCase();
+                const r = String(vehicle.registration || "").toUpperCase();
+                if (f.includes(cleanIdent) || r.includes(cleanIdent)) {
+                    const parts = blockId.split('_');
+                    const rName = parts.length > 0 ? parts[0] : "Active";
+                    logs.push({ routeName: rName, timestamp: Date.now() });
+                }
+            }
+        }
+
+        if (logs.length === 0) {
             vehicleHistoryList.innerHTML = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
         } else {
             let tableHTML = '<table><thead><tr><th>Route</th><th>Sighting Timestamp</th></tr></thead><tbody>';
@@ -1258,55 +1270,20 @@
         if (!rawInput) { searchStatusMessage.textContent = "Enter Vehicle ID/Reg or 'HISTORY [ID]'."; return; } 
 
         const upperInput = rawInput.toUpperCase();
+        let identToSearch = upperInput;
 
         if (upperInput.startsWith("HISTORY ")) {
-            const ident = upperInput.replace("HISTORY", "").trim();
-            if (ident) {
-                displayVehicleHistoryModal(ident);
-                searchStatusMessage.textContent = `Showing history for ${escapeHtml(ident)}.`;
-                vehicleSearchInput.value = "";
-                return;
-            }
+            identToSearch = upperInput.replace("HISTORY", "").trim();
         }
 
-        // Direct lookup popup if found in history map
-        let foundKey = null;
-        for (const key of vehicleDetailedLogMap.keys()) {
-            if (key === upperInput || key.includes(upperInput) || upperInput.includes(key)) {
-                foundKey = key;
-                break;
-            }
-        }
-
-        if (foundKey) {
-            displayVehicleHistoryModal(foundKey);
-            searchStatusMessage.textContent = `Showing history for ${escapeHtml(foundKey)}.`;
+        if (identToSearch) {
+            displayVehicleHistoryModal(identToSearch);
+            searchStatusMessage.textContent = `Showing history for ${escapeHtml(identToSearch)}.`;
             vehicleSearchInput.value = "";
             return;
         }
 
-        let t = false; 
-        const tablesToCheck = isRarePageActive 
-            ? [trackerTableBodyRare] 
-            : [trackerTableBodyA, trackerTableBodyB];
-
-        tablesToCheck.forEach(tbody => {
-            if (!tbody) return;
-            const n = tbody.getElementsByTagName("tr"); 
-            for (let o of n) { 
-                o.style.backgroundColor = ""; 
-                const cellIndexOffset = isRarePageActive ? 1 : 0;
-                const r = o.cells[0 + cellIndexOffset] ? o.cells[0 + cellIndexOffset].textContent.toUpperCase() : "";
-                const s = o.cells[1 + cellIndexOffset] ? o.cells[1 + cellIndexOffset].textContent.toUpperCase() : ""; 
-                if ("N/A" !== r && r.includes(upperInput) || "---" !== s && s.includes(upperInput)) {
-                    o.style.backgroundColor = "rgba(255, 223, 186, 0.7)"; 
-                    if (!t) o.scrollIntoView({ behavior: "smooth", block: "center" }); 
-                    t = true; 
-                } 
-            }
-        });
-
-        searchStatusMessage.textContent = t ? `Matches for "${escapeHtml(rawInput)}".` : `No services for "${escapeHtml(rawInput)}" in view.`; 
+        searchStatusMessage.textContent = `No vehicle ID found for "${escapeHtml(rawInput)}".`; 
     }
     
     function populateCurtailmentsTable() {

@@ -185,7 +185,7 @@
             </tr>
         </thead>
         <tbody id="tracker-table-body">
-            <tr><td colspan="5" style="text-align:center; padding: 20px;">Please upload a schedule file to begin.</td></tr>
+            <tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to begin.</td></tr>
         </tbody>
     </table>
 
@@ -208,13 +208,13 @@
         <div class="sequence-container">
             <h3 id="outbound-sequence-heading">Route Sequence (Direction 1)</h3>
             <div id="outbound-sequence-list" class="sequence-list-container">
-                <p>Upload a schedule and enter a route number to see its sequence.</p>
+                <p>Enter a route number to see its sequence.</p>
             </div>
         </div>
         <div class="sequence-container">
             <h3 id="inbound-sequence-heading">Route Sequence (Direction 2)</h3>
              <div id="inbound-sequence-list" class="sequence-list-container">
-                 <p>Upload a schedule and enter a route number to see its sequence.</p>
+                 <p>Enter a route number to see its sequence.</p>
              </div>
         </div>
     </div>
@@ -252,7 +252,8 @@
 
     <script>
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
-    let localScheduleData = []; 
+    let rawLoadedScheduleData = []; // Full uploaded file storage only
+    let activeRouteScheduleData = []; // Only holds entries for the currently requested route
     let localUniqueStops = [];  
     let currentTrackedServices = [];
     let fullServiceRunDataMap = new Map();
@@ -269,6 +270,7 @@
 
     let currentSelectedStopID_filter = null; 
     let currentRouteFilter = null; 
+    let activeRouteDataUnsubscribe = null; // Firebase listener for specific route node
 
     const REFRESH_INTERVAL_SECONDS = 300; 
     let countdownValue = REFRESH_INTERVAL_SECONDS;
@@ -277,10 +279,8 @@
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
     const LOCAL_SCHEDULE_STORAGE_KEY = 'omsiTrackerLocalSchedule_v1';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
-    const FB_PATH_LIVE_UNIQUE_STOPS = '/liveSchedule/uniqueBusStops';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     let isUsingLiveRSGSchedule = false;
-    let liveScheduleFlattenToken = 0;
 
     const defaultVehicleAllocationData = {
   "4": { "commonVehicles": [ { "fleetNumber": "SE115", "registration": "LF20XMX" }, { "fleetNumber": "SE120", "registration": "LF20XMY" }, { "fleetNumber": "SE125", "registration": "LF70YWC" } ], "rareVehicles": [ { "fleetNumber": "GOLD4", "registration": "AU79OMS" } ], "rareChance": 0.05 },
@@ -323,11 +323,11 @@
         }
         serviceInstanceVehicleCache.clear();
         saveVehicleCacheToStorage();
-        if (localScheduleData.length > 0) processAndDisplayAllData();
+        if (activeRouteScheduleData.length > 0) processAndDisplayActiveRouteData();
     }
 
-const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
-let serviceInstanceVehicleCache = new Map();
+    const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
+    let serviceInstanceVehicleCache = new Map();
 
     let clockTimeElement, clockDateElement, trackerTableBody, busCounterElement,
         updateTimeElement, nextUpdateTimerElement, availableStopsSelect,
@@ -339,10 +339,8 @@ let serviceInstanceVehicleCache = new Map();
         mainHeadingElement, scheduleFileInput, loadScheduleButton, fileUploadStatusMessageEl;
 
     let tripBlockMapping = new Map();
-
     let filterServiceIdSelect, filterRegSelect, filterDestinationSelect, filterStopSelect, filterArrivalSelect;
 
-    function debugLog(message, ...optionalParams) { }
     function escapeHtml(unsafe){if(unsafe===null||typeof unsafe==='undefined')return'N/A';return String(unsafe).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");}
     function naturalSortCompareFleet(aStr, bStr) { const sA = String(aStr || "").trim(); const sB = String(bStr || "").trim(); const regex = /^([a-zA-Z]*)(\d+)?(.*)$/; const partsA = sA.match(regex); const partsB = sB.match(regex); if (partsA && partsB) { const prefixA = (partsA[1] || "").toUpperCase(); const prefixB = (partsB[1] || "").toUpperCase(); if (prefixA < prefixB) return -1; if (prefixA > prefixB) return 1; const numA = partsA[2] ? parseInt(partsA[2], 10) : -1; const numB = partsB[2] ? parseInt(partsB[2], 10) : -1; if (numA !== -1 && numB !== -1) { if (numA < numB) return -1; if (numA > numB) return 1; } else if (numA !== -1) { return -1; } else if (numB !== -1) { return 1; } const suffixA = (partsA[3] || "").toUpperCase(); const suffixB = (partsB[3] || "").toUpperCase(); if (suffixA < suffixB) return -1; if (suffixA > suffixB) return 1; return 0; } return sA.localeCompare(sB, undefined, {numeric: true, sensitivity: 'base'}); }
     
@@ -356,45 +354,65 @@ let serviceInstanceVehicleCache = new Map();
     function loadVehicleCacheFromStorage() { try { const storedCache = localStorage.getItem(VEHICLE_CACHE_STORAGE_KEY); if (storedCache) { const parsedCache = JSON.parse(storedCache); if (typeof parsedCache === 'object' && parsedCache !== null) { serviceInstanceVehicleCache = new Map(Object.entries(parsedCache)); } else { serviceInstanceVehicleCache = new Map(); } } else { serviceInstanceVehicleCache = new Map(); } } catch (error) { serviceInstanceVehicleCache = new Map(); localStorage.removeItem(VEHICLE_CACHE_STORAGE_KEY); } }
     function saveVehicleCacheToStorage() { try { const objectToStore = Object.fromEntries(serviceInstanceVehicleCache); localStorage.setItem(VEHICLE_CACHE_STORAGE_KEY, JSON.stringify(objectToStore)); } catch (error) { } }
 
-    async function applyLiveRSGSchedule(snapshot) {
-        const myToken = ++liveScheduleFlattenToken;
-        const schedulesByRoute = snapshot.exists() ? snapshot.val() : null;
-        const routeKeys = (schedulesByRoute && typeof schedulesByRoute === 'object') ? Object.keys(schedulesByRoute) : [];
-
-        if (routeKeys.length === 0) {
-            if (!isUsingLiveRSGSchedule) return;
+    async function switchRouteDataFeed(routeTarget) {
+        if (activeRouteDataUnsubscribe) {
+            activeRouteDataUnsubscribe();
+            activeRouteDataUnsubscribe = null;
         }
 
-        const flatLiveSchedule = [];
-        for (let i = 0; i < routeKeys.length; i++) {
-            const routeKey = routeKeys[i];
-            const routeData = schedulesByRoute[routeKey];
-            if (!routeData || typeof routeData !== 'object') continue;
-            for (const profileKey in routeData) {
-                if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
-                const profileData = routeData[profileKey];
-                if (!profileData || typeof profileData !== 'object') continue;
-                for (const destKey in profileData) {
-                    if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
-                    const destData = profileData[destKey];
-                    if (destData && Array.isArray(destData.entries)) {
-                        destData.entries.forEach(entry => { if (entry) flatLiveSchedule.push(entry); });
+        activeRouteScheduleData = [];
+        tripBlockMapping.clear();
+
+        if (!routeTarget) {
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
+            if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
+            currentTrackedServices = [];
+            populateTableFilters();
+            generateAndDisplayRouteSequences();
+            return;
+        }
+
+        if (isUsingLiveRSGSchedule && window.firebaseOMSI_SA && window.firebaseOMSI_SA.database) {
+            const { database, dbOnValue, dbRef } = window.firebaseOMSI_SA;
+            const routeNodeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeTarget}`);
+            
+            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loading live data strictly for route ${routeTarget}...`;
+            
+            activeRouteDataUnsubscribe = dbOnValue(routeNodeRef, async (snapshot) => {
+                const routeProfilesObj = snapshot.exists() ? snapshot.val() : null;
+                const flatRouteEntries = [];
+
+                if (routeProfilesObj && typeof routeProfilesObj === 'object') {
+                    for (const profileKey in routeProfilesObj) {
+                        if (!Object.hasOwnProperty.call(routeProfilesObj, profileKey)) continue;
+                        const profileData = routeProfilesObj[profileKey];
+                        if (!profileData || typeof profileData !== 'object') continue;
+                        for (const destKey in profileData) {
+                            if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
+                            const destData = profileData[destKey];
+                            if (destData && Array.isArray(destData.entries)) {
+                                destData.entries.forEach(entry => { if (entry) flatRouteEntries.push(entry); });
+                            }
+                        }
                     }
                 }
-            }
-            if (i % 5 === 0) await yieldToMain();
+
+                activeRouteScheduleData = flatRouteEntries;
+                await generateVehicleBlocks(activeRouteScheduleData);
+                await processAndDisplayActiveRouteData();
+                generateAndDisplayRouteSequences();
+                if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded route ${routeTarget} (${flatRouteEntries.length} entries).`;
+            });
+        } else if (rawLoadedScheduleData.length > 0) {
+            // Local file mode: slice strictly matching entries for this route
+            activeRouteScheduleData = rawLoadedScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeTarget.toUpperCase());
+            await generateVehicleBlocks(activeRouteScheduleData);
+            await processAndDisplayActiveRouteData();
+            generateAndDisplayRouteSequences();
+            if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded local file route ${routeTarget} (${activeRouteScheduleData.length} entries).`;
+        } else {
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule file uploaded and Firebase offline.</td></tr>`;
         }
-
-        if (myToken !== liveScheduleFlattenToken) return; 
-
-        isUsingLiveRSGSchedule = true;
-        localScheduleData = flatLiveSchedule;
-        await generateVehicleBlocks(localScheduleData);
-        await processAndDisplayAllData();
-        populateStopsFilter();
-        generateAndDisplayRouteSequences();
-        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Live schedule connected (${flatLiveSchedule.length} entries across ${routeKeys.length} routes) via RSG in OMSI Tools Extra.`;
-        if (nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Live (RSG)";
     }
 
     async function generateVehicleBlocks(scheduleData) {
@@ -462,27 +480,27 @@ let serviceInstanceVehicleCache = new Map();
         const reader = new FileReader();
         reader.onload = async function(event) {
             try {
+                isUsingLiveRSGSchedule = false;
                 const fileContent = event.target.result;
                 const parsed = parseScheduleFileContent(fileContent, file.name); 
                 if (parsed && parsed.allScheduledBusData && parsed.uniqueBusStops) {
-                    localScheduleData = parsed.allScheduledBusData;
+                    rawLoadedScheduleData = parsed.allScheduledBusData;
                     localUniqueStops = parsed.uniqueBusStops;
                     try {
                         localStorage.setItem(LOCAL_SCHEDULE_STORAGE_KEY, JSON.stringify({
-                            data: localScheduleData, stops: localUniqueStops, fileName: file.name, loadTime: new Date().toISOString()
+                            data: rawLoadedScheduleData, stops: localUniqueStops, fileName: file.name, loadTime: new Date().toISOString()
                         }));
-                        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Successfully loaded ${localScheduleData.length} entries from ${file.name}.`;
+                        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Successfully loaded file (${rawLoadedScheduleData.length} total entries). Enter route to view.`;
                     } catch (storageError) {
-                        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded ${localScheduleData.length} entries (localStorage full/unavailable).`;
+                        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Loaded file entries (localStorage full/unavailable).`;
                     }
-                    await generateVehicleBlocks(localScheduleData);
-                    await processAndDisplayAllData(); 
-                    populateStopsFilter(); 
-                    generateAndDisplayRouteSequences();
+                    if (currentRouteFilter) {
+                        await switchRouteDataFeed(currentRouteFilter);
+                    }
                 }
             } catch (error) {
                 if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Error: ${error.message}`;
-                localScheduleData = []; 
+                rawLoadedScheduleData = []; 
                 localUniqueStops = [];
             }
         };
@@ -499,14 +517,14 @@ let serviceInstanceVehicleCache = new Map();
             if (storedSchedule) {
                 const parsedStorage = JSON.parse(storedSchedule);
                 if (parsedStorage.data && parsedStorage.stops) {
-                    localScheduleData = parsedStorage.data; localUniqueStops = parsedStorage.stops;
-                    await generateVehicleBlocks(localScheduleData);
-                    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Using schedule from last session: ${parsedStorage.fileName || 'Unknown'}. Upload new file to update.`;
+                    rawLoadedScheduleData = parsedStorage.data; 
+                    localUniqueStops = parsedStorage.stops;
+                    isUsingLiveRSGSchedule = false;
+                    if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = `Using schedule from last session: ${parsedStorage.fileName || 'Unknown'}.`;
                     return true;
                 }
             }
         } catch (e) { localStorage.removeItem(LOCAL_SCHEDULE_STORAGE_KEY); }
-        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = "No schedule loaded. Please upload a file.";
         return false;
     }
 
@@ -560,21 +578,20 @@ let serviceInstanceVehicleCache = new Map();
     async function initializeTracker() {
         clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBody = document.getElementById('tracker-table-body'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); availableStopsSelect = document.getElementById('available-stops-select'); serviceAlertsContentElement = document.getElementById('service-alerts-content'); serviceAlertsContainerElement = document.getElementById('service-alerts-container'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceList = document.getElementById('outbound-sequence-list'); inboundSequenceList = document.getElementById('inbound-sequence-list'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehiclePredictionModal = document.getElementById('vehicle-prediction-modal'); vehiclePredictionTitle = document.getElementById('vehicle-prediction-title'); vehiclePredictionList = document.getElementById('vehicle-prediction-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); mainHeadingElement = document.getElementById('main-heading'); filterServiceIdSelect = document.getElementById('filter-service-id'); filterRegSelect = document.getElementById('filter-reg'); filterDestinationSelect = document.getElementById('filter-destination'); filterStopSelect = document.getElementById('filter-stop'); filterArrivalSelect = document.getElementById('filter-arrival');
         scheduleFileInput = document.getElementById('schedule-file-input'); loadScheduleButton = document.getElementById('load-schedule-button'); fileUploadStatusMessageEl = document.getElementById('file-upload-status-message');
+        
         loadVehicleCacheFromStorage(); setupUIListeners(); updateClock(); setInterval(updateClock, 1000); 
         fetchBankHolidays(); loadWatchedBuses(); 
         setupFirebaseDependentListeners(); 
-        if (await loadScheduleFromLocalStorage()) { 
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
-            populateStopsFilter(); 
-        } else { 
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please upload a schedule file to begin.</td></tr>`; 
-        }
-        if(nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Load File"; clearInterval(countdownTimerId);
+
+        await loadScheduleFromLocalStorage();
+        if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
+        
+        if(nextUpdateTimerElement) nextUpdateTimerElement.textContent = "Refresh: Manual (Load File)"; clearInterval(countdownTimerId);
     }
 
     function setupUIListeners() {
         if (loadScheduleButton) loadScheduleButton.addEventListener('click', handleScheduleFileUpload);
-        if (availableStopsSelect) availableStopsSelect.addEventListener('change', async (event) => { currentSelectedStopID_filter = event.target.value; await processAndDisplayAllData(); });
+        if (availableStopsSelect) availableStopsSelect.addEventListener('change', async (event) => { currentSelectedStopID_filter = event.target.value; await processAndDisplayActiveRouteData(); });
         if (document.getElementById('vehicle-search-button')) document.getElementById('vehicle-search-button').addEventListener('click', searchForVehicleInTable);
         if (document.getElementById('watch-bus-button')) document.getElementById('watch-bus-button').addEventListener('click', addBusToWatchlist);
         if (vehicleSearchInput) vehicleSearchInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') searchForVehicleInTable(); });
@@ -589,17 +606,23 @@ let serviceInstanceVehicleCache = new Map();
     async function handleRouteSearch() { 
         if (routeSearchInput) { 
             const routeValue = routeSearchInput.value.trim().toUpperCase(); 
-            if (routeValue) { currentRouteFilter = routeValue; if (mainHeadingElement) mainHeadingElement.textContent = `OMSI Live Tracker - Route ${escapeHtml(currentRouteFilter)}`; if(searchStatusMessage) searchStatusMessage.textContent = `Showing route ${escapeHtml(currentRouteFilter)}.`; } 
-            else { currentRouteFilter = null; if (mainHeadingElement) mainHeadingElement.textContent = "OMSI Live Tracker (Standalone)"; if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; } 
-            await processAndDisplayAllData(); generateAndDisplayRouteSequences(); 
+            if (routeValue) { 
+                currentRouteFilter = routeValue; 
+                if (mainHeadingElement) mainHeadingElement.textContent = `OMSI Live Tracker - Route ${escapeHtml(currentRouteFilter)}`; 
+                if (searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(currentRouteFilter)}...`; 
+                await switchRouteDataFeed(currentRouteFilter);
+            } else { 
+                handleClearRouteFilter(); 
+            } 
         } 
     }
 
     async function handleClearRouteFilter() { 
         currentRouteFilter = null; 
-        if (routeSearchInput) routeSearchInput.value = ""; if (mainHeadingElement) mainHeadingElement.textContent = "OMSI Live Tracker (Standalone)"; 
-        if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
-        await processAndDisplayAllData(); generateAndDisplayRouteSequences(); 
+        if (routeSearchInput) routeSearchInput.value = ""; 
+        if (mainHeadingElement) mainHeadingElement.textContent = "OMSI Live Tracker (Standalone)"; 
+        if (searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
+        await switchRouteDataFeed(null);
     }
 
     function setupFirebaseDependentListeners() {
@@ -609,20 +632,15 @@ let serviceInstanceVehicleCache = new Map();
         }
         const { database, dbOnValue, dbRef } = window.firebaseOMSI_SA;
         const globalColoursRef = dbRef(database, '/settings/customRouteColours'); 
-        dbOnValue(globalColoursRef, async (s) => { globalCustomRouteColours = s.exists() ? s.val() : {}; if (localScheduleData.length > 0 && currentRouteFilter) await processAndDisplayAllData(); });
+        dbOnValue(globalColoursRef, async (s) => { globalCustomRouteColours = s.exists() ? s.val() : {}; if (activeRouteScheduleData.length > 0) await processAndDisplayActiveRouteData(); });
         const stopSpecificColoursRef = dbRef(database, '/settings/stopSpecificRouteColours'); 
-        dbOnValue(stopSpecificColoursRef, async (s) => { stopSpecificRouteColours = s.exists() ? s.val() : {}; if (localScheduleData.length > 0 && currentRouteFilter) await processAndDisplayAllData(); });
+        dbOnValue(stopSpecificColoursRef, async (s) => { stopSpecificRouteColours = s.exists() ? s.val() : {}; if (activeRouteScheduleData.length > 0) await processAndDisplayActiveRouteData(); });
         const appStateRef = dbRef(database, '/appState'); 
-        dbOnValue(appStateRef, async (s) => { if(s.exists()){ const a=s.val(); const fbClosedStops = a.closedStopIDs || {}; let newClosed = []; for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID); } if(JSON.stringify(closedStopIDsGlobal.sort())!==JSON.stringify(newClosed.sort())){ closedStopIDsGlobal=newClosed; if (localScheduleData.length > 0) await processAndDisplayAllData(); } displayServiceAlert(a.scheduleStatus||'idle',a.systemMessage); } else { displayServiceAlert('idle',"Service status source offline."); } });
+        dbOnValue(appStateRef, async (s) => { if(s.exists()){ const a=s.val(); const fbClosedStops = a.closedStopIDs || {}; let newClosed = []; for (const stopID in fbClosedStops) { if (fbClosedStops[stopID] === true) newClosed.push(stopID); } if(JSON.stringify(closedStopIDsGlobal.sort())!==JSON.stringify(newClosed.sort())){ closedStopIDsGlobal=newClosed; if (activeRouteScheduleData.length > 0) await processAndDisplayActiveRouteData(); } displayServiceAlert(a.scheduleStatus||'idle',a.systemMessage); } else { displayServiceAlert('idle',"Service status source offline."); } });
 
-        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-        dbOnValue(schedulesByRouteRef, (snapshot) => { applyLiveRSGSchedule(snapshot); });
-        const liveUniqueStopsRef = dbRef(database, FB_PATH_LIVE_UNIQUE_STOPS);
-        dbOnValue(liveUniqueStopsRef, (snapshot) => {
-            if (!isUsingLiveRSGSchedule) return;
-            localUniqueStops = snapshot.exists() ? snapshot.val() : [];
-            populateStopsFilter();
-        });
+        // Enable live RSG direct route node subscription mode
+        isUsingLiveRSGSchedule = true;
+        if (fileUploadStatusMessageEl) fileUploadStatusMessageEl.textContent = "Connected to live RSG schedule. Enter a route to load arrivals.";
 
         const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
         dbOnValue(vehicleAllocationsRef, async (snapshot) => { 
@@ -634,7 +652,7 @@ let serviceInstanceVehicleCache = new Map();
             }
             serviceInstanceVehicleCache.clear();
             saveVehicleCacheToStorage();
-            if (localScheduleData.length > 0) await processAndDisplayAllData();
+            if (activeRouteScheduleData.length > 0) await processAndDisplayActiveRouteData();
         });
     }
 
@@ -791,8 +809,8 @@ let serviceInstanceVehicleCache = new Map();
         const blockStaticVehicle = new Map();
         const activeBlockIds = new Set();
 
-        for (let i = 0; i < localScheduleData.length; i++) {
-            const busEntry = localScheduleData[i];
+        for (let i = 0; i < activeRouteScheduleData.length; i++) {
+            const busEntry = activeRouteScheduleData[i];
             if (!busEntry || typeof busEntry !== 'object' || !busEntry.stopID) continue;
             const { trueLineName, blockId } = computeServiceInstanceIds(busEntry);
             if (!blockRouteMap.has(blockId)) blockRouteMap.set(blockId, trueLineName);
@@ -859,35 +877,15 @@ let serviceInstanceVehicleCache = new Map();
         saveVehicleCacheToStorage();
     }
 
-    async function processAndDisplayAllData() {
+    async function processAndDisplayActiveRouteData() {
         fullServiceRunDataMap.clear();
 
-        if (!localScheduleData || localScheduleData.length === 0) {
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data loaded. Please upload a schedule file.</td></tr>`;
+        if (!activeRouteScheduleData || activeRouteScheduleData.length === 0) {
+            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No schedule data found for route ${escapeHtml(currentRouteFilter)}.</td></tr>`;
             if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
             currentTrackedServices = []; populateTableFilters();
-            if (searchStatusMessage) searchStatusMessage.textContent = "Upload schedule file to see services.";
             if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
             return;
-        }
-
-        if (!currentRouteFilter) {
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above to see live services.</td></tr>`;
-            if (busCounterElement) busCounterElement.textContent = "Tracked Services: 0";
-            currentTrackedServices = []; populateTableFilters();
-            if (searchStatusMessage) searchStatusMessage.textContent = "Please enter a route to display services.";
-            if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-            return;
-        }
-
-        let dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter);
-
-        if (dataToProcess.length === 0) { 
-            if (trackerTableBody) trackerTableBody.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(currentRouteFilter)} in the loaded file.</td></tr>`; 
-            if (busCounterElement) busCounterElement.textContent = `Tracked Services: 0`; 
-            currentTrackedServices = []; populateTableFilters(); 
-            if (updateTimeElement) updateTimeElement.textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
-            return; 
         }
 
         await resolveActiveVehicleAssignments();
@@ -896,8 +894,8 @@ let serviceInstanceVehicleCache = new Map();
         const nowForProcessing = new Date();
         const activeServicesMap = new Map();
 
-        for (let i = 0; i < dataToProcess.length; i++) {
-            const busEntryRaw = dataToProcess[i];
+        for (let i = 0; i < activeRouteScheduleData.length; i++) {
+            const busEntryRaw = activeRouteScheduleData[i];
             if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) continue;
 
             let busEntry = busEntryRaw;
@@ -971,7 +969,7 @@ let serviceInstanceVehicleCache = new Map();
         updateWatchedBusHighlighting(); 
     }
 
-    function renderTrackerTable(servicesToDisplay) { if (!trackerTableBody) return; trackerTableBody.innerHTML = ''; if (!servicesToDisplay || servicesToDisplay.length === 0) { let message = "No services match criteria."; if (currentTrackedServices.length === 0 && currentRouteFilter) { message = `No live/upcoming for route ${escapeHtml(currentRouteFilter)}.`; } else if (localScheduleData.length === 0) { message = "Upload schedule file."; } else if (currentTrackedServices.length === 0 && !currentRouteFilter) { message = "Enter route to see services.";} trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">${escapeHtml(message)}</td></tr>`; return; } servicesToDisplay.forEach((service) => { const row = trackerTableBody.insertRow(); row.dataset.serviceInstanceKey = service.serviceId; row.style.cursor = 'pointer'; row.addEventListener('click', () => displayServicePredictionsModal(service.serviceId)); let isWatched = false; if (service.serviceId && watchedBuses.has(service.serviceId)) isWatched = true; if (!isWatched && service.assignedRegistration && service.assignedRegistration !== "---" && watchedBuses.has(service.assignedRegistration.toUpperCase())) isWatched = true; if (!isWatched && service.assignedFleetNumber && service.assignedFleetNumber !== "N/A" && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) isWatched = true; if(isWatched) row.classList.add('watched-bus'); row.insertCell().textContent = escapeHtml(service.assignedFleetNumber); row.insertCell().textContent = escapeHtml(service.assignedRegistration); row.insertCell().textContent = escapeHtml(service.displayDestination || '?'); row.insertCell().textContent = escapeHtml(service.nextStopName || '?'); let displayTimeText = '?'; if (service.nextStopActualTime instanceof Date) { const time = service.nextStopActualTime; const hours = String(time.getHours()).padStart(2, '0'); const minutes = String(time.getMinutes()).padStart(2, '0'); const seconds = String(time.getSeconds()).padStart(2, '0'); displayTimeText = `${hours}:${minutes}:${seconds}`; } else { const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); displayTimeText = escapeHtml(fallbackEtaText || '?'); } row.insertCell().textContent = displayTimeText; }); }
+    function renderTrackerTable(servicesToDisplay) { if (!trackerTableBody) return; trackerTableBody.innerHTML = ''; if (!servicesToDisplay || servicesToDisplay.length === 0) { trackerTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">No services match criteria.</td></tr>`; return; } servicesToDisplay.forEach((service) => { const row = trackerTableBody.insertRow(); row.dataset.serviceInstanceKey = service.serviceId; row.style.cursor = 'pointer'; row.addEventListener('click', () => displayServicePredictionsModal(service.serviceId)); let isWatched = false; if (service.serviceId && watchedBuses.has(service.serviceId)) isWatched = true; if (!isWatched && service.assignedRegistration && service.assignedRegistration !== "---" && watchedBuses.has(service.assignedRegistration.toUpperCase())) isWatched = true; if (!isWatched && service.assignedFleetNumber && service.assignedFleetNumber !== "N/A" && watchedBuses.has(service.assignedFleetNumber.toUpperCase())) isWatched = true; if(isWatched) row.classList.add('watched-bus'); row.insertCell().textContent = escapeHtml(service.assignedFleetNumber); row.insertCell().textContent = escapeHtml(service.assignedRegistration); row.insertCell().textContent = escapeHtml(service.displayDestination || '?'); row.insertCell().textContent = escapeHtml(service.nextStopName || '?'); let displayTimeText = '?'; if (service.nextStopActualTime instanceof Date) { const time = service.nextStopActualTime; const hours = String(time.getHours()).padStart(2, '0'); const minutes = String(time.getMinutes()).padStart(2, '0'); const seconds = String(time.getSeconds()).padStart(2, '0'); displayTimeText = `${hours}:${minutes}:${seconds}`; } else { const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); displayTimeText = escapeHtml(fallbackEtaText || '?'); } row.insertCell().textContent = displayTimeText; }); }
     function populateTableFilters() { const e={fleetNumber:new Set,reg:new Set,destination:new Set,stop:new Set};currentTrackedServices.forEach(t=>{t.assignedFleetNumber&&"N/A"!==t.assignedFleetNumber&&e.fleetNumber.add(t.assignedFleetNumber),t.assignedRegistration&&"---"!==t.assignedRegistration&&e.reg.add(t.assignedRegistration),t.displayDestination&&e.destination.add(t.displayDestination),t.nextStopName&&e.stop.add(t.nextStopName)});const t=(t,n)=>{if(!t)return;const o=t.value;t.innerHTML='<option value="">All</option>',[...n].sort((e,t)=>String(e).localeCompare(String(t))).forEach(e=>{if(e){const n=new Option(escapeHtml(e),e);t.add(n)}}),([...t.options].some(e=>e.value===o)?t.value=o:t.value="")};t(filterServiceIdSelect,e.fleetNumber),t(filterRegSelect,e.reg),t(filterDestinationSelect,e.destination),t(filterStopSelect,e.stop),filterArrivalSelect&&(filterArrivalSelect.innerHTML='<option value="">All</option>')}
     function getCurrentFilters() { return{fleetNumber:filterServiceIdSelect?filterServiceIdSelect.value:"",reg:filterRegSelect?filterRegSelect.value:"",destination:filterDestinationSelect?filterDestinationSelect.value:"",stop:filterStopSelect?filterStopSelect.value:""}}
     function applyTableFilters() { const e=getCurrentFilters(),t=currentTrackedServices.filter(t=>{const n=!e.fleetNumber||t.assignedFleetNumber&&t.assignedFleetNumber===e.fleetNumber,o=!e.reg||t.assignedRegistration&&t.assignedRegistration===e.reg,r=!e.destination||t.displayDestination===e.destination,s=!e.stop||t.nextStopName===e.stop;return n&&o&&r&&s});renderTrackerTable(t),updateWatchedBusHighlighting()}
@@ -987,18 +985,18 @@ let serviceInstanceVehicleCache = new Map();
 
         const seenTripIds = new Set();
         const curtailedTrips = [];
-        (localScheduleData || []).forEach(entry => {
+        (activeRouteScheduleData || []).forEach(entry => {
             if (!entry || !entry.curtailment || !entry.tripId || seenTripIds.has(entry.tripId)) return;
             seenTripIds.add(entry.tripId);
             curtailedTrips.push(entry);
         });
 
         if (curtailedTrips.length === 0) {
-            curtailedBusesTableBody.innerHTML = '<tr><td colspan="4">No curtailments currently active.</td></tr>';
+            curtailedBusesTableBody.innerHTML = '<tr><td colspan="4">No curtailments currently active for this route.</td></tr>';
             return;
         }
 
-        curtailedTrips.sort((a, b) => (a.lineName || "").localeCompare(b.lineName || "") || String(a.scheduledTime || "").localeCompare(String(b.scheduledTime || "")));
+        curtailedTrips.sort((a, b) => String(a.scheduledTime || "").localeCompare(String(b.scheduledTime || "")));
         curtailedTrips.forEach(entry => {
             const row = curtailedBusesTableBody.insertRow();
             row.insertCell().textContent = escapeHtml(entry.lineName || "N/A");
@@ -1017,37 +1015,35 @@ let serviceInstanceVehicleCache = new Map();
         if (!currentRouteFilter) {
             if(outboundSequenceList) outboundSequenceList.innerHTML = "<p>Enter route to see sequence.</p>";
             if(inboundSequenceList) inboundSequenceList.innerHTML = "<p>Enter route to see sequence.</p>";
-            if(document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = `Route Sequence (Dir 1)`;
-            if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = `Route Sequence (Dir 2)`;
+            if(document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = `Route Sequence (Direction 1)`;
+            if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = `Route Sequence (Direction 2)`;
             return;
         }
-        if(!localScheduleData || !localUniqueStops || !outboundSequenceList || !inboundSequenceList){
-            if(outboundSequenceList) outboundSequenceList.innerHTML="<p>Route data unavailable.</p>";
-            if(inboundSequenceList) inboundSequenceList.innerHTML="<p>Route data unavailable.</p>";
+        if(!activeRouteScheduleData || activeRouteScheduleData.length === 0 || !outboundSequenceList || !inboundSequenceList){
+            if(outboundSequenceList) outboundSequenceList.innerHTML=`<p>No sequence data for route ${escapeHtml(currentRouteFilter)}.</p>`;
+            if(inboundSequenceList) inboundSequenceList.innerHTML=`<p>No sequence data for route ${escapeHtml(currentRouteFilter)}.</p>`;
             return;
         }
-        let availableRoutes = [...new Set(localScheduleData.map(entry => entry.lineName).filter(Boolean))];
-        if (!availableRoutes.includes(currentRouteFilter)) {
-            if(outboundSequenceList) outboundSequenceList.innerHTML = `<p>No sequence data for route ${escapeHtml(currentRouteFilter)} in loaded file.</p>`;
-            if(inboundSequenceList) inboundSequenceList.innerHTML = `<p>No sequence data for route ${escapeHtml(currentRouteFilter)} in loaded file.</p>`;
-            return;
-        }
-        const extractStopSequenceForDirection = (routeToDisplay, targetDestination) => {
+
+        const extractStopSequenceForDirection = (targetDestination) => {
             let longestRunStops = []; let maxStopsInRun = 0; const serviceRunsMap = new Map();
-            const filteredEntries = localScheduleData.filter(entry => entry.lineName === routeToDisplay && entry.destinationName === targetDestination && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") && !entry.tripId.startsWith("FILE_TRIP_") );
+            const filteredEntries = activeRouteScheduleData.filter(entry => entry.destinationName === targetDestination && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") && !entry.tripId.startsWith("FILE_TRIP_") );
             filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: entry.stopName, preciseScheduledDateTime: finalAdjustedSchedTime }); } });
             serviceRunsMap.forEach((stopsArray, tripId) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
             if (longestRunStops.length > 0) { const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); return sortedStops; }
             return [];
         };
-        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName === currentRouteFilter).map(entry => entry.destinationName).filter(Boolean))].sort();
+
+        const destinationNames = [...new Set(activeRouteScheduleData.map(entry => entry.destinationName).filter(Boolean))].sort();
         let dir1Name = destinationNames[0] || "Direction 1";
         let dir2Name = destinationNames.length > 1 ? destinationNames[1] : (destinationNames[0] ? `Return from ${destinationNames[0]}` : "Direction 2");
         if (dir1Name === dir2Name && destinationNames.length > 1) { dir2Name = `Opposite to ${dir1Name}`; }
+
         if(document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = `Sequence: Towards ${escapeHtml(dir1Name)}`;
         if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = `Sequence: Towards ${escapeHtml(dir2Name)}`;
-        displaySequenceInList(outboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir1Name));
-        displaySequenceInList(inboundSequenceList, extractStopSequenceForDirection(currentRouteFilter, dir2Name));
+        
+        displaySequenceInList(outboundSequenceList, extractStopSequenceForDirection(dir1Name));
+        displaySequenceInList(inboundSequenceList, extractStopSequenceForDirection(dir2Name));
     }
 
     function displaySequenceInList(listElement, stopsNames) { if(!listElement)return;listElement.innerHTML="";if(!stopsNames||stopsNames.length===0){listElement.innerHTML="<p>No stops for this sequence.</p>";return}const e=document.createElement("ol");stopsNames.forEach(t=>{const n=document.createElement("li");n.textContent=escapeHtml(t||"?"),e.appendChild(n)}),listElement.appendChild(e)}

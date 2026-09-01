@@ -1243,6 +1243,12 @@
             mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle History: ${cleanIdent}`);
         }
         
+        // Normalize the identifier to handle both "F1 RST" and "F1RST" formats
+        const identParts = cleanIdent.split(/\s+/).filter(p => p);
+        const searchTerms = identParts.length === 2 
+            ? [identParts[0], identParts[1], cleanIdent.replace(/\s+/g, '')] 
+            : [cleanIdent];
+        
         // Look up the vehicle's fleet/reg from Firebase allocation data
         let displayFleet = '-';
         let displayReg = '-';
@@ -1263,12 +1269,15 @@
                 if (Array.isArray(rare)) allVehicles.push(...rare);
             }
             
-            // Look for matching vehicle
+            // Look for matching vehicle - try all search term variations
             for (const vehicle of allVehicles) {
                 if (!vehicle) continue;
                 const f = String(vehicle.fleetNumber || "").toUpperCase();
                 const r = String(vehicle.registration || "").toUpperCase();
-                if (f === cleanIdent || r === cleanIdent) {
+                
+                // Check if any search term matches
+                const isMatch = searchTerms.some(term => f === term || r === term || f.includes(term) || r.includes(term));
+                if (isMatch) {
                     displayFleet = String(vehicle.fleetNumber || '-');
                     displayReg = String(vehicle.registration || '-');
                     break;
@@ -1281,7 +1290,10 @@
         let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
         if (logs.length === 0) {
             for (const [key, val] of vehicleDetailedLogMap.entries()) {
-                if (key.includes(cleanIdent) || cleanIdent.includes(key)) {
+                const keyUpper = key.toUpperCase();
+                // Try all search term variations
+                const isKeyMatch = searchTerms.some(term => keyUpper.includes(term) || term.includes(keyUpper));
+                if (isKeyMatch) {
                     logs = val;
                     break;
                 }
@@ -1292,7 +1304,10 @@
             for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
                 const f = String(vehicle.fleetNumber || "").toUpperCase();
                 const r = String(vehicle.registration || "").toUpperCase();
-                if (f.includes(cleanIdent) || r.includes(cleanIdent)) {
+                
+                // Check if any search term matches
+                const isMatch = searchTerms.some(term => f.includes(term) || r.includes(term));
+                if (isMatch) {
                     const parts = blockId.split('_');
                     const rName = parts.length > 0 ? parts[0] : "Active";
                     logs.push({ routeName: rName, timestamp: Date.now(), fleetNumber: vehicle.fleetNumber, registration: vehicle.registration });
@@ -1476,9 +1491,21 @@
         }
 
         if (identToSearch && hasHistoryPrefix) {
-            displayVehicleHistoryModal(identToSearch);
-            searchStatusMessage.textContent = `Showing history for ${escapeHtml(identToSearch)}.`;
-            vehicleSearchInput.value = "";
+            // Normalize the identifier: handle both "F1RST" and "F1 RST" formats
+            // If there's no space and it looks like a reg (e.g., F1RST), add space after first part
+            let normalizedIdent = identToSearch;
+            if (!identToSearch.includes(" ") && identToSearch.length > 1) {
+                // Try to split: assume first 1-3 chars are fleet, rest is reg
+                // Common format: F1 RST, 39403 DDE1, etc.
+                const match = identToSearch.match(/^([A-Z0-9]{1,5})([A-Z0-9]+)$/);
+                if (match && match[2].length >= 2) {
+                    normalizedIdent = `${match[1]} ${match[2]}`;
+                }
+            }
+            
+            displayVehicleHistoryModal(normalizedIdent);
+            searchStatusMessage.textContent = `Showing history for ${escapeHtml(normalizedIdent)}.`;
+            // Keep the text in the input box (don't clear it)
             return;
         }
 

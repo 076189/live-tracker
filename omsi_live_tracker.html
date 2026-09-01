@@ -1606,6 +1606,18 @@
             if (longestRunStops.length > 0) { const stopsInSequenceOrder = longestRunStops.map(stop => stop.stopName); return stopsInSequenceOrder; }
             return [];
         };
+        
+        // Helper to find actual destination with stops and return both destination and stops
+        const findActualDestinationAndStops = (targetDestName) => {
+            let longestRunStops = []; let maxStopsInRun = 0; const serviceRunsMap = new Map(); let actualDest = targetDestName;
+            const filteredEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase() && unescapeHtml(entry.destinationName) === unescapeHtml(targetDestName) && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") );
+            if (filteredEntries.length === 0) return { destination: targetDestName, stops: [] };
+            filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: unescapeHtml(entry.stopName), preciseScheduledDateTime: finalAdjustedSchedTime, destinationName: entry.destinationName }); } });
+            serviceRunsMap.forEach((stopsArray) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; if (stopsArray[0]) actualDest = unescapeHtml(stopsArray[0].destinationName); } });
+            if (longestRunStops.length > 0) { const stopsInSequenceOrder = longestRunStops.map(stop => stop.stopName); return { destination: actualDest, stops: stopsInSequenceOrder }; }
+            return { destination: targetDestName, stops: [] };
+        };
+        
         const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))];
         
         if (destinationNames.length === 0) {
@@ -1631,13 +1643,15 @@
         let dir1Name = sortedByStops[0];
         let dir2Name = sortedByStops.length > 1 ? sortedByStops[1] : null;
 
-        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir1Name})`);
-        displaySequenceInTable(outboundSequenceTableContainer, extractStopSequenceForDirection(currentRouteFilter, dir1Name));
+        const dir1Data = findActualDestinationAndStops(dir1Name);
+        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir1Data.destination})`);
+        displaySequenceInTable(outboundSequenceTableContainer, dir1Data.stops);
         if(container1) container1.style.display = "block";
 
         if (dir2Name && dir2Name !== dir1Name) {
-            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir2Name})`);
-            displaySequenceInTable(inboundSequenceTableContainer, extractStopSequenceForDirection(currentRouteFilter, dir2Name));
+            const dir2Data = findActualDestinationAndStops(dir2Name);
+            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir2Data.destination})`);
+            displaySequenceInTable(inboundSequenceTableContainer, dir2Data.stops);
             if(container2) container2.style.display = "block";
         } else {
             if(container2) container2.style.display = "none";

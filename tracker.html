@@ -1432,6 +1432,18 @@
         searchStatusMessage.textContent = `No vehicle ID found for "${escapeHtml(rawInput)}".`; 
     }
     
+    function isCurtailmentStillActive(curtailment) {
+        if (!curtailment || !curtailment.appliedAt) return false;
+        
+        const appliedDate = new Date(curtailment.appliedAt);
+        const today = new Date();
+        
+        // Check if appliedDate is today (same calendar date in local timezone)
+        return appliedDate.getFullYear() === today.getFullYear() &&
+               appliedDate.getMonth() === today.getMonth() &&
+               appliedDate.getDate() === today.getDate();
+    }
+
     function populateCurtailmentsTable() {
         if (!curtailedBusesTableBody) return;
         curtailedBusesTableBody.innerHTML = "";
@@ -1445,6 +1457,7 @@
         const curtailedTrips = [];
         (localScheduleData || []).forEach(entry => {
             if (!entry || !entry.curtailment || !entry.tripId || seenTripIds.has(entry.tripId)) return;
+            if (!isCurtailmentStillActive(entry.curtailment)) return; // Filter out curtailments from previous days
             if (entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()) {
                 seenTripIds.add(entry.tripId);
                 curtailedTrips.push(entry);

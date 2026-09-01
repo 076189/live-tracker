@@ -1243,6 +1243,21 @@
             mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle History: ${cleanIdent}`);
         }
         
+        // Look up the vehicle's fleet/reg from the cache and logs
+        let displayFleet = '-';
+        let displayReg = '-';
+        
+        // Search through service instance cache to find matching vehicle
+        for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
+            const f = String(vehicle.fleetNumber || "").toUpperCase();
+            const r = String(vehicle.registration || "").toUpperCase();
+            if (f === cleanIdent || r === cleanIdent || cleanIdent.includes(f) || cleanIdent.includes(r)) {
+                displayFleet = String(vehicle.fleetNumber || '-');
+                displayReg = String(vehicle.registration || '-');
+                break;
+            }
+        }
+        
         let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
         if (logs.length === 0) {
             for (const [key, val] of vehicleDetailedLogMap.entries()) {
@@ -1261,6 +1276,8 @@
                     const parts = blockId.split('_');
                     const rName = parts.length > 0 ? parts[0] : "Active";
                     logs.push({ routeName: rName, timestamp: Date.now(), fleetNumber: vehicle.fleetNumber, registration: vehicle.registration });
+                    if (displayFleet === '-') displayFleet = String(vehicle.fleetNumber || '-');
+                    if (displayReg === '-') displayReg = String(vehicle.registration || '-');
                 }
             }
         }
@@ -1287,14 +1304,14 @@
                 }
             });
              
-            // Find the fleet and reg from the first log entry
-            let displayFleet = '-';
-            let displayReg = '-';
-            if (uniqueLogs.length > 0 && uniqueLogs[0].fleetNumber) {
-                displayFleet = escapeHtml(uniqueLogs[0].fleetNumber);
-            }
-            if (uniqueLogs.length > 0 && uniqueLogs[0].registration) {
-                displayReg = escapeHtml(uniqueLogs[0].registration);
+            // If we found fleet/reg from first log, use those
+            if (uniqueLogs.length > 0) {
+                if (!displayFleet || displayFleet === '-') {
+                    displayFleet = uniqueLogs[0].fleetNumber ? String(uniqueLogs[0].fleetNumber) : '-';
+                }
+                if (!displayReg || displayReg === '-') {
+                    displayReg = uniqueLogs[0].registration ? String(uniqueLogs[0].registration) : '-';
+                }
             }
             
             uniqueLogs.forEach(log => {
@@ -1303,7 +1320,7 @@
                 
                 // Use the found fleet/reg for all rows
                 const route = escapeHtml(log.routeName);
-                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${displayFleet}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${displayReg}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${route}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${dateString}</td></tr>`;
+                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(displayFleet)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(displayReg)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${route}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${dateString}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
             pageContent = tableHTML;

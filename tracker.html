@@ -1028,12 +1028,29 @@
             }
         });
 
+        // Fixed block filtering: Prioritize active/upcoming trips or very recent past trips sequentially without jumping back prematurely.
         const blockNextActivityMap = new Map();
         servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
             const key = serviceWithNextStop.blockId || `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
             const existing = blockNextActivityMap.get(key);
-            if (!existing || Math.abs(serviceWithNextStop._timeToNextStopSec) < Math.abs(existing._timeToNextStopSec)) {
+            
+            if (!existing) {
                 blockNextActivityMap.set(key, serviceWithNextStop);
+            } else {
+                const isExistingPast = existing._timeToNextStopSec < 0;
+                const isIncomingPast = serviceWithNextStop._timeToNextStopSec < 0;
+
+                // If one is upcoming (>= 0) and the other is past (< 0), strictly prefer the upcoming/live one!
+                if (!isIncomingPast && isExistingPast) {
+                    blockNextActivityMap.set(key, serviceWithNextStop);
+                } else if (isIncomingPast && !isExistingPast) {
+                    // keep existing live one
+                } else {
+                    // Both are live or both are past: pick the one closest to now (smallest absolute difference)
+                    if (Math.abs(serviceWithNextStop._timeToNextStopSec) < Math.abs(existing._timeToNextStopSec)) {
+                        blockNextActivityMap.set(key, serviceWithNextStop);
+                    }
+                }
             }
         });
         currentTrackedServices = Array.from(blockNextActivityMap.values());

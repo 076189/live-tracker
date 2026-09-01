@@ -1578,6 +1578,7 @@ align-items: center;
     let firebaseListenerUnsubscribers_extra = [];
     let vehicleAllocationData_extra = {};
     let authGeneration_extra = 0;
+    let isManualUploadInProgress_extra = false; // Flag to skip listener processing during manual route uploads
     let dependentRenderTimer_extra = null;
     let keyDeparturesRefreshInProgress_extra = false;
     let arrivalsIndexMigrationStarted_extra = false;
@@ -1621,6 +1622,7 @@ align-items: center;
         const FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS = '/settings/customRouteColours';
         const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
         const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
+        const FB_PATH_VEHICLE_FLEET = '/vehicleFleet';
         const FB_PATH_RSG_CONFIGS = '/rsgConfigs';
         const FB_PATH_ALL_DEFINED_STOPS = '/allDefinedStops';
         const FB_PATH_SCHEDULED_UPDATES = '/scheduledUpdates';
@@ -2337,6 +2339,14 @@ function setupFirebaseListeners_ExtraPage() {
     const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
     firebaseListenerUnsubscribers_extra.push(dbOnValue(liveScheduleRefForTools, (snapshot) => {
         console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
+        
+        // OPTIMIZATION: Skip listener processing if we're doing a manual upload 
+        // (we'll update locally instead to avoid re-processing all 174K+ entries)
+        if (isManualUploadInProgress_extra) {
+            console.log("[Master Stop List LIVE Data Listener] Skipping processing - manual upload in progress.");
+            return;
+        }
+        
         // OPTIMIZATION: Debounce listener to avoid processing multiple times during cascade writes
         // (e.g., when saving a single route, multiple listener events can fire rapidly)
         clearTimeout(liveScheduleDebounceTimer);
@@ -12085,118 +12095,6 @@ function rsg_hideSaveConfigModal_ExtraPage() {
     if (modal) modal.style.display = 'none';
 }
 
-async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
-    if (!currentUser_extra || !window.firebaseOMSI || !window.firebaseOMSI.database) {
-        console.error("saveSpecificRouteDataToFirebase_ExtraPage: Not logged in or Firebase not available.");
-        // Potentially update a status message for the user
-        if (rsgStatusMessage_el_extra) {
-            rsgStatusMessage_el_extra.textContent = "Error: Cannot save route - not logged in or Firebase connection issue.";
-            rsgStatusMessage_el_extra.style.color = "#e74c3c";
-        }
-        throw new Error("Authentication or Firebase connection issue.");
-    }
-
-    const { database, dbSet, dbRef, dbRemove } = window.firebaseOMSI; // Ensure dbRemove is destructured
-    const saneRouteToUpdate = sanitizeFirebaseKey(targetRouteName); // Assuming sanitizeFirebaseKey is globally available
-    const routePathInFirebase = `${FB_PATH_SCHEDULES_BY_ROUTE}/${saneRouteToUpdate}`;
-
-    console.log(`saveSpecificRouteDataToFirebase_ExtraPage: Preparing to update route "${targetRouteName}" (sanitized: "${saneRouteToUpdate}") in Firebase.`);
-
-    // Filter currentWorkingSchedule_extra to get all entries ONLY for the targetRouteName
-    const entriesForThisRoute = currentWorkingSchedule_extra.filter(
-        e => e.lineName && e.lineName.toUpperCase() === targetRouteName.toUpperCase()
-    );
-
-    if (entriesForThisRoute.length === 0) {
-        // If the route now has no entries (e.g., user deleted all its schedules via RSG overwrite with empty)
-        // then we should delete this route's node in Firebase.
-        console.log(`Route "${targetRouteName}" has no schedule entries in currentWorkingSchedule_extra. Removing its node from Firebase at ${routePathInFirebase}.`);
-        try {
-            await dbRemove(dbRef(database, routePathInFirebase));
-            console.log(`Successfully removed node for route "${targetRouteName}" from Firebase.`);
-        } catch (error) {
-            console.error(`Error removing node for empty route "${targetRouteName}" from Firebase:`, error);
-            if (rsgStatusMessage_el_extra) {
-                rsgStatusMessage_el_extra.textContent = `Error clearing empty route "${targetRouteName}" in Firebase: ${error.message}`;
-                rsgStatusMessage_el_extra.style.color = "#e74c3c";
-            }
-            // We should still proceed to update ancillary data even if removal fails,
-            // as the local schedule (which ancillary data is based on) reflects the route as empty.
-        }
-    } else {
-        // Build the structured data for this specific route
-        const routeDataForFirebase = {}; // This will hold { profileKey: { destKey: { entries: [] } } }
-
-        entriesForThisRoute.forEach(entry => {
-            // Ensure necessary fields are present for structuring
-            if (!entry.OperatingProfile || !entry.destinationName) {
-                console.warn("saveSpecificRouteDataToFirebase_ExtraPage: Skipping entry with missing OperatingProfile or destinationName:", entry);
-                return;
-            }
-            const saneProfile = sanitizeFirebaseKey(entry.OperatingProfile);
-            const saneDest = sanitizeFirebaseKey(entry.destinationName);
-
-            if (!routeDataForFirebase[saneProfile]) {
-                routeDataForFirebase[saneProfile] = {};
-            }
-            if (!routeDataForFirebase[saneProfile][saneDest]) {
-                routeDataForFirebase[saneProfile][saneDest] = { entries: [] };
-            }
-
-            const entryForStorage = { ...entry };
-            // Ensure these key fields are explicitly part of the stored entry object
-            entryForStorage.lineName = entry.lineName;
-            entryForStorage.OperatingProfile = entry.OperatingProfile;
-            entryForStorage.destinationName = entry.destinationName;
-
-            routeDataForFirebase[saneProfile][saneDest].entries.push(entryForStorage);
-        });
-
-        // Sort entries within each R/P/D for consistency
-        for (const profileKey in routeDataForFirebase) {
-            for (const destKey in routeDataForFirebase[profileKey]) {
-                if (routeDataForFirebase[profileKey][destKey].entries) {
-                    routeDataForFirebase[profileKey][destKey].entries.sort((a, b) => {
-                        const timeA = (a.scheduledTime || "9999").replace(':', '');
-                        const timeB = (b.scheduledTime || "9999").replace(':', '');
-                        const timeCompare = timeA.localeCompare(timeB);
-                        if (timeCompare !== 0) return timeCompare;
-                        return (a.stopName || "").localeCompare(b.stopName || ""); // Secondary sort
-                    });
-                }
-            }
-        }
-        
-        console.log(`Attempting to save data for route "${targetRouteName}" to Firebase path: ${routePathInFirebase}`);
-        try {
-            await dbSet(dbRef(database, routePathInFirebase), routeDataForFirebase);
-            console.log(`Successfully saved data for route "${targetRouteName}" to Firebase.`);
-        } catch (error) {
-             console.error(`Error saving data for route "${targetRouteName}" to Firebase:`, error);
-            if (rsgStatusMessage_el_extra) {
-                rsgStatusMessage_el_extra.textContent = `Error saving route "${targetRouteName}" to Firebase: ${error.message}`;
-                rsgStatusMessage_el_extra.style.color = "#e74c3c";
-            }
-            throw error; // Propagate error to the caller
-        }
-    }
-
-    // After saving the specific route (or removing it if empty),
-    // always update ancillary data based on the full currentWorkingSchedule_extra
-    try {
-        console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
-        await updateAncillaryScheduleData_ExtraPage(); // This function should be async
-        console.log(`Ancillary data updated successfully.`);
-    } catch (error) {
-        console.error(`Error updating ancillary data after saving route "${targetRouteName}":`, error);
-        if (rsgStatusMessage_el_extra) {
-            rsgStatusMessage_el_extra.textContent = `Route data saved, but error updating ancillary data (like unique stops): ${error.message}`;
-            // Keep the color as potentially error, or change to warning
-            rsgStatusMessage_el_extra.style.color = "#e74c3c";
-        }
-        // Decide if this error should also be propagated
-    }
-}
 
 async function rsg_performSaveConfiguration_ExtraPage() {
     console.log("RSG Save Process: Triggered.");
@@ -16645,64 +16543,78 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
         throw new Error("Authentication or Firebase connection issue.");
     }
 
-    const { database, dbSet, dbRef, dbRemove } = window.firebaseOMSI;
-    const saneRouteToUpdate = sanitizeFirebaseKey(targetRouteName);
-    const routePathInFirebase = `${FB_PATH_SCHEDULES_BY_ROUTE}/${saneRouteToUpdate}`;
+    // OPTIMIZATION: Set flag to skip listener processing (we'll update locally instead)
+    isManualUploadInProgress_extra = true;
+    const startTime = performance.now();
+    const targetRouteUppercase = targetRouteName.toUpperCase();
 
-    console.log(`saveSpecificRouteDataToFirebase_ExtraPage: Preparing to update route "${targetRouteName}" (sanitized: "${saneRouteToUpdate}") in Firebase.`);
-
-    const entriesForThisRoute = currentWorkingSchedule_extra.filter(
-        e => e.lineName && e.lineName.toUpperCase() === targetRouteName.toUpperCase()
-    );
-
-    if (entriesForThisRoute.length === 0) {
-        // If the route now has no schedules, delete its node from Firebase.
-        console.log(`Route "${targetRouteName}" has no schedule entries. Removing its node from Firebase at ${routePathInFirebase}.`);
-        try {
-            await dbRemove(dbRef(database, routePathInFirebase));
-            console.log(`Successfully removed node for route "${targetRouteName}" from Firebase.`);
-        } catch (error) {
-            console.error(`Error removing node for empty route "${targetRouteName}" from Firebase:`, error);
-        }
-    } else {
-        // Build the structured data for this specific route
-        const routeDataForFirebase = {};
-        entriesForThisRoute.forEach(entry => {
-            if (!entry.OperatingProfile || !entry.destinationName) return;
-            const saneProfile = sanitizeFirebaseKey(entry.OperatingProfile);
-            const saneDest = sanitizeFirebaseKey(entry.destinationName);
-            if (!routeDataForFirebase[saneProfile]) routeDataForFirebase[saneProfile] = {};
-            if (!routeDataForFirebase[saneProfile][saneDest]) routeDataForFirebase[saneProfile][saneDest] = { entries: [] };
-            routeDataForFirebase[saneProfile][saneDest].entries.push({ ...entry });
-        });
-
-        console.log(`Attempting to save data for route "${targetRouteName}" to Firebase path: ${routePathInFirebase}`);
-        try {
-            await dbSet(dbRef(database, routePathInFirebase), routeDataForFirebase);
-            console.log(`Successfully saved data for route "${targetRouteName}" to Firebase.`);
-        } catch (error) {
-             console.error(`Error saving data for route "${targetRouteName}" to Firebase:`, error);
-            if (rsgStatusMessage_el_extra) {
-                rsgStatusMessage_el_extra.textContent = `Error saving route "${targetRouteName}" to Firebase: ${error.message}`;
-            }
-            throw error;
-        }
-    }
-
-    // After saving the route, always update ancillary data (unique stops list, timestamp)
     try {
-        console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
-        await updateAncillaryScheduleData_ExtraPage();
-        // Debounced/non-blocking here: this function is often called many times in a row
-        // (e.g. one call per affected route). Awaiting a full arrivals index rebuild on
-        // every single call made batch/multi-route operations extremely slow. Callers
-        // that need a guaranteed-fresh index before reporting success (e.g. RSG "Add to
-        // working schedule", scheduled batch apply) explicitly await rebuildArrivalsByStopIndex_ExtraPage
-        // themselves once, after all their route saves are done.
-        scheduleArrivalsByStopIndexRebuild_ExtraPage();
-        console.log(`Ancillary data updated successfully.`);
-    } catch (error) {
-        console.error(`Error updating ancillary data after saving route "${targetRouteName}":`, error);
+        const { database, dbSet, dbRef, dbRemove } = window.firebaseOMSI;
+        const saneRouteToUpdate = sanitizeFirebaseKey(targetRouteName);
+        const routePathInFirebase = `${FB_PATH_SCHEDULES_BY_ROUTE}/${saneRouteToUpdate}`;
+
+        console.log(`saveSpecificRouteDataToFirebase_ExtraPage: Preparing to update route "${targetRouteName}" (sanitized: "${saneRouteToUpdate}") in Firebase.`);
+
+        const entriesForThisRoute = currentWorkingSchedule_extra.filter(
+            e => e.lineName && e.lineName.toUpperCase() === targetRouteUppercase
+        );
+
+        if (entriesForThisRoute.length === 0) {
+            // If the route now has no schedules, delete its node from Firebase.
+            console.log(`Route "${targetRouteName}" has no schedule entries. Removing its node from Firebase at ${routePathInFirebase}.`);
+            try {
+                await dbRemove(dbRef(database, routePathInFirebase));
+                console.log(`Successfully removed node for route "${targetRouteName}" from Firebase.`);
+                // Remove from local schedule
+                const updatedSchedule = currentWorkingSchedule_extra.filter(e => e.lineName?.toUpperCase() !== targetRouteUppercase);
+                currentWorkingSchedule_extra = updatedSchedule;
+            } catch (error) {
+                console.error(`Error removing node for empty route "${targetRouteName}" from Firebase:`, error);
+            }
+        } else {
+            // Build the structured data for this specific route
+            const routeDataForFirebase = {};
+            entriesForThisRoute.forEach(entry => {
+                if (!entry.OperatingProfile || !entry.destinationName) return;
+                const saneProfile = sanitizeFirebaseKey(entry.OperatingProfile);
+                const saneDest = sanitizeFirebaseKey(entry.destinationName);
+                if (!routeDataForFirebase[saneProfile]) routeDataForFirebase[saneProfile] = {};
+                if (!routeDataForFirebase[saneProfile][saneDest]) routeDataForFirebase[saneProfile][saneDest] = { entries: [] };
+                routeDataForFirebase[saneProfile][saneDest].entries.push({ ...entry });
+            });
+
+            const uploadStartTime = performance.now();
+            console.log(`Attempting to save data for route "${targetRouteName}" (${entriesForThisRoute.length} entries) to Firebase path: ${routePathInFirebase}`);
+            try {
+                await dbSet(dbRef(database, routePathInFirebase), routeDataForFirebase);
+                const uploadEndTime = performance.now();
+                console.log(`Successfully saved data for route "${targetRouteName}" to Firebase (${(uploadEndTime - uploadStartTime).toFixed(2)}ms).`);
+            } catch (error) {
+                 console.error(`Error saving data for route "${targetRouteName}" to Firebase:`, error);
+                if (rsgStatusMessage_el_extra) {
+                    rsgStatusMessage_el_extra.textContent = `Error saving route "${targetRouteName}" to Firebase: ${error.message}`;
+                }
+                throw error;
+            }
+        }
+
+        // After saving the route, always update ancillary data (unique stops list, timestamp)
+        try {
+            console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
+            await updateAncillaryScheduleData_ExtraPage();
+            scheduleArrivalsByStopIndexRebuild_ExtraPage();
+            const endTime = performance.now();
+            console.log(`[PERF] saveSpecificRouteDataToFirebase_ExtraPage completed in ${(endTime - startTime).toFixed(2)}ms`);
+        } catch (error) {
+            console.error(`Error updating ancillary data after saving route "${targetRouteName}":`, error);
+        }
+    } finally {
+        // CRITICAL: Clear flag to allow listener processing to resume
+        // Add a small delay to ensure Firebase update has propagated
+        setTimeout(() => {
+            isManualUploadInProgress_extra = false;
+            console.log(`[PERF] Manual upload flag cleared, listener re-enabled`);
+        }, 100);
     }
 }
 

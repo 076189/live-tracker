@@ -2333,21 +2333,25 @@ function setupFirebaseListeners_ExtraPage() {
     }));
 
     // Listener for the LIVE SCHEDULE data
+    let liveScheduleDebounceTimer = null;
     const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
     firebaseListenerUnsubscribers_extra.push(dbOnValue(liveScheduleRefForTools, (snapshot) => {
         console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
-        // OPTIMIZATION: Schedule processing asynchronously so the listener callback returns immediately
-        // and doesn't block the message handler for 4+ seconds on mobile
-        setTimeout(() => processLiveScheduleSnapshot_ExtraPage(snapshot), 0);
+        // OPTIMIZATION: Debounce listener to avoid processing multiple times during cascade writes
+        // (e.g., when saving a single route, multiple listener events can fire rapidly)
+        clearTimeout(liveScheduleDebounceTimer);
+        liveScheduleDebounceTimer = setTimeout(() => processLiveScheduleSnapshot_ExtraPage(snapshot), 500);
     }));
 
     // Listener for RSG Configurations
+    let rsgConfigsDebounceTimer = null;
     const rsgConfigsRef = dbRef(database, FB_PATH_RSG_CONFIGS);
     firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgConfigsRef, (snapshot) => {
         console.log("[RSG Configs Listener] RSG configurations data updated.");
         rsg_loadedConfigs_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        // OPTIMIZATION: Schedule processing asynchronously so the listener returns immediately
-        setTimeout(() => rebuildScheduleFromRsgConfigs_ExtraPage(), 0);
+        // OPTIMIZATION: Debounce to avoid processing multiple times during cascade writes
+        clearTimeout(rsgConfigsDebounceTimer);
+        rsgConfigsDebounceTimer = setTimeout(() => rebuildScheduleFromRsgConfigs_ExtraPage(), 500);
     }));
 
     // Listener for Defined Curtailment Points

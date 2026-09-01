@@ -1053,6 +1053,15 @@ align-items: center;
             <button id="rsg-add-trip-row-button-extra" type="button" class="button small-action neutral">+ Add Trip</button>
             <button id="rsg-pull-first-stop-times-button-extra" class="button neutral">Pull Existing Times for First Stop</button>
         </div>
+        <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid rgba(0,0,0,0.2);">
+            <h4 style="margin:0 0 0.5rem 0; font-size:0.95em;">Import Times & Details (Paste Format)</h4>
+            <p style="font-size:0.85em; opacity:0.8; margin:0 0 0.5rem 0;">Paste tab-separated values:<br><code style="background-color:rgba(0,0,0,0.1); padding:0.2em 0.4em; border-radius:2px;">HH:MM [TAB] TripNo [TAB] RunningNo</code><br>Times only or with optional trip/running numbers. One row per line.</p>
+            <textarea id="rsg-paste-trip-details-input-extra" style="width:100%; height:4em; font-family:monospace; font-size:0.85em; padding:0.4em; box-sizing:border-box;" placeholder="09:00&#10;09:15&#10;09:30&#10;&#10;Or with details:&#10;09:00	T1	101&#10;09:15	T2	102&#10;09:30	T3	103"></textarea>
+            <div style="margin-top:0.5rem;">
+                <button id="rsg-import-paste-details-button-extra" type="button" class="button small-action">Import from Paste</button>
+                <span id="rsg-paste-import-status-extra" style="font-size:0.85em; margin-left:1rem; color:#999;"></span>
+            </div>
+        </div>
     </div>
     <div class="subsection">
          <h3 class="subsection-title">4. Generate & Apply</h3>
@@ -8714,7 +8723,30 @@ function rsg_renderTripDetailsTable_ExtraPage() {
 }
 
 function rsg_addTripDetailRow_ExtraPage() {
-    rsg_tripDetails_extra.push({ tripNumber: '', runningNumber: '', time: '' });
+    // Apply smart suggestions for the new row based on existing patterns
+    const tripPattern = rsg_detectTripNumberPattern_ExtraPage();
+    const runningPattern = rsg_detectRunningNumberPattern_ExtraPage();
+    
+    let suggestedTripNumber = '';
+    let suggestedRunningNumber = '';
+    
+    if (tripPattern) {
+        if (tripPattern.type === 'numeric') {
+            suggestedTripNumber = String(tripPattern.nextNumber);
+        } else if (tripPattern.type === 'prefixed') {
+            suggestedTripNumber = tripPattern.prefix + tripPattern.nextNumber;
+        }
+    }
+    
+    if (runningPattern) {
+        if (runningPattern.type === 'numeric') {
+            suggestedRunningNumber = String(runningPattern.nextNumber);
+        } else if (runningPattern.type === 'prefixed') {
+            suggestedRunningNumber = runningPattern.prefix + runningPattern.nextNumber + runningPattern.suffix;
+        }
+    }
+    
+    rsg_tripDetails_extra.push({ tripNumber: suggestedTripNumber, runningNumber: suggestedRunningNumber, time: '' });
     rsg_renderTripDetailsTable_ExtraPage();
     rsg_isDirty = true;
 }
@@ -8734,6 +8766,177 @@ function rsg_updateTripDetailField_ExtraPage(index, field, value) {
         const times = rsg_tripDetails_extra.map(t => (t.time || '').trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
         rsgFirstStopTimesInput_el_extra.value = times.join('\t');
         rsgFirstStopTimesInput_el_extra.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    }
+}
+
+function rsg_detectTripNumberPattern_ExtraPage() {
+    // Analyze existing trip numbers and detect pattern (sequential, prefixed, etc.)
+    const filledTrips = rsg_tripDetails_extra.filter(t => t.tripNumber && t.tripNumber.trim());
+    if (filledTrips.length === 0) return null;
+    
+    // Check if sequential numbers: "1", "2", "3", etc.
+    const numericTrips = filledTrips.map(t => ({ orig: t.tripNumber, num: parseInt(t.tripNumber) })).filter(t => !isNaN(t.num));
+    if (numericTrips.length > 0 && numericTrips.length === filledTrips.length) {
+        const maxNum = Math.max(...numericTrips.map(t => t.num));
+        return { type: 'numeric', nextNumber: maxNum + 1 };
+    }
+    
+    // Check for prefixed pattern: "T1", "T2", "T3" or "BT1", "BT2", etc.
+    const prefixedTrips = filledTrips.map(t => {
+        const match = t.tripNumber.match(/^([A-Za-z]+)(\d+)$/);
+        return match ? { prefix: match[1], num: parseInt(match[2]) } : null;
+    }).filter(t => t !== null);
+    
+    if (prefixedTrips.length > 0 && prefixedTrips.length === filledTrips.length) {
+        const prefix = prefixedTrips[0].prefix;
+        if (prefixedTrips.every(t => t.prefix === prefix)) {
+            const maxNum = Math.max(...prefixedTrips.map(t => t.num));
+            return { type: 'prefixed', prefix, nextNumber: maxNum + 1 };
+        }
+    }
+    
+    return null;
+}
+
+function rsg_detectRunningNumberPattern_ExtraPage() {
+    // Analyze existing running numbers and detect pattern
+    const filledRunning = rsg_tripDetails_extra.filter(t => t.runningNumber && t.runningNumber.trim());
+    if (filledRunning.length === 0) return null;
+    
+    // Check if simple sequential: "1", "2", "3", etc. or "101", "102", "103"
+    const numericRunning = filledRunning.map(t => ({ orig: t.runningNumber, num: parseInt(t.runningNumber) })).filter(t => !isNaN(t.num));
+    if (numericRunning.length > 0 && numericRunning.length === filledRunning.length) {
+        const maxNum = Math.max(...numericRunning.map(t => t.num));
+        return { type: 'numeric', nextNumber: maxNum + 1 };
+    }
+    
+    // Check for prefixed like "BT41", "BT42" or "F1RST", "F1RSU", etc.
+    const prefixedRunning = filledRunning.map(t => {
+        const match = t.runningNumber.match(/^([A-Za-z]+)(\d+)([A-Za-z]*)$/);
+        return match ? { prefix: match[1], num: parseInt(match[2]), suffix: match[3] } : null;
+    }).filter(t => t !== null);
+    
+    if (prefixedRunning.length > 0 && prefixedRunning.length === filledRunning.length) {
+        const prefix = prefixedRunning[0].prefix;
+        const suffix = prefixedRunning[0].suffix;
+        if (prefixedRunning.every(t => t.prefix === prefix && t.suffix === suffix)) {
+            const maxNum = Math.max(...prefixedRunning.map(t => t.num));
+            return { type: 'prefixed', prefix, suffix, nextNumber: maxNum + 1 };
+        }
+    }
+    
+    return null;
+}
+
+function rsg_suggestNextTripNumber_ExtraPage() {
+    const pattern = rsg_detectTripNumberPattern_ExtraPage();
+    if (!pattern) return '';
+    
+    if (pattern.type === 'numeric') {
+        return String(pattern.nextNumber);
+    } else if (pattern.type === 'prefixed') {
+        return pattern.prefix + pattern.nextNumber;
+    }
+    return '';
+}
+
+function rsg_suggestNextRunningNumber_ExtraPage() {
+    const pattern = rsg_detectRunningNumberPattern_ExtraPage();
+    if (!pattern) return '';
+    
+    if (pattern.type === 'numeric') {
+        return String(pattern.nextNumber);
+    } else if (pattern.type === 'prefixed') {
+        return pattern.prefix + pattern.nextNumber + pattern.suffix;
+    }
+    return '';
+}
+
+function rsg_importPasteTripDetails_ExtraPage() {
+    const pasteInput = document.getElementById('rsg-paste-trip-details-input-extra');
+    const statusEl = document.getElementById('rsg-paste-import-status-extra');
+    
+    if (!pasteInput || !statusEl) return;
+    
+    const pasteText = pasteInput.value.trim();
+    if (!pasteText) {
+        statusEl.textContent = 'Paste empty';
+        statusEl.style.color = '#999';
+        return;
+    }
+    
+    // Parse each line: HH:MM [TAB TripNo] [TAB RunningNo]
+    const lines = pasteText.split('\n').map(line => line.trim()).filter(line => line);
+    const newEntries = [];
+    let validCount = 0;
+    
+    for (const line of lines) {
+        const parts = line.split('\t').map(p => p.trim());
+        const time = parts[0];
+        
+        // Validate time format
+        if (!time.match(/^\d{2}:\d{2}$/)) {
+            continue; // Skip invalid times
+        }
+        
+        const tripNumber = parts[1] || '';
+        const runningNumber = parts[2] || '';
+        
+        newEntries.push({ time, tripNumber, runningNumber });
+        validCount++;
+    }
+    
+    if (validCount === 0) {
+        statusEl.textContent = 'No valid times found (use HH:MM format)';
+        statusEl.style.color = '#e74c3c';
+        return;
+    }
+    
+    // Replace trip details with imported data
+    rsg_tripDetails_extra = newEntries;
+    
+    // Apply smart suggestions for empty fields
+    const tripPattern = rsg_detectTripNumberPattern_ExtraPage();
+    const runningPattern = rsg_detectRunningNumberPattern_ExtraPage();
+    
+    // If patterns exist and we have empty fields, suggest values
+    rsg_tripDetails_extra.forEach((entry, idx) => {
+        if (!entry.tripNumber && tripPattern) {
+            if (tripPattern.type === 'numeric') {
+                entry.tripNumber = String(tripPattern.nextNumber + idx);
+            } else if (tripPattern.type === 'prefixed') {
+                entry.tripNumber = tripPattern.prefix + (tripPattern.nextNumber + idx);
+            }
+        }
+        if (!entry.runningNumber && runningPattern) {
+            if (runningPattern.type === 'numeric') {
+                entry.runningNumber = String(runningPattern.nextNumber + idx);
+            } else if (runningPattern.type === 'prefixed') {
+                entry.runningNumber = runningPattern.prefix + (runningPattern.nextNumber + idx) + runningPattern.suffix;
+            }
+        }
+    });
+    
+    // Update hidden first stop times textarea
+    if (rsgFirstStopTimesInput_el_extra) {
+        rsgFirstStopTimesInput_el_extra.value = rsg_tripDetails_extra.map(t => t.time).join('\t');
+        rsgFirstStopTimesInput_el_extra.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    }
+    
+    // Re-render the table
+    if (typeof rsg_renderTripDetailsTable_ExtraPage === 'function') {
+        rsg_renderTripDetailsTable_ExtraPage();
+    }
+    
+    rsg_isDirty = true;
+    statusEl.textContent = `✓ Imported ${validCount} time(s)`;
+    statusEl.style.color = '#27ae60';
+    
+    // Clear paste input
+    pasteInput.value = '';
+    
+    if (typeof rsg_updateRsgActionButtonsState === 'function') {
+        rsg_updateRsgActionButtonsState();
     }
 }
 
@@ -16941,7 +17144,52 @@ function rsg_openCopyFromModal_ExtraPage() {
 
         if (rsgFirstStopTimesInput_el_extra && existingStopCount === 0) {
             rsgFirstStopTimesInput_el_extra.value = sourceFirstStopTimes;
-            rsg_tripDetails_extra = sourceFirstStopTimes.split(/\t|,|;/).map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/)).map(t => ({ time: t, tripNumber: '', runningNumber: '' }));
+            
+            // Parse times from source
+            const parsedTimes = sourceFirstStopTimes.split(/\t|,|;/).map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
+            
+            // Try to copy tripDetails from source config if available
+            if (sourceConfigData && sourceConfigData.tripDetails && Array.isArray(sourceConfigData.tripDetails)) {
+                // Copy existing trip details from source, matching by time
+                const sourceTimeMap = new Map();
+                sourceConfigData.tripDetails.forEach(td => {
+                    if (td.time) sourceTimeMap.set(td.time, td);
+                });
+                
+                rsg_tripDetails_extra = parsedTimes.map(time => {
+                    const sourceTd = sourceTimeMap.get(time);
+                    return {
+                        time,
+                        tripNumber: sourceTd?.tripNumber || '',
+                        runningNumber: sourceTd?.runningNumber || ''
+                    };
+                });
+            } else {
+                // No source tripDetails; initialize with empty and try to apply patterns
+                rsg_tripDetails_extra = parsedTimes.map(t => ({ time: t, tripNumber: '', runningNumber: '' }));
+            }
+            
+            // Apply smart suggestions for any remaining empty fields based on detected patterns
+            const tripPattern = rsg_detectTripNumberPattern_ExtraPage();
+            const runningPattern = rsg_detectRunningNumberPattern_ExtraPage();
+            
+            rsg_tripDetails_extra.forEach((entry, idx) => {
+                if (!entry.tripNumber && tripPattern) {
+                    if (tripPattern.type === 'numeric') {
+                        entry.tripNumber = String(tripPattern.nextNumber + idx);
+                    } else if (tripPattern.type === 'prefixed') {
+                        entry.tripNumber = tripPattern.prefix + (tripPattern.nextNumber + idx);
+                    }
+                }
+                if (!entry.runningNumber && runningPattern) {
+                    if (runningPattern.type === 'numeric') {
+                        entry.runningNumber = String(runningPattern.nextNumber + idx);
+                    } else if (runningPattern.type === 'prefixed') {
+                        entry.runningNumber = runningPattern.prefix + (runningPattern.nextNumber + idx) + runningPattern.suffix;
+                    }
+                }
+            });
+            
             if (typeof rsg_renderTripDetailsTable_ExtraPage === 'function') {
                 rsg_renderTripDetailsTable_ExtraPage();
             }
@@ -18030,6 +18278,10 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
     }
     if (rsgAddTripRowButton_el_extra && typeof rsg_addTripDetailRow_ExtraPage === 'function') {
         rsgAddTripRowButton_el_extra.addEventListener('click', rsg_addTripDetailRow_ExtraPage);
+    }
+    const rsgImportPasteDetailsBtn_local = document.getElementById('rsg-import-paste-details-button-extra');
+    if (rsgImportPasteDetailsBtn_local && typeof rsg_importPasteTripDetails_ExtraPage === 'function') {
+        rsgImportPasteDetailsBtn_local.addEventListener('click', rsg_importPasteTripDetails_ExtraPage);
     }
     const rsgScheduleSelectedBtn_local = document.getElementById('rsg-schedule-selected-configs-button-extra');
     if (rsgScheduleSelectedBtn_local && typeof rsg_handleScheduleSelectedConfigs_ExtraPage === 'function') {

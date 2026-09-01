@@ -248,6 +248,8 @@
 
     let vehicleRouteHistoryMap = new Map();
     let vehicleDetailedLogMap = new Map();
+    let activeRouteListener = null; // Tracks current route listener for cleanup
+    let allRoutesListener = null; // Tracks all routes listener for cleanup
 
     function loadRouteHistoryFromStorage() {
         try {
@@ -500,12 +502,16 @@
         if (routeSearchInput) { 
             const routeValue = routeSearchInput.value.trim().toUpperCase(); 
             if (routeValue) { 
-                currentRouteFilter = routeValue; 
+                currentRouteFilter = routeValue;
+                if (activeRouteListener) activeRouteListener();
+                if (allRoutesListener) allRoutesListener();
+                allRoutesListener = null;
                 if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? `OMSI Rare Workings Page (All Routes)` : `OMSI Live Tracker - Route ${currentRouteFilter}`); 
-                if(searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(currentRouteFilter)}...`; 
                 loadRouteDataOnDemand(currentRouteFilter);
             } else { 
-                currentRouteFilter = null; 
+                currentRouteFilter = null;
+                if (activeRouteListener) activeRouteListener();
+                activeRouteListener = null;
                 if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? "OMSI Rare Workings Page (All Routes)" : "OMSI Live Tracker"); 
                 if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
                 localScheduleData = [];
@@ -516,7 +522,9 @@
     }
     
     function handleClearRouteFilter() { 
-        currentRouteFilter = null; 
+        currentRouteFilter = null;
+        if (activeRouteListener) activeRouteListener();
+        activeRouteListener = null;
         if (routeSearchInput) routeSearchInput.value = ""; 
         if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? "OMSI Rare Workings Page" : "OMSI Live Tracker"); 
         if(searchStatusMessage) searchStatusMessage.textContent = "Enter route to display."; 
@@ -539,8 +547,12 @@
             }
         }
         if (isRarePageActive && !currentRouteFilter) {
+            if (activeRouteListener) activeRouteListener();
+            activeRouteListener = null;
             loadAllRoutesMetadataAndData();
         } else {
+            if (allRoutesListener) allRoutesListener();
+            allRoutesListener = null;
             throttledProcessAndDisplay();
         }
     }
@@ -574,10 +586,12 @@
 
     function loadRouteDataOnDemand(routeKey) {
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        const { database, dbRef, dbGet, dbChild } = window.firebaseOMSI_SA;
+        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
         const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
 
-        dbGet(routeRef).then((snapshot) => {
+        if(searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(routeKey)}...`;
+
+        activeRouteListener = dbOnValue(routeRef, (snapshot) => {
             if (snapshot.exists()) {
                 const routeData = snapshot.val();
                 const flatEntries = flattenSingleRouteData(routeKey, routeData);
@@ -593,7 +607,7 @@
                 if(searchStatusMessage) searchStatusMessage.textContent = `Route ${escapeHtml(routeKey)} not found in database.`;
                 if(trackerTableBodyA) trackerTableBodyA.innerHTML = `<tr><td colspan="5">No schedule data found for route ${escapeHtml(routeKey)}.</td></tr>`;
             }
-        }).catch(err => {
+        }, (err) => {
             if(searchStatusMessage) searchStatusMessage.textContent = `Error loading route ${escapeHtml(routeKey)}.`;
         });
     }
@@ -601,10 +615,10 @@
     function loadAllRoutesMetadataAndData() {
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
         if(searchStatusMessage) searchStatusMessage.textContent = "Loading all routes for Rare Workings...";
-        const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
+        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
         const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
 
-        dbGet(schedulesByRouteRef).then((snapshot) => {
+        allRoutesListener = dbOnValue(schedulesByRouteRef, (snapshot) => {
             if (snapshot.exists()) {
                 const schedulesByRoute = snapshot.val();
                 const routeKeys = Object.keys(schedulesByRoute);
@@ -619,7 +633,7 @@
                 if(searchStatusMessage) searchStatusMessage.textContent = "Rare workings loaded successfully.";
                 throttledProcessAndDisplay();
             }
-        }).catch(err => {
+        }, (err) => {
             if(searchStatusMessage) searchStatusMessage.textContent = "Error loading rare workings data.";
         });
     }

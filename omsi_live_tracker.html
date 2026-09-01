@@ -1439,31 +1439,13 @@
                 allUniqueDestinations = [...new Set(localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
             }
 
-            let dir1Destinations = [];
-            let dir2Destinations = [];
+            // Use the same logic as route sequences to get primary directions
+            const primaryDests = currentRouteFilter ? getPrimaryDestinationsForRoute(currentRouteFilter) : { dir1: null, dir2: null };
+            const mainTerminus1 = primaryDests.dir1 || allUniqueDestinations[0] || "Direction A";
+            const mainTerminus2 = primaryDests.dir2 || null;
 
-            if (allUniqueDestinations.length > 0) {
-                const primaryTerminus1 = allUniqueDestinations[0];
-                const primaryTerminus2 = allUniqueDestinations.length > 1 ? allUniqueDestinations[allUniqueDestinations.length - 1] : null;
-
-                allUniqueDestinations.forEach(dest => {
-                    if (primaryTerminus2 && dest !== primaryTerminus1) {
-                        const distTo1 = dest.toLowerCase().includes(primaryTerminus1.toLowerCase()) || primaryTerminus1.toLowerCase().includes(dest.toLowerCase());
-                        if (distTo1 && dest !== primaryTerminus2) {
-                            dir1Destinations.push(dest);
-                        } else {
-                            dir2Destinations.push(dest);
-                        }
-                    } else {
-                        dir1Destinations.push(dest);
-                    }
-                });
-                if (dir1Destinations.length === 0) dir1Destinations.push(primaryTerminus1);
-                if (primaryTerminus2 && dir2Destinations.length === 0) dir2Destinations.push(primaryTerminus2);
-            }
-
-            const mainTerminus1 = dir1Destinations[0] || "Direction A";
-            const mainTerminus2 = dir2Destinations.length > 0 ? dir2Destinations[0] : null;
+            let dir1Destinations = mainTerminus1 ? [mainTerminus1] : [];
+            let dir2Destinations = mainTerminus2 ? [mainTerminus2] : [];
 
             if (directionAHeading) {
                 directionAHeading.textContent = unescapeHtml(`Live Services (Towards ${mainTerminus1})`);
@@ -1579,6 +1561,39 @@
         curtailedBusesTableBody.innerHTML = curtailedRowsHTML;
     }
     
+    // Get the primary destinations for a route (sorted by stop count, highest first)
+    function getPrimaryDestinationsForRoute(routeKey) {
+        if (!routeKey || !localScheduleData || localScheduleData.length === 0) return { dir1: null, dir2: null };
+        
+        const extractStopSequenceForDirection = (routeToDisplay, targetDestination) => {
+            let longestRunStops = []; let maxStopsInRun = 0; const serviceRunsMap = new Map();
+            const filteredEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeToDisplay.toUpperCase() && unescapeHtml(entry.destinationName) === unescapeHtml(targetDestination) && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") );
+            filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: unescapeHtml(entry.stopName), preciseScheduledDateTime: finalAdjustedSchedTime }); } });
+            serviceRunsMap.forEach((stopsArray) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
+            if (longestRunStops.length > 0) { return longestRunStops.map(stop => stop.stopName); }
+            return [];
+        };
+        
+        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeKey.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))];
+        
+        // For each destination, get stops
+        const destWithStops = {};
+        destinationNames.forEach(dest => {
+            const stops = extractStopSequenceForDirection(routeKey, dest);
+            if (stops && stops.length > 0) {
+                destWithStops[dest] = stops;
+            }
+        });
+
+        // Get destinations sorted by number of stops (most first)
+        const destinationsWithStops = Object.keys(destWithStops).sort((a, b) => destWithStops[b].length - destWithStops[a].length);
+
+        const dir1 = destinationsWithStops.length > 0 ? destinationsWithStops[0] : null;
+        const dir2 = destinationsWithStops.length > 1 ? destinationsWithStops[1] : null;
+        
+        return { dir1, dir2 };
+    }
+    
     function generateAndDisplayRouteSequences() { 
         const container1 = document.getElementById('sequence-container-1');
         const container2 = document.getElementById('sequence-container-2');
@@ -1637,24 +1652,21 @@
 
         let dir1Name = destinationsWithStops[0];
         let dir1Stops = destWithStops[dir1Name];
-        let dir1EndStop = dir1Stops.length > 0 ? dir1Stops[dir1Stops.length - 1] : dir1Name;
         
         // Show dir2 if there's another destination with actual stops
         let dir2Name = null;
         let dir2Stops = [];
-        let dir2EndStop = dir2Name;
         if (destinationsWithStops.length > 1) {
             dir2Name = destinationsWithStops[1];
             dir2Stops = destWithStops[dir2Name];
-            dir2EndStop = dir2Stops.length > 0 ? dir2Stops[dir2Stops.length - 1] : dir2Name;
         }
 
-        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir1EndStop})`);
+        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir1Name})`);
         displaySequenceInTable(outboundSequenceTableContainer, dir1Stops);
         if(container1) container1.style.display = "block";
 
         if (dir2Name) {
-            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir2EndStop})`);
+            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir2Name})`);
             displaySequenceInTable(inboundSequenceTableContainer, dir2Stops);
             if(container2) container2.style.display = "block";
         } else {

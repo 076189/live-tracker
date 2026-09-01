@@ -1603,10 +1603,10 @@
             const filteredEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeToDisplay.toUpperCase() && unescapeHtml(entry.destinationName) === unescapeHtml(targetDestination) && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") );
             filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: unescapeHtml(entry.stopName), preciseScheduledDateTime: finalAdjustedSchedTime }); } });
             serviceRunsMap.forEach((stopsArray) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
-            if (longestRunStops.length > 0) { const sortedStops = longestRunStops.sort((a, b) => a.preciseScheduledDateTime.getTime() - b.preciseScheduledDateTime.getTime()).map(stop => stop.stopName); return sortedStops; }
+            if (longestRunStops.length > 0) { const stopsInSequenceOrder = longestRunStops.map(stop => stop.stopName); return stopsInSequenceOrder; }
             return [];
         };
-        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))].sort();
+        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))];
         
         if (destinationNames.length === 0) {
             if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML = "<p>No destinations found for this route.</p>";
@@ -1615,8 +1615,21 @@
             return;
         }
 
-        let dir1Name = destinationNames[0];
-        let dir2Name = destinationNames.length > 1 ? destinationNames[destinationNames.length - 1] : null;
+        // Count stops for each destination to prioritize full routes over curtailments
+        const destStopCounts = {};
+        localScheduleData.forEach(entry => {
+            if (entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase() && entry.stopID) {
+                const destName = unescapeHtml(entry.destinationName);
+                if (!destStopCounts[destName]) destStopCounts[destName] = new Set();
+                destStopCounts[destName].add(entry.stopID);
+            }
+        });
+
+        // Sort destinations by number of unique stops (descending) - full routes have more stops than curtailments
+        const sortedByStops = destinationNames.sort((a, b) => (destStopCounts[b]?.size || 0) - (destStopCounts[a]?.size || 0));
+
+        let dir1Name = sortedByStops[0];
+        let dir2Name = sortedByStops.length > 1 ? sortedByStops[1] : null;
 
         if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir1Name})`);
         displaySequenceInTable(outboundSequenceTableContainer, extractStopSequenceForDirection(currentRouteFilter, dir1Name));

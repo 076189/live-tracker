@@ -116,7 +116,7 @@
             </tr>
         </thead>
         <tbody id="tracker-table-body-a">
-            <tr><td colspan="5" style="text-align:center; padding: 20px;">Please enter a route number above.</td></tr>
+            <tr><td colspan="6" style="text-align:center; padding: 20px;">Please enter a route number above.</td></tr>
         </tbody>
     </table>
 
@@ -134,7 +134,7 @@
             </tr>
         </thead>
         <tbody id="tracker-table-body-b">
-            <tr><td colspan="5" style="text-align:center; padding: 20px;">No Direction B services.</td></tr>
+            <tr><td colspan="6" style="text-align:center; padding: 20px;">No Direction B services.</td></tr>
         </tbody>
     </table>
 
@@ -952,8 +952,10 @@
                 if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
                     assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };
                     serviceInstanceVehicleCache.set(blockId, assignedVehicle);
+                    console.log('[processAndDisplayAllData] Found fleet/reg in busEntry:', busEntry.fleetNumber, busEntry.vehicleReg);
                 } else {
-                    assignedVehicle = getAssignedVehicle(blockId, trueLineName); 
+                    assignedVehicle = getAssignedVehicle(blockId, trueLineName);
+                    console.log('[processAndDisplayAllData] No fleet/reg in busEntry (has fleetNumber?', !!busEntry.fleetNumber, 'has vehicleReg?', !!busEntry.vehicleReg, '). Fetched from allocation:', assignedVehicle);
                 }
                 
                 recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
@@ -1115,7 +1117,9 @@
         } 
 
         tbody.innerHTML = "";
+        let rowCount = 0;
         filteredByDirection.forEach((service) => { 
+            rowCount++;
             const row = tbody.insertRow();
             const isPast = service._timeToNextStopSec < 0;
             if (isPast) row.classList.add('past-stopped-bus');
@@ -1128,6 +1132,24 @@
             const regVal = unescapeHtml(service.assignedRegistration || '---');
             const destVal = unescapeHtml(service.displayDestination || '?');
             const stopVal = unescapeHtml(service.nextStopName || '?');
+            
+            // DETAILED DEBUG - log ALL properties
+            if (rowCount === 1) {
+                console.log('[renderTrackerTable] FIRST ROW - Full service object properties:', {
+                    assignedFleetNumber: service.assignedFleetNumber,
+                    assignedRegistration: service.assignedRegistration,
+                    runningNumber: service.runningNumber,
+                    displayDestination: service.displayDestination,
+                    nextStopName: service.nextStopName,
+                    _timeToNextStopSec: service._timeToNextStopSec,
+                    nextStopActualTime: service.nextStopActualTime,
+                    serviceId: service.serviceId,
+                    blockId: service.blockId,
+                    trueLineName: service.trueLineName,
+                    isRareWorking: service.isRareWorking
+                });
+                console.log('[renderTrackerTable] Extracted values - fleetVal:', fleetVal, 'regVal:', regVal);
+            }
 
             let displayTimeText = '?'; 
             if (service.nextStopActualTime instanceof Date) { 
@@ -1164,8 +1186,15 @@
             row.insertCell().textContent = destVal;
             row.insertCell().textContent = stopVal;
             row.insertCell().textContent = displayTimeText;
+            
+            if (rowCount === 1) {
+                console.log('[renderTrackerTable] FIRST ROW - Cells created. Row now has', row.cells.length, 'cells');
+                for (let i = 0; i < row.cells.length; i++) {
+                    console.log('[renderTrackerTable] Cell', i, ':', row.cells[i].textContent);
+                }
+            }
         }); 
-    }
+        console.log('[renderTrackerTable] Rendered', rowCount, 'rows into tbody id:', targetTbodyId);
 
     function renderRareTrackerTable(servicesToDisplay) {
         const tbody = document.getElementById('tracker-table-body-rare');

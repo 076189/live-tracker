@@ -154,6 +154,17 @@
         </tbody>
     </table>
 
+    <!-- History Page Container -->
+    <h2 id="history-heading" style="display:none;">Vehicle Sighting History</h2>
+    <div id="history-page-container" style="display:none;">
+        <div style="margin-bottom: 15px;">
+            <button type="button" onclick="window.exitHistoryPage()" style="padding: 8px 15px; background-color: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em;">Back to Tracker</button>
+        </div>
+        <div id="history-page-content" style="background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <p>Loading history...</p>
+        </div>
+    </div>
+
     <h2 id="curtailed-heading">Curtailments Today</h2>
     <table>
         <thead>
@@ -185,17 +196,6 @@
     </div>
 
     <!-- Vehicle History Modal -->
-    <div id="vehicle-history-modal" class="modal-overlay hidden">
-        <div class="modal-box">
-            <h3 id="vehicle-history-title">Vehicle Sighting History</h3>
-            <div id="vehicle-history-list" class="modal-content">
-                <p>Loading history...</p>
-            </div>
-            <div class="modal-buttons">
-                <button type="button" class="cancel-button">Close</button>
-            </div>
-        </div>
-    </div>
 
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
@@ -232,6 +232,8 @@
 
     let currentRouteFilter = null; 
     let isRarePageActive = false;
+    let isHistoryPageActive = false;
+    let currentHistoryIdentifier = null;
 
     let watchedBuses = new Set(); 
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
@@ -350,7 +352,6 @@
         updateTimeElement, nextUpdateTimerElement,
         curtailedBusesTableBody, outboundSequenceTableContainer, inboundSequenceTableContainer,
         vehicleSearchInput, watchBusInput, searchStatusMessage, watchedBusesDisplay,
-        vehicleHistoryModal, vehicleHistoryTitle, vehicleHistoryList,
         routeSearchInput, routeSearchButton, clearRouteFilterButton, rarePageToggleButton,
         mainHeadingElement,
         directionAHeading, directionBHeading, directionBTableContainer,
@@ -456,7 +457,7 @@
     }
 
     function initializeTracker() {
-        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBodyA = document.getElementById('tracker-table-body-a'); trackerTableBodyB = document.getElementById('tracker-table-body-b'); trackerTableBodyRare = document.getElementById('tracker-table-body-rare'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceTableContainer = document.getElementById('outbound-sequence-table-container'); inboundSequenceTableContainer = document.getElementById('inbound-sequence-table-container'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); vehicleHistoryModal = document.getElementById('vehicle-history-modal'); vehicleHistoryTitle = document.getElementById('vehicle-history-title'); vehicleHistoryList = document.getElementById('vehicle-history-list'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); rarePageToggleButton = document.getElementById('rare-page-toggle-button'); mainHeadingElement = document.getElementById('main-heading'); 
+        clockTimeElement = document.getElementById('clock-time'); clockDateElement = document.getElementById('clock-date'); trackerTableBodyA = document.getElementById('tracker-table-body-a'); trackerTableBodyB = document.getElementById('tracker-table-body-b'); trackerTableBodyRare = document.getElementById('tracker-table-body-rare'); busCounterElement = document.getElementById('bus-counter'); updateTimeElement = document.getElementById('update-time'); nextUpdateTimerElement = document.getElementById('next-update-timer'); curtailedBusesTableBody = document.getElementById('curtailed-buses-table-body'); outboundSequenceTableContainer = document.getElementById('outbound-sequence-table-container'); inboundSequenceTableContainer = document.getElementById('inbound-sequence-table-container'); vehicleSearchInput = document.getElementById('vehicle-search-input'); watchBusInput = document.getElementById('watch-bus-input'); searchStatusMessage = document.getElementById('search-status-message'); watchedBusesDisplay = document.getElementById('watched-buses-display'); routeSearchInput = document.getElementById('route-search-input'); routeSearchButton = document.getElementById('route-search-button'); clearRouteFilterButton = document.getElementById('clear-route-filter-button'); rarePageToggleButton = document.getElementById('rare-page-toggle-button'); mainHeadingElement = document.getElementById('main-heading');
 
         directionAHeading = document.getElementById('direction-a-heading');
         directionBHeading = document.getElementById('direction-b-heading');
@@ -488,8 +489,6 @@
         if (routeSearchInput) routeSearchInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') handleRouteSearch(); });
         if (clearRouteFilterButton) clearRouteFilterButton.addEventListener('click', handleClearRouteFilter);
         if (rarePageToggleButton) rarePageToggleButton.addEventListener('click', handleToggleRarePage);
-        const closeHistoryButton = document.querySelector('#vehicle-history-modal .cancel-button');
-        if (closeHistoryButton) closeHistoryButton.addEventListener('click', hideVehicleHistoryModal);
     }
 
     function handleRouteSearch() { 
@@ -1225,10 +1224,15 @@
     }
 
     window.displayVehicleHistoryModal = function(identifier) {
-        if (!vehicleHistoryModal || !vehicleHistoryTitle || !vehicleHistoryList) return;
+        if (!identifier) return;
         const cleanIdent = String(identifier || "").trim().toUpperCase();
-        vehicleHistoryTitle.textContent = unescapeHtml(`Sighting History for Vehicle: ${cleanIdent}`);
-
+        currentHistoryIdentifier = cleanIdent;
+        isHistoryPageActive = true;
+        
+        if (mainHeadingElement) {
+            mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle History: ${cleanIdent}`);
+        }
+        
         let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
         if (logs.length === 0) {
             for (const [key, val] of vehicleDetailedLogMap.entries()) {
@@ -1251,28 +1255,55 @@
             }
         }
 
+        let pageContent = '';
         if (logs.length === 0) {
-            vehicleHistoryList.innerHTML = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
+            pageContent = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
         } else {
-            let tableHTML = '<table><thead><tr><th>Route</th><th>Sighting Timestamp</th></tr></thead><tbody>';
+            let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Sighting Timestamp</th></tr></thead><tbody>';
             const sortedLogs = [...logs].sort((a, b) => b.timestamp - a.timestamp);
             sortedLogs.forEach(log => {
                 const dateObj = new Date(log.timestamp);
                 const timeString = isNaN(dateObj.getTime()) ? 'Unknown' : dateObj.toLocaleString();
-                tableHTML += `<tr><td><strong>Route ${escapeHtml(log.routeName)}</strong></td><td>${escapeHtml(timeString)}</td></tr>`;
+                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;"><strong>Route ${escapeHtml(log.routeName)}</strong></td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(timeString)}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
-            vehicleHistoryList.innerHTML = tableHTML;
+            pageContent = tableHTML;
         }
-        vehicleHistoryModal.classList.remove('hidden');
+        
+        const historyPageContent = document.getElementById('history-page-content');
+        if (historyPageContent) {
+            historyPageContent.innerHTML = pageContent;
+        }
+        
+        applyTableDisplay();
     };
 
-    window.hideVehicleHistoryModal = function() {
-        if (vehicleHistoryModal) vehicleHistoryModal.classList.add('hidden');
+    window.exitHistoryPage = function() {
+        isHistoryPageActive = false;
+        currentHistoryIdentifier = null;
+        if (mainHeadingElement) {
+            mainHeadingElement.textContent = unescapeHtml(currentRouteFilter ? `OMSI Live Tracker - Route ${currentRouteFilter}` : "OMSI Live Tracker");
+        }
+        applyTableDisplay();
     };
 
     function applyTableDisplay() { 
-        if (isRarePageActive) {
+        if (isHistoryPageActive) {
+            if (standardTableA) standardTableA.style.display = "none";
+            if (directionAHeading) directionAHeading.style.display = "none";
+            if (directionBHeading) directionBHeading.style.display = "none";
+            if (directionBTableContainer) directionBTableContainer.style.display = "none";
+            if (rareHeading) rareHeading.style.display = "none";
+            if (rareTableContainer) rareTableContainer.style.display = "none";
+            
+            const historyHeading = document.getElementById('history-heading');
+            if (historyHeading) {
+                historyHeading.textContent = unescapeHtml(`Vehicle Sighting History - ${currentHistoryIdentifier || "History"}`);
+                historyHeading.style.display = "block";
+            }
+            const historyPageContainer = document.getElementById('history-page-container');
+            if (historyPageContainer) historyPageContainer.style.display = "block";
+        } else if (isRarePageActive) {
             if (standardTableA) standardTableA.style.display = "none";
             if (directionAHeading) directionAHeading.style.display = "none";
             if (directionBHeading) directionBHeading.style.display = "none";

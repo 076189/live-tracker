@@ -226,8 +226,9 @@
     const schoolHolidayDateRanges = []; 
     const earlyMorningThresholdHours = 5; 
 
-    const MAX_UPCOMING_SECONDS_TRACKER = 1800; // 30 minutes in future max
-    const MAX_PAST_SECONDS_TRACKER = -1800; // 30 minutes in past max window for finished runs
+    const MAX_UPCOMING_SECONDS_TRACKER = 1800; 
+    const MIN_RELEVANT_PAST_SECONDS_TRACKER = -59; 
+    const MAX_PAST_SECONDS_TRACKER = -1800; 
 
     let currentRouteFilter = null; 
     let isRarePageActive = false;
@@ -1000,7 +1001,7 @@
         const blockNextActivityMap = new Map();
 
         blockRunsMap.forEach((runs, blockId) => {
-            // Sort trips in this block strictly by their start time chronologically
+            // Sort trips in this block chronologically by start time
             runs.sort((a, b) => {
                 const timeA = a.stops.length > 0 ? a.stops[0].preciseScheduledDateTime.getTime() : 0;
                 const timeB = b.stops.length > 0 ? b.stops[0].preciseScheduledDateTime.getTime() : 0;
@@ -1010,38 +1011,51 @@
             let selectedRun = null;
             let selectedBestStop = null;
 
-            // Strict Relevant Window Filter: ONLY consider trips that are currently active or within our tight live window (-30 min to +30 min).
-            // This completely stops far-future trips or ancient past trips from bleeding into the display.
+            // Pass 1: Look for an active or upcoming stop (within MAX_UPCOMING_SECONDS_TRACKER)
             for (const run of runs) {
-                let bestStopForRun = null;
-                let minFutureDiff = Infinity;
-                let maxPastDiff = -Infinity;
-                let hasRelevantStop = false;
-
                 for (const stop of run.stops) {
                     if (closedStopIDsGlobal.includes(stop.stopID)) continue;
                     const diff = stop.timeToStationInSeconds;
-                    
-                    // Strictly clamp to active operational thresholds
-                    if (diff >= MAX_PAST_SECONDS_TRACKER && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
-                        hasRelevantStop = true;
-                        if (diff >= 0 && diff < minFutureDiff) {
-                            minFutureDiff = diff;
-                            bestStopForRun = stop;
-                        } else if (diff < 0 && diff > maxPastDiff && minFutureDiff === Infinity) {
-                            maxPastDiff = diff;
-                            bestStopForRun = stop;
+                    if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
+                        selectedRun = run;
+                        selectedBestStop = stop;
+                        break;
+                    }
+                }
+                if (selectedRun) break;
+            }
+
+            // Pass 2: If no live stop is within the immediate window, find the very next upcoming trip in this block that hasn't started yet (automatically logging into the next trip instead of keeping "Last seen")
+            if (!selectedRun) {
+                for (const run of runs) {
+                    const futureStops = run.stops.filter(s => !closedStopIDsGlobal.includes(s.stopID) && s.timeToStationInSeconds > 0);
+                    if (futureStops.length > 0) {
+                        futureStops.sort((a, b) => a.timeToStationInSeconds - b.timeToStationInSeconds);
+                        selectedRun = run;
+                        selectedBestStop = futureStops[0];
+                        break;
+                    }
+                }
+            }
+
+            // Pass 3: If all trips in the block are completely finished for the day, fall back to the most recent past stop of the final run
+            if (!selectedRun && runs.length > 0) {
+                const lastRun = runs[runs.length - 1];
+                let latestPastStop = null;
+                let largestPastDiff = -Infinity;
+                for (const stop of lastRun.stops) {
+                    if (closedStopIDsGlobal.includes(stop.stopID)) continue;
+                    const diff = stop.timeToStationInSeconds;
+                    if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
+                        if (diff > largestPastDiff) {
+                            largestPastDiff = diff;
+                            latestPastStop = stop;
                         }
                     }
                 }
-
-                if (hasRelevantStop && bestStopForRun) {
-                    selectedRun = run;
-                    selectedBestStop = bestStopForRun;
-                    // If this trip is currently running or upcoming, lock onto it immediately
-                    if (bestStopForRun.timeToStationInSeconds >= MAX_PAST_SECONDS_TRACKER) {
-                        break;
-                    }
+                if (latestPastStop) {
+                    selectedRun = lastRun;
+                    selectedBestStop = latestPastStop;
                 }
             }
 
@@ -1528,7 +1542,7 @@
                 case 6: l="Sa"; break;
             }
             o.add(l);
-            n >= 1 && n <= 5 && (o.add(l+i), o.add("Mo-Fr"), o.add("MF"));
+            n >= 1 && n <= 5 && (o.add(l+i), o.add("MF"+i), o.add("Mo-Fr"), o.add("MF"));
             (n === 6 || n === 0) && s && o.add(l+"NSD");
             s && o.add("SchoolHoliday");
         } else {

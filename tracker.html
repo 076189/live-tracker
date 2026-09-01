@@ -323,7 +323,7 @@
             
             const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
             if (!lastLog || lastLog.routeName !== routeUp || (now - lastLog.timestamp) > 60000) {
-                logs.push({ routeName: routeUp, timestamp: now });
+                logs.push({ routeName: routeUp, timestamp: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---" });
                 if (logs.length > 50) logs.shift();
             }
         });
@@ -1263,12 +1263,31 @@
         if (logs.length === 0) {
             pageContent = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
         } else {
-            let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Sighting Timestamp</th></tr></thead><tbody>';
+            let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Fleet</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Reg</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th></tr></thead><tbody>';
             const sortedLogs = [...logs].sort((a, b) => b.timestamp - a.timestamp);
+             
+            // Deduplicate by route per day
+            const seenRoutesByDay = new Set();
+            const uniqueLogs = [];
+             
             sortedLogs.forEach(log => {
                 const dateObj = new Date(log.timestamp);
-                const timeString = isNaN(dateObj.getTime()) ? 'Unknown' : dateObj.toLocaleString();
-                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;"><strong>Route ${escapeHtml(log.routeName)}</strong></td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(timeString)}</td></tr>`;
+                const dateKey = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                const routeKey = `${log.routeName}_${dateKey}`;
+                 
+                if (!seenRoutesByDay.has(routeKey)) {
+                    seenRoutesByDay.add(routeKey);
+                    uniqueLogs.push(log);
+                }
+            });
+             
+            uniqueLogs.forEach(log => {
+                const dateObj = new Date(log.timestamp);
+                const dateString = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                const fleet = log.fleetNumber ? escapeHtml(log.fleetNumber) : '-';
+                const reg = log.registration ? escapeHtml(log.registration) : '-';
+                const route = escapeHtml(log.routeName);
+                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${fleet}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${reg}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${route}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${dateString}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
             pageContent = tableHTML;

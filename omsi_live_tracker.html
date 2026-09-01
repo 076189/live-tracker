@@ -1243,19 +1243,39 @@
             mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle History: ${cleanIdent}`);
         }
         
-        // Look up the vehicle's fleet/reg from the cache and logs
+        // Look up the vehicle's fleet/reg from Firebase allocation data
         let displayFleet = '-';
         let displayReg = '-';
         
-        // Search through service instance cache to find matching vehicle
-        for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
-            const f = String(vehicle.fleetNumber || "").toUpperCase();
-            const r = String(vehicle.registration || "").toUpperCase();
-            if (f === cleanIdent || r === cleanIdent || cleanIdent.includes(f) || cleanIdent.includes(r)) {
-                displayFleet = String(vehicle.fleetNumber || '-');
-                displayReg = String(vehicle.registration || '-');
-                break;
+        // Search through vehicleAllocationData to find matching vehicle
+        for (const route in vehicleAllocationData) {
+            const routeData = vehicleAllocationData[route];
+            if (!routeData || typeof routeData !== 'object') continue;
+            
+            // Search in all vehicle pools
+            const allVehicles = [];
+            if (routeData.commonVehicles) {
+                const common = parseFirebaseListOrMap(routeData.commonVehicles);
+                if (Array.isArray(common)) allVehicles.push(...common);
             }
+            if (routeData.rareVehicles) {
+                const rare = parseFirebaseListOrMap(routeData.rareVehicles);
+                if (Array.isArray(rare)) allVehicles.push(...rare);
+            }
+            
+            // Look for matching vehicle
+            for (const vehicle of allVehicles) {
+                if (!vehicle) continue;
+                const f = String(vehicle.fleetNumber || "").toUpperCase();
+                const r = String(vehicle.registration || "").toUpperCase();
+                if (f === cleanIdent || r === cleanIdent) {
+                    displayFleet = String(vehicle.fleetNumber || '-');
+                    displayReg = String(vehicle.registration || '-');
+                    break;
+                }
+            }
+            
+            if (displayFleet !== '-' && displayReg !== '-') break;
         }
         
         let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
@@ -1304,7 +1324,7 @@
                 }
             });
              
-            // If we found fleet/reg from first log, use those
+            // If we still haven't found fleet/reg, use from first log
             if (uniqueLogs.length > 0) {
                 if (!displayFleet || displayFleet === '-') {
                     displayFleet = uniqueLogs[0].fleetNumber ? String(uniqueLogs[0].fleetNumber) : '-';

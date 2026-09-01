@@ -228,7 +228,7 @@
 
     const MAX_UPCOMING_SECONDS_TRACKER = 1800; 
     const MIN_RELEVANT_PAST_SECONDS_TRACKER = -59; 
-    const MAX_PAST_SECONDS_TRACKER = -1800; 
+    const MAX_PAST_SECONDS_TRACKER = -1800; // 30-minute timeout buffer after passing a stop
 
     let currentRouteFilter = null; 
     let isRarePageActive = false;
@@ -985,97 +985,74 @@
         }
         saveVehicleCacheToStorage();
 
-        // Group all service runs by blockId for chronological duty management
-        const blockRunsMap = new Map();
+        let servicesWithARelevantNextStop = [];
         activeServicesMap.forEach((serviceRun) => {
-            if (serviceRun.stops.length > 0) { 
-                serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));
-            }
-            const bId = serviceRun.blockId || serviceRun.serviceId;
-            if (!blockRunsMap.has(bId)) {
-                blockRunsMap.set(bId, []);
-            }
-            blockRunsMap.get(bId).push(serviceRun);
-        });
+            if (serviceRun.stops.length > 0) { serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));}
+            
+            let bestStopForThisRun = null;
+            let smallestFutureDiff = Infinity;
+            let largestPastDiff = -Infinity;
 
-        const blockNextActivityMap = new Map();
+            for (const stop of serviceRun.stops) {
+                if (!stop.preciseScheduledDateTime) continue;
+                if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
 
-        blockRunsMap.forEach((runs, blockId) => {
-            // Sort trips in this block chronologically by start time
-            runs.sort((a, b) => {
-                const timeA = a.stops.length > 0 ? a.stops[0].preciseScheduledDateTime.getTime() : 0;
-                const timeB = b.stops.length > 0 ? b.stops[0].preciseScheduledDateTime.getTime() : 0;
-                return timeA - timeB;
-            });
-
-            let selectedRun = null;
-            let selectedBestStop = null;
-
-            // Pass 1: Look for an active or upcoming stop (within MAX_UPCOMING_SECONDS_TRACKER)
-            for (const run of runs) {
-                for (const stop of run.stops) {
-                    if (closedStopIDsGlobal.includes(stop.stopID)) continue;
-                    const diff = stop.timeToStationInSeconds;
-                    if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
-                        selectedRun = run;
-                        selectedBestStop = stop;
-                        break;
+                const diff = stop.timeToStationInSeconds;
+                if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
+                    if (diff < smallestFutureDiff) {
+                        smallestFutureDiff = diff;
+                        bestStopForThisRun = stop;
                     }
-                }
-                if (selectedRun) break;
-            }
-
-            // Pass 2: If no live stop is within the immediate window, find the very next upcoming trip in this block that hasn't started yet (automatically logging into the next trip instead of keeping "Last seen")
-            if (!selectedRun) {
-                for (const run of runs) {
-                    const futureStops = run.stops.filter(s => !closedStopIDsGlobal.includes(s.stopID) && s.timeToStationInSeconds > 0);
-                    if (futureStops.length > 0) {
-                        futureStops.sort((a, b) => a.timeToStationInSeconds - b.timeToStationInSeconds);
-                        selectedRun = run;
-                        selectedBestStop = futureStops[0];
-                        break;
+                } else if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
+                    if (diff > largestPastDiff && smallestFutureDiff === Infinity) {
+                        largestPastDiff = diff;
+                        bestStopForThisRun = stop;
                     }
                 }
             }
 
-            // Pass 3: If all trips in the block are completely finished for the day, fall back to the most recent past stop of the final run
-            if (!selectedRun && runs.length > 0) {
-                const lastRun = runs[runs.length - 1];
-                let latestPastStop = null;
-                let largestPastDiff = -Infinity;
-                for (const stop of lastRun.stops) {
-                    if (closedStopIDsGlobal.includes(stop.stopID)) continue;
-                    const diff = stop.timeToStationInSeconds;
-                    if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
-                        if (diff > largestPastDiff) {
-                            largestPastDiff = diff;
-                            latestPastStop = stop;
-                        }
-                    }
-                }
-                if (latestPastStop) {
-                    selectedRun = lastRun;
-                    selectedBestStop = latestPastStop;
-                }
-            }
-
-            if (selectedRun && selectedBestStop) {
-                fullServiceRunDataMap.set(selectedRun.serviceId, selectedRun);
-                blockNextActivityMap.set(blockId, {
-                    serviceId: selectedRun.serviceId,
-                    blockId: selectedRun.blockId,
-                    assignedFleetNumber: selectedRun.assignedFleetNumber,
-                    assignedRegistration: selectedRun.assignedRegistration,
-                    trueLineName: selectedRun.trueLineName,
-                    displayDestination: selectedRun.displayDestination,
-                    nextStopName: unescapeHtml(selectedBestStop.stopName),
-                    nextStopActualTime: selectedBestStop.preciseScheduledDateTime,
-                    _timeToNextStopSec: selectedBestStop.timeToStationInSeconds,
-                    isRareWorking: selectedRun.isRareWorking
+            if (bestStopForThisRun) {
+                fullServiceRunDataMap.set(serviceRun.serviceId, serviceRun); 
+                servicesWithARelevantNextStop.push({ 
+                    serviceId: serviceRun.serviceId, 
+                    blockId: serviceRun.blockId,
+                    assignedFleetNumber: serviceRun.assignedFleetNumber, 
+                    assignedRegistration: serviceRun.assignedRegistration, 
+                    trueLineName: serviceRun.trueLineName, 
+                    displayDestination: serviceRun.displayDestination, 
+                    nextStopName: unescapeHtml(bestStopForThisRun.stopName), 
+                    nextStopActualTime: bestStopForThisRun.preciseScheduledDateTime, 
+                    _timeToNextStopSec: bestStopForThisRun.timeToStationInSeconds,
+                    isRareWorking: serviceRun.isRareWorking
                 });
             }
         });
 
+        // Fixed block filtering: Prioritize active/upcoming trips or very recent past trips sequentially without jumping back prematurely.
+        const blockNextActivityMap = new Map();
+        servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
+            const key = serviceWithNextStop.blockId || `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
+            const existing = blockNextActivityMap.get(key);
+            
+            if (!existing) {
+                blockNextActivityMap.set(key, serviceWithNextStop);
+            } else {
+                const isExistingPast = existing._timeToNextStopSec < 0;
+                const isIncomingPast = serviceWithNextStop._timeToNextStopSec < 0;
+
+                // If one is upcoming (>= 0) and the other is past (< 0), strictly prefer the upcoming/live one!
+                if (!isIncomingPast && isExistingPast) {
+                    blockNextActivityMap.set(key, serviceWithNextStop);
+                } else if (isIncomingPast && !isExistingPast) {
+                    // keep existing live one
+                } else {
+                    // Both are live or both are past: pick the one closest to now (smallest absolute difference)
+                    if (Math.abs(serviceWithNextStop._timeToNextStopSec) < Math.abs(existing._timeToNextStopSec)) {
+                        blockNextActivityMap.set(key, serviceWithNextStop);
+                    }
+                }
+            }
+        });
         currentTrackedServices = Array.from(blockNextActivityMap.values());
 
         if (isRarePageActive) {

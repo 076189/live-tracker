@@ -795,8 +795,16 @@
             serviceInstanceKey = `${trueLineName}_${unescapeHtml(busEntry.destinationName)}_${perStopScheduledTimeKeyComponent}_${busEntry.OperatingProfile}_${(busEntry.DayOffset || "0")}_NO_IDS`;
         }
 
-        const tripKey = `${trueLineName}_${busEntry.OperatingProfile}_${busEntry.tripId}`;
-        const blockId = tripBlockMapping.has(tripKey) ? tripBlockMapping.get(tripKey) : serviceInstanceKey;
+        // If running number is set, use it to create a block ID that keeps the same bus throughout the running
+        let blockId;
+        if (busEntry.runningNumber && String(busEntry.runningNumber).trim() !== "") {
+            const opProfile = busEntry.OperatingProfile || "UNKNOWN";
+            blockId = `${trueLineName}_${opProfile}_RUN_${String(busEntry.runningNumber).trim()}`;
+        } else {
+            // Fall back to existing logic: check tripBlockMapping or use serviceInstanceKey
+            const tripKey = `${trueLineName}_${busEntry.OperatingProfile}_${busEntry.tripId}`;
+            blockId = tripBlockMapping.has(tripKey) ? tripBlockMapping.get(tripKey) : serviceInstanceKey;
+        }
 
         return { trueLineName, serviceInstanceKey, blockId };
     }

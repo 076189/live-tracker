@@ -296,12 +296,20 @@
         } catch (e) {}
     }
 
-    function recordDetailedVehicleSighting(routeName, fleetNumber, registration) {
+    function recordDetailedVehicleSighting(routeName, fleetNumber, registration, blockId) {
         if (!routeName) return;
         const idents = [];
         if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
         if (registration && registration !== "---") idents.push(registration.toUpperCase());
-        if (idents.length === 0) return;
+        
+        // If no valid vehicle identifiers, use blockId as fallback
+        if (idents.length === 0) {
+            if (blockId) {
+                idents.push(blockId.toUpperCase());
+            } else {
+                return;
+            }
+        }
 
         const now = Date.now();
         idents.forEach(ident => {
@@ -933,7 +941,7 @@
                 }
                 
                 recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
-                recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
+                recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration, blockId);
 
                 const routeUpper = trueLineName.toUpperCase();
                 const routeSightings = vehicleRouteHistoryMap.get(routeUpper) || {};
@@ -1254,11 +1262,11 @@
             tableHTML += '</tbody></table>';
             vehicleHistoryList.innerHTML = tableHTML;
         }
-        vehicleHistoryModal.style.display = 'flex';
+        vehicleHistoryModal.classList.remove('hidden');
     };
 
     window.hideVehicleHistoryModal = function() {
-        if (vehicleHistoryModal) vehicleHistoryModal.style.display = 'none';
+        if (vehicleHistoryModal) vehicleHistoryModal.classList.add('hidden');
     };
 
     function applyTableDisplay() { 
@@ -1344,12 +1352,13 @@
 
         const upperInput = rawInput.toUpperCase();
         let identToSearch = upperInput;
+        const hasHistoryPrefix = upperInput.startsWith("HISTORY ");
 
-        if (upperInput.startsWith("HISTORY ")) {
-            identToSearch = upperInput.replace("HISTORY", "").trim();
+        if (hasHistoryPrefix) {
+            identToSearch = upperInput.replace("HISTORY ", "").trim();
         }
 
-        if (identToSearch) {
+        if (identToSearch && hasHistoryPrefix) {
             displayVehicleHistoryModal(identToSearch);
             searchStatusMessage.textContent = `Showing history for ${escapeHtml(identToSearch)}.`;
             vehicleSearchInput.value = "";

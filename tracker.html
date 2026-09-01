@@ -1001,7 +1001,7 @@
         const blockNextActivityMap = new Map();
 
         blockRunsMap.forEach((runs, blockId) => {
-            // Sort trips in this block chronologically by start time
+            // Sort trips in this block strictly by their start time chronologically
             runs.sort((a, b) => {
                 const timeA = a.stops.length > 0 ? a.stops[0].preciseScheduledDateTime.getTime() : 0;
                 const timeB = b.stops.length > 0 ? b.stops[0].preciseScheduledDateTime.getTime() : 0;
@@ -1011,21 +1011,42 @@
             let selectedRun = null;
             let selectedBestStop = null;
 
-            // Pass 1: Look for an active or upcoming stop (within MAX_UPCOMING_SECONDS_TRACKER)
+            // Strict Forward Progression Selection:
+            // Find the current live trip or the immediate next upcoming trip in the sequence that hasn't finished its window yet.
             for (const run of runs) {
+                let hasValidStop = false;
+                let bestStopForRun = null;
+                let minFutureDiff = Infinity;
+                let maxPastDiff = -Infinity;
+
                 for (const stop of run.stops) {
                     if (closedStopIDsGlobal.includes(stop.stopID)) continue;
                     const diff = stop.timeToStationInSeconds;
-                    if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
-                        selectedRun = run;
-                        selectedBestStop = stop;
+                    
+                    // Check if this stop is currently active or upcoming
+                    if (diff >= MAX_PAST_SECONDS_TRACKER && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
+                        hasValidStop = true;
+                        if (diff >= 0 && diff < minFutureDiff) {
+                            minFutureDiff = diff;
+                            bestStopForRun = stop;
+                        } else if (diff < 0 && diff > maxPastDiff && minFutureDiff === Infinity) {
+                            maxPastDiff = diff;
+                            bestStopForRun = stop;
+                        }
+                    }
+                }
+
+                if (hasValidStop && bestStopForRun) {
+                    selectedRun = run;
+                    selectedBestStop = bestStopForRun;
+                    // If this trip is currently ongoing or upcoming, lock onto it and stop searching further ahead in the block
+                    if (bestStopForRun.timeToStationInSeconds >= MAX_PAST_SECONDS_TRACKER) {
                         break;
                     }
                 }
-                if (selectedRun) break;
             }
 
-            // Pass 2: If no live stop is within the immediate window, find the very next upcoming trip in this block that hasn't started yet (automatically logging into the next trip instead of keeping "Last seen")
+            // Fallback: If no active run matched, pick the absolute closest upcoming trip in the future sequence
             if (!selectedRun) {
                 for (const run of runs) {
                     const futureStops = run.stops.filter(s => !closedStopIDsGlobal.includes(s.stopID) && s.timeToStationInSeconds > 0);
@@ -1035,27 +1056,6 @@
                         selectedBestStop = futureStops[0];
                         break;
                     }
-                }
-            }
-
-            // Pass 3: If all trips in the block are completely finished for the day, fall back to the most recent past stop of the final run
-            if (!selectedRun && runs.length > 0) {
-                const lastRun = runs[runs.length - 1];
-                let latestPastStop = null;
-                let largestPastDiff = -Infinity;
-                for (const stop of lastRun.stops) {
-                    if (closedStopIDsGlobal.includes(stop.stopID)) continue;
-                    const diff = stop.timeToStationInSeconds;
-                    if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
-                        if (diff > largestPastDiff) {
-                            largestPastDiff = diff;
-                            latestPastStop = stop;
-                        }
-                    }
-                }
-                if (latestPastStop) {
-                    selectedRun = lastRun;
-                    selectedBestStop = latestPastStop;
                 }
             }
 

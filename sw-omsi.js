@@ -1,7 +1,6 @@
 const CACHE_NAME = 'live-tracker-cache-v1';
 const urlsToCache = [
-  '/live-tracker/tools.html',
-  '/live-tracker/tracker.html',
+  '/live-tracker/omsi_live_tracker.html',
   '/live-tracker/style.css', // Example CSS file
   '/live-tracker/script.js', // Example JS file
 ];

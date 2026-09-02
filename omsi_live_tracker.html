@@ -368,7 +368,11 @@
             const routeUp = routeName.toUpperCase();
             
             const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
-            if (!lastLog || lastLog.routeName !== routeUp || (now - lastLog.timestamp) > 60000) {
+            if (lastLog && lastLog.routeName === routeUp && (now - lastLog.timestamp) <= 60000) {
+                lastLog.timestamp = now;
+                if (!lastLog.runningNumber && runningNumber) lastLog.runningNumber = runningNumber;
+                if (!lastLog.garage && runningNumber) lastLog.garage = getGarageFromRunningNumber(runningNumber);
+            } else {
                 logs.push({ routeName: routeUp, operator: getOperatorForRoute(routeUp), timestamp: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---", runningNumber: runningNumber || "", garage: getGarageFromRunningNumber(runningNumber) });
                 if (logs.length > 50) logs.shift();
             }
@@ -1412,6 +1416,16 @@
             if (displayFleet !== '-' && displayReg !== '-') break;
         }
         
+        currentTrackedServices.forEach(service => {
+            const fleet = String(service.assignedFleetNumber || '').trim().toUpperCase();
+            const registration = String(service.assignedRegistration || '').trim().toUpperCase();
+            const matchesVehicle = searchTerms.some(term => fleet === term || registration === term);
+            if (matchesVehicle && service.trueLineName) {
+                recordVehicleSighting(service.trueLineName, service.assignedFleetNumber, service.assignedRegistration);
+                recordDetailedVehicleSighting(service.trueLineName, service.assignedFleetNumber, service.assignedRegistration, service.blockId, service.runningNumber);
+            }
+        });
+
         let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
         if (logs.length === 0) {
             for (const [key, val] of vehicleDetailedLogMap.entries()) {

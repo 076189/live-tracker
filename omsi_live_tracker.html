@@ -1190,6 +1190,8 @@
             });
         }
 
+        populateVehiclesUsedTodayTable();
+
         currentTrackedServices.sort((a, b) => { const fleetComparison = naturalSortCompareFleet(a.assignedFleetNumber, b.assignedFleetNumber); if (fleetComparison !== 0) return fleetComparison; const timeA = a._timeToNextStopSec || 99999; const timeB = b._timeToNextStopSec || 99999; return timeA - timeB; });
 
         if (busCounterElement) busCounterElement.textContent = `Tracked Services: ${currentTrackedServices.length}`;
@@ -1711,6 +1713,14 @@
         const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
         const nextMidnight = midnight + 24 * 60 * 60 * 1000;
         const vehiclesByIdentity = new Map();
+        const currentlyLiveVehicles = new Set();
+        currentTrackedServices.forEach(service => {
+            if (String(service.trueLineName || '').toUpperCase() !== currentRouteFilter.toUpperCase()) return;
+            const fleet = String(service.assignedFleetNumber || '').trim().toUpperCase();
+            const registration = String(service.assignedRegistration || '').trim().toUpperCase();
+            if (fleet && fleet !== 'N/A') currentlyLiveVehicles.add(fleet);
+            if (registration && registration !== '---') currentlyLiveVehicles.add(registration);
+        });
 
         vehicleDetailedLogMap.forEach(logs => {
             logs.forEach(log => {
@@ -1722,6 +1732,7 @@
                 const registration = String(log.registration || '').trim();
                 const identity = fleet && fleet !== 'N/A' ? fleet.toUpperCase() : registration.toUpperCase();
                 if (!identity || identity === '---') return;
+                if (currentlyLiveVehicles.has(identity) || currentlyLiveVehicles.has(registration.toUpperCase()) || currentlyLiveVehicles.has(fleet.toUpperCase())) return;
 
                 const key = `${fleet.toUpperCase()}|${registration.toUpperCase()}`;
                 const existing = vehiclesByIdentity.get(key);

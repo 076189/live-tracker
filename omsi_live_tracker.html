@@ -286,6 +286,7 @@
     let activeRouteListener = null; // Tracks current route listener for cleanup
     let allRoutesListener = null; // Tracks all routes listener for cleanup
     let backgroundHistoryListener = null;
+    let backgroundScheduleData = [];
     let isBackgroundHistoryLogging = false;
 
     function loadRouteHistoryFromStorage() {
@@ -384,11 +385,18 @@
     function applyLiveVehicleAllocations(snapshot) {
         const liveAllocations = snapshot.exists() ? snapshot.val() || {} : {};
         vehicleAllocationData = liveAllocations;
-        if (!hasReceivedInitialVehicleAllocations) {
-            hasReceivedInitialVehicleAllocations = true;
-            return;
+        hasReceivedInitialVehicleAllocations = true;
+        if (backgroundScheduleData.length > 0) {
+            const previousScheduleData = localScheduleData;
+            const previousBackgroundState = isBackgroundHistoryLogging;
+            localScheduleData = backgroundScheduleData;
+            isBackgroundHistoryLogging = true;
+            processAndDisplayAllData();
+            localScheduleData = previousScheduleData;
+            isBackgroundHistoryLogging = previousBackgroundState;
+        } else if (localScheduleData.length > 0) {
+            throttledProcessAndDisplay();
         }
-        if (localScheduleData.length > 0) throttledProcessAndDisplay();
     }
 
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
@@ -709,6 +717,7 @@
                 allRouteEntries.push(...flattenSingleRouteData(routeKey, routeData));
             });
 
+            backgroundScheduleData = allRouteEntries;
             const previousScheduleData = localScheduleData;
             const previousBackgroundState = isBackgroundHistoryLogging;
             localScheduleData = allRouteEntries;
@@ -1489,7 +1498,7 @@
 
         let pageContent = '';
         if (logs.length === 0) {
-            pageContent = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
+            pageContent = `<p>No automatic route history has been recorded yet for ${escapeHtml(cleanIdent)}. The tracker records vehicles from active running-number schedule data in the background.</p>`;
         } else {
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
             const sortedLogs = [...logs].sort((a, b) => a.timestamp - b.timestamp);

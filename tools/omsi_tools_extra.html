@@ -1308,7 +1308,7 @@ align-items: center;
             </div>
         <div id="mrc-form-extra">
             <p style="font-size:0.85em; opacity:0.8; margin-bottom:1rem;">
-                This action will curtail ALL trips for the selected route, regardless of their individual destinations, for a set period.
+                This action will curtail selected services on the specified route for a set period, only affecting services heading to the selected destination.
             </p>
             <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
                 <div>
@@ -3279,9 +3279,10 @@ function mrc_renderActiveCurtailments() {
         displayDiv.style.display = 'block';
         formDiv.style.display = 'none';
         const endTime = new Date(activeCurtailment.endTime);
+        const destInfo = activeCurtailment.destinationName ? ` (to ${activeCurtailment.destinationName})` : '';
         displayDiv.innerHTML = `
-            <p style="margin-top:0; font-weight:bold; color: #f39c12;">This route is currently curtailed!</p>
-            <p style="font-size:0.9em; margin-bottom:0.5em;">All services are terminating at <strong>${activeCurtailment.newTerminusDisplayName} (${activeCurtailment.newTerminusStopId})</strong>.</p>
+            <p style="margin-top:0; font-weight:bold; color: #f39c12;">Route ${activeCurtailment.routeName}${destInfo} is currently curtailed!</p>
+            <p style="font-size:0.9em; margin-bottom:0.5em;">Services are terminating at <strong>${activeCurtailment.newTerminusDisplayName} (${activeCurtailment.newTerminusStopId})</strong>.</p>
             <p style="font-size:0.9em; margin-bottom:1rem;">This is active until: <strong>${endTime.toLocaleString()}</strong>.</p>
             <button class="button save" onclick="mrc_handleCancelCurtailment('${activeCurtailmentId}')">Lift Curtailment Now</button>
         `;
@@ -4486,11 +4487,12 @@ async function slc_handleCancelCurtailment(curtailmentId) {
 async function mrc_handleActivateCurtailment() {
     const statusEl = document.getElementById('mrc-status-message-extra');
     const route = document.getElementById('curtail-route-select-extra').value;
+    const destination = document.getElementById('curtail-dest-select-extra').value;
     const pointJSON = document.getElementById('mrc-curtailment-point-select-extra').value;
     const startTime = document.getElementById('mrc-start-time-input-extra').value;
     const endTime = document.getElementById('mrc-end-time-input-extra').value;
 
-    if (!route || !pointJSON || !startTime || !endTime) {
+    if (!route || !destination || !pointJSON || !startTime || !endTime) {
         statusEl.textContent = "All fields are required to activate a curtailment.";
         statusEl.style.color = "#e74c3c";
         return;
@@ -4500,8 +4502,6 @@ async function mrc_handleActivateCurtailment() {
     const stopId = point.stopId;
     const displayName = point.displayName;
 
-
-    
     const startTimeObj = new Date(startTime);
     const endTimeObj = new Date(endTime);
     if (endTimeObj <= startTimeObj) {
@@ -4512,6 +4512,7 @@ async function mrc_handleActivateCurtailment() {
 
     const record = {
         routeName: route,
+        destinationName: destination,
         newTerminusStopId: stopId,
         newTerminusDisplayName: displayName,
         startTime: startTimeObj.toISOString(),
@@ -4519,7 +4520,7 @@ async function mrc_handleActivateCurtailment() {
         user: currentUser_extra.email
     };
 
-    if (!confirm(`Are you sure you want to curtail ALL services on Route ${route} to terminate at ${displayName} from ${startTimeObj.toLocaleString()} until ${endTimeObj.toLocaleString()}?`)) {
+    if (!confirm(`Are you sure you want to curtail Route ${route} services to ${destination} to terminate at ${displayName} from ${startTimeObj.toLocaleString()} until ${endTimeObj.toLocaleString()}?`)) {
         statusEl.textContent = "Activation cancelled.";
         return;
     }

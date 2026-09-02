@@ -413,6 +413,11 @@
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
     const ROUTE_SCHEDULE_CACHE_KEY = 'omsiTrackerRouteSchedules_Standalone_v1';
     let serviceInstanceVehicleCache = new Map();
+    // Caches the "rare working" determination per blockId so that recording a sighting
+    // during this same tracking session doesn't retroactively make an active rare working
+    // disappear on the next refresh (it would otherwise no longer look like it's been 60+
+    // days since it was last seen, because we ourselves just recorded a sighting for it).
+    let serviceInstanceRareCache = new Map();
 
     let clockTimeElement, clockDateElement, trackerTableBodyA, trackerTableBodyB, trackerTableBodyRare, busCounterElement,
         updateTimeElement, nextUpdateTimerElement,
@@ -1228,23 +1233,34 @@
                 }
                 
                 const routeUpper = trueLineName.toUpperCase();
-                const routeSightings = vehicleRouteHistoryMap.get(routeUpper) || {};
                 const fleetId = (assignedVehicle.fleetNumber && assignedVehicle.fleetNumber !== "N/A" ? assignedVehicle.fleetNumber : "").toUpperCase();
                 const regId = (assignedVehicle.registration && assignedVehicle.registration !== "---" ? assignedVehicle.registration : "").toUpperCase();
 
-                let lastSeenTime = 0;
-                if (fleetId && routeSightings[fleetId]) lastSeenTime = Math.max(lastSeenTime, routeSightings[fleetId]);
-                if (regId && routeSightings[regId]) lastSeenTime = Math.max(lastSeenTime, routeSightings[regId]);
+                // Reuse the rare-working determination made earlier in this session for the same
+                // block/vehicle pairing. Otherwise, recording this sighting below would make the
+                // vehicle look "recently seen" on the very next refresh, incorrectly un-raring it.
+                const rareCacheKey = `${blockId}|${fleetId}|${regId}`;
+                let isRare;
+                if (serviceInstanceRareCache.has(rareCacheKey)) {
+                    isRare = serviceInstanceRareCache.get(rareCacheKey);
+                } else {
+                    const routeSightings = vehicleRouteHistoryMap.get(routeUpper) || {};
 
-                const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
-                const currentTime = Date.now();
-                
-                const hasSightingRecord = lastSeenTime > 0;
-                const isOlderThan60Days = !hasSightingRecord || (currentTime - lastSeenTime > sixtyDaysMs);
+                    let lastSeenTime = 0;
+                    if (fleetId && routeSightings[fleetId]) lastSeenTime = Math.max(lastSeenTime, routeSightings[fleetId]);
+                    if (regId && routeSightings[regId]) lastSeenTime = Math.max(lastSeenTime, routeSightings[regId]);
 
-                // FIXED: A bus is "rare" simply if it hasn't been seen on THIS specific route in 60+ days
-                // No need to check vehicle allocation - just track route history
-                const isRare = isOlderThan60Days;
+                    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+                    const currentTime = Date.now();
+
+                    const hasSightingRecord = lastSeenTime > 0;
+                    const isOlderThan60Days = !hasSightingRecord || (currentTime - lastSeenTime > sixtyDaysMs);
+
+                    // A bus is "rare" simply if it hasn't been seen on THIS specific route in 60+ days
+                    // No need to check vehicle allocation - just track route history
+                    isRare = isOlderThan60Days;
+                    serviceInstanceRareCache.set(rareCacheKey, isRare);
+                }
 
                 activeServicesMap.set(serviceInstanceKey, {
                     serviceId: serviceInstanceKey, assignedFleetNumber: assignedVehicle.fleetNumber, assignedRegistration: assignedVehicle.registration,
@@ -1271,6 +1287,13 @@
             } 
         }
         saveVehicleCacheToStorage();
+
+        for (const key of serviceInstanceRareCache.keys()) {
+            const blockIdPart = key.slice(0, key.indexOf('|'));
+            if (!allActiveBlockIds.has(blockIdPart)) {
+                serviceInstanceRareCache.delete(key);
+            }
+        }
 
         let servicesWithARelevantNextStop = [];
         activeServicesMap.forEach((serviceRun) => {

@@ -284,7 +284,12 @@
     let vehicleRouteHistoryMap = new Map();
     let vehicleDetailedLogMap = new Map();
     let activeRouteListener = null; // Tracks current route listener for cleanup
-    let allRoutesListener = null; // Tracks all routes listener for cleanup
+    let allRoutesListeners = []; // Tracks per-route listeners used by the lazy-loaded rare workings page
+
+    function stopAllRoutesListeners() {
+        allRoutesListeners.forEach(unsubscribe => { try { unsubscribe(); } catch (error) {} });
+        allRoutesListeners = [];
+    }
     let backgroundHistoryListener = null;
     let backgroundHistoryScheduleData = [];
     let backgroundHistoryProcessTimer = null;
@@ -572,8 +577,7 @@
             if (routeValue) { 
                 currentRouteFilter = routeValue;
                 if (activeRouteListener) activeRouteListener();
-                if (allRoutesListener) allRoutesListener();
-                allRoutesListener = null;
+                stopAllRoutesListeners();
                 if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? `OMSI Rare Workings Page (All Routes)` : `${getOperatorForRoute(currentRouteFilter)} - Route ${currentRouteFilter}`); 
                 loadRouteDataOnDemand(currentRouteFilter);
             } else { 
@@ -619,8 +623,7 @@
             activeRouteListener = null;
             loadAllRoutesMetadataAndData();
         } else {
-            if (allRoutesListener) allRoutesListener();
-            allRoutesListener = null;
+            stopAllRoutesListeners();
             throttledProcessAndDisplay();
         }
     }

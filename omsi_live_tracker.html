@@ -404,6 +404,7 @@
     }
 
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
+    const ROUTE_SCHEDULE_CACHE_KEY = 'omsiTrackerRouteSchedules_Standalone_v1';
     let serviceInstanceVehicleCache = new Map();
 
     let clockTimeElement, clockDateElement, trackerTableBodyA, trackerTableBodyB, trackerTableBodyRare, busCounterElement,
@@ -460,6 +461,8 @@
 
     function loadVehicleCacheFromStorage() { try { const storedCache = localStorage.getItem(VEHICLE_CACHE_STORAGE_KEY); if (storedCache) { const parsedCache = JSON.parse(storedCache); if (typeof parsedCache === 'object' && parsedCache !== null) { serviceInstanceVehicleCache = new Map(Object.entries(parsedCache)); } else { serviceInstanceVehicleCache = new Map(); } } else { serviceInstanceVehicleCache = new Map(); } } catch (error) { serviceInstanceVehicleCache = new Map(); localStorage.removeItem(VEHICLE_CACHE_STORAGE_KEY); } }
     function saveVehicleCacheToStorage() { try { const objectToStore = Object.fromEntries(serviceInstanceVehicleCache); localStorage.setItem(VEHICLE_CACHE_STORAGE_KEY, JSON.stringify(objectToStore)); } catch (error) { } }
+    function loadRouteScheduleCache() { try { const stored = localStorage.getItem(ROUTE_SCHEDULE_CACHE_KEY); const parsed = stored ? JSON.parse(stored) : {}; return parsed && typeof parsed === 'object' ? parsed : {}; } catch (error) { return {}; } }
+    function saveRouteScheduleToCache(routeKey, entries) { try { const cache = loadRouteScheduleCache(); cache[String(routeKey || '').toUpperCase()] = entries; localStorage.setItem(ROUTE_SCHEDULE_CACHE_KEY, JSON.stringify(cache)); } catch (error) {} }
 
     function generateVehicleBlocks(scheduleData) {
         tripBlockMapping.clear();
@@ -678,12 +681,23 @@
         const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
         const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
 
+        const cachedSchedules = loadRouteScheduleCache();
+        const cachedRouteEntries = Array.isArray(cachedSchedules[routeKey.toUpperCase()]) ? cachedSchedules[routeKey.toUpperCase()] : [];
+        if (cachedRouteEntries.length > 0) {
+            localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== routeKey.toUpperCase());
+            localScheduleData.push(...cachedRouteEntries);
+            generateVehicleBlocks(localScheduleData);
+            processAndDisplayAllData();
+            generateAndDisplayRouteSequences();
+        }
+
         if(searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(routeKey)}...`;
 
         activeRouteListener = dbOnValue(routeRef, (snapshot) => {
             if (snapshot.exists()) {
                 const routeData = snapshot.val();
                 const flatEntries = flattenSingleRouteData(routeKey, routeData);
+                saveRouteScheduleToCache(routeKey, flatEntries);
                 
                 localScheduleData = localScheduleData.filter(e => String(e.lineName).toUpperCase() !== routeKey.toUpperCase());
                 localScheduleData.push(...flatEntries);

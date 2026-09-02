@@ -898,12 +898,6 @@
         const needsRarePass = [];
         activeBlockIds.forEach(blockId => {
             if (blockStaticVehicle.has(blockId)) return;
-            const cached = serviceInstanceVehicleCache.get(blockId);
-            if (cached) {
-                const key = getVehicleKey(cached);
-                const isOwnCommon = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'commonVehicles').some(v => getVehicleKey(v) === key);
-                if (isOwnCommon && !reserved.has(key)) { reserved.add(key); return; }
-            }
             
             // Decide if this block should use rare or common based on rareChance
             const routeName = blockRouteMap.get(blockId);
@@ -918,6 +912,21 @@
             }
             
             const useRare = Math.random() < rareChance;
+            
+            // Only reuse cache if it matches the current rareChance decision
+            const cached = serviceInstanceVehicleCache.get(blockId);
+            if (cached) {
+                const key = getVehicleKey(cached);
+                const isInRare = getVehiclePoolForRoute(routeName, 'rareVehicles').some(v => getVehicleKey(v) === key);
+                const isInCommon = getVehiclePoolForRoute(routeName, 'commonVehicles').some(v => getVehicleKey(v) === key);
+                
+                // Reuse cache only if it matches the rareChance decision
+                if ((useRare && isInRare && !reserved.has(key)) || (!useRare && isInCommon && !reserved.has(key))) {
+                    reserved.add(key);
+                    return;
+                }
+            }
+            
             if (useRare) {
                 needsRarePass.push(blockId);
             } else {

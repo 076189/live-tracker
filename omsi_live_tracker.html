@@ -285,6 +285,8 @@
     let vehicleDetailedLogMap = new Map();
     let activeRouteListener = null; // Tracks current route listener for cleanup
     let allRoutesListener = null; // Tracks all routes listener for cleanup
+    let backgroundHistoryListener = null;
+    let isBackgroundHistoryLogging = false;
 
     function loadRouteHistoryFromStorage() {
         try {
@@ -636,6 +638,8 @@
                 throttledProcessAndDisplay();
             }
         });
+
+        startBackgroundHistoryLogging();
     }
 
     function loadRouteDataOnDemand(routeKey) {
@@ -689,6 +693,29 @@
             }
         }, (err) => {
             if(searchStatusMessage) searchStatusMessage.textContent = "Error loading rare workings data.";
+        });
+    }
+
+    function startBackgroundHistoryLogging() {
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
+        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
+        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+
+        backgroundHistoryListener = dbOnValue(schedulesByRouteRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            const schedulesByRoute = snapshot.val() || {};
+            const allRouteEntries = [];
+            Object.entries(schedulesByRoute).forEach(([routeKey, routeData]) => {
+                allRouteEntries.push(...flattenSingleRouteData(routeKey, routeData));
+            });
+
+            const previousScheduleData = localScheduleData;
+            const previousBackgroundState = isBackgroundHistoryLogging;
+            localScheduleData = allRouteEntries;
+            isBackgroundHistoryLogging = true;
+            processAndDisplayAllData();
+            localScheduleData = previousScheduleData;
+            isBackgroundHistoryLogging = previousBackgroundState;
         });
     }
 
@@ -1042,13 +1069,15 @@
             return;
         }
 
-        if (isHistoryPageActive) return;
+        if (isHistoryPageActive && !isBackgroundHistoryLogging) return;
 
         resolveActiveVehicleAssignments();
         populateCurtailmentsTable();
 
         let dataToProcess = localScheduleData;
-        if (!isRarePageActive && currentRouteFilter) {
+        if (isBackgroundHistoryLogging) {
+            dataToProcess = localScheduleData;
+        } else if (!isRarePageActive && currentRouteFilter) {
             dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase());
         } else if (!isRarePageActive && !currentRouteFilter) {
             currentTrackedServices = [];
@@ -1209,6 +1238,11 @@
                 }
                 return true;
             });
+        }
+
+        if (isBackgroundHistoryLogging) {
+            saveVehicleCacheToStorage();
+            return;
         }
 
         populateVehiclesUsedTodayTable();

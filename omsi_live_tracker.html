@@ -255,7 +255,7 @@
         '34': 'First', '35': 'Stagecoach', 'N35': 'Stagecoach', '37': 'First', '88': 'First',
         '97': 'First', '98': 'Stagecoach', 'N98': 'Stagecoach', '102': 'First', '113': 'First',
         'N113': 'First', '232': 'First', '285': 'Stagecoach', '302': 'First', '303': 'First',
-        '304': 'First', 'S304': 'First', '388': 'First', '389': 'First', '454': 'First',
+        '86': 'Stagecoach', 'N86': 'Stagecoach', '304': 'First', 'S304': 'First', '388': 'First', '389': 'First', '454': 'First',
         '604': 'Stagecoach', '612': 'First', '635': 'Kelly Group', '823': 'First', '925': 'Kelly Group'
     };
     
@@ -323,7 +323,13 @@
         } catch (e) {}
     }
 
-    function recordDetailedVehicleSighting(routeName, fleetNumber, registration, blockId) {
+    function getGarageFromRunningNumber(runningNumber) {
+        const value = String(runningNumber || '').trim().toUpperCase();
+        const match = value.match(/^([A-Z]{2,4})(?:[\s-]|\d|$)/);
+        return match ? match[1] : '';
+    }
+
+    function recordDetailedVehicleSighting(routeName, fleetNumber, registration, blockId, runningNumber) {
         if (!routeName) return;
         const idents = [];
         if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
@@ -339,7 +345,6 @@
         }
 
         const now = Date.now();
-        const nowDateKey = new Date(now).toDateString();
         idents.forEach(ident => {
             if (!vehicleDetailedLogMap.has(ident)) {
                 vehicleDetailedLogMap.set(ident, []);
@@ -348,13 +353,9 @@
             const routeUp = routeName.toUpperCase();
             
             const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
-            const lastLogDateKey = lastLog ? new Date(lastLog.timestamp).toDateString() : null;
-            // Only add a new entry when the route changes or a new calendar day starts,
-            // so each day's sightings are retained instead of being pushed out by
-            // repeated same-day/same-route entries filling up the capped log.
-            if (!lastLog || lastLog.routeName !== routeUp || lastLogDateKey !== nowDateKey) {
-                logs.push({ routeName: routeUp, timestamp: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---" });
-                if (logs.length > 100) logs.shift();
+            if (!lastLog || lastLog.routeName !== routeUp || (now - lastLog.timestamp) > 60000) {
+                logs.push({ routeName: routeUp, timestamp: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---", runningNumber: runningNumber || "", garage: getGarageFromRunningNumber(runningNumber) });
+                if (logs.length > 50) logs.shift();
             }
         });
         saveDetailedLogToStorage();
@@ -622,8 +623,6 @@
                 throttledProcessAndDisplay();
             }
         });
-
-        startBackgroundSightingLogger();
     }
 
     function loadRouteDataOnDemand(routeKey) {
@@ -893,13 +892,13 @@
         });
     }
 
-    function resolveActiveVehicleAssignments(scheduleData = localScheduleData) {
+    function resolveActiveVehicleAssignments() {
         const nowForProcessing = new Date();
         const blockRouteMap = new Map();
         const blockStaticVehicle = new Map();
         const activeBlockIds = new Set();
 
-        scheduleData.forEach(busEntry => {
+        localScheduleData.forEach(busEntry => {
             if (!busEntry || typeof busEntry !== 'object' || !busEntry.stopID) return;
             const { trueLineName, blockId } = computeServiceInstanceIds(busEntry);
             if (!blockRouteMap.has(blockId)) blockRouteMap.set(blockId, trueLineName);
@@ -923,22 +922,7 @@
         const needsRarePass = [];
         activeBlockIds.forEach(blockId => {
             if (blockStaticVehicle.has(blockId)) return;
-
-            // Once a vehicle has been assigned to this block (i.e. this running number,
-            // or this specific service if it has no running number), it must stay with
-            // it for the rest of its service - never re-roll rare/common on every
-            // refresh cycle, as that caused buses to swap mid-way through a route.
-            const cached = serviceInstanceVehicleCache.get(blockId);
-            if (cached) {
-                const key = getVehicleKey(cached);
-                if (!reserved.has(key)) {
-                    reserved.add(key);
-                    return;
-                }
-                // Cached vehicle has been claimed by another active block (rare
-                // conflict) - fall through and assign a fresh vehicle below.
-            }
-
+            
             // Decide if this block should use rare or common based on rareChance
             const routeName = blockRouteMap.get(blockId);
             const routeAlloc = vehicleAllocationData[routeName] || vehicleAllocationData[String(routeName).toUpperCase()];
@@ -952,7 +936,21 @@
             }
             
             const useRare = Math.random() < rareChance;
-
+            
+            // Only reuse cache if it matches the current rareChance decision
+            const cached = serviceInstanceVehicleCache.get(blockId);
+            if (cached) {
+                const key = getVehicleKey(cached);
+                const isInRare = getVehiclePoolForRoute(routeName, 'rareVehicles').some(v => getVehicleKey(v) === key);
+                const isInCommon = getVehiclePoolForRoute(routeName, 'commonVehicles').some(v => getVehicleKey(v) === key);
+                
+                // Reuse cache only if it matches the rareChance decision
+                if ((useRare && isInRare && !reserved.has(key)) || (!useRare && isInCommon && !reserved.has(key))) {
+                    reserved.add(key);
+                    return;
+                }
+            }
+            
             if (useRare) {
                 needsRarePass.push(blockId);
             } else {
@@ -995,65 +993,6 @@
         needsFallback.forEach(blockId => serviceInstanceVehicleCache.delete(blockId));
 
         saveVehicleCacheToStorage();
-    }
-
-    // Records vehicle sightings for every active service instance found in the
-    // supplied schedule entries. This is shared by the main display pipeline
-    // (processAndDisplayAllData) and the background sighting logger, so that
-    // sightings are logged for every route the tracker knows about - not just
-    // the route currently being viewed or the "all routes" rare workings page.
-    function recordSightingsForScheduleData(scheduleData) {
-        const seenServiceInstances = new Set();
-
-        scheduleData.forEach((busEntryRaw) => {
-            if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) return;
-
-            const busEntry = busEntryRaw;
-            const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(busEntry);
-
-            if (seenServiceInstances.has(serviceInstanceKey)) return;
-            seenServiceInstances.add(serviceInstanceKey);
-
-            let assignedVehicle;
-            if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
-                assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };
-                serviceInstanceVehicleCache.set(blockId, assignedVehicle);
-            } else {
-                assignedVehicle = getAssignedVehicle(blockId, trueLineName);
-            }
-
-            recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
-            recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration, blockId);
-        });
-    }
-
-    // Fetches schedule data for every route directly from Firebase and records
-    // sightings for it, independent of what the user currently has open. This
-    // means vehicle history is populated continuously in the background rather
-    // than only when a route is searched or the Rare Workings Page is opened.
-    let backgroundSightingListenerStarted = false;
-    function startBackgroundSightingLogger() {
-        if (backgroundSightingListenerStarted) return;
-        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        backgroundSightingListenerStarted = true;
-
-        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
-        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-
-        dbOnValue(schedulesByRouteRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            const schedulesByRoute = snapshot.val();
-            const routeKeys = Object.keys(schedulesByRoute);
-            const flatAllRoutesSchedule = [];
-            routeKeys.forEach(routeKey => {
-                const routeData = schedulesByRoute[routeKey];
-                const entries = flattenSingleRouteData(routeKey, routeData);
-                flatAllRoutesSchedule.push(...entries);
-            });
-            generateVehicleBlocks(flatAllRoutesSchedule);
-            resolveActiveVehicleAssignments(flatAllRoutesSchedule);
-            recordSightingsForScheduleData(flatAllRoutesSchedule);
-        });
     }
 
     function processAndDisplayAllData() {
@@ -1108,7 +1047,7 @@
                 }
                 
                 recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
-                recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration, blockId);
+                recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration, blockId, busEntry.runningNumber);
 
                 const routeUpper = trueLineName.toUpperCase();
                 const routeSightings = vehicleRouteHistoryMap.get(routeUpper) || {};
@@ -1476,48 +1415,53 @@
             }
         }
 
+        if (logs.length === 0) {
+            for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
+                const f = String(vehicle.fleetNumber || "").toUpperCase();
+                const r = String(vehicle.registration || "").toUpperCase();
+                
+                // Check if any search term matches
+                const isMatch = searchTerms.some(term => f.includes(term) || r.includes(term));
+                if (isMatch) {
+                    const parts = blockId.split('_');
+                    const rName = parts.length > 0 ? parts[0] : "Active";
+                    logs.push({ routeName: rName, timestamp: Date.now(), fleetNumber: vehicle.fleetNumber, registration: vehicle.registration, runningNumber: '', garage: '' });
+                    if (displayFleet === '-') displayFleet = String(vehicle.fleetNumber || '-');
+                    if (displayReg === '-') displayReg = String(vehicle.registration || '-');
+                }
+            }
+        }
+
         let pageContent = '';
         if (logs.length === 0) {
             pageContent = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
         } else {
-            let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Fleet</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Reg</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th></tr></thead><tbody>';
-            const sortedLogs = [...logs].sort((a, b) => b.timestamp - a.timestamp);
-             
-            // Deduplicate by route per day
-            const seenRoutesByDay = new Set();
-            const uniqueLogs = [];
-             
+            let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
+            const sortedLogs = [...logs].sort((a, b) => a.timestamp - b.timestamp);
+            const groupedLogs = new Map();
             sortedLogs.forEach(log => {
                 const dateObj = new Date(log.timestamp);
                 const dateKey = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
-                const routeKey = `${log.routeName}_${dateKey}`;
-                 
-                if (!seenRoutesByDay.has(routeKey)) {
-                    seenRoutesByDay.add(routeKey);
-                    uniqueLogs.push(log);
+                const routeName = String(log.routeName || '').toUpperCase();
+                const garage = log.garage || getGarageFromRunningNumber(log.runningNumber) || '-';
+                const groupKey = `${routeName}|${dateKey}|${garage}`;
+                const existing = groupedLogs.get(groupKey);
+                if (existing) {
+                    existing.until = Math.max(existing.until, log.timestamp);
+                } else {
+                    groupedLogs.set(groupKey, { dateKey, routeName, garage, from: log.timestamp, until: log.timestamp });
                 }
             });
+
+            if (displayFleet === '-' && logs[0].fleetNumber) displayFleet = String(logs[0].fleetNumber);
+            if (displayReg === '-' && logs[0].registration) displayReg = String(logs[0].registration);
              
-            // If we still haven't found fleet/reg, use from first log
-            if (uniqueLogs.length > 0) {
-                if (!displayFleet || displayFleet === '-') {
-                    displayFleet = uniqueLogs[0].fleetNumber ? String(uniqueLogs[0].fleetNumber) : '-';
-                }
-                if (!displayReg || displayReg === '-') {
-                    displayReg = uniqueLogs[0].registration ? String(uniqueLogs[0].registration) : '-';
-                }
-            }
-            
-            uniqueLogs.forEach(log => {
-                const dateObj = new Date(log.timestamp);
-                const dateString = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
-                
-                // Use the found fleet/reg for all rows
-                const route = escapeHtml(log.routeName);
-                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(displayFleet)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(displayReg)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${route}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${dateString}</td></tr>`;
+            const formatHistoryTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            [...groupedLogs.values()].sort((a, b) => b.from - a.from).forEach(group => {
+                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(getOperatorForRoute(group.routeName))}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.routeName)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.dateKey.replace(/\//g, '-'))}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${formatHistoryTime(group.from)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${formatHistoryTime(group.until)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.garage)}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
-            pageContent = tableHTML;
+            pageContent = `<p><strong>Vehicle ${escapeHtml(getOperatorForRoute(logs[0].routeName))} ${escapeHtml(displayFleet)} (${escapeHtml(displayReg)}) has been used as follows :-</strong></p>${tableHTML}`;
         }
         
         const historyPageContent = document.getElementById('history-page-content');

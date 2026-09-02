@@ -895,6 +895,7 @@
         });
 
         const needsCommonPass = [];
+        const needsRarePass = [];
         activeBlockIds.forEach(blockId => {
             if (blockStaticVehicle.has(blockId)) return;
             const cached = serviceInstanceVehicleCache.get(blockId);
@@ -903,10 +904,28 @@
                 const isOwnCommon = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'commonVehicles').some(v => getVehicleKey(v) === key);
                 if (isOwnCommon && !reserved.has(key)) { reserved.add(key); return; }
             }
-            needsCommonPass.push(blockId);
+            
+            // Decide if this block should use rare or common based on rareChance
+            const routeName = blockRouteMap.get(blockId);
+            const routeAlloc = vehicleAllocationData[routeName] || vehicleAllocationData[String(routeName).toUpperCase()];
+            let rareChance = 0.05; // default
+            if (routeAlloc && typeof routeAlloc.rareChance === 'number') {
+                rareChance = routeAlloc.rareChance;
+                // Normalize rareChance: if > 1, assume it's a percentage (0-100)
+                if (rareChance > 1) {
+                    rareChance = rareChance / 100;
+                }
+            }
+            
+            const useRare = Math.random() < rareChance;
+            if (useRare) {
+                needsRarePass.push(blockId);
+            } else {
+                needsCommonPass.push(blockId);
+            }
         });
 
-        const needsRarePass = [];
+        const needsRarePassBackup = [];
         needsCommonPass.forEach(blockId => {
             const commonPool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'commonVehicles').filter(v => !reserved.has(getVehicleKey(v)));
             if (commonPool.length > 0) {
@@ -914,9 +933,11 @@
                 reserved.add(getVehicleKey(chosen));
                 serviceInstanceVehicleCache.set(blockId, chosen);
             } else {
-                needsRarePass.push(blockId);
+                needsRarePassBackup.push(blockId);
             }
         });
+        
+        needsRarePass.push(...needsRarePassBackup);
 
         const needsFallback = [];
         needsRarePass.forEach(blockId => {

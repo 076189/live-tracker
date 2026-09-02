@@ -1449,63 +1449,6 @@
             }
         }
 
-        if (logs.length === 0) {
-            for (const [blockId, vehicle] of serviceInstanceVehicleCache.entries()) {
-                const f = String(vehicle.fleetNumber || "").toUpperCase();
-                const r = String(vehicle.registration || "").toUpperCase();
-                
-                // Check if any search term matches
-                const isMatch = searchTerms.some(term => f.includes(term) || r.includes(term));
-                if (isMatch) {
-                    const parts = blockId.split('_');
-                    const rName = parts.length > 0 ? parts[0] : "Active";
-                    logs.push({ routeName: rName, operator: getOperatorForRoute(rName), timestamp: Date.now(), fleetNumber: vehicle.fleetNumber, registration: vehicle.registration, runningNumber: '', garage: '' });
-                    if (displayFleet === '-') displayFleet = String(vehicle.fleetNumber || '-');
-                    if (displayReg === '-') displayReg = String(vehicle.registration || '-');
-                }
-            }
-        }
-
-        const allocatedRoutes = [];
-        Object.entries(vehicleAllocationData || {}).forEach(([routeName, routeData]) => {
-            if (!routeData || typeof routeData !== 'object') return;
-            const routeVehicles = [
-                ...parseFirebaseListOrMap(routeData.commonVehicles),
-                ...parseFirebaseListOrMap(routeData.rareVehicles),
-                ...parseFirebaseListOrMap(routeData.subVehicles)
-            ];
-            const matchingVehicle = routeVehicles.find(vehicle => {
-                if (!vehicle) return false;
-                const fleet = String(vehicle.fleetNumber || '').toUpperCase();
-                const registration = String(vehicle.registration || '').toUpperCase();
-                return searchTerms.some(term => fleet === term || registration === term || fleet.includes(term) || registration.includes(term));
-            });
-            if (!matchingVehicle) return;
-
-            const routeUpper = String(routeName).toUpperCase();
-            const hasLoggedRoute = logs.some(log => String(log.routeName || '').toUpperCase() === routeUpper);
-            if (!hasLoggedRoute) {
-                allocatedRoutes.push({
-                    routeName: routeUpper,
-                    operator: getOperatorForRoute(routeUpper),
-                    fleetNumber: matchingVehicle.fleetNumber,
-                    registration: matchingVehicle.registration,
-                    garage: getGarageFromRunningNumber(matchingVehicle.runningNumber),
-                    runningNumber: matchingVehicle.runningNumber || ''
-                });
-            }
-            if (displayFleet === '-' && matchingVehicle.fleetNumber) displayFleet = String(matchingVehicle.fleetNumber);
-            if (displayReg === '-' && matchingVehicle.registration) displayReg = String(matchingVehicle.registration);
-        });
-
-        if (allocatedRoutes.length > 0) {
-            logs = [...logs, ...allocatedRoutes.map(route => ({
-                ...route,
-                timestamp: 0,
-                allocationOnly: true
-            }))];
-        }
-
         let pageContent = '';
         if (logs.length === 0) {
             pageContent = `<p>No sighting history recorded yet for ${escapeHtml(cleanIdent)}. Sightings are logged automatically as buses appear in active tracker views.</p>`;
@@ -1514,18 +1457,6 @@
             const sortedLogs = [...logs].sort((a, b) => a.timestamp - b.timestamp);
             const groupedLogs = new Map();
             sortedLogs.forEach(log => {
-                if (log.allocationOnly) {
-                    groupedLogs.set(`allocation|${log.operator}|${log.routeName}`, {
-                        dateKey: 'Current allocation',
-                        routeName: log.routeName,
-                        operator: log.operator,
-                        garage: log.garage || '-',
-                        from: null,
-                        until: null,
-                        allocationOnly: true
-                    });
-                    return;
-                }
                 const dateObj = new Date(log.timestamp);
                 const dateKey = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
                 const routeName = String(log.routeName || '').toUpperCase();
@@ -1545,9 +1476,9 @@
              
             const formatHistoryTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
             [...groupedLogs.values()].sort((a, b) => b.from - a.from).forEach(group => {
-                const dateText = group.allocationOnly ? group.dateKey : group.dateKey.replace(/\//g, '-');
-                const fromText = group.allocationOnly ? '-' : formatHistoryTime(group.from);
-                const untilText = group.allocationOnly ? '-' : formatHistoryTime(group.until);
+                const dateText = group.dateKey.replace(/\//g, '-');
+                const fromText = formatHistoryTime(group.from);
+                const untilText = formatHistoryTime(group.until);
                 tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.operator)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.routeName)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(dateText)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${fromText}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${untilText}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.garage)}</td></tr>`;
             });
             tableHTML += '</tbody></table>';

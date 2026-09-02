@@ -807,7 +807,21 @@
         return [];
     }
 
-    function getAssignedVehicle(serviceInstanceKey, routeName) {
+    function getSubVehicleForRunningNumber(routeName, runningNumber) {
+        const routeAlloc = vehicleAllocationData[String(routeName || '').toUpperCase()] || vehicleAllocationData[routeName];
+        if (!routeAlloc || !Array.isArray(routeAlloc.subVehicles)) return null;
+        const targetRunningNumber = String(runningNumber || '').trim().toUpperCase();
+        if (!targetRunningNumber) return null;
+        return routeAlloc.subVehicles.find(vehicle => String(vehicle.runningNumber || '').trim().toUpperCase() === targetRunningNumber) || null;
+    }
+
+    function getAssignedVehicle(serviceInstanceKey, routeName, runningNumber) {
+        const subVehicle = getSubVehicleForRunningNumber(routeName, runningNumber);
+        if (subVehicle) {
+            serviceInstanceVehicleCache.set(serviceInstanceKey, subVehicle);
+            return subVehicle;
+        }
+
         let vehicleFromCache = serviceInstanceVehicleCache.get(serviceInstanceKey);
         if (vehicleFromCache) { 
             return vehicleFromCache; 
@@ -935,6 +949,17 @@
         activeBlockIds.forEach(blockId => {
             if (blockStaticVehicle.has(blockId)) return;
 
+            const routeName = blockRouteMap.get(blockId);
+            const runningNumberMarker = '_RUN_';
+            const runningNumberIndex = blockId.indexOf(runningNumberMarker);
+            const runningNumber = runningNumberIndex >= 0 ? blockId.slice(runningNumberIndex + runningNumberMarker.length) : '';
+            const subVehicle = getSubVehicleForRunningNumber(routeName, runningNumber);
+            if (subVehicle) {
+                serviceInstanceVehicleCache.set(blockId, subVehicle);
+                reserved.add(getVehicleKey(subVehicle));
+                return;
+            }
+
             const cached = serviceInstanceVehicleCache.get(blockId);
             if (cached) {
                 const key = getVehicleKey(cached);
@@ -943,11 +968,10 @@
             }
             
             // Decide if this block should use rare or common based on rareChance
-            const routeName = blockRouteMap.get(blockId);
-            const routeAlloc = vehicleAllocationData[routeName] || vehicleAllocationData[String(routeName).toUpperCase()];
+            const routeAllocation = vehicleAllocationData[routeName] || vehicleAllocationData[String(routeName).toUpperCase()];
             let rareChance = 0.05; // default
-            if (routeAlloc && typeof routeAlloc.rareChance === 'number') {
-                rareChance = routeAlloc.rareChance;
+            if (routeAllocation && typeof routeAllocation.rareChance === 'number') {
+                rareChance = routeAllocation.rareChance;
                 // Normalize rareChance: if > 1, assume it's a percentage (0-100)
                 if (rareChance > 1) {
                     rareChance = rareChance / 100;
@@ -1044,11 +1068,15 @@
 
             if (!activeServicesMap.has(serviceInstanceKey)) {
                 let assignedVehicle;
-                if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
+                const subVehicle = getSubVehicleForRunningNumber(trueLineName, busEntry.runningNumber);
+                if (subVehicle) {
+                    assignedVehicle = subVehicle;
+                    serviceInstanceVehicleCache.set(blockId, assignedVehicle);
+                } else if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
                     assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };
                     serviceInstanceVehicleCache.set(blockId, assignedVehicle);
                 } else {
-                    assignedVehicle = getAssignedVehicle(blockId, trueLineName); 
+                    assignedVehicle = getAssignedVehicle(blockId, trueLineName, busEntry.runningNumber); 
                 }
                 
                 recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);

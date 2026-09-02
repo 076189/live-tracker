@@ -725,6 +725,57 @@
         });
     }
 
+    function loadAllRoutesMetadataAndData() {
+        stopAllRoutesListeners();
+
+        const cachedSchedules = loadRouteScheduleCache();
+        const cachedAllEntries = [];
+        Object.keys(cachedSchedules).forEach(routeKey => {
+            if (Array.isArray(cachedSchedules[routeKey])) cachedAllEntries.push(...cachedSchedules[routeKey]);
+        });
+        if (cachedAllEntries.length > 0) {
+            localScheduleData = cachedAllEntries;
+            generateVehicleBlocks(localScheduleData);
+            processAndDisplayAllData();
+            generateAndDisplayRouteSequences();
+        }
+
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
+            if (searchStatusMessage) searchStatusMessage.textContent = cachedAllEntries.length > 0
+                ? `Loaded all routes from cache.`
+                : `All routes are unavailable while offline.`;
+            return;
+        }
+
+        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
+        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+
+        if (searchStatusMessage) searchStatusMessage.textContent = `Loading all routes for rare workings...`;
+
+        const unsubscribe = dbOnValue(schedulesByRouteRef, (snapshot) => {
+            if (!isRarePageActive || currentRouteFilter) return;
+            if (snapshot.exists()) {
+                const schedulesByRoute = snapshot.val() || {};
+                const allEntries = [];
+                Object.entries(schedulesByRoute).forEach(([routeKey, routeData]) => {
+                    const flatEntries = flattenSingleRouteData(routeKey, routeData);
+                    saveRouteScheduleToCache(routeKey, flatEntries);
+                    allEntries.push(...flatEntries);
+                });
+                localScheduleData = allEntries;
+                generateVehicleBlocks(localScheduleData);
+                if (searchStatusMessage) searchStatusMessage.textContent = `Loaded all routes.`;
+                throttledProcessAndDisplay();
+                generateAndDisplayRouteSequences();
+            } else {
+                if (searchStatusMessage) searchStatusMessage.textContent = `No schedule data found for any route.`;
+            }
+        }, (err) => {
+            if (searchStatusMessage) searchStatusMessage.textContent = `Error loading all routes.`;
+        });
+        allRoutesListeners.push(unsubscribe);
+    }
+
     function flattenSingleRouteData(routeKey, routeData) {
         const flatEntries = [];
         if (!routeData || typeof routeData !== 'object') return flatEntries;

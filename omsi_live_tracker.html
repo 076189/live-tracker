@@ -354,7 +354,7 @@
             
             const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
             if (!lastLog || lastLog.routeName !== routeUp || (now - lastLog.timestamp) > 60000) {
-                logs.push({ routeName: routeUp, timestamp: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---", runningNumber: runningNumber || "", garage: getGarageFromRunningNumber(runningNumber) });
+                logs.push({ routeName: routeUp, operator: getOperatorForRoute(routeUp), timestamp: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---", runningNumber: runningNumber || "", garage: getGarageFromRunningNumber(runningNumber) });
                 if (logs.length > 50) logs.shift();
             }
         });
@@ -922,6 +922,15 @@
         const needsRarePass = [];
         activeBlockIds.forEach(blockId => {
             if (blockStaticVehicle.has(blockId)) return;
+
+            const cached = serviceInstanceVehicleCache.get(blockId);
+            if (cached) {
+                const key = getVehicleKey(cached);
+                if (!reserved.has(key)) {
+                    reserved.add(key);
+                    return;
+                }
+            }
             
             // Decide if this block should use rare or common based on rareChance
             const routeName = blockRouteMap.get(blockId);
@@ -936,20 +945,6 @@
             }
             
             const useRare = Math.random() < rareChance;
-            
-            // Only reuse cache if it matches the current rareChance decision
-            const cached = serviceInstanceVehicleCache.get(blockId);
-            if (cached) {
-                const key = getVehicleKey(cached);
-                const isInRare = getVehiclePoolForRoute(routeName, 'rareVehicles').some(v => getVehicleKey(v) === key);
-                const isInCommon = getVehiclePoolForRoute(routeName, 'commonVehicles').some(v => getVehicleKey(v) === key);
-                
-                // Reuse cache only if it matches the rareChance decision
-                if ((useRare && isInRare && !reserved.has(key)) || (!useRare && isInCommon && !reserved.has(key))) {
-                    reserved.add(key);
-                    return;
-                }
-            }
             
             if (useRare) {
                 needsRarePass.push(blockId);
@@ -1425,7 +1420,7 @@
                 if (isMatch) {
                     const parts = blockId.split('_');
                     const rName = parts.length > 0 ? parts[0] : "Active";
-                    logs.push({ routeName: rName, timestamp: Date.now(), fleetNumber: vehicle.fleetNumber, registration: vehicle.registration, runningNumber: '', garage: '' });
+                    logs.push({ routeName: rName, operator: getOperatorForRoute(rName), timestamp: Date.now(), fleetNumber: vehicle.fleetNumber, registration: vehicle.registration, runningNumber: '', garage: '' });
                     if (displayFleet === '-') displayFleet = String(vehicle.fleetNumber || '-');
                     if (displayReg === '-') displayReg = String(vehicle.registration || '-');
                 }
@@ -1443,13 +1438,14 @@
                 const dateObj = new Date(log.timestamp);
                 const dateKey = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
                 const routeName = String(log.routeName || '').toUpperCase();
+                const operator = log.operator || getOperatorForRoute(routeName);
                 const garage = log.garage || getGarageFromRunningNumber(log.runningNumber) || '-';
-                const groupKey = `${routeName}|${dateKey}|${garage}`;
+                const groupKey = `${operator}|${routeName}|${dateKey}|${garage}`;
                 const existing = groupedLogs.get(groupKey);
                 if (existing) {
                     existing.until = Math.max(existing.until, log.timestamp);
                 } else {
-                    groupedLogs.set(groupKey, { dateKey, routeName, garage, from: log.timestamp, until: log.timestamp });
+                    groupedLogs.set(groupKey, { dateKey, routeName, operator, garage, from: log.timestamp, until: log.timestamp });
                 }
             });
 
@@ -1458,10 +1454,10 @@
              
             const formatHistoryTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
             [...groupedLogs.values()].sort((a, b) => b.from - a.from).forEach(group => {
-                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(getOperatorForRoute(group.routeName))}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.routeName)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.dateKey.replace(/\//g, '-'))}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${formatHistoryTime(group.from)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${formatHistoryTime(group.until)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.garage)}</td></tr>`;
+                tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.operator)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.routeName)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.dateKey.replace(/\//g, '-'))}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${formatHistoryTime(group.from)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${formatHistoryTime(group.until)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.garage)}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
-            pageContent = `<p><strong>Vehicle ${escapeHtml(getOperatorForRoute(logs[0].routeName))} ${escapeHtml(displayFleet)} (${escapeHtml(displayReg)}) has been used as follows :-</strong></p>${tableHTML}`;
+            pageContent = `<p><strong>Vehicle ${escapeHtml(logs[0].operator || getOperatorForRoute(logs[0].routeName))} ${escapeHtml(displayFleet)} (${escapeHtml(displayReg)}) has been used as follows :-</strong></p>${tableHTML}`;
         }
         
         const historyPageContent = document.getElementById('history-page-content');

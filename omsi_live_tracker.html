@@ -176,7 +176,8 @@
                 <th>Fleet</th>
                 <th>Registration</th>
                 <th>Curtailed Destination</th>
-                <th>Time Logged</th>
+                <th>Next Stop</th>
+                <th>ETA</th>
             </tr>
         </thead>
         <tbody id="curtailed-buses-table-body">
@@ -1219,24 +1220,9 @@
             if (curtailment) {
                 console.log(`[TRACKER] Applying curtailment for ${service.trueLineName}: showing "${curtailment.newTerminusDisplayName}" instead of "${displayDestination}"`);
                 displayDestination = curtailment.newTerminusDisplayName;
-                // When curtailed, show the curtailment point as the next stop
-                displayNextStop = curtailment.newTerminusDisplayName;
-                
-                // When curtailed, show scheduled departure time from the curtailment point for return journey
-                // Look for entries at the curtailment stop with a different destination (return journey)
-                // Match by route, stop, opposite destination, and optionally by trip/running number
-                const returnDepartureEntry = localScheduleData.find(entry => 
-                    entry.lineName === service.trueLineName &&
-                    entry.stopID === curtailment.newTerminusStopId &&
-                    unescapeHtml(entry.destinationName) !== curtailment.destinationName &&
-                    (!service.blockId || entry.tripId === service.blockId) &&
-                    (!service.runningNumber || entry.runningNumber === service.runningNumber)
-                );
-                if (returnDepartureEntry && returnDepartureEntry.scheduledTime) {
-                    displayTimeText = unescapeHtml(returnDepartureEntry.scheduledTime);
-                } else {
-                    displayTimeText = '?';
-                }
+                // Keep displayNextStop as the actual current next stop
+                displayNextStop = service.nextStopName || '?';
+                // Show actual current ETA (not return journey time)
             } else {
                 // No curtailment - normal ETA logic
                 if (service.nextStopActualTime instanceof Date) { 
@@ -1309,24 +1295,9 @@
             const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
                 displayDestination = curtailment.newTerminusDisplayName;
-                // When curtailed, show the curtailment point as the next stop
-                displayNextStop = curtailment.newTerminusDisplayName;
-                
-                // When curtailed, show scheduled departure time from the curtailment point for return journey
-                // Look for entries at the curtailment stop with a different destination (return journey)
-                // Match by route, stop, opposite destination, and optionally by trip/running number
-                const returnDepartureEntry = localScheduleData.find(entry => 
-                    entry.lineName === service.trueLineName &&
-                    entry.stopID === curtailment.newTerminusStopId &&
-                    unescapeHtml(entry.destinationName) !== curtailment.destinationName &&
-                    (!service.blockId || entry.tripId === service.blockId) &&
-                    (!service.runningNumber || entry.runningNumber === service.runningNumber)
-                );
-                if (returnDepartureEntry && returnDepartureEntry.scheduledTime) {
-                    displayTimeText = unescapeHtml(returnDepartureEntry.scheduledTime);
-                } else {
-                    displayTimeText = '?';
-                }
+                // Keep displayNextStop as the actual current next stop
+                displayNextStop = service.nextStopName || '?';
+                // Show actual current ETA (not return journey time)
             } else {
                 // No curtailment - normal ETA logic
                 if (service.nextStopActualTime instanceof Date) { 
@@ -1650,72 +1621,75 @@
         curtailedBusesTableBody.innerHTML = "";
 
         if (!currentRouteFilter) {
-            curtailedBusesTableBody.innerHTML = '<tr><td colspan="5">Enter a route number to view curtailments.</td></tr>';
+            curtailedBusesTableBody.innerHTML = '<tr><td colspan="6">Enter a route number to view curtailments.</td></tr>';
             return;
         }
 
-        const now = new Date();
-        const curtailedTrips = [];
+        // Only show services from currentTrackedServices that have an active curtailment
+        const curtailedServices = [];
         
-        // Check activeMassCurtailments from Firebase
-        if (activeMassCurtailments && Object.keys(activeMassCurtailments).length > 0) {
-            for (const key in activeMassCurtailments) {
-                const curtailment = activeMassCurtailments[key];
-                if (!curtailment || !curtailment.routeName) continue;
-                
-                // Match route name (case-insensitive)
-                if (curtailment.routeName.toUpperCase() !== currentRouteFilter.toUpperCase()) continue;
-                
-                // Check if curtailment is active (within time window and today)
-                const startTime = new Date(curtailment.startTime);
-                const endTime = new Date(curtailment.endTime);
-                
-                // Only show if it's today and currently active
-                if (now >= startTime && now <= endTime) {
-                    // Find all services for this route/destination combination that are currently logged
-                    const matchingServices = (localScheduleData || []).filter(entry => 
-                        entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase() &&
-                        (!curtailment.destinationName || unescapeHtml(entry.destinationName) === curtailment.destinationName)
-                    );
-                    
-                    // Get unique trips and their current position
-                    const seenTrips = new Set();
-                    matchingServices.forEach(service => {
-                        if (service.tripId && !seenTrips.has(service.tripId)) {
-                            seenTrips.add(service.tripId);
-                            curtailedTrips.push({
-                                type: 'firebase',
-                                key: key,
-                                curtailment: curtailment,
-                                startTime: startTime,
-                                endTime: endTime,
-                                service: service
-                            });
-                        }
+        if (currentTrackedServices && currentTrackedServices.length > 0) {
+            currentTrackedServices.forEach(service => {
+                const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
+                if (curtailment) {
+                    curtailedServices.push({
+                        service: service,
+                        curtailment: curtailment
                     });
                 }
-            }
+            });
         }
 
-        if (curtailedTrips.length === 0) {
-            curtailedBusesTableBody.innerHTML = `<tr><td colspan="5">No curtailments currently active for route ${escapeHtml(currentRouteFilter)}.</td></tr>`;
+        if (curtailedServices.length === 0) {
+            curtailedBusesTableBody.innerHTML = `<tr><td colspan="6">No active curtailments for route ${escapeHtml(currentRouteFilter)}.</td></tr>`;
             return;
         }
 
-        // Sort by service time
-        curtailedTrips.sort((a, b) => String(a.service.scheduledTime || "").localeCompare(String(b.service.scheduledTime || "")));
+        // Sort by scheduled time
+        curtailedServices.sort((a, b) => String(a.service.nextStopActualTime || "").localeCompare(String(b.service.nextStopActualTime || "")));
         
         let curtailedRowsHTML = "";
-        curtailedTrips.forEach(trip => {
-            const c = trip.curtailment;
-            const service = trip.service;
+        curtailedServices.forEach(item => {
+            const s = item.service;
+            const c = item.curtailment;
             const rName = unescapeHtml(c.routeName || "N/A");
-            const fleet = unescapeHtml(service.fleetNumber || "N/A");
-            const reg = unescapeHtml(service.vehicleReg || "---");
+            const fleet = unescapeHtml(s.assignedFleetNumber || "N/A");
+            const reg = unescapeHtml(s.assignedRegistration || "---");
             const cTo = unescapeHtml(c.newTerminusDisplayName || "N/A");
-            const loggedTime = unescapeHtml(service.scheduledTime || "N/A");
+            const nextStop = unescapeHtml(s.nextStopName || "?");
             
-            curtailedRowsHTML += `<tr><td>${rName}</td><td>${fleet}</td><td>${reg}</td><td>${cTo}</td><td>${loggedTime}</td></tr>`;
+            // Get the ETA
+            let etaText = "?";
+            if (s.nextStopActualTime instanceof Date) {
+                const time = s.nextStopActualTime;
+                const isPast = s._timeToNextStopSec < 0;
+                if (isPast) {
+                    const now = new Date();
+                    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const hours = String(time.getHours()).padStart(2, '0');
+                    const minutes = String(time.getMinutes()).padStart(2, '0');
+                    const seconds = String(time.getSeconds()).padStart(2, '0');
+                    
+                    if (time.getTime() >= midnight.getTime()) {
+                        etaText = `Last seen ${hours}:${minutes}:${seconds}`;
+                    } else {
+                        const day = String(time.getDate()).padStart(2, '0');
+                        const month = String(time.getMonth() + 1).padStart(2, '0');
+                        const year = time.getFullYear();
+                        etaText = `Last seen ${day}/${month}/${year} - ${hours}:${minutes}:${seconds}`;
+                    }
+                } else {
+                    const hours = String(time.getHours()).padStart(2, '0');
+                    const minutes = String(time.getMinutes()).padStart(2, '0');
+                    const seconds = String(time.getSeconds()).padStart(2, '0');
+                    etaText = `${hours}:${minutes}:${seconds}`;
+                }
+            } else {
+                const fallbackEtaText = generateArrivalText(s._timeToNextStopSec);
+                etaText = unescapeHtml(fallbackEtaText || '?');
+            }
+            
+            curtailedRowsHTML += `<tr><td>${rName}</td><td>${fleet}</td><td>${reg}</td><td>${cTo}</td><td>${nextStop}</td><td>${etaText}</td></tr>`;
         });
         curtailedBusesTableBody.innerHTML = curtailedRowsHTML;
     }

@@ -745,17 +745,16 @@
         });
     }
 
-    // Returns the (uppercased) route keys that have at least one configured rare vehicle,
-    // based on the live vehicle allocations data. Only these routes need to be loaded for
-    // the "all routes" rare workings page - loading every route regardless of rare vehicle
-    // configuration is unnecessary and was what caused the page to crash under heavy load.
+    // Returns the (uppercased) route keys that need to be loaded for the "all routes"
+    // rare workings page. A working is "rare" if its vehicle hasn't been seen on that
+    // route in 60+ days, which can happen on any route - not just ones with a configured
+    // rare vehicle pool - so every known route (from the live vehicle allocations data)
+    // must be included here.
     function getRareEligibleRouteKeys() {
         const keys = new Set();
         Object.keys(vehicleAllocationData || {}).forEach(routeKey => {
-            const alloc = vehicleAllocationData[routeKey];
-            if (!alloc) return;
-            const rarePool = parseFirebaseListOrMap(alloc.rareVehicles);
-            if (rarePool.length > 0) keys.add(String(routeKey).toUpperCase());
+            if (!routeKey) return;
+            keys.add(String(routeKey).toUpperCase());
         });
         return Array.from(keys);
     }
@@ -777,7 +776,7 @@
             generateVehicleBlocks(localScheduleData);
             processAndDisplayAllData();
             generateAndDisplayRouteSequences();
-            if (searchStatusMessage) searchStatusMessage.textContent = `No routes with rare vehicles configured.`;
+            if (searchStatusMessage) searchStatusMessage.textContent = `No routes available.`;
             return;
         }
 
@@ -796,7 +795,7 @@
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
             if (searchStatusMessage) searchStatusMessage.textContent = cachedAllEntries.length > 0
                 ? `Loaded rare-eligible routes from cache.`
-                : `Rare-eligible routes are unavailable while offline.`;
+                : `Routes are unavailable while offline.`;
             return;
         }
 

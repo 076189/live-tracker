@@ -285,6 +285,9 @@
     let vehicleDetailedLogMap = new Map();
     let activeRouteListener = null; // Tracks current route listener for cleanup
     let allRoutesListener = null; // Tracks all routes listener for cleanup
+    let backgroundHistoryListener = null;
+    let backgroundHistoryScheduleData = [];
+    let backgroundHistoryProcessTimer = null;
 
     function loadRouteHistoryFromStorage() {
         try {
@@ -395,6 +398,7 @@
         const liveAllocations = snapshot.exists() ? snapshot.val() || {} : {};
         vehicleAllocationData = liveAllocations;
         hasReceivedInitialVehicleAllocations = true;
+        if (backgroundHistoryScheduleData.length > 0) queueBackgroundHistoryProcessing();
         if (localScheduleData.length > 0) throttledProcessAndDisplay();
     }
 
@@ -526,6 +530,7 @@
         updateClock(); 
         setInterval(updateClock, 1000); 
         setInterval(() => {
+            if (backgroundHistoryScheduleData.length > 0) queueBackgroundHistoryProcessing();
             if ((!currentRouteFilter && !isRarePageActive) || localScheduleData.length === 0) return;
             const historyWasOpen = isHistoryPageActive;
             const historyIdentifier = currentHistoryIdentifier;
@@ -655,6 +660,7 @@
             }
         });
 
+        startBackgroundHistoryLogging();
     }
 
     function loadRouteDataOnDemand(routeKey) {
@@ -708,6 +714,64 @@
             }
         }
         return flatEntries;
+    }
+
+    function processBackgroundHistoryEntries(scheduleEntries) {
+        if (!Array.isArray(scheduleEntries) || scheduleEntries.length === 0) return;
+        const now = new Date();
+        const activeServiceKeys = new Set();
+        const serviceVehicles = new Map();
+
+        scheduleEntries.forEach(entry => {
+            if (!entry || typeof entry !== 'object' || !entry.stopID) return;
+            const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(entry);
+            const timing = calculatePreciseStopTimingsForTracker(entry, now);
+            if (!timing.finalAdjustedSchedTime || timing.timeToStationInSeconds < MAX_PAST_SECONDS_TRACKER || timing.timeToStationInSeconds > MAX_UPCOMING_SECONDS_TRACKER) return;
+
+            if (!serviceVehicles.has(serviceInstanceKey)) {
+                const subVehicle = getSubVehicleForRunningNumber(trueLineName, entry.runningNumber);
+                const assignedVehicle = subVehicle || (
+                    entry.fleetNumber && entry.fleetNumber !== 'N/A' && entry.vehicleReg && entry.vehicleReg !== '---'
+                        ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg }
+                        : getAssignedVehicle(blockId, trueLineName, entry.runningNumber)
+                );
+                serviceVehicles.set(serviceInstanceKey, { assignedVehicle, blockId, runningNumber: entry.runningNumber || '', routeName: trueLineName });
+            }
+            activeServiceKeys.add(serviceInstanceKey);
+        });
+
+        activeServiceKeys.forEach(serviceInstanceKey => {
+            const service = serviceVehicles.get(serviceInstanceKey);
+            if (!service || !service.assignedVehicle) return;
+            const routeName = String(service.routeName || '').toUpperCase();
+            if (!routeName) return;
+            recordVehicleSighting(routeName, service.assignedVehicle.fleetNumber, service.assignedVehicle.registration);
+            recordDetailedVehicleSighting(routeName, service.assignedVehicle.fleetNumber, service.assignedVehicle.registration, service.blockId, service.runningNumber);
+        });
+        saveVehicleCacheToStorage();
+    }
+
+    function startBackgroundHistoryLogging() {
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
+        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
+        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+        backgroundHistoryListener = dbOnValue(schedulesByRouteRef, snapshot => {
+            if (!snapshot.exists()) return;
+            const schedulesByRoute = snapshot.val() || {};
+            backgroundHistoryScheduleData = [];
+            Object.entries(schedulesByRoute).forEach(([routeKey, routeData]) => {
+                backgroundHistoryScheduleData.push(...flattenSingleRouteData(routeKey, routeData));
+            });
+            queueBackgroundHistoryProcessing();
+        });
+    }
+
+    function queueBackgroundHistoryProcessing() {
+        if (backgroundHistoryProcessTimer) clearTimeout(backgroundHistoryProcessTimer);
+        backgroundHistoryProcessTimer = setTimeout(() => {
+            backgroundHistoryProcessTimer = null;
+            processBackgroundHistoryEntries(backgroundHistoryScheduleData);
+        }, 250);
     }
 
     function throttledProcessAndDisplay() {
@@ -820,7 +884,7 @@
         }
 
         let vehicleFromCache = serviceInstanceVehicleCache.get(serviceInstanceKey);
-        if (vehicleFromCache) { 
+        if (vehicleFromCache && getVehicleKey(vehicleFromCache)) { 
             return vehicleFromCache; 
         }
         

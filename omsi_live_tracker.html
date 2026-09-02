@@ -1841,8 +1841,9 @@
         vehicleDetailedLogMap.forEach(logs => {
             logs.forEach(log => {
                 const routeName = String(log.routeName || '').toUpperCase();
-                const timestamp = Number(log.timestamp);
-                if (routeName !== currentRouteFilter.toUpperCase() || timestamp < midnight || timestamp >= nextMidnight) return;
+                const firstSeenAt = Number(log.firstSeenAt || log.timestamp);
+                const lastSeenAt = Number(log.lastSeenAt || log.timestamp);
+                if (routeName !== currentRouteFilter.toUpperCase() || firstSeenAt < midnight || firstSeenAt >= nextMidnight) return;
 
                 const fleet = String(log.fleetNumber || '').trim();
                 const registration = String(log.registration || '').trim();
@@ -1853,9 +1854,10 @@
                 const key = `${fleet.toUpperCase()}|${registration.toUpperCase()}`;
                 const existing = vehiclesByIdentity.get(key);
                 if (existing) {
-                    existing.usedUntil = Math.max(existing.usedUntil, timestamp);
+                    existing.usedFrom = Math.min(existing.usedFrom, firstSeenAt);
+                    existing.usedUntil = Math.max(existing.usedUntil, lastSeenAt);
                 } else {
-                    vehiclesByIdentity.set(key, { fleet, registration, usedFrom: timestamp, usedUntil: timestamp });
+                    vehiclesByIdentity.set(key, { fleet, registration, usedFrom: firstSeenAt, usedUntil: lastSeenAt });
                 }
             });
         });

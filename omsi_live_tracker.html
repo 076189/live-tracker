@@ -672,26 +672,31 @@
                 throttledProcessAndDisplay();
             }
         });
-
-        startBackgroundHistoryLogging();
     }
 
     function loadRouteDataOnDemand(routeKey) {
-        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
-        const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
-
+        const normalizedRouteKey = String(routeKey || '').trim().toUpperCase();
         const cachedSchedules = loadRouteScheduleCache();
-        const cachedRouteEntries = Array.isArray(cachedSchedules[routeKey.toUpperCase()]) ? cachedSchedules[routeKey.toUpperCase()] : [];
+        const cachedRouteEntries = Array.isArray(cachedSchedules[normalizedRouteKey]) ? cachedSchedules[normalizedRouteKey] : [];
         if (cachedRouteEntries.length > 0) {
-            localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== routeKey.toUpperCase());
+            localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== normalizedRouteKey);
             localScheduleData.push(...cachedRouteEntries);
             generateVehicleBlocks(localScheduleData);
             processAndDisplayAllData();
             generateAndDisplayRouteSequences();
         }
 
-        if(searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(routeKey)}...`;
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
+            if (searchStatusMessage) searchStatusMessage.textContent = cachedRouteEntries.length > 0
+                ? `Loaded route ${escapeHtml(normalizedRouteKey)} from cache.`
+                : `Route ${escapeHtml(normalizedRouteKey)} is unavailable while offline.`;
+            return;
+        }
+
+        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
+        const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${normalizedRouteKey}`);
+
+        if(searchStatusMessage) searchStatusMessage.textContent = `Refreshing route ${escapeHtml(normalizedRouteKey)}...`;
 
         activeRouteListener = dbOnValue(routeRef, (snapshot) => {
             if (snapshot.exists()) {

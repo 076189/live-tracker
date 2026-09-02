@@ -288,6 +288,7 @@
     let backgroundHistoryListener = null;
     let backgroundHistoryScheduleData = [];
     let backgroundHistoryProcessTimer = null;
+    let firebaseListenerRetryTimer = null;
 
     function loadRouteHistoryFromStorage() {
         try {
@@ -623,6 +624,15 @@
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
             closedStopIDsGlobal = []; 
             populateCurtailmentsTable(); 
+            if (!firebaseListenerRetryTimer) {
+                firebaseListenerRetryTimer = setInterval(() => {
+                    if (window.firebaseOMSI_SA && window.firebaseOMSI_SA.database) {
+                        clearInterval(firebaseListenerRetryTimer);
+                        firebaseListenerRetryTimer = null;
+                        setupFirebaseDependentListeners();
+                    }
+                }, 250);
+            }
             return;
         }
         const { database, dbOnValue, dbRef } = window.firebaseOMSI_SA;

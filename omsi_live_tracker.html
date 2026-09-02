@@ -707,7 +707,6 @@
             localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== normalizedRouteKey);
             localScheduleData.push(...cachedRouteEntries);
             generateVehicleBlocks(localScheduleData);
-            if (searchStatusMessage) searchStatusMessage.textContent = `Loaded route ${escapeHtml(normalizedRouteKey)} from cache.`;
             processAndDisplayAllData();
             generateAndDisplayRouteSequences();
         }
@@ -722,9 +721,7 @@
         const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
         const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${normalizedRouteKey}`);
 
-        if(searchStatusMessage) searchStatusMessage.textContent = cachedRouteEntries.length > 0
-            ? `Loaded route ${escapeHtml(normalizedRouteKey)} from cache; refreshing...`
-            : `Loading route ${escapeHtml(normalizedRouteKey)}...`;
+        if(searchStatusMessage) searchStatusMessage.textContent = `Refreshing route ${escapeHtml(normalizedRouteKey)}...`;
 
         activeRouteListener = dbOnValue(routeRef, (snapshot) => {
             if (snapshot.exists()) {
@@ -751,19 +748,43 @@
     // Returns the (uppercased) route keys that need to be loaded for the "all routes"
     // rare workings page. A working is "rare" if its vehicle hasn't been seen on that
     // route in 60+ days, which can happen on any route - not just ones with a configured
-    // rare vehicle pool - so every known route (from the static route/operator map, plus
-    // any extra routes seen in the live vehicle allocations data) must be included here.
-    // Keep this list local so opening the page never reads the complete schedulesByRoute
-    // branch just to discover its child keys - each route is then fetched one at a time
-    // below so the page can show "Loading route X of Y" progress instead of a single
-    // heavy bulk read.
+    // rare vehicle pool - so every known route (from the live vehicle allocations data,
+    // plus every route that actually has schedule data, since a route can run services
+    // with only static/literal vehicle data and no vehicleAllocations entry at all)
+    // must be included here.
+    let knownScheduleRouteKeys = new Set();
+    let hasFetchedKnownScheduleRouteKeys = false;
+    let isFetchingKnownScheduleRouteKeys = false;
+
+    function fetchKnownScheduleRouteKeysOnce(callback) {
+        if (hasFetchedKnownScheduleRouteKeys || !window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
+            callback();
+            return;
+        }
+        if (isFetchingKnownScheduleRouteKeys) return;
+        isFetchingKnownScheduleRouteKeys = true;
+        const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
+        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+        dbGet(schedulesByRouteRef).then(snapshot => {
+            if (snapshot.exists()) {
+                knownScheduleRouteKeys = new Set(Object.keys(snapshot.val() || {}).map(k => String(k).toUpperCase()));
+            }
+            hasFetchedKnownScheduleRouteKeys = true;
+            isFetchingKnownScheduleRouteKeys = false;
+            callback();
+        }).catch(() => {
+            isFetchingKnownScheduleRouteKeys = false;
+            callback();
+        });
+    }
+
     function getRareEligibleRouteKeys() {
         const keys = new Set();
-        Object.keys(routeOperators).forEach(routeKey => keys.add(routeKey.toUpperCase()));
         Object.keys(vehicleAllocationData || {}).forEach(routeKey => {
             if (!routeKey) return;
             keys.add(String(routeKey).toUpperCase());
         });
+        knownScheduleRouteKeys.forEach(routeKey => keys.add(routeKey));
         return Array.from(keys);
     }
 

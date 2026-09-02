@@ -605,8 +605,12 @@
         const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
         dbOnValue(massCurtailmentsRef, (snapshot) => {
             activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
-            console.log("[TRACKER] Mass curtailments updated:", Object.keys(activeMassCurtailments).length, "active");
+            console.log("[TRACKER] Mass curtailments listener fired!");
+            console.log("[TRACKER] Snapshot exists:", snapshot.exists());
+            console.log("[TRACKER] Active curtailments:", activeMassCurtailments);
+            console.log("[TRACKER] Mass curtailments updated:", Object.keys(activeMassCurtailments).length, "entries");
             if (currentRouteFilter && localScheduleData.length > 0) {
+                console.log("[TRACKER] Triggering display update for route:", currentRouteFilter);
                 throttledProcessAndDisplay();
             }
         });
@@ -1206,9 +1210,11 @@
             
             // Check if there's an active curtailment for this route
             let displayDestination = service.displayDestination || '?';
-            const curtailment = getApplicableCurtailment(service.lineName);
+            const curtailment = getApplicableCurtailment(service.trueLineName);
             if (curtailment) {
+                console.log(`[TRACKER] Applying curtailment for ${service.trueLineName}: showing "${curtailment.newTerminusDisplayName}" instead of "${displayDestination}"`);
                 displayDestination = curtailment.newTerminusDisplayName;
+            }
             }
             const destVal = unescapeHtml(displayDestination);
             const stopVal = unescapeHtml(service.nextStopName || '?');
@@ -1273,7 +1279,14 @@
             const routeVal = unescapeHtml(service.trueLineName || '?');
             const fleetVal = unescapeHtml(service.assignedFleetNumber || 'N/A');
             const regVal = unescapeHtml(service.assignedRegistration || '---');
-            const destVal = unescapeHtml(service.displayDestination || '?');
+            
+            // Check if there's an active curtailment for this route
+            let displayDestination = service.displayDestination || '?';
+            const curtailment = getApplicableCurtailment(service.trueLineName);
+            if (curtailment) {
+                displayDestination = curtailment.newTerminusDisplayName;
+            }
+            const destVal = unescapeHtml(displayDestination);
             const stopVal = unescapeHtml(service.nextStopName || '?');
 
             let displayTimeText = '?'; 
@@ -1666,17 +1679,36 @@
     
     function getApplicableCurtailment(routeName) {
         // Check if there's an active curtailment for this route
-        if (!activeMassCurtailments || Object.keys(activeMassCurtailments).length === 0) return null;
+        if (!activeMassCurtailments || Object.keys(activeMassCurtailments).length === 0) {
+            return null;
+        }
         const now = new Date();
+        console.log(`[TRACKER DEBUG] Checking curtailments for route: ${routeName}, active curtailments count: ${Object.keys(activeMassCurtailments).length}`);
+        
         for (const key in activeMassCurtailments) {
             const curtailment = activeMassCurtailments[key];
-            if (!curtailment || curtailment.routeName !== routeName) continue;
+            console.log(`[TRACKER DEBUG] Curtailment ${key}:`, curtailment);
+            
+            if (!curtailment || !curtailment.routeName) {
+                console.log(`[TRACKER DEBUG] Skipping ${key} - no curtailment or routeName`);
+                continue;
+            }
+            
+            if (curtailment.routeName !== routeName) {
+                console.log(`[TRACKER DEBUG] Skipping ${key} - route mismatch: ${curtailment.routeName} !== ${routeName}`);
+                continue;
+            }
+            
             const startTime = new Date(curtailment.startTime);
             const endTime = new Date(curtailment.endTime);
+            console.log(`[TRACKER DEBUG] Time check for ${key}: now=${now.toISOString()}, start=${startTime.toISOString()}, end=${endTime.toISOString()}`);
+            
             if (now >= startTime && now <= endTime) {
+                console.log(`[TRACKER DEBUG] FOUND ACTIVE CURTAILMENT for route ${routeName}:`, curtailment);
                 return curtailment;
             }
         }
+        console.log(`[TRACKER DEBUG] No active curtailment found for route ${routeName}`);
         return null;
     }
     

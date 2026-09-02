@@ -622,6 +622,8 @@
                 throttledProcessAndDisplay();
             }
         });
+
+        startBackgroundSightingLogger();
     }
 
     function loadRouteDataOnDemand(routeKey) {
@@ -891,13 +893,13 @@
         });
     }
 
-    function resolveActiveVehicleAssignments() {
+    function resolveActiveVehicleAssignments(scheduleData = localScheduleData) {
         const nowForProcessing = new Date();
         const blockRouteMap = new Map();
         const blockStaticVehicle = new Map();
         const activeBlockIds = new Set();
 
-        localScheduleData.forEach(busEntry => {
+        scheduleData.forEach(busEntry => {
             if (!busEntry || typeof busEntry !== 'object' || !busEntry.stopID) return;
             const { trueLineName, blockId } = computeServiceInstanceIds(busEntry);
             if (!blockRouteMap.has(blockId)) blockRouteMap.set(blockId, trueLineName);
@@ -993,6 +995,65 @@
         needsFallback.forEach(blockId => serviceInstanceVehicleCache.delete(blockId));
 
         saveVehicleCacheToStorage();
+    }
+
+    // Records vehicle sightings for every active service instance found in the
+    // supplied schedule entries. This is shared by the main display pipeline
+    // (processAndDisplayAllData) and the background sighting logger, so that
+    // sightings are logged for every route the tracker knows about - not just
+    // the route currently being viewed or the "all routes" rare workings page.
+    function recordSightingsForScheduleData(scheduleData) {
+        const seenServiceInstances = new Set();
+
+        scheduleData.forEach((busEntryRaw) => {
+            if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) return;
+
+            const busEntry = busEntryRaw;
+            const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(busEntry);
+
+            if (seenServiceInstances.has(serviceInstanceKey)) return;
+            seenServiceInstances.add(serviceInstanceKey);
+
+            let assignedVehicle;
+            if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
+                assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };
+                serviceInstanceVehicleCache.set(blockId, assignedVehicle);
+            } else {
+                assignedVehicle = getAssignedVehicle(blockId, trueLineName);
+            }
+
+            recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
+            recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration, blockId);
+        });
+    }
+
+    // Fetches schedule data for every route directly from Firebase and records
+    // sightings for it, independent of what the user currently has open. This
+    // means vehicle history is populated continuously in the background rather
+    // than only when a route is searched or the Rare Workings Page is opened.
+    let backgroundSightingListenerStarted = false;
+    function startBackgroundSightingLogger() {
+        if (backgroundSightingListenerStarted) return;
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
+        backgroundSightingListenerStarted = true;
+
+        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
+        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+
+        dbOnValue(schedulesByRouteRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            const schedulesByRoute = snapshot.val();
+            const routeKeys = Object.keys(schedulesByRoute);
+            const flatAllRoutesSchedule = [];
+            routeKeys.forEach(routeKey => {
+                const routeData = schedulesByRoute[routeKey];
+                const entries = flattenSingleRouteData(routeKey, routeData);
+                flatAllRoutesSchedule.push(...entries);
+            });
+            generateVehicleBlocks(flatAllRoutesSchedule);
+            resolveActiveVehicleAssignments(flatAllRoutesSchedule);
+            recordSightingsForScheduleData(flatAllRoutesSchedule);
+        });
     }
 
     function processAndDisplayAllData() {

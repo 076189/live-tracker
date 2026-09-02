@@ -651,6 +651,15 @@
         const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
         const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
 
+        const cachedRouteEntries = backgroundScheduleData.filter(entry => String(entry.lineName || '').toUpperCase() === routeKey.toUpperCase());
+        if (cachedRouteEntries.length > 0) {
+            localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== routeKey.toUpperCase());
+            localScheduleData.push(...cachedRouteEntries);
+            if (currentRouteFilter) generateVehicleBlocks(localScheduleData);
+            throttledProcessAndDisplay();
+            if (currentRouteFilter) generateAndDisplayRouteSequences();
+        }
+
         if(searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(routeKey)}...`;
 
         activeRouteListener = dbOnValue(routeRef, (snapshot) => {

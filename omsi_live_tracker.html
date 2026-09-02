@@ -380,12 +380,14 @@
             const routeUp = routeName.toUpperCase();
             
             const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
-            if (lastLog && lastLog.routeName === routeUp && isSameLocalCalendarDay(lastLog.timestamp, now)) {
-                lastLog.timestamp = now;
+            const lastSeenAt = lastLog ? (lastLog.lastSeenAt || lastLog.timestamp) : null;
+            if (lastLog && lastLog.routeName === routeUp && isSameLocalCalendarDay(lastSeenAt, now)) {
+                lastLog.firstSeenAt = lastLog.firstSeenAt || lastLog.timestamp || now;
+                lastLog.lastSeenAt = now;
                 if (!lastLog.runningNumber && runningNumber) lastLog.runningNumber = runningNumber;
                 if (!lastLog.garage && runningNumber) lastLog.garage = getGarageFromRunningNumber(runningNumber);
             } else {
-                logs.push({ routeName: routeUp, operator: getOperatorForRoute(routeUp), timestamp: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---", runningNumber: runningNumber || "", garage: getGarageFromRunningNumber(runningNumber) });
+                logs.push({ routeName: routeUp, operator: getOperatorForRoute(routeUp), firstSeenAt: now, lastSeenAt: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---", runningNumber: runningNumber || "", garage: getGarageFromRunningNumber(runningNumber) });
                 if (logs.length > 50) logs.shift();
             }
         });
@@ -1556,10 +1558,14 @@
             pageContent = `<p>No automatic route history has been recorded yet for ${escapeHtml(cleanIdent)}. The tracker records vehicles from active running-number schedule data in the background.</p>`;
         } else {
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
-            const sortedLogs = [...logs].sort((a, b) => a.timestamp - b.timestamp);
+            const getFirstSeenAt = log => log.firstSeenAt || log.timestamp;
+            const getLastSeenAt = log => log.lastSeenAt || log.timestamp;
+            const sortedLogs = [...logs].sort((a, b) => getFirstSeenAt(a) - getFirstSeenAt(b));
             const groupedLogs = new Map();
             sortedLogs.forEach(log => {
-                const dateObj = new Date(log.timestamp);
+                const firstSeenAt = getFirstSeenAt(log);
+                const lastSeenAt = getLastSeenAt(log);
+                const dateObj = new Date(firstSeenAt);
                 const dateKey = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
                 const routeName = String(log.routeName || '').toUpperCase();
                 const operator = log.operator || getOperatorForRoute(routeName);
@@ -1567,9 +1573,10 @@
                 const groupKey = `${operator}|${routeName}|${dateKey}|${garage}`;
                 const existing = groupedLogs.get(groupKey);
                 if (existing) {
-                    existing.until = Math.max(existing.until, log.timestamp);
+                    existing.from = Math.min(existing.from, firstSeenAt);
+                    existing.until = Math.max(existing.until, lastSeenAt);
                 } else {
-                    groupedLogs.set(groupKey, { dateKey, routeName, operator, garage, from: log.timestamp, until: log.timestamp });
+                    groupedLogs.set(groupKey, { dateKey, routeName, operator, garage, from: firstSeenAt, until: lastSeenAt });
                 }
             });
 

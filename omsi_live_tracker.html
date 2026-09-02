@@ -173,15 +173,14 @@
         <thead>
             <tr>
                 <th>Route</th>
-                <th>Original Destination</th>
-                <th>Curtailed Destination</th>
+                <th>Fleet Number</th>
+                <th>Registration</th>
+                <th>Destination</th>
                 <th>Time</th>
-                <th>Created By</th>
-                <th>Notes</th>
             </tr>
         </thead>
         <tbody id="curtailed-buses-table-body">
-            <tr><td colspan="6">Enter a route number to view curtailments.</td></tr>
+            <tr><td colspan="5">Enter a route number to view curtailments.</td></tr>
         </tbody>
     </table>
 
@@ -1621,52 +1620,72 @@
         curtailedBusesTableBody.innerHTML = "";
 
         if (!currentRouteFilter) {
-            curtailedBusesTableBody.innerHTML = '<tr><td colspan="6">Enter a route number to view curtailments.</td></tr>';
+            curtailedBusesTableBody.innerHTML = '<tr><td colspan="5">Enter a route number to view curtailments.</td></tr>';
             return;
         }
 
-        // Get all curtailments logged today (created between midnight and midnight)
-        const curtailedServices = [];
+        // Find curtailments logged today for this route
         const today = new Date();
         const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
         const nextMidnight = new Date(midnight.getTime() + 24 * 60 * 60 * 1000);
 
+        const curtailmentsByKey = {}; // Track unique curtailments by route+destination
+        const curtailedEntries = [];
+
         Object.values(activeMassCurtailments).forEach(curtailment => {
-            // Check if route matches (case-insensitive)
+            // Check if route matches and was created today
             if (curtailment.routeName && curtailment.routeName.toUpperCase() === currentRouteFilter.toUpperCase()) {
-                // Show if curtailment was created today (startTime is today)
                 const startTime = new Date(curtailment.startTime);
                 
                 if (startTime >= midnight && startTime < nextMidnight) {
-                    curtailedServices.push(curtailment);
+                    const key = `${curtailment.routeName}|${curtailment.destinationName}`;
+                    curtailmentsByKey[key] = curtailment;
                 }
             }
         });
 
-        if (curtailedServices.length === 0) {
-            curtailedBusesTableBody.innerHTML = `<tr><td colspan="6">No curtailments logged for route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
+        // Find currently tracked services that match these curtailments
+        if (currentTrackedServices && currentTrackedServices.length > 0) {
+            currentTrackedServices.forEach(service => {
+                if (service.trueLineName.toUpperCase() === currentRouteFilter.toUpperCase()) {
+                    const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
+                    if (curtailment) {
+                        const key = `${curtailment.routeName}|${curtailment.destinationName}`;
+                        if (curtailmentsByKey[key]) {
+                            curtailedEntries.push({
+                                service: service,
+                                curtailment: curtailment
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        if (curtailedEntries.length === 0) {
+            curtailedBusesTableBody.innerHTML = `<tr><td colspan="5">No curtailments logged for route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
             return;
         }
 
-        // Sort by start time
-        curtailedServices.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+        // Sort by curtailment start time
+        curtailedEntries.sort((a, b) => new Date(a.curtailment.startTime) - new Date(b.curtailment.startTime));
         
         let curtailedRowsHTML = "";
-        curtailedServices.forEach(c => {
+        curtailedEntries.forEach(item => {
+            const s = item.service;
+            const c = item.curtailment;
             const rName = unescapeHtml(c.routeName || "N/A");
-            const dest = unescapeHtml(c.destinationName || "N/A");
+            const fleet = unescapeHtml(s.assignedFleetNumber || "N/A");
+            const reg = unescapeHtml(s.assignedRegistration || "---");
             const cTo = unescapeHtml(c.newTerminusDisplayName || "N/A");
             
-            // Get start and end times
+            // Time curtailed (start time)
             const startTime = new Date(c.startTime);
-            const endTime = new Date(c.endTime);
-            const startHours = String(startTime.getHours()).padStart(2, '0');
-            const startMins = String(startTime.getMinutes()).padStart(2, '0');
-            const endHours = String(endTime.getHours()).padStart(2, '0');
-            const endMins = String(endTime.getMinutes()).padStart(2, '0');
-            const timeRange = `${startHours}:${startMins} - ${endHours}:${endMins}`;
+            const hours = String(startTime.getHours()).padStart(2, '0');
+            const mins = String(startTime.getMinutes()).padStart(2, '0');
+            const timeCurtailed = `${hours}:${mins}`;
             
-            curtailedRowsHTML += `<tr><td>${rName}</td><td>${dest}</td><td>${cTo}</td><td>${timeRange}</td><td>${escapeHtml(c.user || "N/A")}</td><td>${escapeHtml(c.notes || "")}</td></tr>`;
+            curtailedRowsHTML += `<tr><td>${rName}</td><td>${fleet}</td><td>${reg}</td><td>${cTo}</td><td>${timeCurtailed}</td></tr>`;
         });
         curtailedBusesTableBody.innerHTML = curtailedRowsHTML;
     }

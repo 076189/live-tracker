@@ -730,12 +730,45 @@
         });
     }
 
+    // Returns the (uppercased) route keys that have at least one configured rare vehicle,
+    // based on the live vehicle allocations data. Only these routes need to be loaded for
+    // the "all routes" rare workings page - loading every route regardless of rare vehicle
+    // configuration is unnecessary and was what caused the page to crash under heavy load.
+    function getRareEligibleRouteKeys() {
+        const keys = new Set();
+        Object.keys(vehicleAllocationData || {}).forEach(routeKey => {
+            const alloc = vehicleAllocationData[routeKey];
+            if (!alloc) return;
+            const rarePool = parseFirebaseListOrMap(alloc.rareVehicles);
+            if (rarePool.length > 0) keys.add(String(routeKey).toUpperCase());
+        });
+        return Array.from(keys);
+    }
+
     function loadAllRoutesMetadataAndData() {
         stopAllRoutesListeners();
 
+        if (!hasReceivedInitialVehicleAllocations && window.firebaseOMSI_SA && window.firebaseOMSI_SA.database) {
+            // Vehicle allocations (which tell us which routes have rare vehicles) haven't
+            // loaded yet - wait for them before deciding which routes to fetch.
+            if (searchStatusMessage) searchStatusMessage.textContent = `Loading vehicle allocations...`;
+            setTimeout(() => { if (isRarePageActive && !currentRouteFilter) loadAllRoutesMetadataAndData(); }, 300);
+            return;
+        }
+
+        const rareRouteKeys = getRareEligibleRouteKeys();
+        if (rareRouteKeys.length === 0) {
+            localScheduleData = [];
+            generateVehicleBlocks(localScheduleData);
+            processAndDisplayAllData();
+            generateAndDisplayRouteSequences();
+            if (searchStatusMessage) searchStatusMessage.textContent = `No routes with rare vehicles configured.`;
+            return;
+        }
+
         const cachedSchedules = loadRouteScheduleCache();
         const cachedAllEntries = [];
-        Object.keys(cachedSchedules).forEach(routeKey => {
+        rareRouteKeys.forEach(routeKey => {
             if (Array.isArray(cachedSchedules[routeKey])) cachedAllEntries.push(...cachedSchedules[routeKey]);
         });
         if (cachedAllEntries.length > 0) {
@@ -747,36 +780,49 @@
 
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
             if (searchStatusMessage) searchStatusMessage.textContent = cachedAllEntries.length > 0
-                ? `Loaded all routes from cache.`
-                : `All routes are unavailable while offline.`;
+                ? `Loaded rare-eligible routes from cache.`
+                : `Rare-eligible routes are unavailable while offline.`;
             return;
         }
 
+        // Fetch each rare-eligible route's schedule one at a time (rather than one big
+        // listener covering every route) to avoid the heavy load that was crashing the page.
+        loadRareEligibleRoutesSequentially(rareRouteKeys, 0);
+    }
+
+    function loadRareEligibleRoutesSequentially(routeKeys, index) {
+        if (!isRarePageActive || currentRouteFilter) return;
+        if (index >= routeKeys.length) {
+            if (searchStatusMessage) searchStatusMessage.textContent = `Loaded all rare-eligible routes.`;
+            return;
+        }
+
+        const routeKey = routeKeys[index];
         const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
-        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+        const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
 
-        if (searchStatusMessage) searchStatusMessage.textContent = `Loading all routes for rare workings...`;
+        if (searchStatusMessage) searchStatusMessage.textContent = `Loading rare workings route ${index + 1} of ${routeKeys.length} (${escapeHtml(routeKey)})...`;
 
-        const unsubscribe = dbOnValue(schedulesByRouteRef, (snapshot) => {
+        const unsubscribe = dbOnValue(routeRef, (snapshot) => {
+            try { unsubscribe(); } catch (error) {}
+            allRoutesListeners = allRoutesListeners.filter(fn => fn !== unsubscribe);
             if (!isRarePageActive || currentRouteFilter) return;
+
             if (snapshot.exists()) {
-                const schedulesByRoute = snapshot.val() || {};
-                const allEntries = [];
-                Object.entries(schedulesByRoute).forEach(([routeKey, routeData]) => {
-                    const flatEntries = flattenSingleRouteData(routeKey, routeData);
-                    saveRouteScheduleToCache(routeKey, flatEntries);
-                    allEntries.push(...flatEntries);
-                });
-                localScheduleData = allEntries;
+                const flatEntries = flattenSingleRouteData(routeKey, snapshot.val());
+                saveRouteScheduleToCache(routeKey, flatEntries);
+                localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== routeKey);
+                localScheduleData.push(...flatEntries);
                 generateVehicleBlocks(localScheduleData);
-                if (searchStatusMessage) searchStatusMessage.textContent = `Loaded all routes.`;
                 throttledProcessAndDisplay();
                 generateAndDisplayRouteSequences();
-            } else {
-                if (searchStatusMessage) searchStatusMessage.textContent = `No schedule data found for any route.`;
             }
+
+            loadRareEligibleRoutesSequentially(routeKeys, index + 1);
         }, (err) => {
-            if (searchStatusMessage) searchStatusMessage.textContent = `Error loading all routes.`;
+            try { unsubscribe(); } catch (error) {}
+            allRoutesListeners = allRoutesListeners.filter(fn => fn !== unsubscribe);
+            loadRareEligibleRoutesSequentially(routeKeys, index + 1);
         });
         allRoutesListeners.push(unsubscribe);
     }

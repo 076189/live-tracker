@@ -173,9 +173,9 @@
         <thead>
             <tr>
                 <th>Route</th>
-                <th>Service/Vehicle ID</th>
+                <th>Destination</th>
                 <th>Curtailed To</th>
-                <th>Time Logged</th>
+                <th>Time Window</th>
             </tr>
         </thead>
         <tbody id="curtailed-buses-table-body">
@@ -609,6 +609,8 @@
             console.log("[TRACKER] Snapshot exists:", snapshot.exists());
             console.log("[TRACKER] Active curtailments:", activeMassCurtailments);
             console.log("[TRACKER] Mass curtailments updated:", Object.keys(activeMassCurtailments).length, "entries");
+            // Always update the curtailments table when data changes
+            populateCurtailmentsTable();
             if (currentRouteFilter && localScheduleData.length > 0) {
                 console.log("[TRACKER] Triggering display update for route:", currentRouteFilter);
                 throttledProcessAndDisplay();
@@ -1208,9 +1210,9 @@
             const fleetVal = unescapeHtml(service.assignedFleetNumber || 'N/A');
             const regVal = unescapeHtml(service.assignedRegistration || '---');
             
-            // Check if there's an active curtailment for this route
+            // Check if there's an active curtailment for this route and destination
             let displayDestination = service.displayDestination || '?';
-            const curtailment = getApplicableCurtailment(service.trueLineName);
+            const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
                 console.log(`[TRACKER] Applying curtailment for ${service.trueLineName}: showing "${curtailment.newTerminusDisplayName}" instead of "${displayDestination}"`);
                 displayDestination = curtailment.newTerminusDisplayName;
@@ -1279,9 +1281,9 @@
             const fleetVal = unescapeHtml(service.assignedFleetNumber || 'N/A');
             const regVal = unescapeHtml(service.assignedRegistration || '---');
             
-            // Check if there's an active curtailment for this route
+            // Check if there's an active curtailment for this route and destination
             let displayDestination = service.displayDestination || '?';
-            const curtailment = getApplicableCurtailment(service.trueLineName);
+            const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
                 displayDestination = curtailment.newTerminusDisplayName;
             }
@@ -1607,38 +1609,57 @@
         curtailedBusesTableBody.innerHTML = "";
 
         if (!currentRouteFilter) {
-            curtailedBusesTableBody.innerHTML = '<tr><td colspan="4">Enter a route number to view curtailments.</td></tr>';
+            curtailedBusesTableBody.innerHTML = '<tr><td colspan="5">Enter a route number to view curtailments.</td></tr>';
             return;
         }
 
-        const seenTripIds = new Set();
+        const now = new Date();
         const curtailedTrips = [];
-        (localScheduleData || []).forEach(entry => {
-            if (!entry || !entry.curtailment || !entry.tripId || seenTripIds.has(entry.tripId)) return;
-            if (!isCurtailmentStillActive(entry.curtailment)) return; // Filter out curtailments from previous days
-            if (entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()) {
-                seenTripIds.add(entry.tripId);
-                curtailedTrips.push(entry);
+        
+        // Check activeMassCurtailments from Firebase
+        if (activeMassCurtailments && Object.keys(activeMassCurtailments).length > 0) {
+            for (const key in activeMassCurtailments) {
+                const curtailment = activeMassCurtailments[key];
+                if (!curtailment || !curtailment.routeName) continue;
+                
+                // Match route name (case-insensitive)
+                if (curtailment.routeName.toUpperCase() !== currentRouteFilter.toUpperCase()) continue;
+                
+                // Check if curtailment is active (within time window and today)
+                const startTime = new Date(curtailment.startTime);
+                const endTime = new Date(curtailment.endTime);
+                
+                // Only show if it's today and currently active
+                if (now >= startTime && now <= endTime) {
+                    curtailedTrips.push({
+                        type: 'firebase',
+                        key: key,
+                        curtailment: curtailment,
+                        startTime: startTime,
+                        endTime: endTime
+                    });
+                }
             }
-        });
+        }
 
         if (curtailedTrips.length === 0) {
-            curtailedBusesTableBody.innerHTML = `<tr><td colspan="4">No curtailments currently active for route ${escapeHtml(currentRouteFilter)}.</td></tr>`;
+            curtailedBusesTableBody.innerHTML = `<tr><td colspan="5">No curtailments currently active for route ${escapeHtml(currentRouteFilter)}.</td></tr>`;
             return;
         }
 
-        curtailedTrips.sort((a, b) => (a.lineName || "").localeCompare("") || String(a.scheduledTime || "").localeCompare(String(b.scheduledTime || "")));
+        // Sort by start time
+        curtailedTrips.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+        
         let curtailedRowsHTML = "";
-        curtailedTrips.forEach(entry => {
-            const rName = unescapeHtml(entry.lineName || "N/A");
-            const sTime = unescapeHtml(entry.scheduledTime ? `${entry.scheduledTime} to ${entry.destinationName || '?' }` : (entry.tripId || "N/A"));
-            const cTo = unescapeHtml(entry.curtailment.newDestinationName || "N/A");
-            let appliedTimeText = "N/A";
-            if (entry.curtailment.appliedAt) {
-                const appliedDate = new Date(entry.curtailment.appliedAt);
-                if (!isNaN(appliedDate.getTime())) appliedTimeText = appliedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            }
-            curtailedRowsHTML += `<tr><td>${rName}</td><td>${sTime}</td><td>${cTo}</td><td>${appliedTimeText}</td></tr>`;
+        curtailedTrips.forEach(trip => {
+            const c = trip.curtailment;
+            const rName = unescapeHtml(c.routeName || "N/A");
+            const destName = unescapeHtml(c.destinationName || "All");
+            const startTimeStr = trip.startTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            const endTimeStr = trip.endTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            const timeWindow = `${startTimeStr} - ${endTimeStr}`;
+            const cTo = unescapeHtml(c.newTerminusDisplayName || "N/A");
+            curtailedRowsHTML += `<tr><td>${rName}</td><td>${destName}</td><td>${cTo}</td><td>${timeWindow}</td></tr>`;
         });
         curtailedBusesTableBody.innerHTML = curtailedRowsHTML;
     }
@@ -1676,13 +1697,13 @@
         return { dir1, dir2 };
     }
     
-    function getApplicableCurtailment(routeName) {
-        // Check if there's an active curtailment for this route
+    function getApplicableCurtailment(routeName, destinationName) {
+        // Check if there's an active curtailment for this route AND destination
         if (!activeMassCurtailments || Object.keys(activeMassCurtailments).length === 0) {
             return null;
         }
         const now = new Date();
-        console.log(`[TRACKER DEBUG] Checking curtailments for route: ${routeName}, active curtailments count: ${Object.keys(activeMassCurtailments).length}`);
+        console.log(`[TRACKER DEBUG] Checking curtailments for route: ${routeName}, destination: ${destinationName}, active curtailments count: ${Object.keys(activeMassCurtailments).length}`);
         
         for (const key in activeMassCurtailments) {
             const curtailment = activeMassCurtailments[key];
@@ -1698,16 +1719,24 @@
                 continue;
             }
             
+            // Check destination match (case-insensitive)
+            if (curtailment.destinationName) {
+                if (curtailment.destinationName.toUpperCase() !== (destinationName || '').toUpperCase()) {
+                    console.log(`[TRACKER DEBUG] Skipping ${key} - destination mismatch: ${curtailment.destinationName} !== ${destinationName}`);
+                    continue;
+                }
+            }
+            
             const startTime = new Date(curtailment.startTime);
             const endTime = new Date(curtailment.endTime);
             console.log(`[TRACKER DEBUG] Time check for ${key}: now=${now.toISOString()}, start=${startTime.toISOString()}, end=${endTime.toISOString()}`);
             
             if (now >= startTime && now <= endTime) {
-                console.log(`[TRACKER DEBUG] FOUND ACTIVE CURTAILMENT for route ${routeName}:`, curtailment);
+                console.log(`[TRACKER DEBUG] FOUND ACTIVE CURTAILMENT for route ${routeName}, destination ${destinationName}:`, curtailment);
                 return curtailment;
             }
         }
-        console.log(`[TRACKER DEBUG] No active curtailment found for route ${routeName}`);
+        console.log(`[TRACKER DEBUG] No active curtailment found for route ${routeName}, destination ${destinationName}`);
         return null;
     }
     

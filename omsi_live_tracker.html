@@ -287,6 +287,7 @@
     let allRoutesListener = null; // Tracks all routes listener for cleanup
     let backgroundHistoryListener = null;
     let backgroundScheduleData = [];
+    let backgroundHistoryProcessTimer = null;
     let isBackgroundHistoryLogging = false;
 
     function loadRouteHistoryFromStorage() {
@@ -387,13 +388,7 @@
         vehicleAllocationData = liveAllocations;
         hasReceivedInitialVehicleAllocations = true;
         if (backgroundScheduleData.length > 0) {
-            const previousScheduleData = localScheduleData;
-            const previousBackgroundState = isBackgroundHistoryLogging;
-            localScheduleData = backgroundScheduleData;
-            isBackgroundHistoryLogging = true;
-            processAndDisplayAllData();
-            localScheduleData = previousScheduleData;
-            isBackgroundHistoryLogging = previousBackgroundState;
+            queueBackgroundHistoryProcessing();
         } else if (localScheduleData.length > 0) {
             throttledProcessAndDisplay();
         }
@@ -598,7 +593,8 @@
         if (isRarePageActive && !currentRouteFilter) {
             if (activeRouteListener) activeRouteListener();
             activeRouteListener = null;
-            loadAllRoutesMetadataAndData();
+            localScheduleData = backgroundScheduleData;
+            if (backgroundScheduleData.length > 0) throttledProcessAndDisplay();
         } else {
             if (allRoutesListener) allRoutesListener();
             allRoutesListener = null;
@@ -678,32 +674,6 @@
         });
     }
 
-    function loadAllRoutesMetadataAndData() {
-        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        if(searchStatusMessage) searchStatusMessage.textContent = "Loading all routes for Rare Workings...";
-        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
-        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-
-        allRoutesListener = dbOnValue(schedulesByRouteRef, (snapshot) => {
-            if (snapshot.exists()) {
-                const schedulesByRoute = snapshot.val();
-                const routeKeys = Object.keys(schedulesByRoute);
-                const flatLiveSchedule = [];
-                routeKeys.forEach(routeKey => {
-                    const routeData = schedulesByRoute[routeKey];
-                    const entries = flattenSingleRouteData(routeKey, routeData);
-                    flatLiveSchedule.push(...entries);
-                });
-                localScheduleData = flatLiveSchedule;
-                if (isRarePageActive) generateVehicleBlocks(localScheduleData);
-                if(searchStatusMessage) searchStatusMessage.textContent = "Rare workings loaded successfully.";
-                throttledProcessAndDisplay();
-            }
-        }, (err) => {
-            if(searchStatusMessage) searchStatusMessage.textContent = "Error loading rare workings data.";
-        });
-    }
-
     function startBackgroundHistoryLogging() {
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
         const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
@@ -718,14 +688,22 @@
             });
 
             backgroundScheduleData = allRouteEntries;
+            queueBackgroundHistoryProcessing();
+        });
+    }
+
+    function queueBackgroundHistoryProcessing() {
+        if (backgroundHistoryProcessTimer) clearTimeout(backgroundHistoryProcessTimer);
+        backgroundHistoryProcessTimer = setTimeout(() => {
+            backgroundHistoryProcessTimer = null;
             const previousScheduleData = localScheduleData;
             const previousBackgroundState = isBackgroundHistoryLogging;
-            localScheduleData = allRouteEntries;
+            localScheduleData = backgroundScheduleData;
             isBackgroundHistoryLogging = true;
             processAndDisplayAllData();
             localScheduleData = previousScheduleData;
             isBackgroundHistoryLogging = previousBackgroundState;
-        });
+        }, 300);
     }
 
     function flattenSingleRouteData(routeKey, routeData) {

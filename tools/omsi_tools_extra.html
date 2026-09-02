@@ -782,11 +782,17 @@ align-items: center;
 
                     <div class="form-field-group" style="margin-top:0.75rem;">
                         <label>Sub Vehicle (select a configured vehicle and enter the running number it will cover):</label>
-                        <div class="form-grid" style="grid-template-columns: 1fr 1fr auto; gap:0.75rem; align-items:end;">
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr auto; gap:0.75rem; align-items:end;">
                             <select id="vehicleAllocSubVehicleSelect_extra" class="schedule-generator-input">
                                 <option value="">-- Select Vehicle --</option>
                             </select>
-                            <input type="text" id="vehicleAllocSubRunningInput_extra" class="schedule-generator-input" placeholder="Running Number">
+                            <select id="vehicleAllocSubRunningSelect_extra" class="schedule-generator-input">
+                                <option value="">-- Select Running Number --</option>
+                            </select>
+                            <div>
+                                <label for="vehicleAllocSubCurrentVehicle_extra">Currently Used Vehicle</label>
+                                <input type="text" id="vehicleAllocSubCurrentVehicle_extra" class="schedule-generator-input" readonly placeholder="Select a running number">
+                            </div>
                             <button type="button" id="addVehicleAllocSubButton_extra" class="button neutral" style="margin:0;">Add Sub Vehicle</button>
                         </div>
                         <ul id="vehicleAllocSubAssignmentsList_extra" style="list-style-type:none; padding-left:0; margin-top:0.75rem;"></ul>
@@ -1723,7 +1729,8 @@ const vehicleAllocRareChanceInput_el_extra = document.getElementById('vehicleAll
 const vehicleAllocCommonTextarea_el_extra = document.getElementById('vehicleAllocCommonTextarea_extra');
 const vehicleAllocRareTextarea_el_extra = document.getElementById('vehicleAllocRareTextarea_extra');
 const vehicleAllocSubVehicleSelect_el_extra = document.getElementById('vehicleAllocSubVehicleSelect_extra');
-const vehicleAllocSubRunningInput_el_extra = document.getElementById('vehicleAllocSubRunningInput_extra');
+const vehicleAllocSubRunningSelect_el_extra = document.getElementById('vehicleAllocSubRunningSelect_extra');
+const vehicleAllocSubCurrentVehicle_el_extra = document.getElementById('vehicleAllocSubCurrentVehicle_extra');
 const addVehicleAllocSubButton_el_extra = document.getElementById('addVehicleAllocSubButton_extra');
 const vehicleAllocSubAssignmentsList_el_extra = document.getElementById('vehicleAllocSubAssignmentsList_extra');
 const saveVehicleAllocationButton_el_extra = document.getElementById('saveVehicleAllocationButton_extra');
@@ -3452,6 +3459,46 @@ function populateSubVehicleSelect_ExtraPage(alloc) {
     });
 }
 
+function populateSubRunningSelect_ExtraPage(routeKey) {
+    if (!vehicleAllocSubRunningSelect_el_extra) return;
+    const runningNumbers = new Set((currentWorkingSchedule_extra || [])
+        .filter(entry => String(entry.lineName || '').toUpperCase() === routeKey)
+        .map(entry => String(entry.runningNumber || '').trim().toUpperCase())
+        .filter(Boolean));
+    vehicleAllocSubRunningSelect_el_extra.innerHTML = '<option value="">-- Select Running Number --</option>';
+    [...runningNumbers].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach(runningNumber => {
+        const option = document.createElement('option');
+        option.value = runningNumber;
+        option.textContent = runningNumber;
+        vehicleAllocSubRunningSelect_el_extra.appendChild(option);
+    });
+}
+
+function updateSubRunningCurrentVehicle_ExtraPage() {
+    if (!vehicleAllocSubCurrentVehicle_el_extra || !selectVehicleAllocRoute_el_extra || !vehicleAllocSubRunningSelect_el_extra) return;
+    const routeKey = selectVehicleAllocRoute_el_extra.value.trim().toUpperCase();
+    const runningNumber = vehicleAllocSubRunningSelect_el_extra.value.trim().toUpperCase();
+    if (!routeKey || !runningNumber) {
+        vehicleAllocSubCurrentVehicle_el_extra.value = '';
+        vehicleAllocSubCurrentVehicle_el_extra.placeholder = 'Select a running number';
+        return;
+    }
+
+    let currentVehicle = null;
+    try {
+        const cachedAssignments = JSON.parse(localStorage.getItem('omsiTrackerVehicleAssignments_Standalone_v1') || '{}');
+        currentVehicle = cachedAssignments[`${routeKey}_RUN_${runningNumber}`] || null;
+    } catch (error) {
+        currentVehicle = null;
+    }
+
+    const displayVehicle = currentVehicle
+        ? `${currentVehicle.fleetNumber || '-'}${currentVehicle.registration ? ` (${currentVehicle.registration})` : ''}`
+        : 'No current assignment found';
+    vehicleAllocSubCurrentVehicle_el_extra.value = displayVehicle;
+    vehicleAllocSubCurrentVehicle_el_extra.placeholder = '';
+}
+
 function renderSubVehicleAssignments_ExtraPage() {
     if (!vehicleAllocSubAssignmentsList_el_extra) return;
     vehicleAllocSubAssignmentsList_el_extra.innerHTML = '';
@@ -3473,8 +3520,8 @@ function renderSubVehicleAssignments_ExtraPage() {
 }
 
 function addSubVehicleAssignment_ExtraPage() {
-    if (!vehicleAllocSubVehicleSelect_el_extra || !vehicleAllocSubRunningInput_el_extra || !selectVehicleAllocRoute_el_extra) return;
-    const runningNumber = vehicleAllocSubRunningInput_el_extra.value.trim().toUpperCase();
+    if (!vehicleAllocSubVehicleSelect_el_extra || !vehicleAllocSubRunningSelect_el_extra || !selectVehicleAllocRoute_el_extra) return;
+    const runningNumber = vehicleAllocSubRunningSelect_el_extra.value.trim().toUpperCase();
     const vehicleKey = vehicleAllocSubVehicleSelect_el_extra.value;
     const routeKey = selectVehicleAllocRoute_el_extra.value.toUpperCase();
     const alloc = vehicleAllocationData_extra[routeKey] || {};
@@ -3483,7 +3530,8 @@ function addSubVehicleAssignment_ExtraPage() {
     if (!vehicle || !runningNumber) return;
     vehicleAllocSubVehicles_extra = vehicleAllocSubVehicles_extra.filter(item => item.runningNumber !== runningNumber);
     vehicleAllocSubVehicles_extra.push({ fleetNumber: vehicle.fleetNumber || '', registration: vehicle.registration || '', runningNumber });
-    vehicleAllocSubRunningInput_el_extra.value = '';
+    vehicleAllocSubRunningSelect_el_extra.value = '';
+    updateSubRunningCurrentVehicle_ExtraPage();
     renderSubVehicleAssignments_ExtraPage();
 }
 
@@ -3496,7 +3544,9 @@ function populateVehicleAllocFormForRoute_ExtraPage() {
     if (vehicleAllocRareTextarea_el_extra) vehicleAllocRareTextarea_el_extra.value = vehiclesToTextareaValue_ExtraPage(alloc ? alloc.rareVehicles : []);
     vehicleAllocSubVehicles_extra = Array.isArray(alloc && alloc.subVehicles) ? [...alloc.subVehicles] : [];
     populateSubVehicleSelect_ExtraPage(alloc);
+    populateSubRunningSelect_ExtraPage(routeKey);
     renderSubVehicleAssignments_ExtraPage();
+    updateSubRunningCurrentVehicle_ExtraPage();
 }
 
 function renderVehicleAllocationsList_ExtraPage() {
@@ -17744,6 +17794,9 @@ if (rsgNewRouteNameInput_el_extra) {
 // --- Vehicle Allocation Management Section Listeners ---
     if (selectVehicleAllocRoute_el_extra && typeof populateVehicleAllocFormForRoute_ExtraPage === 'function') {
         selectVehicleAllocRoute_el_extra.addEventListener('change', populateVehicleAllocFormForRoute_ExtraPage);
+    }
+    if (vehicleAllocSubRunningSelect_el_extra) {
+        vehicleAllocSubRunningSelect_el_extra.addEventListener('change', updateSubRunningCurrentVehicle_ExtraPage);
     }
     if (addVehicleAllocSubButton_el_extra) {
         addVehicleAllocSubButton_el_extra.addEventListener('click', addSubVehicleAssignment_ExtraPage);

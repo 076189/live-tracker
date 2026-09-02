@@ -3445,13 +3445,36 @@ function parseVehicleTextareaValue_ExtraPage(text) {
         .map(parts => ({ fleetNumber: parts[0], registration: parts[1] || '' }));
 }
 
+function isSubVehicleAssignmentActive_ExtraPage(assignment) {
+    const expiresAt = Number(assignment && assignment.expiresAt);
+    return !Number.isFinite(expiresAt) || Date.now() < expiresAt;
+}
+
 function populateSubVehicleSelect_ExtraPage(alloc) {
     if (!vehicleAllocSubVehicleSelect_el_extra) return;
     const vehicles = [...(alloc && Array.isArray(alloc.commonVehicles) ? alloc.commonVehicles : []), ...(alloc && Array.isArray(alloc.rareVehicles) ? alloc.rareVehicles : [])];
+    const usedVehicleKeys = new Set();
+    Object.values(vehicleAllocationData_extra || {}).forEach(routeAllocation => {
+        (Array.isArray(routeAllocation && routeAllocation.subVehicles) ? routeAllocation.subVehicles : [])
+        .filter(isSubVehicleAssignmentActive_ExtraPage)
+        .forEach(vehicle => {
+            const vehicleKey = getVehicleKeyForVehicle_ExtraPage(vehicle);
+            if (vehicleKey) usedVehicleKeys.add(vehicleKey);
+        });
+    });
+
+    try {
+        const cachedAssignments = JSON.parse(localStorage.getItem('omsiTrackerVehicleAssignments_Standalone_v1') || '{}');
+        Object.values(cachedAssignments).forEach(vehicle => {
+            const vehicleKey = getVehicleKeyForVehicle_ExtraPage(vehicle);
+            if (vehicleKey) usedVehicleKeys.add(vehicleKey);
+        });
+    } catch (error) {}
+
     const uniqueVehicles = new Map(vehicles.map(vehicle => [getVehicleKeyForVehicle_ExtraPage(vehicle), vehicle]));
     vehicleAllocSubVehicleSelect_el_extra.innerHTML = '<option value="">-- Select Vehicle --</option>';
     uniqueVehicles.forEach((vehicle, key) => {
-        if (!key) return;
+        if (!key || usedVehicleKeys.has(key)) return;
         const option = document.createElement('option');
         option.value = key;
         option.textContent = `${vehicle.fleetNumber || '-'}${vehicle.registration ? ` (${vehicle.registration})` : ''}`;
@@ -3529,7 +3552,22 @@ function addSubVehicleAssignment_ExtraPage() {
     const vehicle = vehicles.find(item => getVehicleKeyForVehicle_ExtraPage(item) === vehicleKey);
     if (!vehicle || !runningNumber) return;
     vehicleAllocSubVehicles_extra = vehicleAllocSubVehicles_extra.filter(item => item.runningNumber !== runningNumber);
-    vehicleAllocSubVehicles_extra.push({ fleetNumber: vehicle.fleetNumber || '', registration: vehicle.registration || '', runningNumber });
+    const today = new Date();
+    let latestScheduledMinutes = -1;
+    (currentWorkingSchedule_extra || [])
+        .filter(entry => String(entry.lineName || '').toUpperCase() === routeKey && String(entry.runningNumber || '').trim().toUpperCase() === runningNumber)
+        .forEach(entry => {
+            const timeText = String(entry.scheduledTime || '').trim();
+            const timeParts = timeText.match(/^(\d{1,2}):(\d{2})$/);
+            if (!timeParts) return;
+            let scheduledMinutes = parseInt(timeParts[1], 10) * 60 + parseInt(timeParts[2], 10);
+            scheduledMinutes += (parseInt(entry.DayOffset || '0', 10) || 0) * 1440;
+            latestScheduledMinutes = Math.max(latestScheduledMinutes, scheduledMinutes);
+        });
+    const expiresAt = latestScheduledMinutes >= 0
+        ? new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0).getTime() + latestScheduledMinutes * 60000
+        : null;
+    vehicleAllocSubVehicles_extra.push({ fleetNumber: vehicle.fleetNumber || '', registration: vehicle.registration || '', runningNumber, expiresAt });
     vehicleAllocSubRunningSelect_el_extra.value = '';
     updateSubRunningCurrentVehicle_ExtraPage();
     renderSubVehicleAssignments_ExtraPage();

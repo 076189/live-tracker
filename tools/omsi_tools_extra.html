@@ -1312,15 +1312,10 @@ align-items: center;
             </p>
             <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
                 <div>
-                    <label for="mrc-term-stop-search-input-extra">New Terminus Stop (Search)</label>
-                    <input type="text" id="mrc-term-stop-search-input-extra" placeholder="Search by Stop Name or ID" class="schedule-generator-input" autocomplete="off">
-                    <div id="mrc-term-stop-search-results-extra" style="position: relative;"></div>
-                    <input type="hidden" id="mrc-selected-term-stop-id-extra">
-                    <p id="mrc-selected-term-stop-display-extra" style="font-size:0.8em; margin-top:0.3em; min-height:1.1em;">Selected: (None)</p>
-                </div>
-                <div>
-                    <label for="mrc-new-dest-display-name-extra">New Destination Name (for displays)</label>
-                    <input type="text" id="mrc-new-dest-display-name-extra" placeholder="e.g., University" class="schedule-generator-input" autocomplete="off">
+                    <label for="mrc-curtailment-point-select-extra">Curtailment Point</label>
+                    <select id="mrc-curtailment-point-select-extra" class="schedule-generator-input" disabled>
+                        <option value="">-- Select Curtailment Point --</option>
+                    </select>
                 </div>
                 <div>
                     <label for="mrc-start-time-input-extra">Start From:</label>
@@ -3202,15 +3197,61 @@ function mrc_setupToolForRoute() {
     mrcSection.style.display = 'block';
 
     // Reset form fields
-    document.getElementById('mrc-term-stop-search-input-extra').value = '';
-    document.getElementById('mrc-selected-term-stop-display-extra').textContent = 'Selected: (None)';
-    document.getElementById('mrc-selected-term-stop-id-extra').value = '';
-    document.getElementById('mrc-new-dest-display-name-extra').value = '';
+    document.getElementById('mrc-curtailment-point-select-extra').value = '';
     document.getElementById('mrc-start-time-input-extra').value = '';
     document.getElementById('mrc-end-time-input-extra').value = '';
     document.getElementById('mrc-status-message-extra').textContent = '';
 
+    // Populate curtailment points dropdown for this route
+    mrc_populateCurtailmentPoints(selectedRoute);
     mrc_renderActiveCurtailments();
+}
+
+async function mrc_populateCurtailmentPoints(selectedRoute) {
+    const pointSelect = document.getElementById('mrc-curtailment-point-select-extra');
+    if (!pointSelect) return;
+
+    pointSelect.innerHTML = '<option value="">-- Select Curtailment Point --</option>';
+    pointSelect.disabled = true;
+
+    if (!selectedRoute) return;
+
+    // Collect all curtailment points for this route across all destinations
+    const allPoints = [];
+    if (typeof definedCurtailmentPoints === 'object' && definedCurtailmentPoints !== null) {
+        const routeKey = sanitizeFirebaseKey(selectedRoute);
+        if (definedCurtailmentPoints[routeKey]) {
+            for (const destKey in definedCurtailmentPoints[routeKey]) {
+                const pointsArray = definedCurtailmentPoints[routeKey][destKey];
+                if (Array.isArray(pointsArray)) {
+                    pointsArray.forEach(point => {
+                        allPoints.push({
+                            stopId: point.lastStopID,
+                            displayName: point.newDestinationName,
+                            destination: destKey
+                        });
+                    });
+                }
+            }
+        }
+    }
+
+    if (allPoints.length > 0) {
+        // Sort points by display name
+        allPoints.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+        
+        allPoints.forEach(point => {
+            const optionValue = JSON.stringify({
+                stopId: point.stopId,
+                displayName: point.displayName
+            });
+            const optionText = `${point.displayName} (${point.stopId})`;
+            pointSelect.add(new Option(optionText, optionValue));
+        });
+        pointSelect.disabled = false;
+    } else {
+        pointSelect.innerHTML = '<option value="">No curtailment points defined for this route</option>';
+    }
 }
 
 function mrc_renderActiveCurtailments() {
@@ -3247,53 +3288,6 @@ function mrc_renderActiveCurtailments() {
     } else {
         displayDiv.style.display = 'none';
         formDiv.style.display = 'block';
-    }
-}
-
-function mrc_handleStopSearch() {
-    const searchInput = document.getElementById('mrc-term-stop-search-input-extra');
-    const resultsDiv = document.getElementById('mrc-term-stop-search-results-extra');
-    const searchTerm = searchInput.value.toLowerCase().trim();
-    resultsDiv.innerHTML = '';
-    resultsDiv.style.display = searchTerm.length >= 2 ? 'block' : 'none';
-
-    if (searchTerm.length < 2) return;
-
-    const filteredStops = Object.values(allDefinedStops_data).filter(stop => 
-        (stop.stopName || "").toLowerCase().includes(searchTerm) || 
-        (stop.stopID || "").toLowerCase().includes(searchTerm)
-    ).slice(0, 5);
-
-    if (filteredStops.length > 0) {
-        const list = document.createElement('ul');
-        list.style.listStyle = 'none';
-        list.style.padding = '0';
-        list.style.margin = '0';
-        list.style.border = '1px solid #7f8c8d';
-        list.style.borderRadius = '0.25rem';
-        list.style.backgroundColor = '#2c3e50';
-        list.style.position = 'absolute';
-        list.style.width = '100%';
-
-        filteredStops.forEach(stop => {
-            const li = document.createElement('li');
-            li.textContent = `${stop.stopName} (${stop.stopID})`;
-            li.style.padding = '0.5rem';
-            li.style.cursor = 'pointer';
-            li.addEventListener('mouseenter', () => li.style.backgroundColor = '#34495e');
-            li.addEventListener('mouseleave', () => li.style.backgroundColor = '#2c3e50');
-            li.addEventListener('click', () => {
-                document.getElementById('mrc-selected-term-stop-id-extra').value = stop.stopID;
-                document.getElementById('mrc-selected-term-stop-display-extra').textContent = `Selected: ${stop.stopName} (${stop.stopID})`;
-                document.getElementById('mrc-new-dest-display-name-extra').value = stop.stopName;
-                searchInput.value = `${stop.stopName} (${stop.stopID})`;
-                resultsDiv.style.display = 'none';
-            });
-            list.appendChild(li);
-        });
-        resultsDiv.appendChild(list);
-    } else {
-        resultsDiv.innerHTML = `<div style="padding:0.5rem; background-color: #2c3e50; border: 1px solid #7f8c8d; border-radius: 0.25rem;">No stops found.</div>`;
     }
 }
 
@@ -4491,17 +4485,22 @@ async function slc_handleCancelCurtailment(curtailmentId) {
 
 async function mrc_handleActivateCurtailment() {
     const statusEl = document.getElementById('mrc-status-message-extra');
-    const route = document.getElementById('rc-route-select-extra').value;
-    const stopId = document.getElementById('mrc-selected-term-stop-id-extra').value;
-    const displayName = document.getElementById('mrc-new-dest-display-name-extra').value.trim();
-    const startTime = document.getElementById('rc-start-time-input-extra').value;
-    const endTime = document.getElementById('rc-end-time-input-extra').value;
+    const route = document.getElementById('curtail-route-select-extra').value;
+    const pointJSON = document.getElementById('mrc-curtailment-point-select-extra').value;
+    const startTime = document.getElementById('mrc-start-time-input-extra').value;
+    const endTime = document.getElementById('mrc-end-time-input-extra').value;
 
-    if (!route || !stopId || !displayName || !startTime || !endTime) {
+    if (!route || !pointJSON || !startTime || !endTime) {
         statusEl.textContent = "All fields are required to activate a curtailment.";
         statusEl.style.color = "#e74c3c";
         return;
     }
+
+    const point = JSON.parse(pointJSON);
+    const stopId = point.stopId;
+    const displayName = point.displayName;
+
+
     
     const startTimeObj = new Date(startTime);
     const endTimeObj = new Date(endTime);
@@ -17755,11 +17754,8 @@ if (document.getElementById('curtail-route-select-extra')) {
         mrc_setupToolForRoute();
     });
 }
-if (document.getElementById('rc-term-stop-search-input-extra')) {
-    document.getElementById('rc-term-stop-search-input-extra').addEventListener('input', mrc_handleStopSearch);
-}
-if (document.getElementById('rc-activate-button-extra')) {
-    document.getElementById('rc-activate-button-extra').addEventListener('click', mrc_handleActivateCurtailment);
+if (document.getElementById('mrc-activate-button-extra')) {
+    document.getElementById('mrc-activate-button-extra').addEventListener('click', mrc_handleActivateCurtailment);
 }
 
 

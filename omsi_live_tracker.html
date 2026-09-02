@@ -285,10 +285,6 @@
     let vehicleDetailedLogMap = new Map();
     let activeRouteListener = null; // Tracks current route listener for cleanup
     let allRoutesListener = null; // Tracks all routes listener for cleanup
-    let backgroundHistoryListener = null;
-    let backgroundScheduleData = [];
-    let backgroundHistoryProcessTimer = null;
-    let isBackgroundHistoryLogging = false;
 
     function loadRouteHistoryFromStorage() {
         try {
@@ -387,11 +383,7 @@
         const liveAllocations = snapshot.exists() ? snapshot.val() || {} : {};
         vehicleAllocationData = liveAllocations;
         hasReceivedInitialVehicleAllocations = true;
-        if (backgroundScheduleData.length > 0) {
-            queueBackgroundHistoryProcessing();
-        } else if (localScheduleData.length > 0) {
-            throttledProcessAndDisplay();
-        }
+        if (localScheduleData.length > 0) throttledProcessAndDisplay();
     }
 
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
@@ -593,8 +585,7 @@
         if (isRarePageActive && !currentRouteFilter) {
             if (activeRouteListener) activeRouteListener();
             activeRouteListener = null;
-            localScheduleData = backgroundScheduleData;
-            if (backgroundScheduleData.length > 0) throttledProcessAndDisplay();
+            loadAllRoutesMetadataAndData();
         } else {
             if (allRoutesListener) allRoutesListener();
             allRoutesListener = null;
@@ -643,22 +634,12 @@
             }
         });
 
-        startBackgroundHistoryLogging();
     }
 
     function loadRouteDataOnDemand(routeKey) {
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
         const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
         const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
-
-        const cachedRouteEntries = backgroundScheduleData.filter(entry => String(entry.lineName || '').toUpperCase() === routeKey.toUpperCase());
-        if (cachedRouteEntries.length > 0) {
-            localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== routeKey.toUpperCase());
-            localScheduleData.push(...cachedRouteEntries);
-            if (currentRouteFilter) generateVehicleBlocks(localScheduleData);
-            throttledProcessAndDisplay();
-            if (currentRouteFilter) generateAndDisplayRouteSequences();
-        }
 
         if(searchStatusMessage) searchStatusMessage.textContent = `Loading route ${escapeHtml(routeKey)}...`;
 
@@ -681,38 +662,6 @@
         }, (err) => {
             if(searchStatusMessage) searchStatusMessage.textContent = `Error loading route ${escapeHtml(routeKey)}.`;
         });
-    }
-
-    function startBackgroundHistoryLogging() {
-        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
-        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-
-        backgroundHistoryListener = dbOnValue(schedulesByRouteRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            const schedulesByRoute = snapshot.val() || {};
-            const allRouteEntries = [];
-            Object.entries(schedulesByRoute).forEach(([routeKey, routeData]) => {
-                allRouteEntries.push(...flattenSingleRouteData(routeKey, routeData));
-            });
-
-            backgroundScheduleData = allRouteEntries;
-            queueBackgroundHistoryProcessing();
-        });
-    }
-
-    function queueBackgroundHistoryProcessing() {
-        if (backgroundHistoryProcessTimer) clearTimeout(backgroundHistoryProcessTimer);
-        backgroundHistoryProcessTimer = setTimeout(() => {
-            backgroundHistoryProcessTimer = null;
-            const previousScheduleData = localScheduleData;
-            const previousBackgroundState = isBackgroundHistoryLogging;
-            localScheduleData = backgroundScheduleData;
-            isBackgroundHistoryLogging = true;
-            processAndDisplayAllData();
-            localScheduleData = previousScheduleData;
-            isBackgroundHistoryLogging = previousBackgroundState;
-        }, 300);
     }
 
     function flattenSingleRouteData(routeKey, routeData) {
@@ -1069,15 +1018,13 @@
             return;
         }
 
-        if (isHistoryPageActive && !isBackgroundHistoryLogging) return;
+        if (isHistoryPageActive) return;
 
         resolveActiveVehicleAssignments();
         populateCurtailmentsTable();
 
         let dataToProcess = localScheduleData;
-        if (isBackgroundHistoryLogging) {
-            dataToProcess = localScheduleData;
-        } else if (!isRarePageActive && currentRouteFilter) {
+        if (!isRarePageActive && currentRouteFilter) {
             dataToProcess = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase());
         } else if (!isRarePageActive && !currentRouteFilter) {
             currentTrackedServices = [];
@@ -1238,11 +1185,6 @@
                 }
                 return true;
             });
-        }
-
-        if (isBackgroundHistoryLogging) {
-            saveVehicleCacheToStorage();
-            return;
         }
 
         populateVehiclesUsedTodayTable();

@@ -233,7 +233,8 @@
     const MIN_RELEVANT_PAST_SECONDS_TRACKER = -59; 
     const MAX_PAST_SECONDS_TRACKER = -1800; // 30-minute timeout buffer after passing a stop
 
-    let currentRouteFilter = null; 
+    let currentRouteFilter = null;
+    let activeMassCurtailments = {};
     let isRarePageActive = false;
     let isHistoryPageActive = false;
     let currentHistoryIdentifier = null;
@@ -244,6 +245,7 @@
     const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v1';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
+    const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
     
     // Route to Operator mapping
     const routeOperators = {
@@ -599,6 +601,15 @@
 
         const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
         dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
+
+        const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
+        dbOnValue(massCurtailmentsRef, (snapshot) => {
+            activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
+            console.log("[TRACKER] Mass curtailments updated:", Object.keys(activeMassCurtailments).length, "active");
+            if (currentRouteFilter && localScheduleData.length > 0) {
+                throttledProcessAndDisplay();
+            }
+        });
     }
 
     function loadRouteDataOnDemand(routeKey) {
@@ -1192,7 +1203,14 @@
 
             const fleetVal = unescapeHtml(service.assignedFleetNumber || 'N/A');
             const regVal = unescapeHtml(service.assignedRegistration || '---');
-            const destVal = unescapeHtml(service.displayDestination || '?');
+            
+            // Check if there's an active curtailment for this route
+            let displayDestination = service.displayDestination || '?';
+            const curtailment = getApplicableCurtailment(service.lineName);
+            if (curtailment) {
+                displayDestination = curtailment.newTerminusDisplayName;
+            }
+            const destVal = unescapeHtml(displayDestination);
             const stopVal = unescapeHtml(service.nextStopName || '?');
 
             let displayTimeText = '?'; 
@@ -1644,6 +1662,22 @@
         const dir2 = destinationsWithStops.length > 1 ? destinationsWithStops[1] : null;
         
         return { dir1, dir2 };
+    }
+    
+    function getApplicableCurtailment(routeName) {
+        // Check if there's an active curtailment for this route
+        if (!activeMassCurtailments || Object.keys(activeMassCurtailments).length === 0) return null;
+        const now = new Date();
+        for (const key in activeMassCurtailments) {
+            const curtailment = activeMassCurtailments[key];
+            if (!curtailment || curtailment.routeName !== routeName) continue;
+            const startTime = new Date(curtailment.startTime);
+            const endTime = new Date(curtailment.endTime);
+            if (now >= startTime && now <= endTime) {
+                return curtailment;
+            }
+        }
+        return null;
     }
     
     function generateAndDisplayRouteSequences() { 

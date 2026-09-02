@@ -184,6 +184,21 @@
         </tbody>
     </table>
 
+    <h3 id="vehicles-used-today-heading">Vehicles that have also been on the route during the day :-</h3>
+    <table id="vehicles-used-today-table">
+        <thead>
+            <tr>
+                <th>Fleet</th>
+                <th>Reg</th>
+                <th>Used From</th>
+                <th>Used Until</th>
+            </tr>
+        </thead>
+        <tbody id="vehicles-used-today-table-body">
+            <tr><td colspan="4">Enter a route number to view vehicles used today.</td></tr>
+        </tbody>
+    </table>
+
     <div id="route-sequences">
         <div class="sequence-container" id="sequence-container-1">
             <h3 id="outbound-sequence-heading">Route Sequence (Direction 1)</h3>
@@ -1043,6 +1058,7 @@
                 
                 recordVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration);
                 recordDetailedVehicleSighting(trueLineName, assignedVehicle.fleetNumber, assignedVehicle.registration, blockId, busEntry.runningNumber);
+                populateVehiclesUsedTodayTable();
 
                 const routeUpper = trueLineName.toUpperCase();
                 const routeSightings = vehicleRouteHistoryMap.get(routeUpper) || {};
@@ -1606,6 +1622,7 @@
     }
 
     function populateCurtailmentsTable() {
+        populateVehiclesUsedTodayTable();
         if (!curtailedBusesTableBody) return;
         curtailedBusesTableBody.innerHTML = "";
 
@@ -1678,6 +1695,55 @@
             curtailedRowsHTML += `<tr><td>${rName}</td><td>${fleet}</td><td>${reg}</td><td>${cTo}</td><td>${timeCurtailed}</td></tr>`;
         });
         curtailedBusesTableBody.innerHTML = curtailedRowsHTML;
+    }
+
+    function populateVehiclesUsedTodayTable() {
+        const tableBody = document.getElementById('vehicles-used-today-table-body');
+        if (!tableBody) return;
+        tableBody.innerHTML = '';
+
+        if (!currentRouteFilter) {
+            tableBody.innerHTML = '<tr><td colspan="4">Enter a route number to view vehicles used today.</td></tr>';
+            return;
+        }
+
+        const today = new Date();
+        const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+        const nextMidnight = midnight + 24 * 60 * 60 * 1000;
+        const vehiclesByIdentity = new Map();
+
+        vehicleDetailedLogMap.forEach(logs => {
+            logs.forEach(log => {
+                const routeName = String(log.routeName || '').toUpperCase();
+                const timestamp = Number(log.timestamp);
+                if (routeName !== currentRouteFilter.toUpperCase() || timestamp < midnight || timestamp >= nextMidnight) return;
+
+                const fleet = String(log.fleetNumber || '').trim();
+                const registration = String(log.registration || '').trim();
+                const identity = fleet && fleet !== 'N/A' ? fleet.toUpperCase() : registration.toUpperCase();
+                if (!identity || identity === '---') return;
+
+                const key = `${fleet.toUpperCase()}|${registration.toUpperCase()}`;
+                const existing = vehiclesByIdentity.get(key);
+                if (existing) {
+                    existing.usedUntil = Math.max(existing.usedUntil, timestamp);
+                } else {
+                    vehiclesByIdentity.set(key, { fleet, registration, usedFrom: timestamp, usedUntil: timestamp });
+                }
+            });
+        });
+
+        if (vehiclesByIdentity.size === 0) {
+            tableBody.innerHTML = `<tr><td colspan="4">No vehicles logged on route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
+            return;
+        }
+
+        const formatTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        [...vehiclesByIdentity.values()]
+            .sort((a, b) => b.usedFrom - a.usedFrom)
+            .forEach(vehicle => {
+                tableBody.innerHTML += `<tr><td>${escapeHtml(vehicle.fleet || 'N/A')}</td><td>${escapeHtml(vehicle.registration || '---')}</td><td>${formatTime(vehicle.usedFrom)}</td><td>${formatTime(vehicle.usedUntil)}</td></tr>`;
+            });
     }
     
     // Get the primary destinations for a route (sorted by stop count, highest first)

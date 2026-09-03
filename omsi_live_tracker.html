@@ -953,15 +953,16 @@
     function processBackgroundHistoryEntries(scheduleEntries) {
         if (!Array.isArray(scheduleEntries) || scheduleEntries.length === 0) return;
         const now = new Date();
-        const activeServiceKeys = new Set();
         const serviceVehicles = new Map();
 
         scheduleEntries.forEach(entry => {
             if (!entry || typeof entry !== 'object' || !entry.stopID) return;
             const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(entry);
             const timing = calculatePreciseStopTimingsForTracker(entry, now);
-            if (!timing.finalAdjustedSchedTime || timing.timeToStationInSeconds < MAX_PAST_SECONDS_TRACKER || timing.timeToStationInSeconds > MAX_UPCOMING_SECONDS_TRACKER) return;
+            if (!timing.finalAdjustedSchedTime) return;
 
+            // Record ALL services for history (no time window filter) 
+            // This ensures we capture every running number throughout the day
             if (!serviceVehicles.has(serviceInstanceKey)) {
                 const subVehicle = getSubVehicleForRunningNumber(trueLineName, entry.runningNumber);
                 const cachedVehicle = serviceInstanceVehicleCache.get(blockId);
@@ -974,11 +975,10 @@
                 );
                 serviceVehicles.set(serviceInstanceKey, { assignedVehicle, blockId, runningNumber: entry.runningNumber || '', routeName: trueLineName });
             }
-            activeServiceKeys.add(serviceInstanceKey);
         });
 
-        activeServiceKeys.forEach(serviceInstanceKey => {
-            const service = serviceVehicles.get(serviceInstanceKey);
+        // Record ALL vehicles from all services throughout the day
+        serviceVehicles.forEach(service => {
             if (!service || !service.assignedVehicle) return;
             const routeName = String(service.routeName || '').toUpperCase();
             if (!routeName) return;

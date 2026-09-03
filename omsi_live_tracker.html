@@ -707,7 +707,6 @@
             localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== normalizedRouteKey);
             localScheduleData.push(...cachedRouteEntries);
             generateVehicleBlocks(localScheduleData);
-            if (searchStatusMessage) searchStatusMessage.textContent = `Loaded route ${escapeHtml(normalizedRouteKey)} from cache.`;
             processAndDisplayAllData();
             generateAndDisplayRouteSequences();
         }
@@ -722,9 +721,7 @@
         const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
         const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${normalizedRouteKey}`);
 
-        if(searchStatusMessage) searchStatusMessage.textContent = cachedRouteEntries.length > 0
-            ? `Loaded route ${escapeHtml(normalizedRouteKey)} from cache; refreshing...`
-            : `Loading route ${escapeHtml(normalizedRouteKey)}...`;
+        if(searchStatusMessage) searchStatusMessage.textContent = `Refreshing route ${escapeHtml(normalizedRouteKey)}...`;
 
         activeRouteListener = dbOnValue(routeRef, (snapshot) => {
             if (snapshot.exists()) {
@@ -751,15 +748,10 @@
     // Returns the (uppercased) route keys that need to be loaded for the "all routes"
     // rare workings page. A working is "rare" if its vehicle hasn't been seen on that
     // route in 60+ days, which can happen on any route - not just ones with a configured
-    // rare vehicle pool - so every known route (from the static route/operator map, plus
-    // any extra routes seen in the live vehicle allocations data) must be included here.
-    // Keep this list local so opening the page never reads the complete schedulesByRoute
-    // branch just to discover its child keys - each route is then fetched one at a time
-    // below so the page can show "Loading route X of Y" progress instead of a single
-    // heavy bulk read.
+    // rare vehicle pool - so every known route (from the live vehicle allocations data)
+    // must be included here.
     function getRareEligibleRouteKeys() {
         const keys = new Set();
-        Object.keys(routeOperators).forEach(routeKey => keys.add(routeKey.toUpperCase()));
         Object.keys(vehicleAllocationData || {}).forEach(routeKey => {
             if (!routeKey) return;
             keys.add(String(routeKey).toUpperCase());
@@ -775,14 +767,6 @@
             // loaded yet - wait for them before deciding which routes to fetch.
             if (searchStatusMessage) searchStatusMessage.textContent = `Loading vehicle allocations...`;
             setTimeout(() => { if (isRarePageActive && !currentRouteFilter) loadAllRoutesMetadataAndData(); }, 300);
-            return;
-        }
-
-        if (!hasFetchedKnownScheduleRouteKeys && window.firebaseOMSI_SA && window.firebaseOMSI_SA.database) {
-            // Also need the full list of routes that actually have schedule data, since some
-            // routes run purely on static/literal vehicle data without a vehicleAllocations entry.
-            if (searchStatusMessage) searchStatusMessage.textContent = `Loading route list...`;
-            fetchKnownScheduleRouteKeysOnce(() => { if (isRarePageActive && !currentRouteFilter) loadAllRoutesMetadataAndData(); });
             return;
         }
 
@@ -896,13 +880,10 @@
 
             if (!serviceVehicles.has(serviceInstanceKey)) {
                 const subVehicle = getSubVehicleForRunningNumber(trueLineName, entry.runningNumber);
-                const cachedVehicle = serviceInstanceVehicleCache.get(blockId);
                 const assignedVehicle = subVehicle || (
-                    cachedVehicle && getVehicleKey(cachedVehicle)
-                        ? cachedVehicle
-                        : (entry.fleetNumber && entry.fleetNumber !== 'N/A' && entry.vehicleReg && entry.vehicleReg !== '---'
-                            ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg }
-                            : getAssignedVehicle(blockId, trueLineName, entry.runningNumber))
+                    entry.fleetNumber && entry.fleetNumber !== 'N/A' && entry.vehicleReg && entry.vehicleReg !== '---'
+                        ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg }
+                        : getAssignedVehicle(blockId, trueLineName, entry.runningNumber)
                 );
                 serviceVehicles.set(serviceInstanceKey, { assignedVehicle, blockId, runningNumber: entry.runningNumber || '', routeName: trueLineName });
             }
@@ -1167,10 +1148,7 @@
             if (!busEntry || typeof busEntry !== 'object' || !busEntry.stopID) return;
             const { trueLineName, blockId } = computeServiceInstanceIds(busEntry);
             if (!blockRouteMap.has(blockId)) blockRouteMap.set(blockId, trueLineName);
-            // Use the first static vehicle found for a block (not the last one encountered while
-            // iterating) so that a running number keeps a single, consistent vehicle for the whole
-            // day rather than flipping between whatever each individual trip row happens to specify.
-            if (!blockStaticVehicle.has(blockId) && busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
+            if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
                 blockStaticVehicle.set(blockId, { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg });
             }
             if (activeBlockIds.has(blockId) || closedStopIDsGlobal.includes(busEntry.stopID)) return;
@@ -1183,13 +1161,7 @@
         const reserved = new Set();
         activeBlockIds.forEach(blockId => {
             const staticVehicle = blockStaticVehicle.get(blockId);
-            if (staticVehicle) {
-                reserved.add(getVehicleKey(staticVehicle));
-                // Persist the static vehicle for this block so every trip sharing the same running
-                // number resolves to the same cached vehicle, instead of each trip re-reading its
-                // own (potentially differing) literal fleetNumber/vehicleReg from the raw data.
-                if (!serviceInstanceVehicleCache.has(blockId)) serviceInstanceVehicleCache.set(blockId, staticVehicle);
-            }
+            if (staticVehicle) reserved.add(getVehicleKey(staticVehicle));
         });
 
         const needsCommonPass = [];
@@ -1320,10 +1292,7 @@
                 if (subVehicle) {
                     assignedVehicle = subVehicle;
                     serviceInstanceVehicleCache.set(blockId, assignedVehicle);
-                } else if (serviceInstanceVehicleCache.has(blockId) && getVehicleKey(serviceInstanceVehicleCache.get(blockId))) {
-                    // A vehicle has already been resolved for this block (e.g. a running number),
-                    // so every trip sharing that block must keep using it, even if this particular
-                    // trip row happens to carry its own (stale/differing) literal vehicle data.
+                } else if (busEntry.runningNumber && serviceInstanceVehicleCache.has(blockId) && getVehicleKey(serviceInstanceVehicleCache.get(blockId))) {
                     assignedVehicle = serviceInstanceVehicleCache.get(blockId);
                 } else if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
                     assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };

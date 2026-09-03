@@ -262,6 +262,7 @@
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
+    const FB_PATH_VEHICLE_HISTORY = '/vehicleSightingHistory';
     
     // Route to Operator mapping
     const routeOperators = {
@@ -351,6 +352,50 @@
         const value = String(runningNumber || '').trim().toUpperCase();
         const match = value.match(/^([A-Z]{2,4})(?:[\s-]|\d|$)/);
         return match ? match[1] : '';
+    }
+
+    function firebaseVehicleHistoryKey(identifier) {
+        return String(identifier || '').trim().toUpperCase().replace(/[.#$\[\]/]/g, '_');
+    }
+
+    async function loadFirebaseVehicleHistory(identifiers) {
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return [];
+        const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
+        const keys = [...new Set(identifiers.map(firebaseVehicleHistoryKey).filter(Boolean))];
+        const snapshots = await Promise.all(keys.map(key => dbGet(dbRef(database, `${FB_PATH_VEHICLE_HISTORY}/${key}`))));
+        const logs = [];
+
+        snapshots.forEach(snapshot => {
+            if (!snapshot.exists()) return;
+            Object.values(snapshot.val() || {}).forEach(routesForDay => {
+                Object.entries(routesForDay || {}).forEach(([routeName, record]) => {
+                    if (!record || !record.firstSeenAt || !record.lastSeenAt) return;
+                    logs.push({
+                        routeName: String(routeName).toUpperCase(),
+                        operator: getOperatorForRoute(routeName),
+                        firstSeenAt: Number(record.firstSeenAt),
+                        lastSeenAt: Number(record.lastSeenAt),
+                        fleetNumber: record.fleetNumber || 'N/A',
+                        registration: record.registration || '---',
+                        runningNumber: record.runningNumber || '',
+                        garage: getGarageFromRunningNumber(record.runningNumber)
+                    });
+                });
+            });
+        });
+        return logs;
+    }
+
+    function combineHistoryLogs(localLogs, firebaseLogs) {
+        const uniqueLogs = new Map();
+        [...localLogs, ...firebaseLogs].forEach(log => {
+            const firstSeenAt = log.firstSeenAt || log.timestamp;
+            const lastSeenAt = log.lastSeenAt || log.timestamp;
+            if (!firstSeenAt || !lastSeenAt) return;
+            const key = `${String(log.routeName || '').toUpperCase()}|${firstSeenAt}|${lastSeenAt}|${String(log.fleetNumber || '').toUpperCase()}|${String(log.registration || '').toUpperCase()}`;
+            uniqueLogs.set(key, log);
+        });
+        return [...uniqueLogs.values()];
     }
 
     function isSameLocalCalendarDay(firstTimestamp, secondTimestamp) {
@@ -560,7 +605,8 @@
         loadVehicleCacheFromStorage(); 
         setupUIListeners(); 
         updateClock(); 
-        setInterval(updateClock, 1000); 
+        setInterval(updateClock, 1000);
+        startBackgroundHistoryLogging(); 
         setInterval(() => {
             if (backgroundHistoryScheduleData.length > 0) queueBackgroundHistoryProcessing();
             if ((!currentRouteFilter && !isRarePageActive) || localScheduleData.length === 0) return;
@@ -1694,7 +1740,7 @@
         });
     }
 
-    window.displayVehicleHistoryModal = function(identifier) {
+    window.displayVehicleHistoryModal = async function(identifier) {
         if (!identifier) return;
         const cleanIdent = String(identifier || "").trim().toUpperCase();
         currentHistoryIdentifier = cleanIdent;
@@ -1760,6 +1806,16 @@
                 }
             }
         }
+
+        let firebaseLogs = [];
+        try {
+            firebaseLogs = await loadFirebaseVehicleHistory([
+                ...searchTerms,
+                displayFleet,
+                displayReg
+            ]);
+        } catch (error) {}
+        logs = combineHistoryLogs(logs, firebaseLogs);
 
         let pageContent = '';
         if (logs.length === 0) {

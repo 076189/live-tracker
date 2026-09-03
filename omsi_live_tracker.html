@@ -1139,7 +1139,8 @@
                 rareChance = rareChance / 100;
             }
 
-            const useRare = Math.random() < rareChance;
+            const dateKey = getLocalDateKey();
+            const useRare = seededUnitInterval(`${serviceInstanceKey}|rare|${dateKey}`) < rareChance;
             let rawPool = [];
             
             if (useRare && rarePoolRaw.length > 0) { 
@@ -1158,7 +1159,8 @@
             });
 
             if (validPool.length > 0) { 
-                vehicle = validPool[Math.floor(Math.random() * validPool.length)]; 
+                const pickIndex = Math.floor(seededUnitInterval(`${serviceInstanceKey}|pick|${dateKey}`) * validPool.length);
+                vehicle = validPool[pickIndex]; 
             }
         }
         
@@ -1197,6 +1199,22 @@
         const fleet = String(vehicle.fleetNumber || '').trim().toUpperCase();
         if (fleet && fleet !== 'N/A') return fleet;
         return String(vehicle.registration || '').trim().toUpperCase();
+    }
+
+    // Deterministic (non-random) hash so every device resolves the same vehicle
+    // for the same seed string, instead of each device picking independently via Math.random().
+    function seededUnitInterval(seedStr) {
+        let hash = 5381;
+        const str = String(seedStr || '');
+        for (let i = 0; i < str.length; i++) {
+            hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+        }
+        return (Math.abs(hash) % 100000) / 100000;
+    }
+
+    function getLocalDateKey(dateObj) {
+        const d = dateObj || new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
     function getVehicleIdentityKeys(fleetNumber, registration) {
@@ -1290,7 +1308,8 @@
                 }
             }
             
-            const useRare = Math.random() < rareChance;
+            const dateKeyForAssignment = getLocalDateKey(nowForProcessing);
+            const useRare = seededUnitInterval(`${blockId}|rare|${dateKeyForAssignment}`) < rareChance;
             
             if (useRare) {
                 needsRarePass.push(blockId);
@@ -1299,11 +1318,13 @@
             }
         });
 
+        const assignmentDateKey = getLocalDateKey(nowForProcessing);
         const needsRarePassBackup = [];
         needsCommonPass.forEach(blockId => {
             const commonPool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'commonVehicles').filter(v => !reserved.has(getVehicleKey(v)));
             if (commonPool.length > 0) {
-                const chosen = commonPool[Math.floor(Math.random() * commonPool.length)];
+                const chosenIndex = Math.floor(seededUnitInterval(`${blockId}|common|${assignmentDateKey}`) * commonPool.length);
+                const chosen = commonPool[chosenIndex];
                 reserved.add(getVehicleKey(chosen));
                 serviceInstanceVehicleCache.set(blockId, chosen);
             } else {
@@ -1323,7 +1344,8 @@
 
             const freeRarePool = rarePool.filter(v => !reserved.has(getVehicleKey(v)));
             if (freeRarePool.length > 0) {
-                const chosen = freeRarePool[Math.floor(Math.random() * freeRarePool.length)];
+                const chosenIndex = Math.floor(seededUnitInterval(`${blockId}|rarepick|${assignmentDateKey}`) * freeRarePool.length);
+                const chosen = freeRarePool[chosenIndex];
                 reserved.add(getVehicleKey(chosen));
                 serviceInstanceVehicleCache.set(blockId, chosen);
             } else {

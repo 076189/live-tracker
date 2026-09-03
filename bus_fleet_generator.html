@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>UK Bus Fleet & Bustimes Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #0056b3;
+        }
+        h2 {
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }
+        .tool-box {
+            background: #eef2f7;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        select, input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        button:hover {
+            background-color: #004085;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            margin-bottom: 25px;
+        }
+        .ref-table {
+            table-layout: fixed;
+        }
+        .ref-table th:nth-child(1), .ref-table td:nth-child(1) {
+            width: 25%;
+        }
+        .ref-table th:nth-child(2), .ref-table td:nth-child(2) {
+            width: 35%;
+        }
+        .ref-table th:nth-child(3), .ref-table td:nth-child(3) {
+            width: 40%;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px 12px;
+            text-align: left;
+            word-wrap: break-word;
+        }
+        th {
+            background-color: #0056b3;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        code {
+            font-family: monospace;
+            background: #e2e8f0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        .tab-buttons {
+            margin-bottom: 15px;
+        }
+        .tab-section {
+            display: none;
+        }
+        .tab-section.active {
+            display: block;
+        }
+        .status-msg {
+            font-style: italic;
+            color: #555;
+            margin-top: 8px;
+        }
+        .last-used-badge {
+            display: inline-block;
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>UK Bus Fleet & Bustimes Manager</h1>
+    <p>Generate compliant sister batches with flexible starting fleet identifiers, DVLA office tags, registration age tags, and lookup live vehicle registers.</p>
+
+    <div class="tool-box">
+        <div class="tab-buttons">
+            <button onclick="switchTab('new')">Generate Sister Fleet</button>
+            <button onclick="switchTab('existing')">Live Bustimes.org Lookup</button>
+        </div>
+
+        <div id="newSection" class="tab-section active">
+            <h2>Sister Fleet & Sequential Registration Generator</h2>
+            <div class="form-group">
+                <label for="operatorSelect">Select Operator:</label>
+                <select id="operatorSelect" onchange="updateVehicleOptions()">
+                    <option value="custom">Custom Range (Alpha-Numeric Start)</option>
+                    <option value="arriva">Arriva</option>
+                    <option value="cardiff">Cardiff Bus</option>
+                    <option value="dgcentrebus">D&G Bus / Centrebus</option>
+                    <option value="diamond">Diamond Bus</option>
+                    <option value="first">First Group</option>
+                    <option value="goahead">Go-Ahead Group</option>
+                    <option value="kellygroup">Kelly Group</option>
+                    <option value="lothian">Lothian Buses</option>
+                    <option value="mcgills">McGills Bus Service</option>
+                    <option value="nxwm">National Express West Midlands</option>
+                    <option value="nct">Nottingham City Transport (NCT)</option>
+                    <option value="reading">Reading Buses</option>
+                    <option value="stagecoach">Stagecoach</option>
+                    <option value="transdev">Transdev Blazefield</option>
+                </select>
+            </div>
+            <div class="form-group" id="presetVehicleGroup">
+                <label for="vehicleSelect">Select Vehicle Type:</label>
+                <select id="vehicleSelect" onchange="updateFleetStartInput()"></select>
+            </div>
+            <div class="form-group">
+                <label for="customStartInput" id="startInputLabel">Starting Fleet ID (Letters & Numbers allowed):</label>
+                <input type="text" id="customStartInput" value="2000">
+                <div id="fleetLastUsedBadge" class="last-used-badge" style="display:none;"></div>
+            </div>
+            <div class="form-group">
+                <label for="regAreaSelect">Registration Area Code (Memory Tag):</label>
+                <select id="regAreaSelect"></select>
+                <div id="tagLastUsedBadge" class="last-used-badge" style="display:none;"></div>
+            </div>
+            <div class="form-group">
+                <label for="regYearSelect">Registration Age Indicator (Year Code):</label>
+                <select id="regYearSelect">
+                    <option value="">Default (Current Year: 76)</option>
+                    <option value="51">51 (Late 2001)</option>
+                    <option value="02">02 (Early 2002)</option><option value="52">52 (Late 2002)</option>
+                    <option value="03">03 (Early 2003)</option><option value="53">53 (Late 2003)</option>
+                    <option value="04">04 (Early 2004)</option><option value="54">54 (Late 2004)</option>
+                    <option value="05">05 (Early 2005)</option><option value="55">55 (Late 2005)</option>
+                    <option value="06">06 (Early 2006)</option><option value="56">56 (Late 2006)</option>
+                    <option value="07">07 (Early 2007)</option><option value="57">57 (Late 2007)</option>
+                    <option value="08">08 (Early 2008)</option><option value="58">58 (Late 2008)</option>
+                    <option value="09">09 (Early 2009)</option><option value="59">59 (Late 2009)</option>
+                    <option value="10">10 (Early 2010)</option><option value="60">60 (Late 2010)</option>
+                    <option value="11">11 (Early 2011)</option><option value="61">61 (Late 2011)</option>
+                    <option value="12">12 (Early 2012)</option><option value="62">62 (Late 2012)</option>
+                    <option value="13">13 (Early 2013)</option><option value="63">63 (Late 2013)</option>
+                    <option value="14">14 (Early 2014)</option><option value="64">64 (Late 2014)</option>
+                    <option value="15">15 (Early 2015)</option><option value="65">65 (Late 2015)</option>
+                    <option value="16">16 (Early 2016)</option><option value="66">66 (Late 2016)</option>
+                    <option value="17">17 (Early 2017)</option><option value="67">67 (Late 2017)</option>
+                    <option value="18">18 (Early 2018)</option><option value="68">68 (Late 2018)</option>
+                    <option value="19">19 (Early 2019)</option><option value="69">69 (Late 2019)</option>
+                    <option value="20">20 (Early 2020)</option><option value="70">70 (Late 2020)</option>
+                    <option value="21">21 (Early 2021)</option><option value="71">71 (Late 2021)</option>
+                    <option value="22">22 (Early 2022)</option><option value="72">72 (Late 2022)</option>
+                    <option value="23">23 (Early 2023)</option><option value="73">73 (Late 2023)</option>
+                    <option value="24">24 (Early 2024)</option><option value="74">74 (Late 2024)</option>
+                    <option value="25">25 (Early 2025)</option><option value="75">75 (Late 2025)</option>
+                    <option value="26">26 (Early 2026)</option><option value="76">76 (Late 2026)</option>
+                    <option value="27">27 (Early 2027)</option><option value="77">77 (Late 2027)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="quantityInput">Quantity Needed:</label>
+                <input type="number" id="quantityInput" min="1" max="50" value="5">
+            </div>
+            <button onclick="generateNewFleet()">Generate Sister Fleet Batch</button>
+        </div>
+
+        <div id="existingSection" class="tab-section">
+            <h2>Live Transport API / Bustimes Lookup</h2>
+            <div class="form-group">
+                <label for="existingQuery">Enter Fleet Number or Registration (e.g., 36261, MX12EOC, SK16GZO):</label>
+                <input type="text" id="existingQuery" placeholder="Type fleet number or registration...">
+            </div>
+            <button onclick="fetchLiveBusData()">Query Live Register</button>
+            <div id="apiStatus" class="status-msg"></div>
+        </div>
+
+        <div class="results-area">
+            <h3>Output Results</h3>
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>Fleet</th>
+                        <th>Reg</th>
+                        <th>Operator</th>
+                        <th>Vehicle Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="4" style="text-align:center; color:#777;">Perform an action above to see data</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <h2>1. Arriva Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>1000 – 1999</td><td>Specialist / Inter-urban Fleet & Coaches</td><td>Specialized services, link cars</td></tr>
+            <tr><td>2000 – 2999</td><td>Single-Deckers (Standard & Midibus)</td><td>Enviro200s, DAF SB220</td></tr>
+            <tr><td>3000 – 3999</td><td>Older Single-Deckers & Midibuses</td><td>Legacy Dart SLFs, Optare models</td></tr>
+            <tr><td>4000 – 4999</td><td>Double-Deckers (Standard Diesel)</td><td>Alexander Dennis Trident, ALX400</td></tr>
+            <tr><td>5000 – 5999</td><td>Double-Deckers (Gemini / Modern)</td><td>Wright Eclipse Gemini Volvo and DAF</td></tr>
+            <tr><td>AES1 – AES999</td><td>Enviro 200 MMC 8.9m</td><td>Short-wheelbase 8.9m ADL Enviro200 MMC</td></tr>
+            <tr><td>AEL1 – AEL999</td><td>Enviro 200 MMC 11.5m</td><td>Full-length 11.5m ADL Enviro200 MMC</td></tr>
+            <tr><td>EVL1 – EVL999</td><td>Enviro 200 EV 11.5m</td><td>Zero-emission 11.5m electric ADL</td></tr>
+        </tbody>
+    </table>
+
+    <h2>2. Cardiff Bus Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>200 – 299</td><td>Electric Single-Deckers</td><td>Yutong E12 / ADL Enviro200EV</td></tr>
+            <tr><td>400 – 499</td><td>Standard Double-Deckers</td><td>ADL Enviro400 / Scania East Lancs</td></tr>
+        </tbody>
+    </table>
+
+    <h2>3. D&G Bus / Centrebus Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>100 – 999</td><td>Acquired Single-Deckers & Midibuses</td><td>Optare Solo, ADL Enviro200, Dart SLF</td></tr>
+        </tbody>
+    </table>
+
+    <h2>4. Diamond Bus Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>20000+</td><td>Mixed Fleet</td><td>ADL Enviro200, Dart SLF, Trident</td></tr>
+        </tbody>
+    </table>
+
+    <h2>5. First Group Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>33***</td><td>Diesel Long Single-Deck</td><td>ADL Enviro200 (10.8m), Wright Eclipse</td></tr>
+            <tr><td>37***</td><td>Electric Long Single-Deck</td><td>Enviro200EV, Wright Electroliner</td></tr>
+            <tr><td>40***</td><td>Diesel Double-Deck</td><td>Enviro400, Wright Eclipse Gemini</td></tr>
+            <tr><td>47***</td><td>Electric Double-Deck</td><td>BYD ADL Enviro400EV, Wright StreetDeck Electroliner</td></tr>
+            <tr><td>48***</td><td>Wright Cadet / Specific Double-Deck Batches</td><td>Wright Cadet (DFSB220)</td></tr>
+            <tr><td>66*** / 69***</td><td>Short Single-Deck / Midibus</td><td>Optare Solo, short single-deckers</td></tr>
+        </tbody>
+    </table>
+
+    <h2>6. Go-Ahead Group Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>1*****</td><td>Brighton & Hove</td><td>Sussex local route buses</td></tr>
+            <tr><td>2*****</td><td>East Yorkshire</td><td>Hull & North Yorkshire assets</td></tr>
+            <tr><td>3*****</td><td>Go East Anglia</td><td>Norfolk & Suffolk fleet</td></tr>
+            <tr><td>4*****</td><td>Go North East</td><td>Tyne & Wear, County Durham assets</td></tr>
+            <tr><td>5*****</td><td>Go North West</td><td>Greater Manchester buses</td></tr>
+            <tr><td>6*****</td><td>Go South Coast</td><td>Bluestar, More, Southern Vectis</td></tr>
+            <tr><td>7*****</td><td>Go South West</td><td>Cornwall and Devon operations</td></tr>
+            <tr><td>8*****</td><td>Oxford Bus Group</td><td>Oxford Bus, Thames Travel fleet</td></tr>
+        </tbody>
+    </table>
+
+    <h2>7. Kelly Group Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>DDE1 – DDE999</td><td>Double Deckers</td><td>Enviro 400 MMC 10.3m</td></tr>
+            <tr><td>SLL1 – SLL999</td><td>Standard Single Deckers</td><td>Streetlite 11.5m</td></tr>
+            <tr><td>SLS1 – SLS999</td><td>Short Single Deckers</td><td>Streetlite 9.6m</td></tr>
+        </tbody>
+    </table>
+
+    <h2>8. Lothian Buses Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>100 – 299</td><td>Standard Double-Deckers</td><td>Volvo B5TL / Wright Eclipse Gemini 3</td></tr>
+            <tr><td>700 – 899</td><td>Hybrid / Electric Double-Deckers</td><td>Volvo B5LH, BYD ADL Enviro400EV</td></tr>
+            <tr><td>900 – 999</td><td>Single-Deckers & Specialized Units</td><td>ADL Enviro200 / Volvo B7RLE</td></tr>
+        </tbody>
+    </table>
+
+    <h2>9. McGills Bus Service Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>100 – 999</td><td>Midibuses & Smaller Assets</td><td>Optare Solo, short ADL Enviro200</td></tr>
+            <tr><td>2000 – 2999</td><td>Standard Single-Deckers</td><td>ADL Enviro200 MMC</td></tr>
+            <tr><td>8000 – 8999</td><td>Double-Deckers & Ex-Arriva Fleet</td><td>Volvo B9TL, Enviro400</td></tr>
+        </tbody>
+    </table>
+
+    <h2>10. National Express West Midlands Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>4000 – 4999</td><td>Standard Double-Deckers (Legacy)</td><td>ALX400, Volvo B7TL</td></tr>
+            <tr><td>5000 – 5999</td><td>Modern Double-Deckers</td><td>ADL Enviro400, MMC, Platinum series</td></tr>
+            <tr><td>6000 – 6999</td><td>Single-Deckers & Hybrids</td><td>Enviro200, Volvo B5LH Platinum</td></tr>
+        </tbody>
+    </table>
+
+    <h2>11. Nottingham City Transport Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>400 – 499</td><td>Standard Double-Deckers</td><td>Scania OmniCity / Alexander Dennis</td></tr>
+            <tr><td>600 – 699</td><td>Bio-Gas Double-Deckers</td><td>Scania Citywide CNG</td></tr>
+            <tr><td>900 – 999</td><td>Single-Deckers</td><td>Scania OmniLink / ADL</td></tr>
+        </tbody>
+    </table>
+
+    <h2>12. Reading Buses Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>200 – 299</td><td>Bio-Gas Single-Deckers</td><td>Scania N280UB / ADL Enviro300 SG</td></tr>
+            <tr><td>700 – 799</td><td>Eco Double-Deckers</td><td>Scania N230UD / Enviro400 Bio-Gas</td></tr>
+        </tbody>
+    </table>
+
+    <h2>13. Stagecoach Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>10000 – 11999</td><td>Standard Double-Deckers</td><td>Enviro400, Enviro400H</td></tr>
+            <tr><td>15000 – 15999</td><td>Scania OmniCity Double-Deckers</td><td>Scania OmniCity (CNG / Diesel)</td></tr>
+            <tr><td>20000 – 22999</td><td>Standard Single-Deckers</td><td>ADL Enviro300, Volvo B7RLE, Optare Versa</td></tr>
+            <tr><td>25000 – 27999</td><td>Optare / Medium Single-Deckers</td><td>Optare Solo, Optare MetroCity</td></tr>
+            <tr><td>36000 – 38000</td><td>ADL Enviro200 Midibuses</td><td>ADL Enviro200 / Enviro200 MMC</td></tr>
+            <tr><td>40000 – 49999</td><td>Small Midibuses & Community Assets</td><td>Older Dennis Dart SLF, local community vehicles</td></tr>
+            <tr><td>50000 – 59999</td><td>Inter-Urban Coaches</td><td>Plaxton Elite, Plaxton Panther, Megabus vehicles</td></tr>
+        </tbody>
+    </table>
+
+    <h2>14. Transdev Blazefield Reference</h2>
+    <table class="ref-table">
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Category</th>
+                <th>Vehicle Type</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>100 – 199</td><td>Premium Long-Distance Coaches</td><td>Volvo B8RLE / Plaxton Leopard</td></tr>
+            <tr><td>300 – 399</td><td>Mainline / Flyer Single-Deckers</td><td>ADL Enviro200 MMC</td></tr>
+            <tr><td>700 – 799 / 2000+</td><td>High-Spec Luxury Double-Deckers</td><td>Wright StreetDeck, Volvo Gemini</td></tr>
+        </tbody>
+    </table>
+
+</div>
+
+<script>
+const operatorDisplayNames = {
+    custom: "Custom",
+    arriva: "Arriva",
+    cardiff: "Cardiff Bus",
+    dgcentrebus: "D&G Bus / Centrebus",
+    diamond: "Diamond Bus",
+    first: "First Group",
+    goahead: "Go-Ahead Group",
+    kellygroup: "Kelly Group",
+    lothian: "Lothian Buses",
+    mcgills: "McGills Bus Service",
+    nxwm: "National Express West Midlands",
+    nct: "Nottingham City Transport",
+    reading: "Reading Buses",
+    stagecoach: "Stagecoach",
+    transdev: "Transdev Blazefield"
+};
+
+const vehicleOptions = {
+    arriva: [
+        {name: "Double-Deckers (Gemini / Modern)", base: 5000},
+        {name: "Double-Deckers (Standard Diesel)", base: 4000},
+        {name: "Enviro 200 EV 11.5m (EVL)", base: "EVL1"},
+        {name: "Enviro 200 MMC 11.5m (AEL)", base: "AEL1"},
+        {name: "Enviro 200 MMC 8.9m (AES)", base: "AES1"},
+        {name: "Older Single-Deckers & Midibuses", base: 3000},
+        {name: "Single-Deckers (Standard & Midibus)", base: 2000},
+        {name: "Specialist / Inter-urban Fleet & Coaches", base: 1000}
+    ],
+    cardiff: [
+        {name: "Electric Single-Deckers", base: 200},
+        {name: "Standard Double-Deckers", base: 400}
+    ],
+    dgcentrebus: [
+        {name: "Acquired Single-Deckers & Midibuses", base: 100}
+    ],
+    diamond: [
+        {name: "Mixed Regional Fleet", base: 20000}
+    ],
+    first: [
+        {name: "Diesel Double-Deck", base: 40000},
+        {name: "Diesel Long Single-Deck", base: 33000},
+        {name: "Electric Double-Deck", base: 47000},
+        {name: "Electric Long Single-Deck", base: 37000},
+        {name: "Short Single-Deck / Midibus", base: 66000},
+        {name: "Wright Cadet / Specific Double-Deck", base: 48000}
+    ],
+    goahead: [
+        {name: "Brighton & Hove", base: 100000},
+        {name: "East Yorkshire", base: 200000},
+        {name: "Go East Anglia", base: 300000},
+        {name: "Go North East", base: 400000},
+        {name: "Go North West", base: 500000},
+        {name: "Go South Coast", base: 600000},
+        {name: "Go South West", base: 700000},
+        {name: "Oxford Bus Group", base: 800000}
+    ],
+    kellygroup: [
+        {name: "Enviro 400 MMC 10.3m (DDE)", base: "DDE1"},
+        {name: "Streetlite 11.5m (SLL)", base: "SLL1"},
+        {name: "Streetlite 9.6m (SLS)", base: "SLS1"}
+    ],
+    lothian: [
+        {name: "Hybrid / Electric Double-Deckers", base: 700},
+        {name: "Single-Deckers & Specialized Units", base: 900},
+        {name: "Standard Double-Deckers", base: 100}
+    ],
+    mcgills: [
+        {name: "Double-Deckers & Ex-Arriva Fleet", base: 8000},
+        {name: "Midibuses & Smaller Assets", base: 100},
+        {name: "Standard Single-Deckers", base: 2000}
+    ],
+    nxwm: [
+        {name: "Modern Platinum Double-Deckers", base: 5000},
+        {name: "Single-Deckers & Hybrids", base: 6000},
+        {name: "Standard Double-Deckers (Legacy)", base: 4000}
+    ],
+    nct: [
+        {name: "Bio-Gas Double-Deckers", base: 600},
+        {name: "Single-Deckers", base: 900},
+        {name: "Standard Double-Deckers", base: 400}
+    ],
+    reading: [
+        {name: "Bio-Gas Single-Deckers", base: 200},
+        {name: "Eco Double-Deckers", base: 700}
+    ],
+    stagecoach: [
+        {name: "ADL Enviro200 Midibuses", base: 36000},
+        {name: "Inter-Urban Coaches", base: 50000},
+        {name: "Optare / Medium Single-Deckers", base: 25000},
+        {name: "Scania OmniCity Double-Deckers", base: 15000},
+        {name: "Small Midibuses & Community Assets", base: 40000},
+        {name: "Standard Double-Deckers", base: 10000},
+        {name: "Standard Single-Deckers", base: 20000}
+    ],
+    transdev: [
+        {name: "High-Spec Luxury Double-Deckers", base: 700},
+        {name: "Mainline / Flyer Single-Deckers", base: 300},
+        {name: "Premium Long-Distance Coaches", base: 100}
+    ]
+};
+
+const validLetters = "ABCDEFGHJKLMNOPRSTUVWXYZ";
+let generatedDatabaseMemory = {};
+let lastUsedTag = null;
+
+const rawDvlaGroups = [
+    {label: "Anglia (Peterborough, Norwich, Ipswich)", items: [
+        {val: "AA", name: "AA - Peterborough"},{val: "AB", name: "AB - Peterborough"},{val: "AC", name: "AC - Peterborough"},{val: "AD", name: "AD - Peterborough"},{val: "AE", name: "AE - Peterborough"},{val: "AF", name: "AF - Peterborough"},{val: "AG", name: "AG - Peterborough"},{val: "AH", name: "AH - Peterborough"},{val: "AJ", name: "AJ - Peterborough"},{val: "AK", name: "AK - Peterborough"},{val: "AL", name: "AL - Peterborough"},{val: "AM", name: "AM - Peterborough"},{val: "AN", name: "AN - Peterborough"},
+        {val: "AO", name: "AO - Norwich"},{val: "AP", name: "AP - Norwich"},{val: "AR", name: "AR - Norwich"},{val: "AS", name: "AS - Norwich"},{val: "AT", name: "AT - Norwich"},{val: "AU", name: "AU - Norwich"},
+        {val: "AV", name: "AV - Ipswich"},{val: "AW", name: "AW - Ipswich"},{val: "AX", name: "AX - Ipswich"},{val: "AY", name: "AY - Ipswich"}
+    ]},
+    {label: "Birmingham", items: [
+        {val: "BA", name: "BA - Birmingham"},{val: "BB", name: "BB - Birmingham"},{val: "BC", name: "BC - Birmingham"},{val: "BD", name: "BD - Birmingham"},{val: "BE", name: "BE - Birmingham"},{val: "BF", name: "BF - Birmingham"},{val: "BG", name: "BG - Birmingham"},{val: "BH", name: "BH - Birmingham"},{val: "BJ", name: "BJ - Birmingham"},{val: "BK", name: "BK - Birmingham"},{val: "BL", name: "BL - Birmingham"},{val: "BM", name: "BM - Birmingham"},{val: "BN", name: "BN - Birmingham"},{val: "BO", name: "BO - Birmingham"},{val: "BP", name: "BP - Birmingham"},{val: "BR", name: "BR - Birmingham"},{val: "BS", name: "BS - Birmingham"},{val: "BT", name: "BT - Birmingham"},{val: "BU", name: "BU - Birmingham"},{val: "BV", name: "BV - Birmingham"},{val: "BW", name: "BW - Birmingham"},{val: "BX", name: "BX - Birmingham"},{val: "BY", name: "BY - Birmingham"}
+    ]},
+    {label: "Cymru / Wales (Cardiff, Swansea, Bangor)", items: [
+        {val: "CA", name: "CA - Cardiff"},{val: "CB", name: "CB - Cardiff"},{val: "CC", name: "CC - Cardiff"},{val: "CD", name: "CD - Cardiff"},{val: "CE", name: "CE - Cardiff"},{val: "CF", name: "CF - Cardiff"},{val: "CG", name: "CG - Cardiff"},{val: "CH", name: "CH - Cardiff"},{val: "CJ", name: "CJ - Cardiff"},{val: "CK", name: "CK - Cardiff"},{val: "CL", name: "CL - Cardiff"},{val: "CM", name: "CM - Cardiff"},{val: "CN", name: "CN - Cardiff"},{val: "CO", name: "CO - Cardiff"},
+        {val: "CP", name: "CP - Swansea"},{val: "CR", name: "CR - Swansea"},{val: "CS", name: "CS - Swansea"},{val: "CT", name: "CT - Swansea"},{val: "CU", name: "CU - Swansea"},{val: "CV", name: "CV - Swansea"},
+        {val: "CW", name: "CW - Bangor"},{val: "CX", name: "CX - Bangor"},{val: "CY", name: "CY - Bangor"}
+    ]},
+    {label: "Deeside to Shrewsbury (Chester, Shrewsbury)", items: [
+        {val: "DA", name: "DA - Chester"},{val: "DB", name: "DB - Chester"},{val: "DC", name: "DC - Chester"},{val: "DD", name: "DD - Chester"},{val: "DE", name: "DE - Chester"},{val: "DF", name: "DF - Chester"},{val: "DG", name: "DG - Chester"},{val: "DH", name: "DH - Chester"},{val: "DJ", name: "DJ - Chester"},{val: "DK", name: "DK - Chester"},
+        {val: "DL", name: "DL - Shrewsbury"},{val: "DM", name: "DM - Shrewsbury"},{val: "DN", name: "DN - Shrewsbury"},{val: "DO", name: "DO - Shrewsbury"},{val: "DP", name: "DP - Shrewsbury"},{val: "DR", name: "DR - Shrewsbury"},{val: "DS", name: "DS - Shrewsbury"},{val: "DT", name: "DT - Shrewsbury"},{val: "DU", name: "DU - Shrewsbury"},{val: "DV", name: "DV - Shrewsbury"},{val: "DW", name: "DW - Shrewsbury"},{val: "DX", name: "DX - Shrewsbury"},{val: "DY", name: "DY - Shrewsbury"}
+    ]},
+    {label: "Essex (Chelmsford)", items: [
+        {val: "EA", name: "EA - Chelmsford"},{val: "EB", name: "EB - Chelmsford"},{val: "EC", name: "EC - Chelmsford"},{val: "ED", name: "ED - Chelmsford"},{val: "EE", name: "EE - Chelmsford"},{val: "EF", name: "EF - Chelmsford"},{val: "EG", name: "EG - Chelmsford"},{val: "EH", name: "EH - Chelmsford"},{val: "EJ", name: "EJ - Chelmsford"},{val: "EK", name: "EK - Chelmsford"},{val: "EL", name: "EL - Chelmsford"},{val: "EM", name: "EM - Chelmsford"},{val: "EN", name: "EN - Chelmsford"},{val: "EO", name: "EO - Chelmsford"},{val: "EP", name: "EP - Chelmsford"},{val: "ER", name: "ER - Chelmsford"},{val: "ES", name: "ES - Chelmsford"},{val: "ET", name: "ET - Chelmsford"},{val: "EU", name: "EU - Chelmsford"},{val: "EV", name: "EV - Chelmsford"},{val: "EW", name: "EW - Chelmsford"},{val: "EX", name: "EX - Chelmsford"},{val: "EY", name: "EY - Chelmsford"}
+    ]},
+    {label: "Forest and Fens (Nottingham, Lincoln)", items: [
+        {val: "FA", name: "FA - Nottingham"},{val: "FB", name: "FB - Nottingham"},{val: "FC", name: "FC - Nottingham"},{val: "FD", name: "FD - Nottingham"},{val: "FE", name: "FE - Nottingham"},{val: "FF", name: "FF - Nottingham"},{val: "FG", name: "FG - Nottingham"},{val: "FH", name: "FH - Nottingham"},{val: "FJ", name: "FJ - Nottingham"},{val: "FK", name: "FK - Nottingham"},{val: "FL", name: "FL - Nottingham"},{val: "FM", name: "FM - Nottingham"},{val: "FN", name: "FN - Nottingham"},{val: "FP", name: "FP - Nottingham"},
+        {val: "FR", name: "FR - Lincoln"},{val: "FS", name: "FS - Lincoln"},{val: "FT", name: "FT - Lincoln"},{val: "FV", name: "FV - Lincoln"},{val: "FW", name: "FW - Lincoln"},{val: "FX", name: "FX - Lincoln"},{val: "FY", name: "FY - Lincoln"}
+    ]},
+    {label: "Garden of England (Maidstone, Brighton)", items: [
+        {val: "GA", name: "GA - Maidstone"},{val: "GB", name: "GB - Maidstone"},{val: "GC", name: "GC - Maidstone"},{val: "GD", name: "GD - Maidstone"},{val: "GE", name: "GE - Maidstone"},{val: "GF", name: "GF - Maidstone"},{val: "GG", name: "GG - Maidstone"},{val: "GH", name: "GH - Maidstone"},{val: "GJ", name: "GJ - Maidstone"},{val: "GK", name: "GK - Maidstone"},{val: "GL", name: "GL - Maidstone"},{val: "GM", name: "GM - Maidstone"},{val: "GN", name: "GN - Maidstone"},{val: "GO", name: "GO - Maidstone"},
+        {val: "GP", name: "GP - Brighton"},{val: "GR", name: "GR - Brighton"},{val: "GS", name: "GS - Brighton"},{val: "GT", name: "GT - Brighton"},{val: "GU", name: "GU - Brighton"},{val: "GV", name: "GV - Brighton"},{val: "GX", name: "GX - Brighton"},{val: "GY", name: "GY - Brighton"}
+    ]},
+    {label: "Hampshire and Dorset (Bournemouth, Portsmouth)", items: [
+        {val: "HA", name: "HA - Bournemouth"},{val: "HB", name: "HB - Bournemouth"},{val: "HC", name: "HC - Bournemouth"},{val: "HD", name: "HD - Bournemouth"},{val: "HE", name: "HE - Bournemouth"},{val: "HF", name: "HF - Bournemouth"},{val: "HG", name: "HG - Bournemouth"},{val: "HH", name: "HH - Bournemouth"},{val: "HJ", name: "HJ - Bournemouth"},
+        {val: "HK", name: "HK - Portsmouth"},{val: "HL", name: "HL - Portsmouth"},{val: "HM", name: "HM - Portsmouth"},{val: "HN", name: "HN - Portsmouth"},{val: "HO", name: "HO - Portsmouth"},{val: "HP", name: "HP - Portsmouth"},{val: "HR", name: "HR - Portsmouth"},{val: "HS", name: "HS - Portsmouth"},{val: "HT", name: "HT - Portsmouth"},{val: "HU", name: "HU - Portsmouth"},{val: "HV", name: "HV - Portsmouth"},{val: "HW", name: "HW - Portsmouth (Isle of Wight)"},{val: "HX", name: "HX - Portsmouth"},{val: "HY", name: "HY - Portsmouth"}
+    ]},
+    {label: "Luton and Northampton", items: [
+        {val: "KA", name: "KA - Luton"},{val: "KB", name: "KB - Luton"},{val: "KC", name: "KC - Luton"},{val: "KD", name: "KD - Luton"},{val: "KE", name: "KE - Luton"},{val: "KF", name: "KF - Luton"},{val: "KG", name: "KG - Luton"},{val: "KH", name: "KH - Luton"},{val: "KJ", name: "KJ - Luton"},{val: "KK", name: "KK - Luton"},{val: "KL", name: "KL - Luton"},
+        {val: "KM", name: "KM - Northampton"},{val: "KN", name: "KN - Northampton"},{val: "KO", name: "KO - Northampton"},{val: "KP", name: "KP - Northampton"},{val: "KR", name: "KR - Northampton"},{val: "KS", name: "KS - Northampton"},{val: "KT", name: "KT - Northampton"},{val: "KU", name: "KU - Northampton"},{val: "KV", name: "KV - Northampton"},{val: "KW", name: "KW - Northampton"},{val: "KX", name: "KX - Northampton"},{val: "KY", name: "KY - Northampton"}
+    ]},
+    {label: "London (Wimbledon, Stanmore, Sidcup)", items: [
+        {val: "LA", name: "LA - Wimbledon"},{val: "LB", name: "LB - Wimbledon"},{val: "LC", name: "LC - Wimbledon"},{val: "LD", name: "LD - Wimbledon"},{val: "LE", name: "LE - Wimbledon"},{val: "LF", name: "LF - Wimbledon"},{val: "LG", name: "LG - Wimbledon"},{val: "LH", name: "LH - Wimbledon"},{val: "LJ", name: "LJ - Wimbledon"},
+        {val: "LK", name: "LK - Stanmore"},{val: "LL", name: "LL - Stanmore"},{val: "LM", name: "LM - Stanmore"},{val: "LN", name: "LN - Stanmore"},{val: "LO", name: "LO - Stanmore"},{val: "LP", name: "LP - Stanmore"},{val: "LR", name: "LR - Stanmore"},{val: "LS", name: "LS - Stanmore"},{val: "LT", name: "LT - Stanmore"},
+        {val: "LU", name: "LU - Sidcup"},{val: "LV", name: "LV - Sidcup"},{val: "LW", name: "LW - Sidcup"},{val: "LX", name: "LX - Sidcup"},{val: "LY", name: "LY - Sidcup"}
+    ]},
+    {label: "Manchester and Merseyside (Manchester)", items: [
+        {val: "MA", name: "MA - Manchester"},{val: "MB", name: "MB - Manchester"},{val: "MC", name: "MC - Manchester"},{val: "MD", name: "MD - Manchester"},{val: "ME", name: "ME - Manchester"},{val: "MF", name: "MF - Manchester"},{val: "MG", name: "MG - Manchester"},{val: "MH", name: "MH - Manchester"},{val: "MJ", name: "MJ - Manchester"},{val: "MK", name: "MK - Manchester"},{val: "ML", name: "ML - Manchester"},{val: "MM", name: "MM - Manchester"},{val: "MN", name: "MN - Manchester"},{val: "MO", name: "MO - Manchester"},{val: "MP", name: "MP - Manchester"},{val: "MR", name: "MR - Manchester"},{val: "MS", name: "MS - Manchester"},{val: "MT", name: "MT - Manchester"},{val: "MU", name: "MU - Manchester"},{val: "MV", name: "MV - Manchester"},{val: "MW", name: "MW - Manchester"},{val: "MX", name: "MX - Manchester"},{val: "MY", name: "MY - Manchester"}
+    ]},
+    {label: "North (Newcastle, Stockton)", items: [
+        {val: "NA", name: "NA - Newcastle"},{val: "NB", name: "NB - Newcastle"},{val: "NC", name: "NC - Newcastle"},{val: "ND", name: "ND - Newcastle"},{val: "NE", name: "NE - Newcastle"},{val: "NF", name: "NF - Newcastle"},{val: "NG", name: "NG - Newcastle"},{val: "NH", name: "NH - Newcastle"},{val: "NJ", name: "NJ - Newcastle"},{val: "NK", name: "NK - Newcastle"},{val: "NL", name: "NL - Newcastle"},{val: "NM", name: "NM - Newcastle"},{val: "NN", name: "NN - Newcastle"},{val: "NO", name: "NO - Newcastle"},
+        {val: "NP", name: "NP - Stockton"},{val: "NR", name: "NR - Stockton"},{val: "NS", name: "NS - Stockton"},{val: "NT", name: "NT - Stockton"},{val: "NU", name: "NU - Stockton"},{val: "NV", name: "NV - Stockton"},{val: "NW", name: "NW - Stockton"},{val: "NX", name: "NX - Stockton"},{val: "NY", name: "NY - Stockton"}
+    ]},
+    {label: "Oxford (Oxford)", items: [
+        {val: "OA", name: "OA - Oxford"},{val: "OB", name: "OB - Oxford"},{val: "OC", name: "OC - Oxford"},{val: "OD", name: "OD - Oxford"},{val: "OE", name: "OE - Oxford"},{val: "OF", name: "OF - Oxford"},{val: "OG", name: "OG - Oxford"},{val: "OH", name: "OH - Oxford"},{val: "OJ", name: "OJ - Oxford"},{val: "OK", name: "OK - Oxford"},{val: "OL", name: "OL - Oxford"},{val: "OM", name: "OM - Oxford"},{val: "ON", name: "ON - Oxford"},{val: "OO", name: "OO - Oxford"},{val: "OP", name: "OP - Oxford"},{val: "OR", name: "OR - Oxford"},{val: "OS", name: "OS - Oxford"},{val: "OT", name: "OT - Oxford"},{val: "OU", name: "OU - Oxford"},{val: "OV", name: "OV - Oxford"},{val: "OW", name: "OW - Oxford"},{val: "OX", name: "OX - Oxford"},{val: "OY", name: "OY - Oxford"}
+    ]},
+    {label: "Preston (Preston, Carlisle)", items: [
+        {val: "PA", name: "PA - Preston"},{val: "PB", name: "PB - Preston"},{val: "PC", name: "PC - Preston"},{val: "PD", name: "PD - Preston"},{val: "PE", name: "PE - Preston"},{val: "PF", name: "PF - Preston"},{val: "PG", name: "PG - Preston"},{val: "PH", name: "PH - Preston"},{val: "PJ", name: "PJ - Preston"},{val: "PK", name: "PK - Preston"},{val: "PL", name: "PL - Preston"},{val: "PM", name: "PM - Preston"},{val: "PN", name: "PN - Preston"},{val: "PO", name: "PO - Preston"},{val: "PP", name: "PP - Preston"},{val: "PR", name: "PR - Preston"},{val: "PS", name: "PS - Preston"},{val: "PT", name: "PT - Preston"},
+        {val: "PU", name: "PU - Carlisle"},{val: "PV", name: "PV - Carlisle"},{val: "PW", name: "PW - Carlisle"},{val: "PX", name: "PX - Carlisle"},{val: "PY", name: "PY - Carlisle"}
+    ]},
+    {label: "Reading (Reading)", items: [
+        {val: "RA", name: "RA - Reading"},{val: "RB", name: "RB - Reading"},{val: "RC", name: "RC - Reading"},{val: "RD", name: "RD - Reading"},{val: "RE", name: "RE - Reading"},{val: "RF", name: "RF - Reading"},{val: "RG", name: "RG - Reading"},{val: "RH", name: "RH - Reading"},{val: "RJ", name: "RJ - Reading"},{val: "RK", name: "RK - Reading"},{val: "RL", name: "RL - Reading"},{val: "RM", name: "RM - Reading"},{val: "RN", name: "RN - Reading"},{val: "RO", name: "RO - Reading"},{val: "RP", name: "RP - Reading"},{val: "RR", name: "RR - Reading"},{val: "RS", name: "RS - Reading"},{val: "RT", name: "RT - Reading"},{val: "RU", name: "RU - Reading"},{val: "RV", name: "RV - Reading"},{val: "RW", name: "RW - Reading"},{val: "RX", name: "RX - Reading"},{val: "RY", name: "RY - Reading"}
+    ]},
+    {label: "Scotland (Glasgow, Edinburgh, Dundee, Aberdeen, Inverness)", items: [
+        {val: "SA", name: "SA - Glasgow"},{val: "SB", name: "SB - Glasgow"},{val: "SC", name: "SC - Glasgow"},{val: "SD", name: "SD - Glasgow"},{val: "SE", name: "SE - Glasgow"},{val: "SF", name: "SF - Glasgow"},{val: "SG", name: "SG - Glasgow"},{val: "SH", name: "SH - Glasgow"},{val: "SJ", name: "SJ - Glasgow"},
+        {val: "SK", name: "SK - Edinburgh"},{val: "SL", name: "SL - Edinburgh"},{val: "SM", name: "SM - Edinburgh"},{val: "SN", name: "SN - Edinburgh"},{val: "SO", name: "SO - Edinburgh"},
+        {val: "SP", name: "SP - Dundee"},{val: "SR", name: "SR - Dundee"},{val: "SS", name: "SS - Dundee"},{val: "ST", name: "ST - Dundee"},
+        {val: "SU", name: "SU - Aberdeen"},{val: "SV", name: "SV - Aberdeen"},{val: "SW", name: "SW - Aberdeen"},
+        {val: "SX", name: "SX - Inverness"},{val: "SY", name: "SY - Inverness"}
+    ]},
+    {label: "Severn Valley (Worcester)", items: [
+        {val: "VA", name: "VA - Worcester"},{val: "VB", name: "VB - Worcester"},{val: "VC", name: "VC - Worcester"},{val: "VD", name: "VD - Worcester"},{val: "VE", name: "VE - Worcester"},{val: "VF", name: "VF - Worcester"},{val: "VG", name: "VG - Worcester"},{val: "VH", name: "VH - Worcester"},{val: "VJ", name: "VJ - Worcester"},{val: "VK", name: "VK - Worcester"},{val: "VL", name: "VL - Worcester"},{val: "VM", name: "VM - Worcester"},{val: "VN", name: "VN - Worcester"},{val: "VO", name: "VO - Worcester"},{val: "VP", name: "VP - Worcester"},{val: "VR", name: "VR - Worcester"},{val: "VS", name: "VS - Worcester"},{val: "VT", name: "VT - Worcester"},{val: "VU", name: "VU - Worcester"},{val: "VV", name: "VV - Worcester"},{val: "VW", name: "VW - Worcester"},{val: "VX", name: "VX - Worcester"},{val: "VY", name: "VY - Worcester"}
+    ]},
+    {label: "West of England (Exeter, Truro, Bristol)", items: [
+        {val: "WA", name: "WA - Exeter"},{val: "WB", name: "WB - Exeter"},{val: "WC", name: "WC - Exeter"},{val: "WD", name: "WD - Exeter"},{val: "WE", name: "WE - Exeter"},{val: "WF", name: "WF - Exeter"},{val: "WG", name: "WG - Exeter"},{val: "WH", name: "WH - Exeter"},{val: "WJ", name: "WJ - Exeter"},
+        {val: "WK", name: "WK - Truro"},{val: "WL", name: "WL - Truro"},
+        {val: "WM", name: "WM - Bristol"},{val: "WN", name: "WN - Bristol"},{val: "WO", name: "WO - Bristol"},{val: "WP", name: "WP - Bristol"},{val: "WR", name: "WR - Bristol"},{val: "WS", name: "WS - Bristol"},{val: "WT", name: "WT - Bristol"},{val: "WU", name: "WU - Bristol"},{val: "WV", name: "WV - Bristol"},{val: "WW", name: "WW - Bristol"},{val: "WX", name: "WX - Bristol"},{val: "WY", name: "WY - Bristol"}
+    ]},
+    {label: "Yorkshire (Leeds, Sheffield, Beverley)", items: [
+        {val: "YA", name: "YA - Leeds"},{val: "YB", name: "YB - Leeds"},{val: "YC", name: "YC - Leeds"},{val: "YD", name: "YD - Leeds"},{val: "YE", name: "YE - Leeds"},{val: "YF", name: "YF - Leeds"},{val: "YG", name: "YG - Leeds"},{val: "YH", name: "YH - Leeds"},{val: "YJ", name: "YJ - Leeds"},{val: "YK", name: "YK - Leeds"},
+        {val: "YL", name: "YL - Sheffield"},{val: "YM", name: "YM - Sheffield"},{val: "YN", name: "YN - Sheffield"},{val: "YO", name: "YO - Sheffield"},{val: "YP", name: "YP - Sheffield"},{val: "YR", name: "YR - Sheffield"},{val: "YS", name: "YS - Sheffield"},{val: "YT", name: "YT - Sheffield"},{val: "YU", name: "YU - Sheffield"},
+        {val: "YV", name: "YV - Beverley"},{val: "YW", name: "YW - Beverley"},{val: "YX", name: "YX - Beverley"},{val: "YY", name: "YY - Beverley"}
+    ]}
+];
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
+    if(tabName === 'new') {
+        document.getElementById('newSection').classList.add('active');
+    } else {
+        document.getElementById('existingSection').classList.add('active');
+    }
+}
+
+function initRegAreaSelect() {
+    const select = document.getElementById('regAreaSelect');
+    select.innerHTML = '<option value="RANDOM">🎲 Random Valid DVLA Tag</option>';
+    
+    if (lastUsedTag) {
+        let lastOpt = document.createElement('option');
+        lastOpt.value = lastUsedTag;
+        lastOpt.textContent = `↩️ Last Used (${lastUsedTag})`;
+        select.appendChild(lastOpt);
+    }
+    
+    rawDvlaGroups.forEach(group => {
+        let optgroup = document.createElement('optgroup');
+        optgroup.label = group.label;
+        group.items.forEach(item => {
+            let opt = document.createElement('option');
+            opt.value = item.val;
+            opt.textContent = item.name;
+            optgroup.appendChild(opt);
+        });
+        select.appendChild(optgroup);
+    });
+}
+
+function updateVehicleOptions() {
+    const operator = document.getElementById('operatorSelect').value;
+    const vehicleSelect = document.getElementById('vehicleSelect');
+    const startInput = document.getElementById('customStartInput');
+    const startLabel = document.getElementById('startInputLabel');
+    const fleetBadge = document.getElementById('fleetLastUsedBadge');
+    
+    vehicleSelect.innerHTML = '';
+    
+    if (operator === 'custom') {
+        document.getElementById('presetVehicleGroup').style.display = 'none';
+        startLabel.textContent = "Custom Starting Fleet ID (Letters & Numbers allowed, e.g. ABC101 or 48000):";
+        if (!startInput.value || startInput.value === "33000") {
+            startInput.value = "ABC101";
+        }
+        fleetBadge.style.display = 'none';
+    } else {
+        document.getElementById('presetVehicleGroup').style.display = 'block';
+        startLabel.textContent = "Starting Fleet ID (Editable to override default preset start):";
+        
+        vehicleOptions[operator].forEach(item => {
+            let opt = document.createElement('option');
+            opt.value = item.base;
+            opt.textContent = item.name;
+            vehicleSelect.appendChild(opt);
+        });
+        
+        if (vehicleSelect.options.length > 0) {
+            startInput.value = vehicleSelect.value;
+            updateFleetBadge(vehicleOptions[operator][vehicleSelect.selectedIndex].lastUsed);
+        }
+    }
+}
+
+function updateFleetStartInput() {
+    const operator = document.getElementById('operatorSelect').value;
+    const vehicleSelect = document.getElementById('vehicleSelect');
+    const startInput = document.getElementById('customStartInput');
+    if (vehicleSelect.value && operator !== 'custom') {
+        startInput.value = vehicleSelect.value;
+        updateFleetBadge(vehicleOptions[operator][vehicleSelect.selectedIndex].lastUsed);
+    }
+}
+
+function updateFleetBadge(lastUsedVal) {
+    const fleetBadge = document.getElementById('fleetLastUsedBadge');
+    if (lastUsedVal) {
+        fleetBadge.textContent = `Last Used Fleet ID: ${lastUsedVal}`;
+        fleetBadge.style.display = 'inline-block';
+    } else {
+        fleetBadge.style.display = 'none';
+    }
+}
+
+function updateTagBadge() {
+    const tagBadge = document.getElementById('tagLastUsedBadge');
+    if (lastUsedTag) {
+        tagBadge.textContent = `Last Used DVLA Tag: ${lastUsedTag}`;
+        tagBadge.style.display = 'inline-block';
+    } else {
+        tagBadge.style.display = 'none';
+    }
+}
+
+function getNextLetterSequence(str) {
+    let chars = str.split('');
+    for (let i = chars.length - 1; i >= 0; i--) {
+        let currentIndex = validLetters.indexOf(chars[i]);
+        if (currentIndex < validLetters.length - 1) {
+            chars[i] = validLetters[currentIndex + 1];
+            return chars.join('');
+        } else {
+            chars[i] = validLetters[0];
+        }
+    }
+    return chars.join('');
+}
+
+function getRandomValidLetter() {
+    return validLetters[Math.floor(Math.random() * validLetters.length)];
+}
+
+function getValidDvlaTags() {
+    let tags = [];
+    rawDvlaGroups.forEach(group => {
+        group.items.forEach(item => {
+            tags.push(item.val);
+        });
+    });
+    return tags;
+}
+
+function generateSelectedArea(selectedOption) {
+    if (selectedOption === "RANDOM") {
+        let tags = getValidDvlaTags();
+        return tags[Math.floor(Math.random() * tags.length)];
+    }
+    return selectedOption;
+}
+
+function incrementCustomFleetId(idStr) {
+    let match = idStr.match(/^([A-Z]+)(\d+)$/);
+    if (match) {
+        let prefix = match[1];
+        let numPart = match[2];
+        let nextNum = parseInt(numPart, 10) + 1;
+        let nextNumStr = String(nextNum);
+        return prefix + nextNumStr;
+    } else {
+        let numericMatch = idStr.match(/^(\d+)$/);
+        if (numericMatch) {
+            let nextNum = parseInt(idStr, 10) + 1;
+            return String(nextNum).padStart(idStr.length, '0');
+        } else {
+            return getNextLetterSequence(idStr);
+        }
+    }
+}
+
+function generateNewFleet() {
+    const operatorKey = document.getElementById('operatorSelect').value;
+    const quantity = parseInt(document.getElementById('quantityInput').value);
+    const selectedAreaCode = document.getElementById('regAreaSelect').value;
+    const selectedYearCode = document.getElementById('regYearSelect').value;
+    const tableBody = document.querySelector('#resultsTable tbody');
+    tableBody.innerHTML = '';
+    
+    let currentFleetId = document.getElementById('customStartInput').value.trim() || "2000";
+    let vehicleName;
+    let finalFleetId = currentFleetId;
+
+    if (operatorKey === 'custom') {
+        vehicleName = "Custom Allocated Fleet Unit";
+    } else {
+        const vehicleSelect = document.getElementById('vehicleSelect');
+        vehicleName = vehicleSelect.options[vehicleSelect.selectedIndex].text;
+    }
+
+    let area = generateSelectedArea(selectedAreaCode);
+    lastUsedTag = area;
+    initRegAreaSelect();
+    document.getElementById('regAreaSelect').value = area;
+    updateTagBadge();
+
+    let age = selectedYearCode !== "" ? selectedYearCode : "76";
+    let currentSuffix = getRandomValidLetter() + getRandomValidLetter() + getRandomValidLetter();
+
+    for(let i = 0; i < quantity; i++) {
+        if (i > 0) {
+            currentSuffix = getNextLetterSequence(currentSuffix);
+            currentFleetId = incrementCustomFleetId(currentFleetId);
+        }
+        finalFleetId = currentFleetId;
+        let reg = `${area}${age} ${currentSuffix}`;
+        let opLabel = operatorKey === 'custom' ? 'Custom' : (operatorDisplayNames[operatorKey] || operatorKey);
+
+        generatedDatabaseMemory[String(currentFleetId)] = {
+            operator: opLabel,
+            type: vehicleName,
+            reg: reg
+        };
+        generatedDatabaseMemory[reg.replace(/\s+/g, '').toUpperCase()] = {
+            operator: opLabel,
+            fleet: String(currentFleetId),
+            type: vehicleName,
+            reg: reg
+        };
+
+        let row = document.createElement('tr');
+        row.innerHTML = `
+            <td><strong>${currentFleetId}</strong></td>
+            <td><code>${reg}</code></td>
+            <td>${opLabel}</td>
+            <td>${vehicleName}</td>
+        `;
+        tableBody.appendChild(row);
+    }
+
+    updateFleetBadge(finalFleetId);
+}
+
+async function fetchLiveBusData() {
+    const query = document.getElementById('existingQuery').value.trim();
+    const statusEl = document.getElementById('apiStatus');
+    const tableBody = document.querySelector('#resultsTable tbody');
+    tableBody.innerHTML = '';
+
+    if (!query) {
+        statusEl.textContent = "Please enter a search query.";
+        return;
+    }
+
+    let cleanQuery = query.toUpperCase().replace(/\s+/g, '');
+
+    if (generatedDatabaseMemory[query.toUpperCase()]) {
+        let match = generatedDatabaseMemory[query.toUpperCase()];
+        statusEl.textContent = "Found in generated session records.";
+        tableBody.innerHTML = `<tr><td><strong>${match.fleet || query}</strong></td><td><code>${match.reg}</code></td><td>${match.operator}</td><td>${match.type}</td></tr>`;
+        return;
+    }
+    if (generatedDatabaseMemory[cleanQuery]) {
+        let match = generatedDatabaseMemory[cleanQuery];
+        statusEl.textContent = "Found in generated session records.";
+        tableBody.innerHTML = `<tr><td><strong>${match.fleet || cleanQuery}</strong></td><td><code>${match.reg}</code></td><td>${match.operator}</td><td>${match.type}</td></tr>`;
+        return;
+    }
+
+    statusEl.textContent = "Connecting to live bustimes.org API streams...";
+
+    try {
+        let apiEndpoint = `https://api.allorigins.win/get?url=${encodeURIComponent('https://bustimes.org/vehicles/' + encodeURIComponent(query) + '.json')}`;
+        let response = await fetch(apiEndpoint);
+        if (!response.ok) throw new Error("Network request failed");
+        
+        let wrapper = await response.json();
+        let data = JSON.parse(wrapper.contents);
+
+        if (data && (data.registration || data.vehicle_type || data.operator_name || data.fleet_number)) {
+            statusEl.textContent = "Live data successfully retrieved from bustimes.org.";
+            tableBody.innerHTML = `
+                <tr>
+                    <td><strong>${data.fleet_number || query}</strong></td>
+                    <td><code>${data.registration || data.registration_number || 'Unknown'}</code></td>
+                    <td>${data.operator_name || 'Active Operator'}</td>
+                    <td>${data.vehicle_type || data.body || data.chassis || 'Commercial Bus'}</td>
+                </tr>
+            `;
+            return;
+        }
+    } catch (error) {}
+
+    try {
+        let altResponse = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent('https://bustimes.org/vehicles.json?q=' + encodeURIComponent(query))}`);
+        let altWrapper = await altResponse.json();
+        let altData = JSON.parse(altWrapper.contents);
+        
+        let match = altData.find(item => {
+            let fn = String(item.fleet_number || '').trim().toUpperCase();
+            let reg = String(item.registration || item.registration_number || '').replace(/\s+/g, '').toUpperCase();
+            return fn === cleanQuery || reg === cleanQuery;
+        });
+
+        if (match) {
+            statusEl.textContent = "Live record retrieved successfully.";
+            tableBody.innerHTML = `
+                <tr>
+                    <td><strong>${match.fleet_number || query}</strong></td>
+                    <td><code>${match.registration || match.registration_number || 'Unknown'}</code></td>
+                    <td>${match.operator_name || 'Active Operator'}</td>
+                    <td>${match.vehicle_type || match.body || match.chassis || 'Commercial Bus'}</td>
+                </tr>
+            `;
+            return;
+        }
+    } catch (secondaryError) {}
+
+    statusEl.textContent = "No live match returned from remote registries.";
+    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#c0392b;">Could not resolve live data for "${query}". Try generating a sister batch first or check registration/fleet spelling.</td></tr>`;
+}
+
+window.onload = function() {
+    initRegAreaSelect();
+    updateVehicleOptions();
+};
+</script>
+
+</body>
+</html>

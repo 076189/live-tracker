@@ -996,14 +996,20 @@
 
     // Fetches each route's schedule one at a time (rather than one big live listener
     // covering every route at once) to avoid the heavy load that was slowing page startup.
+    // Uses vehicleAllocationData's keys as the route list instead of fetchKnownScheduleRouteKeysOnce,
+    // which downloads the ENTIRE schedules tree just to read route names - too heavy to run on
+    // every page load/refresh cycle (that full-tree fetch is only acceptable for the user-initiated
+    // Rare Workings page).
     function loadAllRouteSchedulesForBackgroundLogging() {
         if (backgroundHistoryLoadInProgress || !window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
+        if (!hasReceivedInitialVehicleAllocations) {
+            setTimeout(loadAllRouteSchedulesForBackgroundLogging, 500);
+            return;
+        }
         backgroundHistoryLoadInProgress = true;
-        fetchKnownScheduleRouteKeysOnce(() => {
-            backgroundHistoryRouteKeys = Array.from(knownScheduleRouteKeys);
-            backgroundHistoryScheduleData = [];
-            loadBackgroundHistoryRouteSequentially(0);
-        });
+        backgroundHistoryRouteKeys = Object.keys(vehicleAllocationData || {}).map(k => String(k).toUpperCase());
+        backgroundHistoryScheduleData = [];
+        loadBackgroundHistoryRouteSequentially(0);
     }
 
     function loadBackgroundHistoryRouteSequentially(index) {

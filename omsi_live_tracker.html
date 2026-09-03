@@ -258,7 +258,7 @@
     let watchedBuses = new Set(); 
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
     const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v1';
-    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v1';
+    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v2';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
@@ -957,8 +957,9 @@
             const timing = calculatePreciseStopTimingsForTracker(entry, now);
             if (!timing.finalAdjustedSchedTime) return;
 
-            // Record ALL services for history (no time window filter) 
-            // This ensures we capture every running number throughout the day
+            // Only record a service while it is close to being in service. Recording every
+            // scheduled service here makes vehicles on inactive routes appear as used.
+            if (timing.timeToStationInSeconds < MAX_PAST_SECONDS_TRACKER || timing.timeToStationInSeconds > MAX_UPCOMING_SECONDS_TRACKER) return;
             if (!serviceVehicles.has(serviceInstanceKey)) {
                 const subVehicle = getSubVehicleForRunningNumber(trueLineName, entry.runningNumber);
                 const cachedVehicle = serviceInstanceVehicleCache.get(blockId);
@@ -989,9 +990,10 @@
     const BACKGROUND_HISTORY_REFRESH_MS = 5 * 60 * 1000;
 
     function startBackgroundHistoryLogging() {
-        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        loadAllRouteSchedulesForBackgroundLogging();
-        setInterval(loadAllRouteSchedulesForBackgroundLogging, BACKGROUND_HISTORY_REFRESH_MS);
+        // History is recorded from the route currently loaded by the user. Walking every
+        // allocated route in the background defeats route-by-route loading and can exhaust
+        // memory on large schedule sets.
+        return;
     }
 
     // Fetches each route's schedule one at a time (rather than one big live listener

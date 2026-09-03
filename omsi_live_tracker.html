@@ -984,18 +984,45 @@
         saveVehicleCacheToStorage();
     }
 
+    let backgroundHistoryRouteKeys = [];
+    let backgroundHistoryLoadInProgress = false;
+    const BACKGROUND_HISTORY_REFRESH_MS = 5 * 60 * 1000;
+
     function startBackgroundHistoryLogging() {
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        const { database, dbRef, dbOnValue } = window.firebaseOMSI_SA;
-        const schedulesByRouteRef = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-        backgroundHistoryListener = dbOnValue(schedulesByRouteRef, snapshot => {
-            if (!snapshot.exists()) return;
-            const schedulesByRoute = snapshot.val() || {};
+        loadAllRouteSchedulesForBackgroundLogging();
+        setInterval(loadAllRouteSchedulesForBackgroundLogging, BACKGROUND_HISTORY_REFRESH_MS);
+    }
+
+    // Fetches each route's schedule one at a time (rather than one big live listener
+    // covering every route at once) to avoid the heavy load that was slowing page startup.
+    function loadAllRouteSchedulesForBackgroundLogging() {
+        if (backgroundHistoryLoadInProgress || !window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
+        backgroundHistoryLoadInProgress = true;
+        fetchKnownScheduleRouteKeysOnce(() => {
+            backgroundHistoryRouteKeys = Array.from(knownScheduleRouteKeys);
             backgroundHistoryScheduleData = [];
-            Object.entries(schedulesByRoute).forEach(([routeKey, routeData]) => {
-                backgroundHistoryScheduleData.push(...flattenSingleRouteData(routeKey, routeData));
-            });
+            loadBackgroundHistoryRouteSequentially(0);
+        });
+    }
+
+    function loadBackgroundHistoryRouteSequentially(index) {
+        if (index >= backgroundHistoryRouteKeys.length) {
+            backgroundHistoryLoadInProgress = false;
             queueBackgroundHistoryProcessing();
+            return;
+        }
+        const routeKey = backgroundHistoryRouteKeys[index];
+        const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
+        const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
+        console.log(`[TRACKER] Loading background history route ${index + 1} of ${backgroundHistoryRouteKeys.length} (${routeKey})...`);
+        dbGet(routeRef).then(snapshot => {
+            if (snapshot.exists()) {
+                backgroundHistoryScheduleData.push(...flattenSingleRouteData(routeKey, snapshot.val()));
+            }
+            loadBackgroundHistoryRouteSequentially(index + 1);
+        }).catch(() => {
+            loadBackgroundHistoryRouteSequentially(index + 1);
         });
     }
 

@@ -2196,15 +2196,21 @@
 
             const tripId = String(entry.tripId || entry.internalId || '').trim();
             if (!tripId || individualCurtailmentsByTrip.has(tripId)) return;
+            const routeName = String(entry.lineName || '').toUpperCase();
+            const assignedVehicle = getLiveAssignedVehicle(routeName, entry.runningNumber) || (
+                entry.fleetNumber && entry.fleetNumber !== 'N/A' && entry.vehicleReg && entry.vehicleReg !== '---'
+                    ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg }
+                    : null
+            );
             individualCurtailmentsByTrip.set(tripId, {
                 service: {
-                    assignedFleetNumber: 'N/A',
-                    assignedRegistration: '---',
-                    trueLineName: String(entry.lineName || '').toUpperCase()
+                    assignedFleetNumber: assignedVehicle?.fleetNumber || 'N/A',
+                    assignedRegistration: assignedVehicle?.registration || '---',
+                    trueLineName: routeName
                 },
                 curtailment: {
                     ...curtailment,
-                    routeName: String(entry.lineName || '').toUpperCase(),
+                    routeName,
                     startTime: appliedAt.toISOString()
                 }
             });

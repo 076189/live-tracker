@@ -135,6 +135,24 @@ const tripsOf = config => {
 };
 const numberPart = value => { const match = clean(value).match(/(\d+)\s*$/); return match ? Number(match[1]) : 0; };
 const uniqueSorted = values => [...new Set(values.filter(Boolean))].sort((a,b) => a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
+function compactRunningNumberRanges(values) {
+    const items = uniqueSorted(values).map(value => {
+        const match = value.match(/^(.*?)(\d+)(\+?)$/);
+        return match ? { value, prefix:match[1], number:Number(match[2]), openEnded:Boolean(match[3]) } : { value };
+    });
+    const compacted = [];
+    for (let index = 0; index < items.length;) {
+        const start = items[index];
+        let end = start;
+        while (end.prefix && !end.openEnded && items[index + 1]?.prefix === start.prefix && items[index + 1].number === end.number + 1) {
+            end = items[++index];
+        }
+        if (start.prefix && end !== start) compacted.push(`${start.prefix}${start.number}-${end.prefix}${end.number}${end.openEnded ? '+' : ''}`);
+        else compacted.push(start.value);
+        index++;
+    }
+    return compacted;
+}
 
 function populateFilters() {
     const route = $('route-filter'), profile = $('profile-filter');
@@ -201,27 +219,15 @@ function renderRouteRunningNumbers() {
         const numbers = [...routesByNumber.keys()];
         const lowest = Math.min(...numbers);
         const highest = Math.max(...numbers);
+        let precedingRoutes = [];
         for (let number = lowest; number <= highest; number++) {
-            if (routesByNumber.has(number)) continue;
-            [...(routesByNumber.get(number - 1) || [])].forEach(route => addSpareRun(route, `${prefix}${number}`));
+            if (routesByNumber.has(number)) {
+                precedingRoutes = [...routesByNumber.get(number)];
+            } else {
+                precedingRoutes.forEach(route => addSpareRun(route, `${prefix}${number}`));
+            }
         }
-    });
-    runsByRoute.forEach((runs, route) => {
-        const highestByPrefix = new Map();
-        runs.forEach(runningNumber => {
-            const match = runningNumber.match(/^(.*?)(\d+)$/);
-            if (!match) return;
-            const prefix = match[1];
-            const number = Number(match[2]);
-            highestByPrefix.set(prefix, Math.max(highestByPrefix.get(prefix) || 0, number));
-        });
-        highestByPrefix.forEach((highest, prefix) => {
-            const alreadyHasGapForPrefix = (spareRunsByRoute.get(route) || []).some(runningNumber => runningNumber.match(/^(.*?)(\d+)$/)?.[1] === prefix);
-            if (alreadyHasGapForPrefix) return;
-            let nextSpare = highest + 1;
-            while (routesByRunNumber.get(prefix)?.has(nextSpare)) nextSpare++;
-            addSpareRun(route, `${prefix}${nextSpare}`);
-        });
+        [...routesByNumber.get(highest)].forEach(route => addSpareRun(route, `${prefix}${highest + 1}+`));
     });
     container.innerHTML = [...runsByRoute.entries()]
         .sort(([firstRoute, firstRuns], [secondRoute, secondRuns]) => {
@@ -232,7 +238,7 @@ function renderRouteRunningNumbers() {
         })
         .map(([route, runs]) => {
             const spareRuns = uniqueSorted(spareRunsByRoute.get(route) || []);
-            const spareText = spareRuns.length ? `<span class="spare-label">Spare</span> ${esc(spareRuns.join(', '))}` : '';
+            const spareText = spareRuns.length ? `<span class="spare-label">Spare</span> ${esc(compactRunningNumberRanges(spareRuns).join(', '))}` : '';
             return `<div class="route-run"><strong>${esc(route)}</strong>${esc(uniqueSorted([...runs]).join(', ') || 'No running numbers')}${spareText}</div>`;
         })
         .join('');

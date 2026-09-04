@@ -1539,7 +1539,10 @@
                     originalDataFleetNo: busEntry.fleetNumber, originalDataRegNo: busEntry.vehicleReg,
                     isRareWorking: isRare,
                     blockId: blockId,
-                    runningNumber: busEntry.runningNumber || ''
+                    runningNumber: busEntry.runningNumber || '',
+                    curtailment: busEntry.curtailment && busEntry.curtailment.curtailAtStopID && busEntry.curtailment.newDestinationName
+                        ? busEntry.curtailment
+                        : null
                 });
             }
             const { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText } = calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing);
@@ -1576,9 +1579,11 @@
             let bestStopForThisRun = null;
             let smallestFutureDiff = Infinity;
             let largestPastDiff = -Infinity;
+            let reachedCurtailmentPoint = false;
 
             for (const stop of serviceRun.stops) {
                 if (!stop.preciseScheduledDateTime) continue;
+                if (reachedCurtailmentPoint) break;
                 if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
 
                 const diff = stop.timeToStationInSeconds;
@@ -1592,6 +1597,10 @@
                         largestPastDiff = diff;
                         bestStopForThisRun = stop;
                     }
+                }
+
+                if (serviceRun.curtailment && String(stop.stopID) === String(serviceRun.curtailment.curtailAtStopID)) {
+                    reachedCurtailmentPoint = true;
                 }
             }
 
@@ -1608,7 +1617,8 @@
                     nextStopActualTime: bestStopForThisRun.preciseScheduledDateTime, 
                     _timeToNextStopSec: bestStopForThisRun.timeToStationInSeconds,
                     isRareWorking: serviceRun.isRareWorking,
-                    runningNumber: serviceRun.runningNumber || ''
+                    runningNumber: serviceRun.runningNumber || '',
+                    curtailment: serviceRun.curtailment
                 });
             }
         });
@@ -1711,7 +1721,7 @@
             let displayDestination = service.displayDestination || '?';
             let displayNextStop = service.nextStopName || '?';
             let displayTimeText = '?';
-            const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
+            const curtailment = service.curtailment || getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
                 console.log(`[TRACKER] Applying curtailment for ${service.trueLineName}: showing "${curtailment.newTerminusDisplayName}" instead of "${displayDestination}"`);
                 displayDestination = curtailment.newTerminusDisplayName;
@@ -1787,7 +1797,7 @@
             let displayDestination = service.displayDestination || '?';
             let displayNextStop = service.nextStopName || '?';
             let displayTimeText = '?';
-            const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
+            const curtailment = service.curtailment || getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
                 displayDestination = curtailment.newTerminusDisplayName;
                 // Keep displayNextStop as the actual current next stop

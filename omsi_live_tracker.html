@@ -1723,11 +1723,18 @@
             let displayTimeText = '?';
             const curtailment = service.curtailment || getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
-                console.log(`[TRACKER] Applying curtailment for ${service.trueLineName}: showing "${curtailment.newTerminusDisplayName}" instead of "${displayDestination}"`);
-                displayDestination = curtailment.newTerminusDisplayName;
-                // Keep displayNextStop as the actual current next stop
-                displayNextStop = service.nextStopName || '?';
-                // Show actual current ETA (not return journey time)
+                const curtailmentDestination = curtailment.newTerminusDisplayName || curtailment.newDestinationName;
+                console.log(`[TRACKER] Applying curtailment for ${service.trueLineName}: showing "${curtailmentDestination}" instead of "${displayDestination}"`);
+                displayDestination = curtailmentDestination || displayDestination;
+                if (service.nextStopActualTime instanceof Date) {
+                    const time = service.nextStopActualTime;
+                    const hours = String(time.getHours()).padStart(2, '0');
+                    const minutes = String(time.getMinutes()).padStart(2, '0');
+                    const seconds = String(time.getSeconds()).padStart(2, '0');
+                    displayTimeText = isPast ? `Last seen ${hours}:${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`;
+                } else {
+                    displayTimeText = unescapeHtml(generateArrivalText(service._timeToNextStopSec));
+                }
             } else {
                 // No curtailment - normal ETA logic
                 if (service.nextStopActualTime instanceof Date) { 
@@ -1799,10 +1806,16 @@
             let displayTimeText = '?';
             const curtailment = service.curtailment || getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
-                displayDestination = curtailment.newTerminusDisplayName;
-                // Keep displayNextStop as the actual current next stop
-                displayNextStop = service.nextStopName || '?';
-                // Show actual current ETA (not return journey time)
+                displayDestination = curtailment.newTerminusDisplayName || curtailment.newDestinationName || displayDestination;
+                if (service.nextStopActualTime instanceof Date) {
+                    const time = service.nextStopActualTime;
+                    const hours = String(time.getHours()).padStart(2, '0');
+                    const minutes = String(time.getMinutes()).padStart(2, '0');
+                    const seconds = String(time.getSeconds()).padStart(2, '0');
+                    displayTimeText = isPast ? `Last seen ${hours}:${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`;
+                } else {
+                    displayTimeText = unescapeHtml(generateArrivalText(service._timeToNextStopSec));
+                }
             } else {
                 // No curtailment - normal ETA logic
                 if (service.nextStopActualTime instanceof Date) { 

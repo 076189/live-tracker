@@ -1632,6 +1632,7 @@ align-items: center;
         const FB_PATH_SCHEDULED_DELETIONS = '/scheduledRouteDeletions';
 	const FB_PATH_APP_SETTINGS = '/settings/appSettings'; // For new settings section
         const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute'; // New path for structured schedule data
+        const FB_PATH_RUNNING_NUMBER_INDEX = '/liveSchedule/runningNumberIndex';
         const FB_PATH_ARRIVALS_BY_STOP = '/arrivalsByStop';
         const FB_PATH_ARRIVALS_BY_STOP_META = '/arrivalsByStopMeta';
 	const FB_PATH_CURTAILMENT_POINTS = '/operationalSettings/curtailmentPoints';
@@ -10819,7 +10820,7 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     if (!currentUser_extra || !window.firebaseOMSI) {
         throw new Error("Not logged in or Firebase not available.");
     }
-    const { database, dbUpdate, dbRef, dbRemove, dbGet, dbChild } = window.firebaseOMSI;
+    const { database, dbSet, dbUpdate, dbRef, dbRemove, dbGet, dbChild } = window.firebaseOMSI;
 
     console.log(`Starting chunked save process for ${flatScheduleDataToSave.length} total entries...`);
 
@@ -10840,6 +10841,54 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     const existingRouteKeysInFirebase = existingRoutesSnap.exists() ? Object.keys(existingRoutesSnap.val()) : [];
     
     const newRouteKeys = Object.keys(newScheduleGroupedByRoute);
+    const runningNumberIndex = {};
+    const schedulePosition = (scheduledTime, dayOffset) => {
+        const text = String(scheduledTime || '').trim();
+        const clockMatch = text.match(/^(\d{1,2}):(\d{2})$/);
+        let minutes;
+        if (clockMatch) {
+            minutes = Number(clockMatch[1]) * 60 + Number(clockMatch[2]);
+        } else {
+            const fraction = Number(text);
+            minutes = Number.isFinite(fraction) && fraction >= 0 && fraction < 1 ? fraction * 1440 : NaN;
+        }
+        return Number.isFinite(minutes) ? (Number(dayOffset || 0) || 0) * 1440 + minutes : NaN;
+    };
+
+    flatScheduleDataToSave.forEach((entry, index) => {
+        const routeKey = String(entry.lineName || '').trim().toUpperCase();
+        const runningNumber = String(entry.runningNumber || '').trim().toUpperCase();
+        if (!routeKey || !runningNumber) return;
+
+        const tripKey = sanitizeFirebaseKey(String(entry.tripId || entry.internalId || `${entry.destinationName || 'service'}_${index}`));
+        if (!runningNumberIndex[routeKey]) runningNumberIndex[routeKey] = {};
+        if (!runningNumberIndex[routeKey][runningNumber]) runningNumberIndex[routeKey][runningNumber] = {};
+
+        const trip = runningNumberIndex[routeKey][runningNumber][tripKey] || {
+            runningNumber,
+            OperatingProfile: entry.OperatingProfile || 'daily',
+            startTime: entry.scheduledTime,
+            startDayOffset: entry.DayOffset || 0,
+            endTime: entry.scheduledTime,
+            endDayOffset: entry.DayOffset || 0,
+            fleetNumber: entry.fleetNumber || 'N/A',
+            vehicleReg: entry.vehicleReg || '---'
+        };
+
+        const dayOffset = Number(entry.DayOffset || 0) || 0;
+        const candidatePosition = schedulePosition(entry.scheduledTime, dayOffset);
+        const startPosition = schedulePosition(trip.startTime, trip.startDayOffset);
+        const endPosition = schedulePosition(trip.endTime, trip.endDayOffset);
+        if (Number.isFinite(candidatePosition) && (!Number.isFinite(startPosition) || candidatePosition < startPosition)) {
+            trip.startTime = entry.scheduledTime;
+            trip.startDayOffset = dayOffset;
+        }
+        if (Number.isFinite(candidatePosition) && (!Number.isFinite(endPosition) || candidatePosition > endPosition)) {
+            trip.endTime = entry.scheduledTime;
+            trip.endDayOffset = dayOffset;
+        }
+        runningNumberIndex[routeKey][runningNumber][tripKey] = trip;
+    });
 
     // 3. Process routes to be updated or added - batched into multi-path updates (grouped
     // by entry count, not route count) instead of one dbSet per route. With dozens of
@@ -10887,6 +10936,10 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
         }
     }
     await flushScheduleBatch_extra();
+
+    // The history logger reads this compact index rather than downloading every
+    // stop in the complete timetable on every scheduled run.
+    await dbSet(dbRef(database, FB_PATH_RUNNING_NUMBER_INDEX), runningNumberIndex);
 
     // 4. Process routes that need to be deleted
     for (const existingRouteKey of existingRouteKeysInFirebase) {

@@ -2,7 +2,7 @@ const CACHE_NAME = 'omsi-live-tracker-shell-v1';
 const APP_SHELL = [
     '/live-tracker/omsi_live_tracker.html',
     '/live-tracker/manifest-omsi_live_tracker.json',
-    '/live-tracker/omsi-tracker-icon.svg'
+    '/live-tracker/assets/omsi-tracker-icon.svg'
 ];
 
 self.addEventListener('install', event => {

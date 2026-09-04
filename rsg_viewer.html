@@ -292,8 +292,17 @@ function lastStopTimeForTrip(config, trip, entries) {
     const savedTrip = clean(trip.tripNumber || trip.tripNo || trip.trip || trip.number);
     let matches = entries.filter(entry => clean(entry.lineName).toUpperCase() === route && clean(entry.destinationName).toUpperCase() === destination && clean(entry.operatingProfile || entry.OperatingProfile).toUpperCase() === profile);
     const sequence = Array.isArray(config.stopSequence) ? config.stopSequence : [];
-    const firstStopId = clean(sequence[0]?.stopID || sequence[0]?.stopId || sequence[0]?.id || sequence[0]?.stop_id);
     const lastStopId = clean(sequence.at(-1)?.stopID || sequence.at(-1)?.stopId || sequence.at(-1)?.id || sequence.at(-1)?.stop_id);
+    // A published trip ID defines the exact run. Resolve it before using adjacent rows,
+    // which can otherwise make the final late-night trip consume the following morning's rows.
+    if (savedTrip) {
+        const tripIdMatches = matches.filter(entry => clean(entry.tripId || entry.tripNumber || entry.tripNo) === savedTrip);
+        if (tripIdMatches.length) {
+            const finalStop = [...tripIdMatches].reverse().find(entry => clean(entry.stopID || entry.stopId || entry.stop_id) === lastStopId);
+            return finalStop?.scheduledTime || tripIdMatches.at(-1)?.scheduledTime || '';
+        }
+    }
+    const firstStopId = clean(sequence[0]?.stopID || sequence[0]?.stopId || sequence[0]?.id || sequence[0]?.stop_id);
     const firstStopTime = tripTime(trip);
     // Stop-sequence based matching is the most reliable signal, so try it first regardless of a saved trip number.
     if (firstStopId && lastStopId) {
@@ -311,25 +320,16 @@ function lastStopTimeForTrip(config, trip, entries) {
             if (tripRows.length > 1) return tripRows.at(-1)?.scheduledTime || '';
         }
     }
-    // Fall back to a saved trip number match if the stop-sequence approach found nothing.
-    let tripIdMatches = [];
-    if (savedTrip) {
-        tripIdMatches = matches.filter(entry => clean(entry.tripId || entry.tripNumber || entry.tripNo) === savedTrip);
-    }
-    if (tripIdMatches.length) {
-        matches = tripIdMatches;
-    } else {
-        const firstStop = tripTime(trip);
-        const tripGroups = new Map();
-        matches.forEach(entry => {
-            const key = clean(entry.tripId || entry.internalId || entry.tripNumber || entry.tripNo);
-            if (!key) return;
-            if (!tripGroups.has(key)) tripGroups.set(key, []);
-            tripGroups.get(key).push(entry);
-        });
-        const matchingGroup = [...tripGroups.values()].find(group => group.some(entry => clean(entry.scheduledTime) === firstStop));
-        matches = matchingGroup || matches.filter(entry => clean(entry.scheduledTime) === firstStop);
-    }
+    const firstStop = tripTime(trip);
+    const tripGroups = new Map();
+    matches.forEach(entry => {
+        const key = clean(entry.tripId || entry.internalId || entry.tripNumber || entry.tripNo);
+        if (!key) return;
+        if (!tripGroups.has(key)) tripGroups.set(key, []);
+        tripGroups.get(key).push(entry);
+    });
+    const matchingGroup = [...tripGroups.values()].find(group => group.some(entry => clean(entry.scheduledTime) === firstStop));
+    matches = matchingGroup || matches.filter(entry => clean(entry.scheduledTime) === firstStop);
     if (!matches.length) return '';
     return matches.sort((a, b) => clean(a.scheduledTime).localeCompare(clean(b.scheduledTime), undefined, {numeric:true})).at(-1)?.scheduledTime || '';
 }
@@ -475,6 +475,16 @@ function buildDirectionEvents(config, paired, entries) {
     events.sort((a, b) => a.start - b.start);
     return events;
 }
+function isCircularService(config, paired) {
+    const configsToCheck = [config, paired].filter(Boolean);
+    if (!configsToCheck.length) return false;
+    return configsToCheck.every(directionConfig => {
+        const sequence = Array.isArray(directionConfig.stopSequence) ? directionConfig.stopSequence : [];
+        const firstStop = clean(sequence[0]?.stopID || sequence[0]?.stopId || sequence[0]?.id || sequence[0]?.stop_id);
+        const lastStop = clean(sequence.at(-1)?.stopID || sequence.at(-1)?.stopId || sequence.at(-1)?.id || sequence.at(-1)?.stop_id);
+        return firstStop && lastStop && firstStop === lastStop;
+    });
+}
 // Walks the combined event list and hands each trip to the next available vehicle: it must have
 // finished its previous trip (with the minimum 5-minute stand) and be free to switch direction. This
 // is what actually keeps a running number from appearing on two overlapping trips at once.
@@ -482,7 +492,7 @@ function assignRunningNumbersInOrder(config, paired, entries) {
     const events = buildDirectionEvents(config, paired, entries);
     const assignments = new Map();
     const duties = [];
-    const isCircularRoute = !paired;
+    const isCircularRoute = !paired || isCircularService(config, paired);
     let pointer = -1;
     events.forEach(event => {
         let dutyIndex = -1;

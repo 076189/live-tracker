@@ -24,6 +24,11 @@
         .status { min-height:22px; color:var(--muted); margin:8px 0 18px; }
         .auth { display:grid; grid-template-columns:1fr 1fr auto auto; gap:10px; align-items:end; margin:22px 0 10px; padding:14px; background:rgba(255,255,255,.82); border:1px solid var(--line); }
         .auth-status { grid-column:1/-1; color:var(--muted); font-size:.85rem; min-height:18px; }
+        .route-runs { margin:0 0 22px; padding:14px 16px; background:rgba(255,255,255,.82); border:1px solid var(--line); }
+        .route-runs h2 { margin:0 0 10px; font-size:1rem; }
+        .route-runs-list { display:flex; flex-wrap:wrap; gap:8px; }
+        .route-run { padding:7px 9px; background:#fffaf6; border-left:4px solid var(--accent); font-size:.84rem; line-height:1.4; }
+        .route-run strong { margin-right:5px; }
         .layout { display:grid; grid-template-columns:minmax(0,.7fr) minmax(340px,1.3fr); gap:20px; align-items:start; }
         .panel { background:rgba(255,255,255,.82); border:1px solid var(--line); padding:18px; box-shadow:0 5px 16px rgba(16,42,67,.06); }
         .panel h2 { margin:0 0 14px; font-size:1.15rem; border-bottom:1px solid var(--line); padding-bottom:10px; }
@@ -80,6 +85,10 @@
         <div><label for="profile-filter">Operating profile</label><select id="profile-filter"><option value="">All profiles</option></select></div>
         <div><label for="search-filter">Search</label><input id="search-filter" type="search" placeholder="Name, destination or number"></div>
         <button id="refresh-button" type="button">Refresh RSG</button>
+    </section>
+    <section class="route-runs" aria-labelledby="route-runs-heading">
+        <h2 id="route-runs-heading">Route Running Numbers</h2>
+        <div id="route-runs-list" class="route-runs-list"><span class="meta">Loading saved running numbers...</span></div>
     </section>
     <div id="status" class="status">Connecting to saved RSG configurations...</div>
     <div id="missing-runs-overview" class="missing-runs missing-runs-overview" hidden></div>
@@ -156,6 +165,27 @@ function renderMissingRunningNumbersOverview() {
     container.innerHTML = missingByConfig.length
         ? `<strong>Running numbers still missing in saved RSG</strong>${missingByConfig.map(({ config, missing }) => `${esc(clean(config.routeName) || 'Unnamed route')} to ${esc(clean(config.destinationName) || 'unknown destination')}: ${missing}`).join(' | ')}`
         : '<strong>Saved RSG running numbers</strong>All loaded route trip rows have a running number.';
+}
+function renderRouteRunningNumbers() {
+    const container = $('route-runs-list');
+    const runsByRoute = new Map();
+    configs.forEach(config => {
+        const route = clean(config.routeName).toUpperCase();
+        if (!route) return;
+        if (!runsByRoute.has(route)) runsByRoute.set(route, new Set());
+        tripsOf(config).forEach(trip => {
+            const runningNumber = runningValue(trip);
+            if (runningNumber) runsByRoute.get(route).add(runningNumber);
+        });
+    });
+    if (!runsByRoute.size) {
+        container.innerHTML = '<span class="meta">No saved route running numbers yet.</span>';
+        return;
+    }
+    container.innerHTML = [...runsByRoute.entries()]
+        .sort(([firstRoute], [secondRoute]) => firstRoute.localeCompare(secondRoute, undefined, { numeric:true, sensitivity:'base' }))
+        .map(([route, runs]) => `<div class="route-run"><strong>${esc(route)}</strong>${esc(uniqueSorted([...runs]).join(', ') || 'No running numbers')}</div>`)
+        .join('');
 }
 function flattenRouteEntries(routeName, routeData) {
     const entries = [];
@@ -505,7 +535,7 @@ async function load() {
         const snapshot = await get(ref(database, '/rsgConfigs'));
         const raw = snapshot.exists() ? snapshot.val() : {};
         configs = Object.entries(raw || {}).filter(([, config]) => config && typeof config === 'object').map(([key, config]) => ({ ...config, key }));
-        populateFilters(); render(); renderMissingRunningNumbersOverview(); $('status').textContent = `${configs.length} saved RSG configuration(s) loaded.`;
+        populateFilters(); render(); renderRouteRunningNumbers(); renderMissingRunningNumbersOverview(); $('status').textContent = `${configs.length} saved RSG configuration(s) loaded.`;
     } catch (error) { $('status').textContent = `Could not load RSG configurations: ${error.message}`; $('config-list').innerHTML = '<div class="empty">Check Firebase access and refresh the page.</div>'; }
 }
 ['route-filter','profile-filter','search-filter'].forEach(id => $(id).addEventListener(id === 'search-filter' ? 'input' : 'change', render));

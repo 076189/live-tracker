@@ -2242,11 +2242,15 @@
             const tripId = String(entry.tripId || entry.internalId || '').trim();
             if (!tripId || individualCurtailmentsByTrip.has(tripId)) return;
             const routeName = String(entry.lineName || '').toUpperCase();
-            const assignedVehicle = getLiveAssignedVehicle(routeName, entry.runningNumber) || (
+            const { blockId } = computeServiceInstanceIds(entry);
+            const resolvedVehicle = serviceInstanceVehicleCache.get(blockId);
+            const assignedVehicle = getLiveAssignedVehicle(routeName, entry.runningNumber) ||
+                getSubVehicleForRunningNumber(routeName, entry.runningNumber) ||
+                (resolvedVehicle && getVehicleKey(resolvedVehicle) ? resolvedVehicle : null) || (
                 entry.fleetNumber && entry.fleetNumber !== 'N/A' && entry.vehicleReg && entry.vehicleReg !== '---'
                     ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg }
-                    : null
-            );
+                    : getAssignedVehicle(blockId, routeName, entry.runningNumber)
+                );
             individualCurtailmentsByTrip.set(tripId, {
                 service: {
                     assignedFleetNumber: assignedVehicle?.fleetNumber || 'N/A',

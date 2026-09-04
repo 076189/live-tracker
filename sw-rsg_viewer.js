@@ -1,42 +1,43 @@
-const CACHE_NAME = 'rsg-viewer-v1';
+const CACHE_NAME = 'rsg-viewer-shell-v1';
 const APP_SHELL = [
-  './rsg_viewer.html',
-  './manifest-rsg_viewer.json',
-  './fonts/NJFont-Medium.ttf'
+    '/live-tracker/rsg_viewer.html',
+    '/live-tracker/manifest-rsg_viewer.json',
+    '/live-tracker/rsg-viewer-icon.svg',
+    '/live-tracker/fonts/NJFont-Medium.ttf'
 ];
 
-// Install event: Cache the static resources
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('Opened cache');
-      return cache.addAll(urlsToCache);
-    })
-  );
+self.addEventListener('install', event => {
+    event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
 
-// Fetch event: Serve cached resources or fetch from the network
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      // Return the cached resource if available, otherwise fetch from the network
-      return response || fetch(event.request);
-    })
-  );
+self.addEventListener('activate', event => {
+    event.waitUntil(
+        caches.keys()
+            .then(cacheNames => Promise.all(cacheNames
+                .filter(cacheName => cacheName.startsWith('rsg-viewer-') && cacheName !== CACHE_NAME)
+                .map(cacheName => caches.delete(cacheName))))
+            .then(() => self.clients.claim())
+    );
 });
 
-// Activate event: Clean up old caches
-self.addEventListener('activate', (event) => {
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (!cacheWhitelist.includes(cacheName)) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
+self.addEventListener('fetch', event => {
+    if (event.request.method !== 'GET') return;
+
+    const requestUrl = new URL(event.request.url);
+    if (requestUrl.origin !== self.location.origin) return;
+
+    if (event.request.mode === 'navigate' || requestUrl.pathname.endsWith('/rsg_viewer.html')) {
+        event.respondWith(
+            fetch(event.request)
+                .then(response => {
+                    const copy = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+                    return response;
+                })
+                .catch(() => caches.match(event.request).then(cached => cached || caches.match('/live-tracker/rsg_viewer.html')))
+        );
+        return;
+    }
+
+    event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
 });

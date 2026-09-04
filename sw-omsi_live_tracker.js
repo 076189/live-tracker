@@ -1,42 +1,42 @@
-const CACHE_NAME = 'live-tracker-cache-v1';
-const urlsToCache = [
-  '/live-tracker/omsi_live_tracker.html',
-  '/live-tracker/style.css', // Example CSS file
-  '/live-tracker/script.js', // Example JS file
+const CACHE_NAME = 'omsi-live-tracker-shell-v1';
+const APP_SHELL = [
+    '/live-tracker/omsi_live_tracker.html',
+    '/live-tracker/manifest-omsi_live_tracker.json',
+    '/live-tracker/omsi-tracker-icon.svg'
 ];
 
-// Install event: Cache the static resources
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('Opened cache');
-      return cache.addAll(urlsToCache);
-    })
-  );
+self.addEventListener('install', event => {
+    event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
 
-// Fetch event: Serve cached resources or fetch from the network
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      // Return the cached resource if available, otherwise fetch from the network
-      return response || fetch(event.request);
-    })
-  );
+self.addEventListener('activate', event => {
+    event.waitUntil(
+        caches.keys()
+            .then(cacheNames => Promise.all(cacheNames
+                .filter(cacheName => cacheName.startsWith('omsi-live-tracker-') && cacheName !== CACHE_NAME)
+                .map(cacheName => caches.delete(cacheName))))
+            .then(() => self.clients.claim())
+    );
 });
 
-// Activate event: Clean up old caches
-self.addEventListener('activate', (event) => {
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (!cacheWhitelist.includes(cacheName)) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
+self.addEventListener('fetch', event => {
+    if (event.request.method !== 'GET') return;
+
+    const requestUrl = new URL(event.request.url);
+    if (requestUrl.origin !== self.location.origin) return;
+
+    if (event.request.mode === 'navigate' || requestUrl.pathname.endsWith('/omsi_live_tracker.html')) {
+        event.respondWith(
+            fetch(event.request)
+                .then(response => {
+                    const copy = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+                    return response;
+                })
+                .catch(() => caches.match(event.request).then(cached => cached || caches.match('/live-tracker/omsi_live_tracker.html')))
+        );
+        return;
+    }
+
+    event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
 });

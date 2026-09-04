@@ -193,6 +193,19 @@ function renderRouteRunningNumbers() {
         return;
     }
     const spareRunsByRoute = new Map();
+    const addSpareRun = (route, runningNumber) => {
+        if (!spareRunsByRoute.has(route)) spareRunsByRoute.set(route, []);
+        spareRunsByRoute.get(route).push(runningNumber);
+    };
+    routesByRunNumber.forEach((routesByNumber, prefix) => {
+        const numbers = [...routesByNumber.keys()];
+        const lowest = Math.min(...numbers);
+        const highest = Math.max(...numbers);
+        for (let number = lowest; number <= highest; number++) {
+            if (routesByNumber.has(number)) continue;
+            [...(routesByNumber.get(number - 1) || [])].forEach(route => addSpareRun(route, `${prefix}${number}`));
+        }
+    });
     runsByRoute.forEach((runs, route) => {
         const highestByPrefix = new Map();
         runs.forEach(runningNumber => {
@@ -203,10 +216,11 @@ function renderRouteRunningNumbers() {
             highestByPrefix.set(prefix, Math.max(highestByPrefix.get(prefix) || 0, number));
         });
         highestByPrefix.forEach((highest, prefix) => {
+            const alreadyHasGapForPrefix = (spareRunsByRoute.get(route) || []).some(runningNumber => runningNumber.match(/^(.*?)(\d+)$/)?.[1] === prefix);
+            if (alreadyHasGapForPrefix) return;
             let nextSpare = highest + 1;
             while (routesByRunNumber.get(prefix)?.has(nextSpare)) nextSpare++;
-            if (!spareRunsByRoute.has(route)) spareRunsByRoute.set(route, []);
-            spareRunsByRoute.get(route).push(`${prefix}${nextSpare}`);
+            addSpareRun(route, `${prefix}${nextSpare}`);
         });
     });
     container.innerHTML = [...runsByRoute.entries()]

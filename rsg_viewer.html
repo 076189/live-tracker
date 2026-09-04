@@ -4,10 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#102a43">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="OMSI Tracker SA">
     <link rel="manifest" href="manifest-rsg_viewer.json">
     <title>RSG Viewer and Number Suggester</title>
     <style>
@@ -30,7 +26,11 @@
         .auth-status { grid-column:1/-1; color:var(--muted); font-size:.85rem; min-height:18px; }
         .route-runs { margin:0 0 22px; padding:14px 16px; background:rgba(255,255,255,.82); border:1px solid var(--line); }
         .route-runs h2 { margin:0 0 10px; font-size:1rem; }
-        .route-runs-list { display:flex; flex-wrap:wrap; gap:8px; }
+        .route-runs-list { columns:280px; column-gap:12px; }
+        .garage-group { break-inside:avoid; display:inline-block; width:100%; margin:0 0 12px; padding:10px; background:rgba(255,255,255,.58); border:1px solid var(--line); }
+        .garage-group h3 { margin:0 0 8px; font-size:.92rem; }
+        .garage-group h3 span { color:var(--muted); font-weight:normal; }
+        .garage-runs { display:flex; flex-wrap:wrap; gap:8px; }
         .route-run { padding:7px 9px; background:#fffaf6; border-left:4px solid var(--accent); font-size:.84rem; line-height:1.4; }
         .route-run strong { margin-right:5px; }
         .spare-label { margin-left:8px; color:var(--green); font-weight:bold; }
@@ -103,7 +103,7 @@
             <h2>Number suggestions</h2>
             <div class="suggestions"><div class="suggestion"><span>Next trip number</span><b id="trip-suggestion">-</b></div><div class="suggestion"><span>Next running number</span><b id="running-suggestion">-</b></div></div>
             <p id="suggestion-context" class="meta">Select a saved configuration to calculate suggestions.</p>
-            <div class="calculator"><div class="calculator-grid"><div><label for="pvr-input">PVR override</label><input id="pvr-input" type="number" min="1" step="1" placeholder="Auto"></div><div><label for="running-prefix">Running prefix</label><input id="running-prefix" type="text" placeholder="e.g. AB"></div><div><label for="running-start">Starting number</label><input id="running-start" type="number" min="0" step="1" placeholder="e.g. 253"></div><div><label for="running-pattern">Duty run order (optional)</label><input id="running-pattern" type="text" placeholder="SC4, SC6, SC2, SC7"></div></div><button id="suggest-duty-order-button" type="button" class="secondary">Suggest sequential duty order</button><button id="calculate-button" type="button">Calculate running numbers</button><button id="save-running-button" type="button" class="secondary" style="margin-top:6px;">Save running numbers to RSG</button><p id="save-running-status" class="meta" style="min-height:1.2em;"></p></div>
+            <div class="calculator"><div class="calculator-grid"><div><label for="pvr-input">PVR override</label><input id="pvr-input" type="number" min="1" step="1" placeholder="Auto"></div><div><label for="running-prefix">Running prefix</label><input id="running-prefix" type="text" placeholder="e.g. AB"></div><div><label for="running-start">Starting number</label><input id="running-start" type="number" min="0" step="1" placeholder="e.g. 253"></div><div><label for="running-pattern">Duty run order (optional)</label><input id="running-pattern" type="text" placeholder="SC4, SC6, SC2, SC7"></div><div><label for="crosslink-route">Crosslink with route</label><select id="crosslink-route"><option value="">No crosslink</option></select></div><div><label for="crosslink-from-trip">Leaves this route on trip</label><select id="crosslink-from-trip"><option value="">Choose a trip</option></select></div><div><label for="crosslink-to-trip">Then uses linked-route trip</label><select id="crosslink-to-trip"><option value="">Choose a trip</option></select></div><div><label for="crosslink-return-trip">Returns here on trip</label><select id="crosslink-return-trip"><option value="">Choose a trip</option></select></div></div><button id="suggest-duty-order-button" type="button" class="secondary">Suggest sequential duty order</button><button id="swap-trip-numbers-button" type="button" class="secondary">Swap odd/even trip numbers</button><button id="calculate-button" type="button">Calculate running numbers</button><button id="save-running-button" type="button" class="secondary" style="margin-top:6px;">Save running numbers to RSG</button><p id="save-running-status" class="meta" style="min-height:1.2em;"></p></div>
             <div id="missing-runs" class="missing-runs" hidden></div>
             <div id="suggested-tables" class="suggested-tables"></div>
             <p class="note">Suggestions are based on the numbers already present in the saved RSG data. Running numbers are a convenience hint, not a live allocation: check the duty sheet before using one.</p>
@@ -124,6 +124,7 @@ let currentUser = null;
 let configs = [];
 let selectedConfig = null;
 let liveRouteEntries = new Map();
+let crosslinkConfig = null;
 
 
 const $ = id => document.getElementById(id);
@@ -139,6 +140,19 @@ const tripsOf = config => {
 };
 const numberPart = value => { const match = clean(value).match(/(\d+)\s*$/); return match ? Number(match[1]) : 0; };
 const uniqueSorted = values => [...new Set(values.filter(Boolean))].sort((a,b) => a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
+const garages = [
+    { code:'BF', name:'Keadby Riverside', operator:'Arriva' },
+    { code:'BY', name:'Brumby', operator:'Arriva' },
+    { code:'AB', name:'Ashby', operator:'First' },
+    { code:'FX', name:'Flixborough', operator:'First' },
+    { code:'DL', name:'Skippingdale', operator:'First' },
+    { code:'K', name:'Skippingdale', operator:'Kelly Group' },
+    { code:'KR', name:'Keadby Riverside', operator:'First' },
+    { code:'GP', name:'Lodge Moor', operator:'Stagecoach' },
+    { code:'SC', name:'Scunthorpe', operator:'Stagecoach' }
+].sort((first, second) => first.operator.localeCompare(second.operator) || first.name.localeCompare(second.name) || first.code.localeCompare(second.code));
+const garageForRunningNumber = runningNumber => garages.slice().sort((first, second) => second.code.length - first.code.length)
+    .find(garage => clean(runningNumber).toUpperCase().startsWith(garage.code));
 function compactRunningNumberRanges(values) {
     const items = uniqueSorted(values).map(value => {
         const match = value.match(/^(.*?)(\d+)(\+?)$/);
@@ -210,10 +224,6 @@ function renderRouteRunningNumbers() {
             routesByRunNumber.get(prefix).get(number).add(route);
         });
     });
-    if (!runsByRoute.size) {
-        container.innerHTML = '<span class="meta">No saved route running numbers yet.</span>';
-        return;
-    }
     const spareRunsByRoute = new Map();
     const addSpareRun = (route, runningNumber) => {
         if (!spareRunsByRoute.has(route)) spareRunsByRoute.set(route, []);
@@ -233,19 +243,27 @@ function renderRouteRunningNumbers() {
         }
         [...routesByNumber.get(highest)].forEach(route => addSpareRun(route, `${prefix}${highest + 1}+`));
     });
-    container.innerHTML = [...runsByRoute.entries()]
-        .sort(([firstRoute, firstRuns], [secondRoute, secondRuns]) => {
-            const firstRunningNumber = uniqueSorted([...firstRuns])[0] || '\uffff';
-            const secondRunningNumber = uniqueSorted([...secondRuns])[0] || '\uffff';
-            return firstRunningNumber.localeCompare(secondRunningNumber, undefined, { numeric:true, sensitivity:'base' })
-                || firstRoute.localeCompare(secondRoute, undefined, { numeric:true, sensitivity:'base' });
-        })
-        .map(([route, runs]) => {
-            const spareRuns = uniqueSorted(spareRunsByRoute.get(route) || []);
+    const routeRowsByGarage = new Map(garages.map(garage => [garage.code, []]));
+    [...runsByRoute.entries()].forEach(([route, runs]) => {
+        garages.forEach(garage => {
+            const garageRuns = uniqueSorted([...runs].filter(runningNumber => garageForRunningNumber(runningNumber)?.code === garage.code));
+            if (!garageRuns.length) return;
+            const spareRuns = uniqueSorted((spareRunsByRoute.get(route) || []).filter(runningNumber => garageForRunningNumber(runningNumber)?.code === garage.code));
+            routeRowsByGarage.get(garage.code).push({ route, runs:garageRuns, spareRuns });
+        });
+    });
+    container.innerHTML = garages.map(garage => {
+        const rows = routeRowsByGarage.get(garage.code).sort((first, second) => {
+            const firstRun = first.runs[0] || '\uffff';
+            const secondRun = second.runs[0] || '\uffff';
+            return firstRun.localeCompare(secondRun, undefined, { numeric:true, sensitivity:'base' }) || first.route.localeCompare(second.route, undefined, { numeric:true, sensitivity:'base' });
+        });
+        const content = rows.length ? rows.map(({ route, runs, spareRuns }) => {
             const spareText = spareRuns.length ? `<span class="spare-label">Spare</span> ${esc(compactRunningNumberRanges(spareRuns).join(', '))}` : '';
-            return `<div class="route-run"><strong>${esc(route)}</strong>${esc(uniqueSorted([...runs]).join(', ') || 'No running numbers')}${spareText}</div>`;
-        })
-        .join('');
+            return `<div class="route-run"><strong>${esc(route)}</strong>${esc(runs.join(', '))}${spareText}</div>`;
+        }).join('') : '<span class="meta">No running numbers yet.</span>';
+        return `<section class="garage-group"><h3>${esc(garage.name)} <span>${esc(`${garage.code} | ${garage.operator}`)}</span></h3><div class="garage-runs">${content}</div></section>`;
+    }).join('');
 }
 function flattenRouteEntries(routeName, routeData) {
     const entries = [];
@@ -337,6 +355,47 @@ function findPairedConfig(config) {
         && clean(candidate.operatingProfile).toUpperCase() === clean(config.operatingProfile).toUpperCase()
         && clean(candidate.destinationName).toUpperCase() !== clean(config.destinationName).toUpperCase()
         && isNightConfig(candidate) === night);
+}
+function crosslinkConfigs(config = selectedConfig) {
+    if (!config) return [];
+    const linkedKey = clean(config.runningPoolSettings?.crosslinkRouteKey);
+    const linked = configs.find(candidate => candidate.key === linkedKey);
+    return linked ? [linked] : [];
+}
+function crosslinkTripId(config, trip, index) {
+    return `${config.key}::${tripTime(trip)}::${clean(trip.tripNumber || trip.tripNo || trip.trip || trip.number) || index}`;
+}
+function tripOptionsFor(config) {
+    if (!config) return [];
+    return orderTripsChronologically(tripsOf(config)).map((trip, index) => ({
+        value: crosslinkTripId(config, trip, index),
+        label: `${tripTime(trip) || 'No time'} - trip ${clean(trip.tripNumber || trip.tripNo || trip.trip || trip.number) || index + 1}`
+    }));
+}
+function populateCrosslinkTrips() {
+    const settings = selectedConfig?.runningPoolSettings || {};
+    const setOptions = (id, config, selectedValue) => {
+        const select = $(id);
+        const options = tripOptionsFor(config);
+        select.innerHTML = '<option value="">Choose a trip</option>' + options.map(option => `<option value="${esc(option.value)}">${esc(option.label)}</option>`).join('');
+        select.value = options.some(option => option.value === selectedValue) ? selectedValue : '';
+        select.disabled = !config;
+    };
+    setOptions('crosslink-from-trip', selectedConfig, clean(settings.crosslinkFromTripId));
+    setOptions('crosslink-to-trip', crosslinkConfig, clean(settings.crosslinkToTripId));
+    setOptions('crosslink-return-trip', selectedConfig, clean(settings.crosslinkReturnTripId));
+}
+function populateCrosslinkRoutes() {
+    const select = $('crosslink-route');
+    const currentKey = selectedConfig?.key;
+    const selectedKey = clean(selectedConfig?.runningPoolSettings?.crosslinkRouteKey);
+    const options = configs.filter(config => config.key !== currentKey && clean(config.routeName))
+        .sort((first, second) => `${first.routeName}|${first.operatingProfile}|${first.destinationName}`.localeCompare(`${second.routeName}|${second.operatingProfile}|${second.destinationName}`, undefined, { numeric:true }))
+        .map(config => `<option value="${esc(config.key)}">${esc(`${config.routeName} - ${config.operatingProfile || 'Default'} (${config.destinationName || 'route'})`)}</option>`);
+    select.innerHTML = '<option value="">No crosslink</option>' + options.join('');
+    select.value = options.some(option => option.includes(`value="${esc(selectedKey)}"`)) ? selectedKey : '';
+    crosslinkConfig = configs.find(config => config.key === select.value) || null;
+    populateCrosslinkTrips();
 }
 // Derives PVR/prefix/start from running numbers already saved against trips in Tools RSG, for
 // configs that were never edited via this pool calculator.
@@ -585,6 +644,7 @@ async function selectConfig(config, card) {
     $('running-start').value = clean(effectiveSettings.start);
     $('running-start').placeholder = 'e.g. 253';
     $('running-pattern').value = clean(effectiveSettings.order);
+    populateCrosslinkRoutes();
     renderMissingRunningNumbers(config, pairedConfig);
     suggest(config, entries);
 }
@@ -599,6 +659,24 @@ async function load() {
     } catch (error) { $('status').textContent = `Could not load RSG configurations: ${error.message}`; $('config-list').innerHTML = '<div class="empty">Check Firebase access and refresh the page.</div>'; }
 }
 ['route-filter','profile-filter','search-filter'].forEach(id => $(id).addEventListener(id === 'search-filter' ? 'input' : 'change', render));
+$('crosslink-route').addEventListener('change', async event => {
+    if (!selectedConfig) return;
+    const crosslinkRouteKey = clean(event.target.value);
+    selectedConfig.runningPoolSettings = { ...(selectedConfig.runningPoolSettings || {}), crosslinkRouteKey, crosslinkFromTripId:'', crosslinkToTripId:'', crosslinkReturnTripId:'' };
+    crosslinkConfig = configs.find(config => config.key === crosslinkRouteKey) || null;
+    if (crosslinkConfig) await loadLiveRouteEntries(crosslinkConfig.routeName);
+    populateCrosslinkTrips();
+    suggest(selectedConfig, liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
+});
+['crosslink-from-trip', 'crosslink-to-trip', 'crosslink-return-trip'].forEach(id => $(id).addEventListener('change', event => {
+    if (!selectedConfig) return;
+    const settingName = ({
+        'crosslink-from-trip':'crosslinkFromTripId',
+        'crosslink-to-trip':'crosslinkToTripId',
+        'crosslink-return-trip':'crosslinkReturnTripId'
+    })[id];
+    selectedConfig.runningPoolSettings = { ...(selectedConfig.runningPoolSettings || {}), [settingName]:clean(event.target.value) };
+}));
 document.addEventListener('focusin', event => {
     if (event.target.matches('#suggested-tables .running-number-input')) event.target.dataset.previousValue = event.target.value;
 });
@@ -631,6 +709,23 @@ $('calculate-button').addEventListener('click', () => {
     suggest(selectedConfig, liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
 });
 $('suggest-duty-order-button').addEventListener('click', suggestSequentialDutyOrder);
+$('swap-trip-numbers-button').addEventListener('click', () => {
+    const inputs = document.querySelectorAll('#suggested-tables .trip-number-input');
+    let swapped = 0;
+    inputs.forEach(input => {
+        const match = clean(input.value).match(/^(.*?)(\d+)(\s*)$/);
+        if (!match) return;
+        const [, prefix, digits, suffix] = match;
+        const number = Number(digits);
+        const replacement = number % 2 ? number + 1 : number - 1;
+        if (replacement < 0) return;
+        input.value = `${prefix}${String(replacement).padStart(digits.length, '0')}${suffix}`;
+        swapped++;
+    });
+    $('save-running-status').textContent = swapped
+        ? `${swapped} trip number(s) swapped. Save running numbers to apply the change.`
+        : 'No numeric trip numbers are available to swap.';
+});
 function tripDetailsWithEdits(config, tableEl) {
     const source = (Array.isArray(config.tripDetails) ? config.tripDetails : tripsOf(config)).map(trip => ({ ...trip }));
     const trips = orderTripsChronologically(tripsOf(config));
@@ -647,8 +742,51 @@ function tripDetailsWithEdits(config, tableEl) {
     });
     return source;
 }
+function tripForCrosslinkId(config, tripId, tripDetails = tripsOf(config)) {
+    return orderTripsChronologically(tripDetails).find((trip, index) => crosslinkTripId(config, trip, index) === tripId);
+}
+function crosslinkHandoverWarnings(poolSettings, updatedTripDetailsByConfig) {
+    const linkedConfig = configs.find(config => config.key === poolSettings.crosslinkRouteKey);
+    const selectedIds = [poolSettings.crosslinkFromTripId, poolSettings.crosslinkToTripId, poolSettings.crosslinkReturnTripId];
+    if (!poolSettings.crosslinkRouteKey && !selectedIds.some(Boolean)) return [];
+    if (!linkedConfig || selectedIds.some(id => !id)) return ['Choose all three crosslink trips before saving.'];
+    const localTrips = updatedTripDetailsByConfig.get(selectedConfig.key) || tripsOf(selectedConfig);
+    const linkedTrips = updatedTripDetailsByConfig.get(linkedConfig.key) || tripsOf(linkedConfig);
+    const fromTrip = tripForCrosslinkId(selectedConfig, poolSettings.crosslinkFromTripId, localTrips);
+    const linkedTrip = tripForCrosslinkId(linkedConfig, poolSettings.crosslinkToTripId, linkedTrips);
+    const returnTrip = tripForCrosslinkId(selectedConfig, poolSettings.crosslinkReturnTripId, localTrips);
+    if (!fromTrip || !linkedTrip || !returnTrip) return ['One or more selected crosslink trips could not be found.'];
+    if (!runningValue(fromTrip)) return ['Give the first selected trip a running number before saving the crosslink.'];
+    const localEntries = liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || [];
+    const linkedEntries = liveRouteEntries.get(clean(linkedConfig.routeName).toUpperCase()) || [];
+    const fromEvent = buildDirectionEvents(selectedConfig, findPairedConfig(selectedConfig), localEntries).find(event => event.trip === fromTrip);
+    const linkedEvent = buildDirectionEvents(linkedConfig, findPairedConfig(linkedConfig), linkedEntries).find(event => event.trip === linkedTrip);
+    const returnEvent = buildDirectionEvents(selectedConfig, findPairedConfig(selectedConfig), localEntries).find(event => event.trip === returnTrip);
+    if (!fromEvent || !linkedEvent || !returnEvent) return ['Could not calculate all selected crosslink trip times.'];
+    const warnings = [];
+    if (linkedEvent.start - fromEvent.end < 5) warnings.push('The selected linked-route trip starts less than 5 minutes after the first trip finishes.');
+    if (returnEvent.start - linkedEvent.end < 5) warnings.push('The selected return trip starts less than 5 minutes after the linked-route trip finishes.');
+    return warnings;
+}
+function applyCrosslinkRunningNumber(poolSettings, updatedTripDetailsByConfig, updates) {
+    const linkedConfig = configs.find(config => config.key === poolSettings.crosslinkRouteKey);
+    if (!linkedConfig || !poolSettings.crosslinkFromTripId) return;
+    const localTrips = updatedTripDetailsByConfig.get(selectedConfig.key);
+    const fromTrip = tripForCrosslinkId(selectedConfig, poolSettings.crosslinkFromTripId, localTrips);
+    const returnTrip = tripForCrosslinkId(selectedConfig, poolSettings.crosslinkReturnTripId, localTrips);
+    const linkedTrips = (Array.isArray(linkedConfig.tripDetails) ? linkedConfig.tripDetails : tripsOf(linkedConfig)).map(trip => ({ ...trip }));
+    const linkedTrip = tripForCrosslinkId(linkedConfig, poolSettings.crosslinkToTripId, linkedTrips);
+    const sharedRun = runningValue(fromTrip);
+    if (!sharedRun) return;
+    linkedTrip.runningNumber = sharedRun;
+    returnTrip.runningNumber = sharedRun;
+    updatedTripDetailsByConfig.set(linkedConfig.key, linkedTrips);
+    updates[`/rsgConfigs/${linkedConfig.key}/tripDetails`] = linkedTrips;
+    linkedConfig.tripDetails = linkedTrips;
+}
 function otherRoutesUsingRuns(runs) {
-    const selectedKeys = new Set([selectedConfig, selectedConfig && findPairedConfig(selectedConfig)].filter(Boolean).map(config => config.key));
+    const selectedKeys = new Set([selectedConfig, selectedConfig && findPairedConfig(selectedConfig), ...crosslinkConfigs()]
+        .filter(Boolean).map(config => config.key));
     const normalizedRuns = new Set(runs.map(run => clean(run).toUpperCase()).filter(Boolean));
     if (!normalizedRuns.size) return [];
     return configs.filter(config => !selectedKeys.has(config.key)).flatMap(config => {
@@ -670,9 +808,15 @@ function runningNumberConflicts(directionConfigs, updatedTripDetailsByConfig) {
     const otherRouteConflicts = otherRoutesUsingRuns([...selectedRuns]);
     const overlapWarnings = [];
     const entries = liveRouteEntries.get(clean(directionConfigs[0]?.routeName).toUpperCase()) || [];
+    const linkedConfig = crosslinkConfigs()[0];
+    const linkedEntries = liveRouteEntries.get(clean(linkedConfig?.routeName).toUpperCase()) || [];
     const intervalsByRun = new Map();
-    buildDirectionEvents(directionConfigs[0], directionConfigs[1], entries).forEach(event => {
-        const trip = (updatedTripDetailsByConfig.get(event.config.key) || []).find(item => tripTime(item) === tripTime(event.trip));
+    [
+        ...buildDirectionEvents(directionConfigs[0], directionConfigs[1], entries),
+        ...(linkedConfig ? buildDirectionEvents(linkedConfig, findPairedConfig(linkedConfig), linkedEntries) : [])
+    ].forEach(event => {
+        const updatedTrips = updatedTripDetailsByConfig.get(event.config.key);
+        const trip = updatedTrips?.find(item => tripTime(item) === tripTime(event.trip)) || event.trip;
         const run = normalizeRun(runningValue(trip));
         if (!run) return;
         if (!intervalsByRun.has(run)) intervalsByRun.set(run, []);
@@ -693,7 +837,16 @@ $('save-running-button').addEventListener('click', async () => {
     if (!tableEls.length) { status.textContent = 'Nothing to save yet.'; return; }
     const paired = findPairedConfig(selectedConfig);
     const directionConfigs = [selectedConfig, paired];
-    const poolSettings = { pvr: clean($('pvr-input').value), prefix: clean($('running-prefix').value), start: clean($('running-start').value), order: clean($('running-pattern').value) };
+    const poolSettings = {
+        pvr: clean($('pvr-input').value),
+        prefix: clean($('running-prefix').value),
+        start: clean($('running-start').value),
+        order: clean($('running-pattern').value),
+        crosslinkRouteKey: clean($('crosslink-route').value),
+        crosslinkFromTripId: clean($('crosslink-from-trip').value),
+        crosslinkToTripId: clean($('crosslink-to-trip').value),
+        crosslinkReturnTripId: clean($('crosslink-return-trip').value)
+    };
     const updates = {};
     const updatedTripDetailsByConfig = new Map();
     directionConfigs.forEach((config, index) => {
@@ -707,6 +860,9 @@ $('save-running-button').addEventListener('click', async () => {
         config.runningPoolSettings = poolSettings;
     });
     if (!Object.keys(updates).length) { status.textContent = 'No saved configuration key found to update.'; return; }
+    const crosslinkWarnings = crosslinkHandoverWarnings(poolSettings, updatedTripDetailsByConfig);
+    if (crosslinkWarnings.length) { status.textContent = `Cannot save crosslink: ${crosslinkWarnings.join(' ')}`; return; }
+    applyCrosslinkRunningNumber(poolSettings, updatedTripDetailsByConfig, updates);
     const conflicts = runningNumberConflicts(directionConfigs, updatedTripDetailsByConfig);
     if (conflicts.length && !window.confirm(`Running number(s) are already used on another route:\n\n${conflicts.join('\n')}\n\nSave anyway?`)) {
         status.textContent = 'Save cancelled: review the matching running numbers.';

@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#102a43">
     <link rel="manifest" href="manifest-rsg_viewer.json">
+    <link rel="icon" href="rsg-viewer-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="rsg-viewer-icon.svg">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="RSG Viewer">
     <title>RSG Viewer and Number Suggester</title>
     <style>
         @font-face { font-family: NJ; src: url('fonts/NJFont-Medium.ttf') format('truetype'); }
@@ -333,8 +339,14 @@ function lastStopTimeForTrip(config, trip, entries) {
     if (!matches.length) return '';
     return matches.sort((a, b) => clean(a.scheduledTime).localeCompare(clean(b.scheduledTime), undefined, {numeric:true})).at(-1)?.scheduledTime || '';
 }
-function suggestedTripNumber(config, index, directionIndex) {
-    const trip = tripsOf(config)[index] || {};
+function suggestedTripNumber(config, index, directionIndex, paired, entries, displayedTrip) {
+    const trip = displayedTrip || tripsOf(config)[index] || {};
+    if (isCircularService(config, paired)) {
+        const chronologicalTrips = buildDirectionEvents(config, paired, entries || []);
+        const key = tripKey(trip, config);
+        const chronologicalIndex = chronologicalTrips.findIndex(event => tripKey(event.trip, event.config) === key);
+        if (chronologicalIndex >= 0) return String(chronologicalIndex + 1);
+    }
     const saved = clean(trip.tripNumber || trip.tripNo || trip.trip || trip.number);
     if (saved) return saved;
     return String((index * 2) + directionIndex + 1);
@@ -450,10 +462,11 @@ function buildDirectionEvents(config, paired, entries) {
     const orderedTripsByDirection = directionConfigs.map(directionConfig => orderTripsChronologically(tripsOf(directionConfig)));
     const firstStartMinutes = orderedTripsByDirection.map(trips => minutesFromTime(tripTime(trips[0])));
     const directionOffsets = directionConfigs.map((_, directionIndex) => {
-        if (directionConfigs.length !== 2 || !firstStartMinutes.every(Number.isFinite) || Math.abs(firstStartMinutes[0] - firstStartMinutes[1]) < 720) return 0;
+        if (isCircularService(config, paired) || directionConfigs.length !== 2 || !firstStartMinutes.every(Number.isFinite) || Math.abs(firstStartMinutes[0] - firstStartMinutes[1]) < 720) return 0;
         return firstStartMinutes[directionIndex] > firstStartMinutes[directionIndex ? 0 : 1] ? -1440 : 0;
     });
     directionConfigs.forEach((directionConfig, directionIndex) => {
+        const termini = configTermini(directionConfig);
         // Use the same gap-based rollover ordering as the display tables - a plain ascending sort by
         // raw clock time would put after-midnight continuation trips (e.g. 00:06) first in the day
         // instead of last, throwing off which running number the very first real trip gets.
@@ -469,17 +482,30 @@ function buildDirectionEvents(config, paired, entries) {
             let end = minutesFromTime(lastStopTimeForTrip(directionConfig, trip, entries));
             if (!Number.isFinite(end)) end = start;
             while (end < start) end += 1440;
-            events.push({ config: directionConfig, trip, directionIndex, start, end });
+            events.push({ config: directionConfig, trip, directionIndex, start, end, ...termini });
         });
     });
     events.sort((a, b) => a.start - b.start);
     return events;
+}
+function circularTerminusKey(stop) {
+    const name = clean(typeof stop === 'string' ? stop : stop?.stopName || stop?.name || stop?.stop_name);
+    return name.replace(/\s*\([^)]*\)\s*$/g, '').replace(/\s+/g, ' ').toUpperCase();
+}
+function configTermini(config) {
+    const sequence = Array.isArray(config?.stopSequence) ? config.stopSequence : [];
+    const startTerminus = circularTerminusKey(sequence[0]);
+    const endTerminus = circularTerminusKey(sequence.at(-1));
+    return { startTerminus, endTerminus };
 }
 function isCircularService(config, paired) {
     const configsToCheck = [config, paired].filter(Boolean);
     if (!configsToCheck.length) return false;
     return configsToCheck.some(directionConfig => {
         const sequence = Array.isArray(directionConfig.stopSequence) ? directionConfig.stopSequence : [];
+        const firstTerminus = circularTerminusKey(sequence[0]);
+        const lastTerminus = circularTerminusKey(sequence.at(-1));
+        if (firstTerminus && lastTerminus && firstTerminus === lastTerminus) return true;
         const firstStop = clean(sequence[0]?.stopID || sequence[0]?.stopId || sequence[0]?.id || sequence[0]?.stop_id);
         const lastStop = clean(sequence.at(-1)?.stopID || sequence.at(-1)?.stopId || sequence.at(-1)?.id || sequence.at(-1)?.stop_id);
         return firstStop && lastStop && firstStop === lastStop;
@@ -492,21 +518,25 @@ function assignRunningNumbersInOrder(config, paired, entries) {
     const events = buildDirectionEvents(config, paired, entries);
     const assignments = new Map();
     const duties = [];
-    const isCircularRoute = !paired || isCircularService(config, paired);
     let pointer = -1;
     events.forEach(event => {
         let dutyIndex = -1;
         for (let step = 0; step < duties.length; step++) {
             const candidateIndex = (pointer + 1 + step) % duties.length;
             const duty = duties[candidateIndex];
-            if ((isCircularRoute || duty.directionIndex !== event.directionIndex) && (event.start - duty.end) >= 5) { dutyIndex = candidateIndex; break; }
+            const locationsAreKnown = duty.endTerminus && event.startTerminus;
+            const canContinueAtTerminus = locationsAreKnown
+                ? duty.endTerminus === event.startTerminus
+                : duty.directionIndex !== event.directionIndex;
+            if (canContinueAtTerminus && (event.start - duty.end) >= 5) { dutyIndex = candidateIndex; break; }
         }
         if (dutyIndex === -1) {
             dutyIndex = duties.length;
-            duties.push({ directionIndex: event.directionIndex, end: event.end });
+            duties.push({ directionIndex: event.directionIndex, end: event.end, endTerminus: event.endTerminus });
         } else {
             duties[dutyIndex].directionIndex = event.directionIndex;
             duties[dutyIndex].end = event.end;
+            duties[dutyIndex].endTerminus = event.endTerminus;
         }
         pointer = dutyIndex;
         assignments.set(tripKey(event.trip, event.config), { dutyIndex });
@@ -625,18 +655,20 @@ function orderTripsChronologically(trips) {
 function renderSuggestedTable(title, config, directionIndex, entries, assignments) {
     if (!config) return `<div class="suggested-table"><h3>${esc(title)}</h3><div class="empty">No matching direction saved.</div></div>`;
     const trips = orderTripsChronologically(tripsOf(config));
+    const paired = findPairedConfig(config);
     const pool = runningPool();
     // While a PVR/prefix/start pool is active, let it drive the numbers (cycling as the pool grows or shrinks)
     // instead of being stuck on whatever was saved last time.
     const generatedActive = generatedRunningPool().length > 0;
-    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${trips.length ? trips.map((trip, index) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, config)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const suggestedRunning = generatedActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning); return `<tr><td><input class="trip-number-input" value="${esc(suggestedTripNumber(config, index, directionIndex))}" aria-label="Trip number"></td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(config, trip, entries || []) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
+    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${trips.length ? trips.map((trip, index) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, config)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const suggestedRunning = generatedActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning); return `<tr><td><input class="trip-number-input" value="${esc(suggestedTripNumber(config, index, directionIndex, paired, entries, trip))}" aria-label="Trip number"></td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(config, trip, entries || []) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
 }
 function renderSuggestedTables(config, entries) {
     const container = $('suggested-tables');
     if (!container) return;
     const paired = findPairedConfig(config);
     const assignments = assignRunningNumbersInOrder(config, paired, entries || []);
-    container.innerHTML = renderSuggestedTable(`Towards ${config.destinationName || 'Direction 1'}`, config, 0, entries, assignments) + renderSuggestedTable(`Towards ${paired ? paired.destinationName : 'Direction 2'}`, paired, 1, entries, assignments);
+    const circular = isCircularService(config, paired);
+    container.innerHTML = renderSuggestedTable(circular ? `Circular services (${config.destinationName || 'main route'})` : `Towards ${config.destinationName || 'Direction 1'}`, config, 0, entries, assignments) + renderSuggestedTable(circular ? `Short workings (${paired?.destinationName || 'none'})` : `Towards ${paired ? paired.destinationName : 'Direction 2'}`, paired, 1, entries, assignments);
 }
 async function selectConfig(config, card) {
     selectedConfig = config;

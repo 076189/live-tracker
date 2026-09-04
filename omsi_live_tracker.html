@@ -245,7 +245,7 @@
     const schoolHolidayDateRanges = []; 
     const earlyMorningThresholdHours = 5; 
 
-    const MAX_UPCOMING_SECONDS_TRACKER = 1800;
+    const MAX_UPCOMING_SECONDS_TRACKER = 3600;
     const MIN_RELEVANT_PAST_SECONDS_TRACKER = -59; 
     const MAX_PAST_SECONDS_TRACKER = -1800; // 30-minute timeout buffer after passing a stop
 
@@ -1500,17 +1500,7 @@
 
         const nowForProcessing = new Date();
         const activeServicesMap = new Map();
-        const futureTripsByBlock = new Map();
         const shortStartByService = startShortReturnsAfterCurtailment(dataToProcess, nowForProcessing);
-
-        localScheduleData.forEach(entry => {
-            if (!entry || typeof entry !== 'object' || !entry.stopID) return;
-            const { blockId, serviceInstanceKey } = computeServiceInstanceIds(entry);
-            const timing = calculatePreciseStopTimingsForTracker(entry, nowForProcessing);
-            if (!timing.finalAdjustedSchedTime || timing.timeToStationInSeconds < 0) return;
-            if (!futureTripsByBlock.has(blockId)) futureTripsByBlock.set(blockId, new Set());
-            futureTripsByBlock.get(blockId).add(serviceInstanceKey);
-        });
 
         dataToProcess.forEach((busEntryRaw) => {
             if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) { return; }
@@ -1639,7 +1629,7 @@
                         smallestFutureDiff = diff;
                         bestStopForThisRun = stop;
                     }
-                } else if (diff < 0 && (diff >= MAX_PAST_SECONDS_TRACKER || [...(futureTripsByBlock.get(serviceRun.blockId) || [])].some(tripId => tripId !== serviceRun.serviceId))) {
+                } else if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
                     if (diff > largestPastDiff && smallestFutureDiff === Infinity) {
                         largestPastDiff = diff;
                         bestStopForThisRun = stop;

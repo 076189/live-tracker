@@ -257,8 +257,8 @@
 
     let watchedBuses = new Set(); 
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
-    const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v1';
-    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v2';
+    const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v2';
+    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v3';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
@@ -298,6 +298,7 @@
 
     function loadRouteHistoryFromStorage() {
         try {
+            localStorage.removeItem('omsiVehicleRouteHistory_v1');
             const stored = localStorage.getItem(ROUTE_HISTORY_STORAGE_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
@@ -331,6 +332,7 @@
 
     function loadDetailedLogFromStorage() {
         try {
+            localStorage.removeItem('omsiVehicleDetailedLog_v2');
             const stored = localStorage.getItem(VEHICLE_DETAILED_LOG_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
@@ -350,7 +352,7 @@
 
     function getGarageFromRunningNumber(runningNumber) {
         const value = String(runningNumber || '').trim().toUpperCase();
-        const match = value.match(/^([A-Z]{2,4})(?:[\s-]|\d|$)/);
+        const match = value.match(/^([A-Z]{1,4})(?:[\s-]|\d|$)/);
         return match ? match[1] : '';
     }
 
@@ -1866,12 +1868,25 @@
             }
         }
 
+        // The scheduled Firebase logger indexes its records by running number. Include
+        // the active matching run so a fleet-number search can reach that central history.
+        const runningNumbers = new Set();
+        currentTrackedServices.forEach(service => {
+            const fleet = String(service.assignedFleetNumber || '').trim().toUpperCase();
+            const registration = String(service.assignedRegistration || '').trim().toUpperCase();
+            if (searchTerms.some(term => fleet === term || registration === term || fleet.includes(term) || registration.includes(term))) {
+                const runningNumber = String(service.runningNumber || '').trim().toUpperCase();
+                if (runningNumber) runningNumbers.add(runningNumber);
+            }
+        });
+
         let firebaseLogs = [];
         try {
             firebaseLogs = await loadFirebaseVehicleHistory([
                 ...searchTerms,
                 displayFleet,
-                displayReg
+                displayReg,
+                ...runningNumbers
             ]);
         } catch (error) {}
         logs = combineHistoryLogs(logs, firebaseLogs);

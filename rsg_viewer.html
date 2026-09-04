@@ -438,6 +438,7 @@ function generatedRunningPool() {
 function runningPool() {
     const manualPool = $('running-pattern').value.split(',').map(clean).filter(Boolean);
     const generatedPool = generatedRunningPool();
+    if ($('pvr-input').dataset.manuallySet && generatedPool.length) return generatedPool;
     if (manualPool.length) return manualPool;
     if (generatedPool.length) return generatedPool;
     const inferred = [...new Set(configs.flatMap(config => tripsOf(config).map(runningValue).filter(Boolean)))];
@@ -518,18 +519,19 @@ function assignRunningNumbersInOrder(config, paired, entries) {
     const events = buildDirectionEvents(config, paired, entries);
     const assignments = new Map();
     const duties = [];
-    let pointer = -1;
     events.forEach(event => {
         let dutyIndex = -1;
-        for (let step = 0; step < duties.length; step++) {
-            const candidateIndex = (pointer + 1 + step) % duties.length;
-            const duty = duties[candidateIndex];
+        let latestEligibleEnd = -Infinity;
+        duties.forEach((duty, candidateIndex) => {
             const locationsAreKnown = duty.endTerminus && event.startTerminus;
             const canContinueAtTerminus = locationsAreKnown
                 ? duty.endTerminus === event.startTerminus
                 : duty.directionIndex !== event.directionIndex;
-            if (canContinueAtTerminus && (event.start - duty.end) >= 5) { dutyIndex = candidateIndex; break; }
-        }
+            if (canContinueAtTerminus && (event.start - duty.end) >= 5 && duty.end > latestEligibleEnd) {
+                dutyIndex = candidateIndex;
+                latestEligibleEnd = duty.end;
+            }
+        });
         if (dutyIndex === -1) {
             dutyIndex = duties.length;
             duties.push({ directionIndex: event.directionIndex, end: event.end, endTerminus: event.endTerminus });
@@ -538,7 +540,6 @@ function assignRunningNumbersInOrder(config, paired, entries) {
             duties[dutyIndex].end = event.end;
             duties[dutyIndex].endTerminus = event.endTerminus;
         }
-        pointer = dutyIndex;
         assignments.set(tripKey(event.trip, event.config), { dutyIndex });
     });
     return assignments;
@@ -588,7 +589,7 @@ function suggestSequentialDutyOrder() {
     }
     const labelsByDuty = Array(dutyCount);
     dutyOrder.forEach((dutyIndex, sequenceIndex) => { labelsByDuty[dutyIndex] = `${prefix}${start + sequenceIndex}`; });
-    $('pvr-input').value = String(dutyCount || 1);
+    if (!$('pvr-input').dataset.manuallySet) $('pvr-input').value = String(dutyCount || 1);
     $('running-prefix').value = prefix;
     $('running-start').value = String(start);
     $('running-pattern').value = labelsByDuty.join(', ');
@@ -681,6 +682,7 @@ async function selectConfig(config, card) {
     const detectedSettings = detectRunningPoolSettings([config, pairedConfig]);
     const effectiveSettings = config.runningPoolSettings || detectedSettings || {};
     $('pvr-input').value = clean(effectiveSettings.pvr) || String(dutyResult.dutyCount || 1);
+    $('pvr-input').dataset.manuallySet = '';
     $('running-prefix').value = clean(effectiveSettings.prefix);
     $('running-prefix').placeholder = `e.g. ${clean(config.routeName) || 'AB'}`;
     $('running-start').value = clean(effectiveSettings.start);
@@ -701,6 +703,7 @@ async function load() {
     } catch (error) { $('status').textContent = `Could not load RSG configurations: ${error.message}`; $('config-list').innerHTML = '<div class="empty">Check Firebase access and refresh the page.</div>'; }
 }
 ['route-filter','profile-filter','search-filter'].forEach(id => $(id).addEventListener(id === 'search-filter' ? 'input' : 'change', render));
+$('pvr-input').addEventListener('input', event => { event.target.dataset.manuallySet = 'true'; });
 $('crosslink-route').addEventListener('change', async event => {
     if (!selectedConfig) return;
     const crosslinkRouteKey = clean(event.target.value);

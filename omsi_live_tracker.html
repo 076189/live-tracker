@@ -2191,13 +2191,17 @@
         if (currentTrackedServices && currentTrackedServices.length > 0) {
             currentTrackedServices.forEach(service => {
                 if (service.trueLineName.toUpperCase() === currentRouteFilter.toUpperCase()) {
-                    const curtailment = getApplicableCurtailment(service.trueLineName, service.displayDestination);
+                    const curtailment = service.curtailment || getApplicableCurtailment(service.trueLineName, service.displayDestination);
                     if (curtailment) {
-                        const key = `${curtailment.routeName}|${curtailment.destinationName}`;
-                        if (curtailmentsByKey[key]) {
+                        const appliedAt = new Date(curtailment.startTime || curtailment.appliedAt);
+                        if (service.curtailment || curtailmentsByKey[`${curtailment.routeName}|${curtailment.destinationName}`]) {
                             curtailedEntries.push({
                                 service: service,
-                                curtailment: curtailment
+                                curtailment: {
+                                    ...curtailment,
+                                    routeName: curtailment.routeName || service.trueLineName,
+                                    startTime: appliedAt.toISOString()
+                                }
                             });
                         }
                     }
@@ -2220,7 +2224,7 @@
             const rName = unescapeHtml(c.routeName || "N/A");
             const fleet = unescapeHtml(s.assignedFleetNumber || "N/A");
             const reg = unescapeHtml(s.assignedRegistration || "---");
-            const cTo = unescapeHtml(c.newTerminusDisplayName || "N/A");
+            const cTo = unescapeHtml(c.newTerminusDisplayName || c.newDestinationName || "N/A");
             
             // Time curtailed (start time)
             const startTime = new Date(c.startTime);

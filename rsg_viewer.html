@@ -193,18 +193,21 @@ function renderRouteRunningNumbers() {
         return;
     }
     const spareRunsByRoute = new Map();
-    routesByRunNumber.forEach((routesByNumber, prefix) => {
-        const numbers = [...routesByNumber.keys()];
-        const lowest = Math.min(...numbers);
-        const highest = Math.max(...numbers);
-        for (let number = lowest; number <= highest; number++) {
-            if (routesByNumber.has(number)) continue;
-            const precedingRoutes = [...(routesByNumber.get(number - 1) || [])];
-            precedingRoutes.forEach(route => {
-                if (!spareRunsByRoute.has(route)) spareRunsByRoute.set(route, []);
-                spareRunsByRoute.get(route).push(`${prefix}${number}`);
-            });
-        }
+    runsByRoute.forEach((runs, route) => {
+        const highestByPrefix = new Map();
+        runs.forEach(runningNumber => {
+            const match = runningNumber.match(/^(.*?)(\d+)$/);
+            if (!match) return;
+            const prefix = match[1];
+            const number = Number(match[2]);
+            highestByPrefix.set(prefix, Math.max(highestByPrefix.get(prefix) || 0, number));
+        });
+        highestByPrefix.forEach((highest, prefix) => {
+            let nextSpare = highest + 1;
+            while (routesByRunNumber.get(prefix)?.has(nextSpare)) nextSpare++;
+            if (!spareRunsByRoute.has(route)) spareRunsByRoute.set(route, []);
+            spareRunsByRoute.get(route).push(`${prefix}${nextSpare}`);
+        });
     });
     container.innerHTML = [...runsByRoute.entries()]
         .sort(([firstRoute, firstRuns], [secondRoute, secondRuns]) => {

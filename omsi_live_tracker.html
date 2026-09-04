@@ -2187,6 +2187,29 @@
             }
         });
 
+        const individualCurtailmentsByTrip = new Map();
+        localScheduleData.forEach(entry => {
+            if (!entry || String(entry.lineName || '').toUpperCase() !== currentRouteFilter.toUpperCase()) return;
+            const curtailment = entry.curtailment;
+            const appliedAt = new Date(curtailment?.appliedAt);
+            if (!curtailment?.curtailAtStopID || !curtailment?.newDestinationName || appliedAt < midnight || appliedAt >= nextMidnight) return;
+
+            const tripId = String(entry.tripId || entry.internalId || '').trim();
+            if (!tripId || individualCurtailmentsByTrip.has(tripId)) return;
+            individualCurtailmentsByTrip.set(tripId, {
+                service: {
+                    assignedFleetNumber: 'N/A',
+                    assignedRegistration: '---',
+                    trueLineName: String(entry.lineName || '').toUpperCase()
+                },
+                curtailment: {
+                    ...curtailment,
+                    routeName: String(entry.lineName || '').toUpperCase(),
+                    startTime: appliedAt.toISOString()
+                }
+            });
+        });
+
         // Find currently tracked services that match these curtailments
         if (currentTrackedServices && currentTrackedServices.length > 0) {
             currentTrackedServices.forEach(service => {
@@ -2195,19 +2218,24 @@
                     if (curtailment) {
                         const appliedAt = new Date(curtailment.startTime || curtailment.appliedAt);
                         if (service.curtailment || curtailmentsByKey[`${curtailment.routeName}|${curtailment.destinationName}`]) {
-                            curtailedEntries.push({
+                            const entry = {
                                 service: service,
                                 curtailment: {
                                     ...curtailment,
                                     routeName: curtailment.routeName || service.trueLineName,
                                     startTime: appliedAt.toISOString()
                                 }
-                            });
+                            };
+                            const tripId = String(curtailment.tripId || service.serviceId || '').trim();
+                            if (service.curtailment && tripId) individualCurtailmentsByTrip.set(tripId, entry);
+                            else curtailedEntries.push(entry);
                         }
                     }
                 }
             });
         }
+
+        curtailedEntries.push(...individualCurtailmentsByTrip.values());
 
         if (curtailedEntries.length === 0) {
             curtailedBusesTableBody.innerHTML = `<tr><td colspan="5">No curtailments logged for route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;

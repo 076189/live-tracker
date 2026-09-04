@@ -263,6 +263,8 @@
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
     const FB_PATH_VEHICLE_HISTORY = '/vehicleSightingHistory';
+    const VEHICLE_HISTORY_LOOKUP_URL = 'https://europe-west1-omsi-c5505.cloudfunctions.net/lookupVehicleHistory';
+    const vehicleHistoryLookupCache = new Map();
     
     // Route to Operator mapping
     const routeOperators = {
@@ -386,6 +388,28 @@
             });
         });
         return logs;
+    }
+
+    async function loadServerVehicleHistory(identifier) {
+        const query = String(identifier || '').trim().toUpperCase();
+        if (!query) return [];
+        if (!vehicleHistoryLookupCache.has(query)) {
+            const request = fetch(`${VEHICLE_HISTORY_LOOKUP_URL}?q=${encodeURIComponent(query)}`)
+                .then(response => response.ok ? response.json() : Promise.reject(new Error(`History lookup failed (${response.status})`)))
+                .then(result => (result.matches || []).map(match => ({
+                    routeName: String(match.route || '').toUpperCase(),
+                    operator: getOperatorForRoute(match.route),
+                    firstSeenAt: Number(match.firstSeenAt),
+                    lastSeenAt: Number(match.lastSeenAt),
+                    fleetNumber: match.fleetNumber || 'N/A',
+                    registration: match.registration || '---',
+                    runningNumber: match.runningNumber || '',
+                    garage: getGarageFromRunningNumber(match.runningNumber)
+                })))
+                .catch(() => []);
+            vehicleHistoryLookupCache.set(query, request);
+        }
+        return vehicleHistoryLookupCache.get(query);
     }
 
     function combineHistoryLogs(localLogs, firebaseLogs) {
@@ -1889,6 +1913,9 @@
                 ...runningNumbers
             ]);
         } catch (error) {}
+        if (!firebaseLogs.length) {
+            firebaseLogs = await loadServerVehicleHistory(cleanIdent);
+        }
         logs = combineHistoryLogs(logs, firebaseLogs);
 
         let pageContent = '';

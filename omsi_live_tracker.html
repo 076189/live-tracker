@@ -301,6 +301,7 @@
     function loadRouteHistoryFromStorage() {
         try {
             localStorage.removeItem('omsiVehicleRouteHistory_v1');
+            localStorage.removeItem(ROUTE_HISTORY_STORAGE_KEY);
             const stored = localStorage.getItem(ROUTE_HISTORY_STORAGE_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
@@ -335,6 +336,7 @@
     function loadDetailedLogFromStorage() {
         try {
             localStorage.removeItem('omsiVehicleDetailedLog_v2');
+            localStorage.removeItem(VEHICLE_DETAILED_LOG_KEY);
             const stored = localStorage.getItem(VEHICLE_DETAILED_LOG_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
@@ -405,8 +407,7 @@
                     registration: match.registration || '---',
                     runningNumber: match.runningNumber || '',
                     garage: getGarageFromRunningNumber(match.runningNumber)
-                })))
-                .catch(() => []);
+                })));
             vehicleHistoryLookupCache.set(query, request);
         }
         return vehicleHistoryLookupCache.get(query);
@@ -990,14 +991,6 @@
             }
         });
 
-        // Record ALL vehicles from all services throughout the day
-        serviceVehicles.forEach(service => {
-            if (!service || !service.assignedVehicle) return;
-            const routeName = String(service.routeName || '').toUpperCase();
-            if (!routeName) return;
-            recordVehicleSighting(routeName, service.assignedVehicle.fleetNumber, service.assignedVehicle.registration);
-            recordDetailedVehicleSighting(routeName, service.assignedVehicle.fleetNumber, service.assignedVehicle.registration, service.blockId, service.runningNumber);
-        });
         saveVehicleCacheToStorage();
     }
 
@@ -1568,8 +1561,6 @@
             }
 
             if (bestStopForThisRun) {
-                recordVehicleSighting(serviceRun.trueLineName, serviceRun.assignedFleetNumber, serviceRun.assignedRegistration);
-                recordDetailedVehicleSighting(serviceRun.trueLineName, serviceRun.assignedFleetNumber, serviceRun.assignedRegistration, serviceRun.blockId, serviceRun.runningNumber);
                 fullServiceRunDataMap.set(serviceRun.serviceId, serviceRun); 
                 servicesWithARelevantNextStop.push({ 
                     serviceId: serviceRun.serviceId, 
@@ -1900,6 +1891,7 @@
                 ...runningNumbers
             ]);
         } catch (error) {}
+        let historyLookupError = null;
         if (!firebaseLogs.length) {
             const historyLookupIdentifiers = [...new Set([
                 displayFleet,
@@ -1908,15 +1900,22 @@
                 cleanIdent
             ].map(value => String(value || '').trim()).filter(value => value && value !== '-' && value !== '---'))];
             for (const historyLookupIdentifier of historyLookupIdentifiers) {
-                firebaseLogs = await loadServerVehicleHistory(historyLookupIdentifier);
-                if (firebaseLogs.length) break;
+                try {
+                    firebaseLogs = await loadServerVehicleHistory(historyLookupIdentifier);
+                    if (firebaseLogs.length) break;
+                } catch (error) {
+                    historyLookupError = error;
+                    console.warn('Central vehicle history lookup failed:', error);
+                }
             }
         }
         logs = combineHistoryLogs(logs, firebaseLogs);
 
         let pageContent = '';
         if (logs.length === 0) {
-            pageContent = `<p>No automatic route history has been recorded yet for ${escapeHtml(cleanIdent)}. The tracker records vehicles from active running-number schedule data in the background.</p>`;
+            pageContent = historyLookupError
+                ? `<p>Could not load central vehicle history for ${escapeHtml(cleanIdent)}: ${escapeHtml(historyLookupError.message)}.</p>`
+                : `<p>No automatic route history has been recorded yet for ${escapeHtml(cleanIdent)}. The server records vehicles from active running-number schedule data every 15 minutes, even while this page is closed.</p>`;
         } else {
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
             const getFirstSeenAt = log => log.firstSeenAt || log.timestamp;

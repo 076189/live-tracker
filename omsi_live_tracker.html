@@ -1470,6 +1470,16 @@
 
         const nowForProcessing = new Date();
         const activeServicesMap = new Map();
+        const futureTripsByBlock = new Map();
+
+        localScheduleData.forEach(entry => {
+            if (!entry || typeof entry !== 'object' || !entry.stopID) return;
+            const { blockId, serviceInstanceKey } = computeServiceInstanceIds(entry);
+            const timing = calculatePreciseStopTimingsForTracker(entry, nowForProcessing);
+            if (!timing.finalAdjustedSchedTime || timing.timeToStationInSeconds < 0) return;
+            if (!futureTripsByBlock.has(blockId)) futureTripsByBlock.set(blockId, new Set());
+            futureTripsByBlock.get(blockId).add(serviceInstanceKey);
+        });
 
         dataToProcess.forEach((busEntryRaw) => {
             if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) { return; }
@@ -1592,7 +1602,7 @@
                         smallestFutureDiff = diff;
                         bestStopForThisRun = stop;
                     }
-                } else if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
+                } else if (diff < 0 && (diff >= MAX_PAST_SECONDS_TRACKER || [...(futureTripsByBlock.get(serviceRun.blockId) || [])].some(tripId => tripId !== serviceRun.serviceId))) {
                     if (diff > largestPastDiff && smallestFutureDiff === Infinity) {
                         largestPastDiff = diff;
                         bestStopForThisRun = stop;

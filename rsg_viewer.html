@@ -29,6 +29,7 @@
         .route-runs-list { display:flex; flex-wrap:wrap; gap:8px; }
         .route-run { padding:7px 9px; background:#fffaf6; border-left:4px solid var(--accent); font-size:.84rem; line-height:1.4; }
         .route-run strong { margin-right:5px; }
+        .route-run.spare-runs { width:100%; border-left-color:var(--green); background:#edf7ed; }
         .layout { display:grid; grid-template-columns:minmax(0,.7fr) minmax(340px,1.3fr); gap:20px; align-items:start; }
         .panel { background:rgba(255,255,255,.82); border:1px solid var(--line); padding:18px; box-shadow:0 5px 16px rgba(16,42,67,.06); }
         .panel h2 { margin:0 0 14px; font-size:1.15rem; border-bottom:1px solid var(--line); padding-bottom:10px; }
@@ -169,20 +170,23 @@ function renderMissingRunningNumbersOverview() {
 function renderRouteRunningNumbers() {
     const container = $('route-runs-list');
     const runsByRoute = new Map();
+    const allRuns = new Set();
     configs.forEach(config => {
         const route = clean(config.routeName).toUpperCase();
         if (!route) return;
         if (!runsByRoute.has(route)) runsByRoute.set(route, new Set());
-        tripsOf(config).forEach(trip => {
-            const runningNumber = runningValue(trip);
-            if (runningNumber) runsByRoute.get(route).add(runningNumber);
+        const configuredRuns = clean(config.runningPoolSettings?.order).split(',').map(clean);
+        [...tripsOf(config).map(runningValue), ...configuredRuns].forEach(runningNumber => {
+            if (!runningNumber) return;
+            runsByRoute.get(route).add(runningNumber);
+            allRuns.add(runningNumber);
         });
     });
     if (!runsByRoute.size) {
         container.innerHTML = '<span class="meta">No saved route running numbers yet.</span>';
         return;
     }
-    container.innerHTML = [...runsByRoute.entries()]
+    const routeRows = [...runsByRoute.entries()]
         .sort(([firstRoute, firstRuns], [secondRoute, secondRuns]) => {
             const firstRunningNumber = uniqueSorted([...firstRuns])[0] || '\uffff';
             const secondRunningNumber = uniqueSorted([...secondRuns])[0] || '\uffff';
@@ -191,6 +195,27 @@ function renderRouteRunningNumbers() {
         })
         .map(([route, runs]) => `<div class="route-run"><strong>${esc(route)}</strong>${esc(uniqueSorted([...runs]).join(', ') || 'No running numbers')}</div>`)
         .join('');
+    const numbersByPrefix = new Map();
+    allRuns.forEach(runningNumber => {
+        const match = runningNumber.match(/^(.*?)(\d+)$/);
+        if (!match) return;
+        const prefix = match[1];
+        const number = Number(match[2]);
+        if (!numbersByPrefix.has(prefix)) numbersByPrefix.set(prefix, new Set());
+        numbersByPrefix.get(prefix).add(number);
+    });
+    const spareRuns = [];
+    numbersByPrefix.forEach((numbers, prefix) => {
+        const lowest = Math.min(...numbers);
+        const highest = Math.max(...numbers);
+        for (let number = lowest; number <= highest; number++) {
+            if (!numbers.has(number)) spareRuns.push(`${prefix}${number}`);
+        }
+    });
+    const spareRow = spareRuns.length
+        ? `<div class="route-run spare-runs"><strong>Currently spare</strong>${esc(uniqueSorted(spareRuns).join(', '))}</div>`
+        : '';
+    container.innerHTML = routeRows + spareRow;
 }
 function flattenRouteEntries(routeName, routeData) {
     const entries = [];

@@ -1,8 +1,9 @@
-const CACHE_NAME = 'rsg-viewer-shell-v2';
+const CACHE_NAME = 'rsg-viewer-shell-v3';
 const APP_SHELL = [
     '/live-tracker/rsg_viewer.html',
     '/live-tracker/manifest-rsg_viewer.json',
-    '/live-tracker/assets/rsg-viewer-icon.svg',
+    '/live-tracker/assets/rsg-viewer-icon-192.png',
+    '/live-tracker/assets/rsg-viewer-icon-512.png',
     '/live-tracker/fonts/NJFont-Medium.ttf'
 ];
 

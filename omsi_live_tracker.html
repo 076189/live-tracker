@@ -261,6 +261,7 @@
     const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v3';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
+    const FB_PATH_LIVE_VEHICLE_ASSIGNMENTS = '/liveVehicleAssignments';
     const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
     const FB_PATH_VEHICLE_HISTORY = '/vehicleSightingHistory';
     const VEHICLE_HISTORY_LOOKUP_URL = 'https://europe-west1-omsi-c5505.cloudfunctions.net/lookupVehicleHistory';
@@ -473,6 +474,7 @@
     }
 
     let vehicleAllocationData = {};
+    let liveVehicleAssignments = {};
     let hasReceivedInitialVehicleAllocations = false;
 
     function applyLiveVehicleAllocations(snapshot) {
@@ -481,6 +483,17 @@
         hasReceivedInitialVehicleAllocations = true;
         if (backgroundHistoryScheduleData.length > 0) queueBackgroundHistoryProcessing();
         if (localScheduleData.length > 0) throttledProcessAndDisplay();
+    }
+
+    function getLiveAssignedVehicle(routeName, runningNumber) {
+        const routeAssignments = liveVehicleAssignments[String(routeName || '').trim().toUpperCase()] || {};
+        const assignment = routeAssignments[String(runningNumber || '').trim().toUpperCase()];
+        if (!assignment) return null;
+        const fleetNumber = String(assignment.fleetNumber || '').trim();
+        const registration = String(assignment.registration || '').trim();
+        return fleetNumber && fleetNumber !== 'N/A' || registration && registration !== '---'
+            ? { fleetNumber: fleetNumber || 'N/A', registration: registration || '---' }
+            : null;
     }
 
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
@@ -755,6 +768,12 @@
 
         const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
         dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
+
+        const liveVehicleAssignmentsRef = dbRef(database, `${FB_PATH_LIVE_VEHICLE_ASSIGNMENTS}/${getLocalDateKey()}`);
+        dbOnValue(liveVehicleAssignmentsRef, (snapshot) => {
+            liveVehicleAssignments = snapshot.exists() ? snapshot.val() || {} : {};
+            if (localScheduleData.length > 0) throttledProcessAndDisplay();
+        });
 
         const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
         dbOnValue(massCurtailmentsRef, (snapshot) => {
@@ -1154,6 +1173,12 @@
     }
 
     function getAssignedVehicle(serviceInstanceKey, routeName, runningNumber) {
+        const liveAssignment = getLiveAssignedVehicle(routeName, runningNumber);
+        if (liveAssignment) {
+            serviceInstanceVehicleCache.set(serviceInstanceKey, liveAssignment);
+            return liveAssignment;
+        }
+
         const subVehicle = getSubVehicleForRunningNumber(routeName, runningNumber);
         if (subVehicle) {
             serviceInstanceVehicleCache.set(serviceInstanceKey, subVehicle);
@@ -1327,6 +1352,12 @@
             const runningNumberMarker = '_RUN_';
             const runningNumberIndex = blockId.indexOf(runningNumberMarker);
             const runningNumber = runningNumberIndex >= 0 ? blockId.slice(runningNumberIndex + runningNumberMarker.length) : '';
+            const liveAssignment = getLiveAssignedVehicle(routeName, runningNumber);
+            if (liveAssignment) {
+                serviceInstanceVehicleCache.set(blockId, liveAssignment);
+                reserved.add(getVehicleKey(liveAssignment));
+                return;
+            }
             const subVehicle = getSubVehicleForRunningNumber(routeName, runningNumber);
             if (subVehicle) {
                 serviceInstanceVehicleCache.set(blockId, subVehicle);
@@ -1449,8 +1480,12 @@
 
             if (!activeServicesMap.has(serviceInstanceKey)) {
                 let assignedVehicle;
+                const liveAssignment = getLiveAssignedVehicle(trueLineName, busEntry.runningNumber);
                 const subVehicle = getSubVehicleForRunningNumber(trueLineName, busEntry.runningNumber);
-                if (subVehicle) {
+                if (liveAssignment) {
+                    assignedVehicle = liveAssignment;
+                    serviceInstanceVehicleCache.set(blockId, assignedVehicle);
+                } else if (subVehicle) {
                     assignedVehicle = subVehicle;
                     serviceInstanceVehicleCache.set(blockId, assignedVehicle);
                 } else if (serviceInstanceVehicleCache.has(blockId) && getVehicleKey(serviceInstanceVehicleCache.get(blockId))) {

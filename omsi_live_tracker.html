@@ -1433,6 +1433,38 @@
         saveVehicleCacheToStorage();
     }
 
+    function startShortReturnsAfterCurtailment(scheduleEntries, nowForProcessing) {
+        const tripsByBlock = new Map();
+        scheduleEntries.forEach(entry => {
+            if (!entry || typeof entry !== 'object' || !entry.stopID) return;
+            const { blockId, serviceInstanceKey } = computeServiceInstanceIds(entry);
+            const timing = calculatePreciseStopTimingsForTracker(entry, nowForProcessing);
+            if (!timing.finalAdjustedSchedTime) return;
+            if (!tripsByBlock.has(blockId)) tripsByBlock.set(blockId, new Map());
+            const trips = tripsByBlock.get(blockId);
+            if (!trips.has(serviceInstanceKey)) trips.set(serviceInstanceKey, { serviceInstanceKey, firstTime:timing.finalAdjustedSchedTime.getTime(), curtailment:null, stopIds:new Set() });
+            const trip = trips.get(serviceInstanceKey);
+            trip.firstTime = Math.min(trip.firstTime, timing.finalAdjustedSchedTime.getTime());
+            trip.stopIds.add(String(entry.stopID));
+            if (entry.curtailment?.curtailAtStopID) {
+                trip.curtailment = entry.curtailment;
+                if (String(entry.stopID) === String(entry.curtailment.curtailAtStopID)) trip.curtailmentTime = timing.finalAdjustedSchedTime.getTime();
+            }
+        });
+
+        const shortStartByService = new Map();
+        tripsByBlock.forEach(trips => {
+            const orderedTrips = [...trips.values()].sort((first, second) => first.firstTime - second.firstTime);
+            orderedTrips.forEach((trip, index) => {
+                const curtailStopId = String(trip.curtailment?.curtailAtStopID || '');
+                if (!curtailStopId || !Number.isFinite(trip.curtailmentTime)) return;
+                const returnTrip = orderedTrips.slice(index + 1).find(candidate => candidate.firstTime >= trip.curtailmentTime && candidate.stopIds.has(curtailStopId));
+                if (returnTrip) shortStartByService.set(returnTrip.serviceInstanceKey, curtailStopId);
+            });
+        });
+        return shortStartByService;
+    }
+
     function processAndDisplayAllData() {
         fullServiceRunDataMap.clear();
 
@@ -1471,6 +1503,7 @@
         const nowForProcessing = new Date();
         const activeServicesMap = new Map();
         const futureTripsByBlock = new Map();
+        const shortStartByService = startShortReturnsAfterCurtailment(dataToProcess, nowForProcessing);
 
         localScheduleData.forEach(entry => {
             if (!entry || typeof entry !== 'object' || !entry.stopID) return;
@@ -1550,6 +1583,7 @@
                     isRareWorking: isRare,
                     blockId: blockId,
                     runningNumber: busEntry.runningNumber || '',
+                    startShortAtStopID: shortStartByService.get(serviceInstanceKey) || '',
                     curtailment: busEntry.curtailment && busEntry.curtailment.curtailAtStopID && busEntry.curtailment.newDestinationName
                         ? busEntry.curtailment
                         : null
@@ -1590,11 +1624,16 @@
             let smallestFutureDiff = Infinity;
             let largestPastDiff = -Infinity;
             let reachedCurtailmentPoint = false;
+            let reachedShortStartPoint = !serviceRun.startShortAtStopID;
 
             for (const stop of serviceRun.stops) {
                 if (!stop.preciseScheduledDateTime) continue;
                 if (reachedCurtailmentPoint) break;
                 if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
+                if (!reachedShortStartPoint) {
+                    if (String(stop.stopID) !== String(serviceRun.startShortAtStopID)) continue;
+                    reachedShortStartPoint = true;
+                }
 
                 const diff = stop.timeToStationInSeconds;
                 if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {

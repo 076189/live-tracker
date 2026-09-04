@@ -817,13 +817,8 @@
         });
     }
 
-    // Returns the (uppercased) route keys that need to be loaded for the "all routes"
-    // rare workings page. A working is "rare" if its vehicle hasn't been seen on that
-    // route in 60+ days, which can happen on any route - not just ones with a configured
-    // rare vehicle pool - so every known route (from the live vehicle allocations data,
-    // plus every route that actually has schedule data, since a route can run services
-    // with only static/literal vehicle data and no vehicleAllocations entry at all)
-    // must be included here.
+    // Vehicle allocation keys provide the route list for the rare-workings scan. Reading the
+    // whole schedule tree merely to discover extra route names blocks the sequential loader.
     let knownScheduleRouteKeys = new Set();
     let hasFetchedKnownScheduleRouteKeys = false;
     let isFetchingKnownScheduleRouteKeys = false;
@@ -868,14 +863,6 @@
             // loaded yet - wait for them before deciding which routes to fetch.
             if (searchStatusMessage) searchStatusMessage.textContent = `Loading vehicle allocations...`;
             setTimeout(() => { if (isRarePageActive && !currentRouteFilter) loadAllRoutesMetadataAndData(); }, 300);
-            return;
-        }
-
-        if (!hasFetchedKnownScheduleRouteKeys && window.firebaseOMSI_SA && window.firebaseOMSI_SA.database) {
-            // Also need the full list of routes that actually have schedule data, since some
-            // routes run purely on static/literal vehicle data without a vehicleAllocations entry.
-            if (searchStatusMessage) searchStatusMessage.textContent = `Loading route list...`;
-            fetchKnownScheduleRouteKeysOnce(() => { if (isRarePageActive && !currentRouteFilter) loadAllRoutesMetadataAndData(); });
             return;
         }
 
@@ -1914,7 +1901,16 @@
             ]);
         } catch (error) {}
         if (!firebaseLogs.length) {
-            firebaseLogs = await loadServerVehicleHistory(cleanIdent);
+            const historyLookupIdentifiers = [...new Set([
+                displayFleet,
+                displayReg,
+                ...searchTerms,
+                cleanIdent
+            ].map(value => String(value || '').trim()).filter(value => value && value !== '-' && value !== '---'))];
+            for (const historyLookupIdentifier of historyLookupIdentifiers) {
+                firebaseLogs = await loadServerVehicleHistory(historyLookupIdentifier);
+                if (firebaseLogs.length) break;
+            }
         }
         logs = combineHistoryLogs(logs, firebaseLogs);
 

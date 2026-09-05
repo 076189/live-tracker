@@ -332,12 +332,79 @@ function exportTimeSort(time) {
     const minutes = minutesFromTime(time);
     return Number.isFinite(minutes) && minutes < 360 ? minutes + 1440 : minutes;
 }
+function exportRouteLabel(config) {
+    const route = clean(config?.routeName).replace(/^\(N\)\s*/i, '');
+    return isTwentyFourHourContinuation(config) ? `(N)${route || 'Unnamed route'}` : route || 'Unnamed route';
+}
+function exportRouteOrder(route) {
+    const label = clean(route);
+    const continuation = /^\(N\)\s*/i.test(label);
+    const night = /^N\s*\d+\b/i.test(label);
+    return {
+        base: label.replace(/^\(N\)\s*/i, '').replace(/^N\s*/i, ''),
+        variant: continuation ? 2 : night ? 1 : 0
+    };
+}
+function compareExportRoutes(firstRoute, secondRoute) {
+    const first = exportRouteOrder(firstRoute);
+    const second = exportRouteOrder(secondRoute);
+    return first.base.localeCompare(second.base, undefined, { numeric:true, sensitivity:'base' })
+        || first.variant - second.variant
+        || clean(firstRoute).localeCompare(clean(secondRoute), undefined, { numeric:true, sensitivity:'base' });
+}
+function exportCrosslinkRouteLabel(route) {
+    const order = exportRouteOrder(route);
+    return order.variant === 2 ? `N${order.base}` : clean(route);
+}
+function operatingDayOrder(profile) {
+    const normalized = clean(profile).toUpperCase().replace(/\s+/g, '');
+    if (/^(MF|M-F|MO-FR)/.test(normalized)) return 0;
+    if (/^(SA|SAT)/.test(normalized)) return 1;
+    if (/^(SU|SUN)/.test(normalized)) return 2;
+    return 3;
+}
+function compareOperatingDays(firstProfile, secondProfile) {
+    return operatingDayOrder(firstProfile) - operatingDayOrder(secondProfile)
+        || clean(firstProfile).localeCompare(clean(secondProfile), undefined, { numeric:true, sensitivity:'base' });
+}
 async function exportPdf() {
     if (!currentUser || !configs.length) { $('status').textContent = 'Sign in and load saved RSG configurations before exporting.'; return; }
     const reportWindow = window.open('', '_blank');
     if (!reportWindow) { $('status').textContent = 'Allow pop-ups for this page, then try Export PDF again.'; return; }
     reportWindow.document.write('<title>Preparing RSG duty report...</title><p>Preparing RSG duty report...</p>');
-    await Promise.all(configs.map(config => loadLiveRouteEntries(config.routeName)));
+    configs.forEach(config => { void loadLiveRouteEntries(config.routeName); });
+    const reportTripKey = (configKey, tripId) => `${configKey}::${crosslinkTripIdentity(tripId)}`;
+    const crosslinkNotesByTrip = new Map();
+    const crosslinkTargetsByTrip = new Map();
+    const addCrosslinkNote = (configKey, tripId, note) => {
+        const key = reportTripKey(configKey, tripId);
+        if (!crosslinkNotesByTrip.has(key)) crosslinkNotesByTrip.set(key, new Set());
+        crosslinkNotesByTrip.get(key).add(note);
+    };
+    const addCrosslinkTarget = (fromConfigKey, fromTripId, toConfigKey, toTripId) => {
+        const fromKey = reportTripKey(fromConfigKey, fromTripId);
+        if (!crosslinkTargetsByTrip.has(fromKey)) crosslinkTargetsByTrip.set(fromKey, new Set());
+        crosslinkTargetsByTrip.get(fromKey).add(reportTripKey(toConfigKey, toTripId));
+    };
+    configs.forEach(ownerConfig => storedCrosslinksFor(ownerConfig).forEach(crosslink => {
+        const fromConfig = configForKey(crosslink.crosslinkFromDirectionKey) || ownerConfig;
+        if (crosslinkStorageOwnerFor(fromConfig)?.key !== ownerConfig.key) return;
+        const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
+        const returnConfig = configForKey(crosslink.crosslinkReturnDirectionKey);
+        const fromTrip = tripForCrosslinkId(fromConfig, crosslink.crosslinkFromTripId);
+        const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
+        const returnTrip = tripForCrosslinkId(returnConfig, crosslink.crosslinkReturnTripId);
+        const tripNumber = trip => clean(trip?.tripNumber || trip?.tripNo || trip?.trip || trip?.number) || '?';
+        if (fromConfig && linkedConfig && fromTrip && linkedTrip) {
+            addCrosslinkNote(fromConfig.key, crosslink.crosslinkFromTripId, `-> ${crosslinkRouteMarker(linkedConfig)} / Trip ${tripNumber(linkedTrip)}`);
+            addCrosslinkNote(linkedConfig.key, crosslink.crosslinkToTripId, `<- ${crosslinkRouteMarker(fromConfig)} / Trip ${tripNumber(fromTrip)}`);
+            addCrosslinkTarget(fromConfig.key, crosslink.crosslinkFromTripId, linkedConfig.key, crosslink.crosslinkToTripId);
+        }
+        if (linkedConfig && returnConfig && linkedTrip && returnTrip) {
+            addCrosslinkNote(returnConfig.key, crosslink.crosslinkReturnTripId, `<- ${crosslinkRouteMarker(linkedConfig)} / Trip ${tripNumber(linkedTrip)}`);
+            addCrosslinkTarget(linkedConfig.key, crosslink.crosslinkToTripId, returnConfig.key, crosslink.crosslinkReturnTripId);
+        }
+    }));
     const tripsByRunningNumber = new Map();
     const reportTrips = [];
     configs.forEach(config => {
@@ -347,44 +414,63 @@ async function exportPdf() {
             const runningNumber = runningValue(trip) || 'Unassigned';
             if (!tripsByRunningNumber.has(runningNumber)) tripsByRunningNumber.set(runningNumber, []);
             const reportTrip = {
-                route: clean(config.routeName) || 'Unnamed route', profile:clean(config.operatingProfile), destination:clean(config.destinationName) || 'Unknown destination',
-                tripNumber, start:tripTime(trip) || '-', finish:lastStopTimeForTrip(config, trip, entries) || '-', notes:exportCrosslinkNotes(config, trip), runningNumber, timeSort:exportTimeSort(tripTime(trip))
+                route:exportRouteLabel(config), profile:clean(config.operatingProfile), destination:clean(config.destinationName) || 'Unknown destination',
+                configKey:config.key, tripId:crosslinkTripIdentity(crosslinkIdForTrip(config, trip)), tripNumber, start:tripTime(trip) || '-', finish:lastStopTimeForTrip(config, trip, entries) || '-', notes:[...(crosslinkNotesByTrip.get(reportTripKey(config.key, crosslinkIdForTrip(config, trip))) || [])], runningNumber, timeSort:exportTimeSort(tripTime(trip))
             };
             tripsByRunningNumber.get(runningNumber).push(reportTrip);
             reportTrips.push(reportTrip);
         });
     });
-    const dutiesByRouteAndProfile = new Map();
+    const reportTripsByKey = new Map(reportTrips.map(trip => [reportTripKey(trip.configKey, trip.tripId), trip]));
+    const reportTripForCrosslinkTransition = (currentTrip, nextTrip) =>
+        crosslinkTargetsByTrip.get(reportTripKey(currentTrip.configKey, currentTrip.tripId))?.has(reportTripKey(nextTrip.configKey, nextTrip.tripId))
+        && clean(currentTrip.runningNumber).toUpperCase() === clean(nextTrip.runningNumber).toUpperCase();
+    const tripsByDuty = new Map();
     reportTrips.forEach(trip => {
-        const key = `${trip.route}::${trip.profile}`;
-        if (!dutiesByRouteAndProfile.has(key)) dutiesByRouteAndProfile.set(key, { route:trip.route, profile:trip.profile, duties:new Map() });
-        const group = dutiesByRouteAndProfile.get(key);
+        const key = `${trip.route}::${trip.profile}::${clean(trip.runningNumber).toUpperCase()}`;
+        if (!tripsByDuty.has(key)) tripsByDuty.set(key, []);
+        tripsByDuty.get(key).push(trip);
+    });
+    tripsByDuty.forEach(trips => {
+        trips.sort((first, second) => first.timeSort - second.timeSort || first.route.localeCompare(second.route, undefined, { numeric:true, sensitivity:'base' }) || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
+        trips.forEach((trip, index) => {
+            const crosslinkTrip = [...(crosslinkTargetsByTrip.get(reportTripKey(trip.configKey, trip.tripId)) || [])]
+                .map(key => reportTripsByKey.get(key))
+                .find(candidate => candidate && reportTripForCrosslinkTransition(trip, candidate));
+            const nextTrip = crosslinkTrip || trips[index + 1];
+            trip.nextTrip = nextTrip ? `${crosslinkTrip ? `${exportCrosslinkRouteLabel(nextTrip.route)} / ` : ''}${nextTrip.tripNumber} at ${nextTrip.start}` : '-';
+        });
+    });
+    const dutiesByRoute = new Map();
+    reportTrips.forEach(trip => {
+        const baseRoute = exportRouteOrder(trip.route).base || trip.route;
+        if (!dutiesByRoute.has(baseRoute)) dutiesByRoute.set(baseRoute, { route:baseRoute, duties:new Map() });
+        const group = dutiesByRoute.get(baseRoute);
         if (!group.duties.has(trip.runningNumber)) group.duties.set(trip.runningNumber, []);
         group.duties.get(trip.runningNumber).push(trip);
     });
-    const sections = [...dutiesByRouteAndProfile.values()].sort((first, second) =>
-        first.route.localeCompare(second.route, undefined, { numeric:true, sensitivity:'base' })
-        || first.profile.localeCompare(second.profile, undefined, { numeric:true, sensitivity:'base' })
-    ).map(group => {
+    const sections = [...dutiesByRoute.values()].sort((first, second) => compareExportRoutes(first.route, second.route)).map(group => {
         const duties = [...group.duties.entries()].sort(([firstRun], [secondRun]) =>
             firstRun.localeCompare(secondRun, undefined, { numeric:true, sensitivity:'base' })
         ).map(([runningNumber, trips]) => {
-            trips.sort((first, second) => first.timeSort - second.timeSort || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
-            const rows = trips.map(trip => `<tr><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
-            return `<section><h3>${esc(runningNumber)}</h3><table><thead><tr><th>Destination</th><th>Trip</th><th>Start</th><th>Finish</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+            trips.sort((first, second) => compareOperatingDays(first.profile, second.profile)
+                || first.timeSort - second.timeSort
+                || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
+            const rows = trips.map(trip => `<tr><td>${esc(trip.route)}</td><td>${esc(trip.profile || '-')}</td><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.nextTrip)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
+            return `<section><h3>${esc(runningNumber)}</h3><table><thead><tr><th>Service</th><th>Operating day</th><th>Destination</th><th>Trip</th><th>Start</th><th>Finish</th><th>Next trip</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
         }).join('');
-        return `<section><h2>Route ${esc(group.route)} ${esc(group.profile || '-')}</h2>${duties}</section>`;
+        return `<section><h2>Route ${esc(group.route)}</h2>${duties}</section>`;
     }).join('');
     const routeSections = configs.slice().sort((first, second) =>
-        clean(first.routeName).localeCompare(clean(second.routeName), undefined, { numeric:true, sensitivity:'base' })
+        compareExportRoutes(exportRouteLabel(first), exportRouteLabel(second))
         || clean(first.operatingProfile).localeCompare(clean(second.operatingProfile), undefined, { numeric:true, sensitivity:'base' })
         || Number(hasOddNumberedTrips(second)) - Number(hasOddNumberedTrips(first))
         || clean(first.destinationName).localeCompare(clean(second.destinationName), undefined, { numeric:true, sensitivity:'base' })
     ).map(config => {
-        const routeTrips = reportTrips.filter(trip => trip.route === (clean(config.routeName) || 'Unnamed route') && trip.profile === clean(config.operatingProfile) && trip.destination === (clean(config.destinationName) || 'Unknown destination'));
+        const routeTrips = reportTrips.filter(trip => trip.configKey === config.key);
         routeTrips.sort((first, second) => first.timeSort - second.timeSort || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
-        const rows = routeTrips.map(trip => `<tr><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.runningNumber)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
-        return `<section><h2>Route ${esc(config.routeName)} ${esc(clean(config.operatingProfile) || '-')}</h2><p>${esc(clean(config.destinationName) || 'Unknown destination')}</p><table><thead><tr><th>Trip</th><th>Start</th><th>Finish</th><th>Running number</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+        const rows = routeTrips.map(trip => `<tr><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.nextTrip)}</td><td>${esc(trip.runningNumber)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
+        return `<section><h2>Route ${esc(exportRouteLabel(config))} ${esc(clean(config.operatingProfile) || '-')}</h2><table><thead><tr><th>Destination</th><th>Trip</th><th>Start</th><th>Finish</th><th>Next trip</th><th>Running number</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
     }).join('');
     reportWindow.document.open();
     reportWindow.document.write(`<!DOCTYPE html><html lang="en-GB"><head><meta charset="UTF-8"><title>RSG Duty Report</title><style>@page{margin:14mm}body{font-family:Georgia,serif;color:#102a43;margin:0}h1{font-size:22pt;margin:0 0 4px}h2{font-size:14pt;margin:22px 0 2px;border-bottom:1px solid #102a43;padding-bottom:4px}h3{font-size:11pt;margin:14px 0 2px}body>h3{font-size:17pt;margin:30px 0 4px}p{font-size:10pt;margin:0 0 8px;color:#52697e}table{width:100%;border-collapse:collapse;font-size:9pt}th,td{text-align:left;vertical-align:top;padding:5px;border-bottom:1px solid #d9e2ec}th{font-size:8pt;text-transform:uppercase;color:#52697e}.route-index{break-before:page}@media print{section{break-inside:avoid}}</style></head><body><h1>RSG Duty Report</h1><p>Generated ${esc(new Date().toLocaleString('en-GB'))}</p><h3>Running number duties</h3>${sections}<div class="route-index"><h3>Route and profile index</h3>${routeSections}</div></body></html>`);

@@ -359,19 +359,26 @@ function exportCrosslinkRouteLabel(route) {
 function operatingDayOrder(profile) {
     const normalized = clean(profile).toUpperCase().replace(/\s+/g, '');
     if (/^(MF|M-F|MO-FR)/.test(normalized)) return 0;
-    if (/^(SA|SAT)/.test(normalized)) return 1;
-    if (/^(SU|SUN)/.test(normalized)) return 2;
-    return 3;
+    if (/^(MO|MON)/.test(normalized)) return 1;
+    if (/^(TU|TUE)/.test(normalized)) return 2;
+    if (/^(WE|WED)/.test(normalized)) return 3;
+    if (/^(TH|THU)/.test(normalized)) return 4;
+    if (/^(FR|FRI)/.test(normalized)) return 5;
+    if (/^(SA|SAT)/.test(normalized)) return 6;
+    if (/^(SU|SUN)/.test(normalized)) return 7;
+    return 8;
 }
 function compareOperatingDays(firstProfile, secondProfile) {
     return operatingDayOrder(firstProfile) - operatingDayOrder(secondProfile)
         || clean(firstProfile).localeCompare(clean(secondProfile), undefined, { numeric:true, sensitivity:'base' });
 }
+function formatOperatingDays(profile) {
+    const days = clean(profile).split(',').map(clean).filter(Boolean);
+    return [...new Set(days)].sort(compareOperatingDays).join(', ');
+}
 async function exportPdf() {
     if (!currentUser || !configs.length) { $('status').textContent = 'Sign in and load saved RSG configurations before exporting.'; return; }
-    const reportWindow = window.open('', '_blank');
-    if (!reportWindow) { $('status').textContent = 'Allow pop-ups for this page, then try Export PDF again.'; return; }
-    reportWindow.document.write('<title>Preparing RSG duty report...</title><p>Preparing RSG duty report...</p>');
+    $('status').textContent = 'Building PDF duty report...';
     configs.forEach(config => { void loadLiveRouteEntries(config.routeName); });
     const reportTripKey = (configKey, tripId) => `${configKey}::${crosslinkTripIdentity(tripId)}`;
     const crosslinkNotesByTrip = new Map();
@@ -414,7 +421,7 @@ async function exportPdf() {
             const runningNumber = runningValue(trip) || 'Unassigned';
             if (!tripsByRunningNumber.has(runningNumber)) tripsByRunningNumber.set(runningNumber, []);
             const reportTrip = {
-                route:exportRouteLabel(config), profile:clean(config.operatingProfile), destination:clean(config.destinationName) || 'Unknown destination',
+                route:exportRouteLabel(config), profile:formatOperatingDays(config.operatingProfile), destination:clean(config.destinationName) || 'Unknown destination',
                 configKey:config.key, tripId:crosslinkTripIdentity(crosslinkIdForTrip(config, trip)), tripNumber, start:tripTime(trip) || '-', finish:lastStopTimeForTrip(config, trip, entries) || '-', notes:[...(crosslinkNotesByTrip.get(reportTripKey(config.key, crosslinkIdForTrip(config, trip))) || [])], runningNumber, timeSort:exportTimeSort(tripTime(trip))
             };
             tripsByRunningNumber.get(runningNumber).push(reportTrip);
@@ -461,22 +468,69 @@ async function exportPdf() {
         }).join('');
         return `<section><h2>Route ${esc(group.route)}</h2>${duties}</section>`;
     }).join('');
-    const routeSections = configs.slice().sort((first, second) =>
-        compareExportRoutes(exportRouteLabel(first), exportRouteLabel(second))
-        || clean(first.operatingProfile).localeCompare(clean(second.operatingProfile), undefined, { numeric:true, sensitivity:'base' })
-        || Number(hasOddNumberedTrips(second)) - Number(hasOddNumberedTrips(first))
-        || clean(first.destinationName).localeCompare(clean(second.destinationName), undefined, { numeric:true, sensitivity:'base' })
-    ).map(config => {
-        const routeTrips = reportTrips.filter(trip => trip.configKey === config.key);
-        routeTrips.sort((first, second) => first.timeSort - second.timeSort || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
-        const rows = routeTrips.map(trip => `<tr><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.nextTrip)}</td><td>${esc(trip.runningNumber)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
-        return `<section><h2>Route ${esc(exportRouteLabel(config))} ${esc(clean(config.operatingProfile) || '-')}</h2><table><thead><tr><th>Destination</th><th>Trip</th><th>Start</th><th>Finish</th><th>Next trip</th><th>Running number</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
-    }).join('');
-    reportWindow.document.open();
-    reportWindow.document.write(`<!DOCTYPE html><html lang="en-GB"><head><meta charset="UTF-8"><title>RSG Duty Report</title><style>@page{margin:14mm}body{font-family:Georgia,serif;color:#102a43;margin:0}h1{font-size:22pt;margin:0 0 4px}h2{font-size:14pt;margin:22px 0 2px;border-bottom:1px solid #102a43;padding-bottom:4px}h3{font-size:11pt;margin:14px 0 2px}body>h3{font-size:17pt;margin:30px 0 4px}p{font-size:10pt;margin:0 0 8px;color:#52697e}table{width:100%;border-collapse:collapse;font-size:9pt}th,td{text-align:left;vertical-align:top;padding:5px;border-bottom:1px solid #d9e2ec}th{font-size:8pt;text-transform:uppercase;color:#52697e}.route-index{break-before:page}@media print{section{break-inside:avoid}}</style></head><body><h1>RSG Duty Report</h1><p>Generated ${esc(new Date().toLocaleString('en-GB'))}</p><h3>Running number duties</h3>${sections}<div class="route-index"><h3>Route and profile index</h3>${routeSections}</div></body></html>`);
-    reportWindow.document.close();
-    reportWindow.focus();
-    reportWindow.print();
+    try {
+    const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm');
+    const autoTableModule = await import('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.3/+esm');
+    const autoTable = autoTableModule.default?.default || autoTableModule.default || autoTableModule.autoTable;
+    if (typeof autoTable !== 'function') throw new Error('The PDF table library did not load correctly.');
+    const pdf = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+    const titleColor = [16, 42, 67];
+    const drawTitle = (title, subtitle = '') => {
+        pdf.setTextColor(...titleColor);
+        pdf.setFont('times', 'bold');
+        pdf.setFontSize(18);
+        pdf.text(title, 14, 14);
+        pdf.setFont('times', 'normal');
+        pdf.setFontSize(9);
+        pdf.setTextColor(82, 105, 126);
+        if (subtitle) pdf.text(subtitle, 14, 20);
+        return subtitle ? 25 : 20;
+    };
+    const operatingProfiles = uniqueSorted(reportTrips.map(trip => trip.profile || 'Unspecified')).sort(compareOperatingDays);
+    const minimumTableStartSpace = 45;
+    let cursor = drawTitle('RSG Duty Report', `Generated ${new Date().toLocaleString('en-GB')}`);
+    pdf.setTextColor(...titleColor);
+    pdf.setFont('times', 'bold');
+    pdf.setFontSize(13);
+    pdf.text('Running number duties', 14, cursor + 4);
+    cursor += 8;
+    let hasRenderedDutyTable = false;
+    [...dutiesByRoute.values()].sort((first, second) => compareExportRoutes(first.route, second.route)).forEach(group => {
+        operatingProfiles.forEach(operatingProfile => {
+            [...group.duties.entries()].sort(([firstRun], [secondRun]) => firstRun.localeCompare(secondRun, undefined, { numeric:true, sensitivity:'base' })).forEach(([runningNumber, trips]) => {
+                const operatingDayTrips = trips.filter(trip => (trip.profile || 'Unspecified') === operatingProfile);
+                if (!operatingDayTrips.length) return;
+                operatingDayTrips.sort((first, second) => first.timeSort - second.timeSort || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
+                if (hasRenderedDutyTable) {
+                    pdf.addPage();
+                    cursor = 14;
+                } else if (cursor + minimumTableStartSpace > pdf.internal.pageSize.getHeight() - 14) {
+                    pdf.addPage();
+                    cursor = 14;
+                }
+            autoTable(pdf, {
+                startY:cursor,
+                head:[[`Route ${group.route} - ${runningNumber}`, 'Operating day', 'Destination', 'Trip', 'Start', 'Finish', 'Next trip', 'Crosslink']],
+                body:operatingDayTrips.map(trip => [trip.route, trip.profile || '-', trip.destination, trip.tripNumber, trip.start, trip.finish, trip.nextTrip, trip.notes.join('; ') || '-']),
+                theme:'grid',
+                tableWidth:186,
+                styles:{ font:'times', fontSize:7.5, cellPadding:1.5, minCellWidth:0, overflow:'linebreak', textColor:titleColor },
+                headStyles:{ fillColor:titleColor, textColor:[255, 255, 255], fontStyle:'bold' },
+                margin:{ left:12, right:12 },
+                columnStyles:{ 0:{ cellWidth:18 }, 1:{ cellWidth:18 }, 2:{ cellWidth:38 }, 3:{ cellWidth:11 }, 4:{ cellWidth:13 }, 5:{ cellWidth:13 }, 6:{ cellWidth:26 }, 7:{ cellWidth:49 } }
+            });
+            cursor = pdf.lastAutoTable.finalY + 7;
+            hasRenderedDutyTable = true;
+        });
+    });
+    });
+    const filename = `rsg-duty-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+    pdf.save(filename);
+    $('status').textContent = `Downloaded ${filename}.`;
+    } catch (error) {
+        console.error('PDF export failed:', error);
+        $('status').textContent = `Could not create the PDF: ${error.message}`;
+    }
 }
 function flattenRouteEntries(routeName, routeData) {
     const entries = [];

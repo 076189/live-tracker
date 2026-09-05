@@ -427,6 +427,27 @@
         return [...uniqueLogs.values()];
     }
 
+    function splitHistoryLogAtMidnight(log) {
+        const firstSeenAt = Number(log.firstSeenAt || log.timestamp);
+        const lastSeenAt = Number(log.lastSeenAt || log.timestamp);
+        if (!Number.isFinite(firstSeenAt) || !Number.isFinite(lastSeenAt) || lastSeenAt <= firstSeenAt) return [log];
+
+        const segments = [];
+        let segmentStart = firstSeenAt;
+        let nextMidnight = new Date(segmentStart);
+        nextMidnight.setHours(24, 0, 0, 0);
+
+        while (nextMidnight.getTime() < lastSeenAt) {
+            segments.push({ ...log, firstSeenAt: segmentStart, lastSeenAt: nextMidnight.getTime() });
+            segmentStart = nextMidnight.getTime();
+            nextMidnight = new Date(segmentStart);
+            nextMidnight.setHours(24, 0, 0, 0);
+        }
+
+        segments.push({ ...log, firstSeenAt: segmentStart, lastSeenAt });
+        return segments;
+    }
+
     function isSameLocalCalendarDay(firstTimestamp, secondTimestamp) {
         const firstDate = new Date(firstTimestamp);
         const secondDate = new Date(secondTimestamp);
@@ -2023,7 +2044,7 @@
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
             const getFirstSeenAt = log => log.firstSeenAt || log.timestamp;
             const getLastSeenAt = log => log.lastSeenAt || log.timestamp;
-            const sortedLogs = [...logs].sort((a, b) => getFirstSeenAt(a) - getFirstSeenAt(b));
+            const sortedLogs = logs.flatMap(splitHistoryLogAtMidnight).sort((a, b) => getFirstSeenAt(a) - getFirstSeenAt(b));
             const groupedLogs = new Map();
             sortedLogs.forEach(log => {
                 const firstSeenAt = getFirstSeenAt(log);

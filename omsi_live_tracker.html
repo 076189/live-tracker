@@ -1995,24 +1995,24 @@
             ]);
         } catch (error) {}
         let historyLookupError = null;
-        if (!firebaseLogs.length) {
-            const historyLookupIdentifiers = [...new Set([
-                displayFleet,
-                displayReg,
-                ...searchTerms,
-                cleanIdent
-            ].map(value => String(value || '').trim()).filter(value => value && value !== '-' && value !== '---'))];
-            for (const historyLookupIdentifier of historyLookupIdentifiers) {
-                try {
-                    firebaseLogs = await loadServerVehicleHistory(historyLookupIdentifier);
-                    if (firebaseLogs.length) break;
-                } catch (error) {
-                    historyLookupError = error;
-                    console.warn('Central vehicle history lookup failed:', error);
-                }
+        const historyLookupIdentifiers = [...new Set([
+            displayFleet,
+            displayReg,
+            ...searchTerms,
+            cleanIdent
+        ].map(value => String(value || '').trim()).filter(value => value && value !== '-' && value !== '---'))];
+        for (const historyLookupIdentifier of historyLookupIdentifiers) {
+            try {
+                const serverLogs = await loadServerVehicleHistory(historyLookupIdentifier);
+                firebaseLogs.push(...serverLogs);
+            } catch (error) {
+                historyLookupError = error;
+                console.warn('Central vehicle history lookup failed:', error);
             }
         }
-        logs = combineHistoryLogs(logs, firebaseLogs);
+        // Browser sightings are useful while offline, but they are inherently device-specific.
+        // Once central history is available, show only that shared record set on every device.
+        logs = firebaseLogs.length > 0 ? combineHistoryLogs([], firebaseLogs) : logs;
 
         let pageContent = '';
         if (logs.length === 0) {

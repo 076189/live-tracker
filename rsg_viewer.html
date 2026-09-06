@@ -1260,16 +1260,19 @@ function crosslinkSourceRunningNumber(config, trip) {
     }
     return '';
 }
-function renderSuggestedTable(title, config, directionIndex, entries, assignments) {
+function renderSuggestedTable(title, config, directionIndex, entries, assignments, configsToRender = [config]) {
     if (!config) return `<div class="suggested-table"><h3>${esc(title)}</h3><div class="empty">No matching direction saved.</div></div>`;
-    const trips = orderTripsChronologically(tripsOf(config));
     const paired = findPairedConfig(config);
     const pool = runningPool();
+    const tripRows = configsToRender.filter(Boolean).flatMap(directionConfig => {
+        const directionEntries = liveRouteEntries.get(clean(directionConfig.routeName).toUpperCase()) || entries || [];
+        return orderTripsChronologically(tripsOf(directionConfig)).map((trip, index) => ({ directionConfig, directionEntries, trip, index }));
+    }).sort((first, second) => minutesFromTime(tripTime(first.trip)) - minutesFromTime(tripTime(second.trip)));
     // While a PVR/prefix/start pool is active, let it drive the numbers (cycling as the pool grows or shrinks)
     // instead of being stuck on whatever was saved last time.
     const generatedActive = generatedRunningPool().length > 0;
     const crosslinkActive = crosslinksFor(selectedConfig).some(crosslink => crosslink.crosslinkFromTripId && crosslink.crosslinkToTripId);
-    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${trips.length ? trips.map((trip, index) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, config)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const inheritedCrosslinkRun = crosslinkSourceRunningNumber(config, trip); const suggestedRunning = inheritedCrosslinkRun || (generatedActive || crosslinkActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning)); const markers = crosslinkMarkersForTrip(config, trip); const markerHtml = markers.length ? `<div class="crosslink-markers">${markers.map(marker => `<span class="crosslink-marker">${marker}</span>`).join('')}</div>` : ''; return `<tr><td><input class="trip-number-input" value="${esc(suggestedTripNumber(config, index, directionIndex, paired, entries, trip))}" aria-label="Trip number">${markerHtml}</td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(config, trip, entries || []) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
+    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${tripRows.length ? tripRows.map(({ directionConfig, directionEntries, trip, index }) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, directionConfig)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const inheritedCrosslinkRun = crosslinkSourceRunningNumber(directionConfig, trip); const suggestedRunning = inheritedCrosslinkRun || (generatedActive || crosslinkActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning)); const markers = crosslinkMarkersForTrip(directionConfig, trip); const markerHtml = markers.length ? `<div class="crosslink-markers">${markers.map(marker => `<span class="crosslink-marker">${marker}</span>`).join('')}</div>` : ''; return `<tr data-config-key="${esc(directionConfig.key)}"><td><input class="trip-number-input" value="${esc(suggestedTripNumber(directionConfig, index, directionConfig === config ? 0 : 1, paired, directionEntries, trip))}" aria-label="Trip number">${markerHtml}</td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(directionConfig, trip, directionEntries) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
 }
 function renderSuggestedTables(config, entries) {
     const container = $('suggested-tables');
@@ -1277,7 +1280,9 @@ function renderSuggestedTables(config, entries) {
     const paired = findPairedConfig(config);
     const assignments = assignRunningNumbersInOrder(config, paired, entries || [], runningPool());
     const circular = isCircularService(config, paired);
-    container.innerHTML = renderSuggestedTable(circular ? `Circular services (${config.destinationName || 'main route'})` : `Towards ${config.destinationName || 'Direction 1'}`, config, 0, entries, assignments) + renderSuggestedTable(circular ? `Short workings (${paired?.destinationName || 'none'})` : `Towards ${paired ? paired.destinationName : 'Direction 2'}`, paired, 1, entries, assignments);
+    container.innerHTML = circular
+        ? renderSuggestedTable(`Circular services (${config.destinationName || 'main route'})`, config, 0, entries, assignments, [config, paired])
+        : renderSuggestedTable(`Towards ${config.destinationName || 'Direction 1'}`, config, 0, entries, assignments) + renderSuggestedTable(`Towards ${paired ? paired.destinationName : 'Direction 2'}`, paired, 1, entries, assignments);
 }
 async function selectConfig(config, card) {
     selectedConfig = config;
@@ -1427,7 +1432,7 @@ $('swap-trip-numbers-button').addEventListener('click', () => {
 function tripDetailsWithEdits(config, tableEl) {
     const source = (Array.isArray(config.tripDetails) ? config.tripDetails : tripsOf(config)).map(trip => ({ ...trip }));
     const trips = orderTripsChronologically(tripsOf(config));
-    const rows = tableEl.querySelectorAll('tbody tr');
+    const rows = [...tableEl.querySelectorAll('tbody tr')].filter(row => row.dataset.configKey === config.key);
     trips.forEach((trip, index) => {
         const row = rows[index];
         if (!row) return;
@@ -1600,6 +1605,7 @@ $('save-running-button').addEventListener('click', async () => {
     if (!tableEls.length) { status.textContent = 'Nothing to save yet.'; return; }
     const paired = findPairedConfig(selectedConfig);
     const directionConfigs = [selectedConfig, paired];
+    const circular = isCircularService(selectedConfig, paired);
     const crosslinkOwner = crosslinkConfig || crosslinkOwnerFor();
     const poolSettings = {
         pvr: clean($('pvr-input').value),
@@ -1615,7 +1621,7 @@ $('save-running-button').addEventListener('click', async () => {
     const updates = {};
     const updatedTripDetailsByConfig = new Map();
     directionConfigs.forEach((config, index) => {
-        const tableEl = tableEls[index];
+        const tableEl = tableEls[circular ? 0 : index];
         if (!config || !tableEl || !config.key) return;
         const updatedTripDetails = tripDetailsWithEdits(config, tableEl);
         const configPoolSettings = { ...poolSettings, crosslinks:config === crosslinkOwner ? poolSettings.crosslinks : [] };

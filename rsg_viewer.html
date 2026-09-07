@@ -149,6 +149,7 @@ const MAX_SUGGESTED_CROSSLINKS = 25;
 const $ = id => document.getElementById(id);
 const clean = value => String(value ?? '').trim();
 const esc = value => clean(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const tripTime = trip => clean(trip.time || trip.departureTime || trip.firstStopTime || '');
 const profilesOf = config => clean(config.operatingProfile || config.OperatingProfile).split(',').map(clean).filter(Boolean);
 const tripsOf = config => {
     if (Array.isArray(config.tripDetails)) return config.tripDetails;
@@ -440,7 +441,13 @@ async function exportPdf() {
         tripsByDuty.get(key).push(trip);
     });
     tripsByDuty.forEach(trips => {
-        trips.sort((first, second) => first.timeSort - second.timeSort || first.route.localeCompare(second.route, undefined, { numeric:true, sensitivity:'base' }) || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
+        trips.sort((first, second) => {
+            const firstMinutes = minutesFromTime(first.start);
+            const secondMinutes = minutesFromTime(second.start);
+            const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 240 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
+            const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 240 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
+            return firstOrder - secondOrder || first.route.localeCompare(second.route, undefined, { numeric:true, sensitivity:'base' }) || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
+        });
         trips.forEach((trip, index) => {
             const crosslinkTrip = [...(crosslinkTargetsByTrip.get(reportTripKey(trip.configKey, trip.tripId)) || [])]
                 .map(key => reportTripsByKey.get(key))
@@ -451,16 +458,10 @@ async function exportPdf() {
     });
     const dutiesByRoute = new Map();
     reportTrips.forEach(trip => {
-        // Only merge (N) 24hr-continuation duties into their day route's group - true
-        // N-prefixed night routes (e.g. N22) must keep their own separate group, not
-        // get folded into the day route's section just because they share a number.
         const routeOrder = exportRouteOrder(trip.route);
         const baseRoute = routeOrder.variant === 1 ? (clean(trip.route) || trip.route) : (routeOrder.base || trip.route);
         if (!dutiesByRoute.has(baseRoute)) dutiesByRoute.set(baseRoute, { route:baseRoute, duties:new Map() });
         const group = dutiesByRoute.get(baseRoute);
-        // Key by running number AND operating profile together, so a running number that's
-        // used on both MF,Sa and Su (for example) gets its own separate table per profile,
-        // instead of interleaving both profiles' trips under one shared heading.
         const dutyKey = `${trip.runningNumber}::${trip.profile || 'Unspecified'}`;
         if (!group.duties.has(dutyKey)) group.duties.set(dutyKey, { runningNumber:trip.runningNumber, profile:trip.profile || 'Unspecified', trips:[] });
         group.duties.get(dutyKey).trips.push(trip);
@@ -470,8 +471,13 @@ async function exportPdf() {
             first.runningNumber.localeCompare(second.runningNumber, undefined, { numeric:true, sensitivity:'base' })
             || compareOperatingDays(first.profile, second.profile)
         ).map(({ runningNumber, profile, trips }) => {
-            trips.sort((first, second) => first.timeSort - second.timeSort
-                || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
+            trips.sort((first, second) => {
+                const firstMinutes = minutesFromTime(first.start);
+                const secondMinutes = minutesFromTime(second.start);
+                const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 240 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
+                const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 240 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
+                return firstOrder - secondOrder || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
+            });
             const rows = trips.map(trip => `<tr><td>${esc(trip.route)}</td><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.nextTrip)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
             return `<section><h3>${esc(runningNumber)} (${esc(profile)})</h3><table><thead><tr><th>Service</th><th>Destination</th><th>Trip</th><th>Start</th><th>Finish</th><th>Next trip</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
         }).join('');
@@ -512,12 +518,11 @@ async function exportPdf() {
             const allTrips = trips;
             if (!allTrips.length) return;
             allTrips.sort((first, second) => {
-                const firstStart = minutesFromTime(first.start);
-                const secondStart = minutesFromTime(second.start);
-                const firstIsOvernight = (Number.isFinite(firstStart) && firstStart < 420) || (Number.isFinite(firstStart) && firstStart >= 1200);
-                const secondIsOvernight = (Number.isFinite(secondStart) && secondStart < 420) || (Number.isFinite(secondStart) && secondStart >= 1200);
-                if (firstIsOvernight !== secondIsOvernight) return firstIsOvernight ? 1 : -1;
-                return first.timeSort - second.timeSort || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
+                const firstMinutes = minutesFromTime(first.start);
+                const secondMinutes = minutesFromTime(second.start);
+                const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 240 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
+                const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 240 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
+                return firstOrder - secondOrder || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
             });
             if (hasRenderedDutyTable) {
                 pdf.addPage();
@@ -597,49 +602,33 @@ function lastStopTimeForTrip(config, trip, entries) {
     let matches = entries.filter(entry => clean(entry.lineName).toUpperCase() === route && clean(entry.destinationName).toUpperCase() === destination && clean(entry.operatingProfile || entry.OperatingProfile).toUpperCase() === profile);
     const sequence = Array.isArray(config.stopSequence) ? config.stopSequence : [];
     const lastStopId = clean(sequence.at(-1)?.stopID || sequence.at(-1)?.stopId || sequence.at(-1)?.id || sequence.at(-1)?.stop_id);
-    // A published trip ID defines the exact run. Resolve it before using adjacent rows,
-    // which can otherwise make the final late-night trip consume the following morning's rows.
+    const firstStopId = clean(sequence[0]?.stopID || sequence[0]?.stopId || sequence[0]?.id || sequence[0]?.stop_id);
+    const firstStopTime = tripTime(trip);
+
     if (savedTrip) {
         const tripIdMatches = matches.filter(entry => clean(entry.tripId || entry.tripNumber || entry.tripNo) === savedTrip);
         if (tripIdMatches.length) {
             const finalStop = [...tripIdMatches].reverse().find(entry => clean(entry.stopID || entry.stopId || entry.stop_id) === lastStopId);
             const candidateEndTime = finalStop?.scheduledTime || tripIdMatches.at(-1)?.scheduledTime || '';
-            if (isPlausibleTripEndTime(tripTime(trip), candidateEndTime)) return candidateEndTime;
+            if (isPlausibleTripEndTime(firstStopTime, candidateEndTime)) return candidateEndTime;
         }
     }
-    const firstStopId = clean(sequence[0]?.stopID || sequence[0]?.stopId || sequence[0]?.id || sequence[0]?.stop_id);
-    const firstStopTime = tripTime(trip);
-    // Stop-sequence based matching is the most reliable signal, so try it first regardless of a saved trip number.
-    if (firstStopId && lastStopId) {
-        const configuredDepartureTimes = tripsOf(config).map(tripEntry => tripTime(tripEntry)).filter(Boolean);
-        const firstStopIndexes = matches.reduce((indexes, entry, index) => {
-            if (clean(entry.stopID || entry.stopId || entry.stop_id) === firstStopId && clean(entry.scheduledTime) === firstStopTime) indexes.push(index);
-            return indexes;
-        }, []);
-        const matchingStart = firstStopIndexes[0] ?? matches.findIndex(entry => clean(entry.scheduledTime) === firstStopTime);
+
+    if (firstStopTime) {
+        const matchingStart = matches.findIndex(entry => clean(entry.scheduledTime) === firstStopTime && (!firstStopId || clean(entry.stopID || entry.stopId || entry.stop_id) === firstStopId));
         if (matchingStart >= 0) {
+            const configuredDepartureTimes = tripsOf(config).map(tripEntry => tripTime(tripEntry)).filter(Boolean);
             const nextTripStart = matches.findIndex((entry, index) => index > matchingStart && configuredDepartureTimes.includes(clean(entry.scheduledTime)) && (!firstStopId || clean(entry.stopID || entry.stopId || entry.stop_id) === firstStopId));
             const tripRows = matches.slice(matchingStart, nextTripStart < 0 ? matches.length : nextTripStart);
             const finalStop = [...tripRows].reverse().find(entry => clean(entry.stopID || entry.stopId || entry.stop_id) === lastStopId);
-            if (isPlausibleTripEndTime(firstStopTime, finalStop?.scheduledTime)) return finalStop.scheduledTime;
-            const finalRowTime = tripRows.at(-1)?.scheduledTime || '';
-            if (tripRows.length > 1 && isPlausibleTripEndTime(firstStopTime, finalRowTime)) return finalRowTime;
+            if (finalStop && isPlausibleTripEndTime(firstStopTime, finalStop.scheduledTime)) return finalStop.scheduledTime;
+            if (tripRows.length > 1) {
+                const finalRowTime = tripRows.at(-1)?.scheduledTime;
+                if (isPlausibleTripEndTime(firstStopTime, finalRowTime)) return finalRowTime;
+            }
         }
     }
-    const firstStop = tripTime(trip);
-    const tripGroups = new Map();
-    matches.forEach(entry => {
-        const key = clean(entry.tripId || entry.internalId || entry.tripNumber || entry.tripNo);
-        if (!key) return;
-        if (!tripGroups.has(key)) tripGroups.set(key, []);
-        tripGroups.get(key).push(entry);
-    });
-    const matchingGroup = [...tripGroups.values()].find(group => group.some(entry => clean(entry.scheduledTime) === firstStop));
-    matches = matchingGroup || matches.filter(entry => clean(entry.scheduledTime) === firstStop);
-    if (matches.length) {
-        const candidateEndTime = matches.sort((a, b) => clean(a.scheduledTime).localeCompare(clean(b.scheduledTime), undefined, {numeric:true})).at(-1)?.scheduledTime || '';
-        if (isPlausibleTripEndTime(firstStop, candidateEndTime)) return candidateEndTime;
-    }
+
     return derivedLastStopTimeForTrip(config, trip);
 }
 function suggestedTripNumber(config, index, directionIndex, paired, entries, displayedTrip) {
@@ -664,8 +653,6 @@ function isTwentyFourHourContinuation(config) {
         || marker.test(clean(config?.operatingProfile))
         || marker.test(clean(config?.userDisplayName));
 }
-// A night schedule is either a literal 24-hour "(N)" continuation or an N-prefixed night route.
-// This keeps other lettered services, such as S304, as normal route labels and pairings.
 function isNightConfig(config) {
     const route = clean(config?.routeName).replace(/^\(N\)\s*/i, '');
     return /^N\s*\d+\b/i.test(route) || isTwentyFourHourContinuation(config);
@@ -682,8 +669,6 @@ function normalizedProfileKey(config) {
 function operatingProfileTokens(config) {
     return new Set(clean(config?.operatingProfile).split(',').map(token => clean(token).toUpperCase()).filter(Boolean));
 }
-// A short working commonly only runs on some of the days its full route does (e.g. a school-day
-// evening curtailment of a route saved as "MF, Sa"), so match on coverage rather than an exact set.
 function profileCoveredBy(candidateConfig, fullConfig) {
     const candidateTokens = operatingProfileTokens(candidateConfig);
     const fullTokens = operatingProfileTokens(fullConfig);
@@ -696,19 +681,10 @@ function findPairedConfig(config) {
         && normalizedProfileKey(candidate) === normalizedProfileKey(config)
         && clean(candidate.destinationName).toUpperCase() !== clean(config.destinationName).toUpperCase()
         && isNightConfig(candidate) === night
-        // A genuine opposite direction isn't just a short working of this same config (and vice
-        // versa) - that relationship means they're both part of the same loop/direction, not two
-        // separate directions, so exclude it or a lone short working gets mistaken for "the other side".
         && !isShortWorkingOf(candidate, config)
         && !isShortWorkingOf(config, candidate));
-    // Some routes save a short working (e.g. a single trip into the depot) alongside the real
-    // reverse direction. Prefer whichever candidate actually has the most trips, so a short
-    // working doesn't get treated as "the other direction" instead of the genuine pairing.
     return candidates.sort((first, second) => tripsOf(second).length - tripsOf(first).length)[0] || null;
 }
-// If the selected config is itself just a short working of a bigger sibling on the same route
-// (e.g. a curtailment picked from the list), treat that bigger sibling as the true primary
-// direction, so all short workings - including the one originally selected - merge correctly.
 function findFullRouteConfigFor(config) {
     if (!config) return null;
     const night = isNightConfig(config);
@@ -719,8 +695,6 @@ function findFullRouteConfigFor(config) {
         && isShortWorkingOf(config, candidate));
     return candidates.sort((first, second) => tripsOf(second).length - tripsOf(first).length)[0] || null;
 }
-// Same physical stop can be recorded under a different stopID between configs saved at different
-// times, so match on stop ID first but fall back to the stop's own name if the IDs disagree.
 function stopsMatch(a, b) {
     const idA = clean(a?.stopID || a?.stopId || a?.id || a?.stop_id).toUpperCase();
     const idB = clean(b?.stopID || b?.stopId || b?.id || b?.stop_id).toUpperCase();
@@ -729,13 +703,6 @@ function stopsMatch(a, b) {
     const nameB = circularTerminusKey(b);
     return Boolean(nameA) && nameA === nameB;
 }
-// A short working matches its full route's stops in the same order, but not always as one
-// unbroken block: it can curtail early (stops from the same start, ending before the full end),
-// join late (stops ending at the same finish, starting partway), run just a middle stretch that
-// touches neither terminus, or take a shortcut that starts and ends the same but skips stops
-// in between (still order-preserving, just with gaps). A handful of stops are tolerated as
-// unmatched (skipped) since the same physical stop can be saved under a different ID and name
-// between configs recorded at different times.
 function shortWorkingRelation(shortConfig, fullConfig) {
     const shortStops = Array.isArray(shortConfig?.stopSequence) ? shortConfig.stopSequence : [];
     const fullStops = Array.isArray(fullConfig?.stopSequence) ? fullConfig.stopSequence : [];
@@ -878,9 +845,6 @@ function renderCrosslinkRows() {
         const fromTrip = tripForCrosslinkId(fromConfig, crosslink.crosslinkFromTripId);
         const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
         const unrestricted = Boolean(crosslink.manual);
-        // The saved from/return direction can belong to a different route than the one currently
-        // selected (e.g. a day route linked into a night config viewed from the night side), so
-        // make sure those are offered as options too, not just the selected config's own pairing.
         const rowDirections = [...new Map([...directions, fromConfig, findPairedConfig(fromConfig), returnConfig, returnConfig && findPairedConfig(returnConfig)]
             .filter(Boolean).map(directionConfig => [directionConfig.key, directionConfig])).values()];
         return `<div class="calculator-grid" data-crosslink-index="${index}"><div><label>Crosslink ${index + 1}: route and direction</label><select data-crosslink-field="crosslinkRouteKey">${optionsForConfigs(routes, crosslink.crosslinkRouteKey, 'Choose linked configuration')}</select></div><div><label>Leaves from direction</label><select data-crosslink-field="crosslinkFromDirectionKey">${optionsForConfigs(rowDirections, fromConfig?.key, 'Choose a direction')}</select></div><div><label>Leaves after trip</label><select data-crosslink-field="crosslinkFromTripId">${optionsForTrips(fromConfig, crosslink.crosslinkFromTripId, 'Choose a trip', null, null, unavailableTripIds)}</select></div><div><label>Starts linked-route trip</label><select data-crosslink-field="crosslinkToTripId"${linkedConfig && fromTrip ? '' : ' disabled'}>${optionsForTrips(linkedConfig, crosslink.crosslinkToTripId, 'Choose a trip', unrestricted ? null : fromConfig, unrestricted ? null : fromTrip, unavailableTripIds)}</select></div><div><label>Returns to direction (optional)</label><select data-crosslink-field="crosslinkReturnDirectionKey">${optionsForConfigs(rowDirections, returnConfig?.key, 'No return')}</select></div><div><label>Returns on trip (optional)</label><select data-crosslink-field="crosslinkReturnTripId"${returnConfig && linkedTrip ? '' : ' disabled'}>${optionsForTrips(returnConfig, crosslink.crosslinkReturnTripId, 'No return', unrestricted ? null : linkedConfig, unrestricted ? null : linkedTrip, unavailableTripIds)}</select></div><button type="button" class="secondary" data-remove-crosslink="${index}">Remove crosslink ${index + 1}</button></div>`;
@@ -898,9 +862,6 @@ function crosslinkWait(previousConfig, previousTrip, nextConfig, nextTrip) {
 async function suggestNightCrosslinks() {
     const directions = crosslinkDirectionConfigs().filter(config => !isNightConfig(config));
     const routeNumbers = new Set(directions.map(routeNumberForCrosslink).filter(Boolean));
-    // Terminus is only a preference, not a hard requirement - a route's night continuation can
-    // reasonably pull out from a nearby stop rather than the exact stand it arrived at, and this
-    // is a suggestion the user reviews before saving, so don't let that hide valid candidates.
     const nightConfigs = configs.filter(config => isNightConfig(config) && routeNumbers.has(routeNumberForCrosslink(config)));
     if (!directions.length || !nightConfigs.length) return 'A normal route direction and a saved night-route configuration are required.';
     await Promise.all(nightConfigs.map(config => loadLiveRouteEntries(config.routeName)));
@@ -951,8 +912,6 @@ async function suggestNightCrosslinks() {
     suggest(selectedConfig, liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
     return `${suggestions.length} suggested night crosslink(s) added. Review or edit them before saving.`;
 }
-// Derives PVR/prefix/start from running numbers already saved against trips in Tools RSG, for
-// configs that were never edited via this pool calculator.
 function detectRunningPoolSettings(directionConfigs) {
     const values = directionConfigs.filter(Boolean).flatMap(config => tripsOf(config).map(runningValue).filter(Boolean));
     const unique = [...new Set(values)];
@@ -1026,12 +985,8 @@ function populateShortStandDirections(config, paired) {
         input.disabled = !directionConfig;
     });
 }
-// Builds the combined, chronologically-sorted list of trip events across both directions (this is a
-// linear out-and-back route, not a loop, so a bus must finish one direction before starting the other).
 function buildDirectionEvents(config, paired, entries) {
     const events = [];
-    // Group each direction with any short workings that share its stops, so a curtailed run
-    // (e.g. into a depot) chains vehicles with its full route instead of being its own direction.
     const groups = [
         [config, ...shortWorkingConfigsFor(config, [paired])].filter(Boolean),
         paired ? [paired, ...shortWorkingConfigsFor(paired, [config])].filter(Boolean) : []
@@ -1046,9 +1001,6 @@ function buildDirectionEvents(config, paired, entries) {
         return firstStartMinutes[groupIndex] > firstStartMinutes[groupIndex ? 0 : 1] ? -1440 : 0;
     });
     groups.forEach((group, directionIndex) => {
-        // Use the same gap-based rollover ordering as the display tables - a plain ascending sort by
-        // raw clock time would put after-midnight continuation trips (e.g. 00:06) first in the day
-        // instead of last, throwing off which running number the very first real trip gets.
         const items = orderedItemsByGroup[directionIndex];
         let previousStart = -1;
         let dayOffset = groupOffsets[directionIndex];
@@ -1078,9 +1030,6 @@ function configTermini(config) {
     const endStop = sequence.at(-1) || null;
     return { startStop, endStop, startTerminus: circularTerminusKey(startStop), endTerminus: circularTerminusKey(endStop) };
 }
-// The same physical terminus can be recorded under a different stopID and/or a slightly
-// different name between two direction configs saved at different times (e.g. "Ferry Road" vs
-// "Crosby / Ferry Road"), so match by stop ID first, then fall back to name containment.
 function terminiMatch(stopA, nameA, stopB, nameB) {
     if (stopA && stopB && stopsMatch(stopA, stopB)) return true;
     if (!nameA || !nameB) return false;
@@ -1160,10 +1109,6 @@ function isRunningNumberReservedForEvent(runningNumber, event, reservations) {
         return start < reservation.end && end > reservation.start;
     });
 }
-// Walks the combined event list and hands each trip to the next available vehicle: it must have
-// finished its previous trip (with the minimum permitted stand) and be free to switch direction.
-// Paired directions may name the same terminus differently (for example, by bay or road), so a
-// direction change is valid even when those saved stop labels do not compare identically.
 function assignRunningNumbersInOrder(config, paired, entries, dutyRuns = []) {
     const events = buildDirectionEvents(config, paired, entries);
     const assignments = new Map();
@@ -1189,10 +1134,6 @@ function assignRunningNumbersInOrder(config, paired, entries, dutyRuns = []) {
             duties.forEach((duty, candidateIndex) => {
                 const locationsAreKnown = duty.endTerminus && event.startTerminus;
                 const changesDirection = duty.directionIndex !== event.directionIndex;
-                // A direction change on a genuine two-way route means the vehicle turned around -
-                // it may arrive at a stand and pull out from a different nearby stop for the return
-                // working, so don't require an exact terminus match there. Continuing in the same
-                // direction has no such excuse, so it still needs the vehicle to be at the same stop.
                 const canContinueAtTerminus = changesDirection
                     ? Boolean(paired)
                     : locationsAreKnown && terminiMatch(duty.endStop, duty.endTerminus, event.startStop, event.startTerminus);
@@ -1235,17 +1176,12 @@ function assignRunningNumbersInOrder(config, paired, entries, dutyRuns = []) {
             sourceReservation.dutyIndex = dutyIndex;
             duties[dutyIndex].reserved = true;
         }
-        // A crosslink-recipient trip inherits its running number from the day trip it continues
-        // from - once that's established for this duty, keep using it for every later trip on the
-        // same vehicle too, not just the one trip that's the direct crosslink target.
         const inheritedRunningNumber = inheritedRunningNumbers.get(crosslinkTripIdentity(eventId));
         if (inheritedRunningNumber) duties[dutyIndex].inheritedRunningNumber = inheritedRunningNumber;
         assignments.set(tripKey(event.trip, event.config), { dutyIndex, runningNumberOverride: duties[dutyIndex].inheritedRunningNumber || '' });
     });
     return assignments;
 }
-// Reuses the same vehicle-chain logic purely to count how many vehicles it actually needed, for
-// auto-suggesting a sensible PVR.
 function calculateDutyAssignments(config, paired, entries, dutyRuns = []) {
     const dutyIndexes = [...assignRunningNumbersInOrder(config, paired, entries, dutyRuns).values()].map(a => a.dutyIndex);
     return { dutyCount: dutyIndexes.length ? Math.max(...dutyIndexes) + 1 : 0 };
@@ -1272,13 +1208,9 @@ function regularServiceTrips(config) {
 }
 function suggestSequentialDutyOrder() {
     if (!selectedConfig) return;
-    // Mirror the same promotion used elsewhere, so this reflects the full route (short workings
-    // merged in) even when the selected config is itself just a short working of a bigger sibling.
     const config = findFullRouteConfigFor(selectedConfig) || selectedConfig;
     const entries = liveRouteEntries.get(clean(config.routeName).toUpperCase()) || [];
     const paired = findPairedConfig(config);
-    // Pass the current pool through so crosslink reservations are accounted for the same way
-    // suggest() does - otherwise this can compute a lower, inconsistent duty count.
     const runningCycle = runningPool();
     const assignments = assignRunningNumbersInOrder(config, paired, entries, runningCycle);
     const dutyCount = calculateDutyAssignments(config, paired, entries, runningCycle).dutyCount;
@@ -1321,8 +1253,6 @@ function suggest(config, entries) {
         : '-';
     $('trip-suggestion').textContent = nextTrip;
     $('running-suggestion').textContent = nextRunning;
-    // Duty/vehicle-chain figures should reflect the full route (short workings merged in), even
-    // if the currently selected config is itself just one of those short workings.
     const dutyPrimaryConfig = findFullRouteConfigFor(config) || config;
     const paired = findPairedConfig(dutyPrimaryConfig);
     const requiredDuties = calculateDutyAssignments(dutyPrimaryConfig, paired, routeEntries, runningCycle).dutyCount;
@@ -1346,10 +1276,6 @@ function renderMissingRunningNumbers(config, paired) {
         ? `<strong>Running numbers still missing in saved RSG (${missing.length})</strong>${esc(missing.join(' | '))}`
         : '<strong>Saved RSG running numbers</strong>All trip rows in both directions have a running number.';
 }
-function tripTime(trip) { return clean(trip.time || trip.departureTime || trip.firstStopTime || ''); }
-// Sorts items chronologically, starting from midnight. Only rotates the wrap-around point to the
-// end when there's a genuine overnight service break (a gap well beyond the normal headway) -
-// frequent all-day/24hr services have no such break, so they just list straight from 00:00.
 function sortByTimeWithOvernightWrap(items, getMinutes) {
     const withMinutes = items.map(item => ({ item, minutes: getMinutes(item) }));
     const timed = withMinutes.filter(entry => Number.isFinite(entry.minutes)).sort((a, b) => a.minutes - b.minutes);
@@ -1421,8 +1347,6 @@ function crosslinkSourceRunningNumber(config, trip) {
     }
     return '';
 }
-// A cheap, non-recursive version of crosslinkSourceRunningNumber's lookup, precomputed once per
-// assignRunningNumbersInOrder call instead of rescanning every config's crosslinks per event.
 function crosslinkInheritedRunningNumberMap() {
     const map = new Map();
     configs.forEach(ownerConfig => storedCrosslinksFor(ownerConfig).forEach(crosslink => {
@@ -1442,8 +1366,6 @@ function renderSuggestedTable(title, config, directionIndex, entries, assignment
         const directionEntries = liveRouteEntries.get(clean(directionConfig.routeName).toUpperCase()) || entries || [];
         return orderTripsChronologically(tripsOf(directionConfig)).map((trip, index) => ({ directionConfig, directionEntries, trip, index }));
     }), row => minutesFromTime(tripTime(row.trip)));
-    // While a PVR/prefix/start pool is active, let it drive the numbers (cycling as the pool grows or shrinks)
-    // instead of being stuck on whatever was saved last time.
     const generatedActive = generatedRunningPool().length > 0;
     const crosslinkActive = crosslinksFor(selectedConfig).some(crosslink => crosslink.crosslinkFromTripId && crosslink.crosslinkToTripId);
     return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${tripRows.length ? tripRows.map(({ directionConfig, directionEntries, trip, index }) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, directionConfig)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const inheritedCrosslinkRun = duty?.runningNumberOverride || crosslinkSourceRunningNumber(directionConfig, trip); const suggestedRunning = inheritedCrosslinkRun || (generatedActive || crosslinkActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning)); const markers = crosslinkMarkersForTrip(directionConfig, trip); const markerHtml = markers.length ? `<div class="crosslink-markers">${markers.map(marker => `<span class="crosslink-marker">${marker}</span>`).join('')}</div>` : ''; const shortWorkingRelationKind = shortWorkingRelationByKey.get(directionConfig.key) || null; const shortWorkingNoteHtml = shortWorkingRelationKind ? `<span class="short-working-note">${shortWorkingRelationKind === 'late' ? 'Starts partway down route' : shortWorkingRelationKind === 'partial' ? 'Short working (partial route)' : shortWorkingRelationKind === 'shortcut' ? 'Curtails early (skips stops)' : 'Curtails early'}</span>` : ''; return `<tr data-config-key="${esc(directionConfig.key)}" data-trip-time="${esc(tripTime(trip))}"><td title="${esc(directionConfig.userDisplayName || directionConfig.destinationName || 'Unknown')} | ${esc(directionConfig.operatingProfile || 'Unknown profile')} | key:${esc(directionConfig.key)} | ${tripsOf(directionConfig).length} trip(s) | stops:${(Array.isArray(directionConfig.stopSequence) ? directionConfig.stopSequence.length : 0)}"><input class="trip-number-input" value="${esc(suggestedTripNumber(directionConfig, index, (directionConfig === config || isShortWorkingOf(directionConfig, config)) ? 0 : 1, paired, directionEntries, trip))}" aria-label="Trip number">${markerHtml}${shortWorkingNoteHtml}</td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(directionConfig, trip, directionEntries) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
@@ -1474,8 +1396,6 @@ async function selectConfig(config, card) {
     $('details').innerHTML = `<h2>${esc(config.userDisplayName || 'Configuration details')}</h2><div class="meta">Route: ${esc(config.routeName || '-')} | Destination: ${esc(config.destinationName || '-')} | Profile: ${esc(config.operatingProfile || '-')}<br>Last saved: ${esc(config.lastSaved ? new Date(config.lastSaved).toLocaleString('en-GB') : '-')}</div><div class="meta" style="margin-top:16px">Stop sequence (${sequence.length})</div><div class="sequence">${sequence.length ? sequence.map(stop => `<span class="stop">${esc(stop.stopName || stop.name || stop.stopID || stop.id || stop)}</span>`).join('') : '<span class="meta">No stop sequence saved.</span>'}</div>`;
     const entries = await loadLiveRouteEntries(config.routeName);
     await Promise.all(crosslinkConfigs(config).map(linkedConfig => loadLiveRouteEntries(linkedConfig.routeName)));
-    // Duty/vehicle-chain figures should reflect the full route (short workings merged in), even
-    // if the currently selected config is itself just one of those short workings.
     const dutyPrimaryConfig = findFullRouteConfigFor(config) || config;
     const pairedConfig = findPairedConfig(dutyPrimaryConfig);
     const dutyResult = calculateDutyAssignments(dutyPrimaryConfig, pairedConfig, entries);
@@ -1618,8 +1538,6 @@ $('swap-trip-numbers-button').addEventListener('click', () => {
 function tripDetailsWithEdits(config, tableEl) {
     const source = (Array.isArray(config.tripDetails) ? config.tripDetails : tripsOf(config)).map(trip => ({ ...trip }));
     const rows = [...tableEl.querySelectorAll('tbody tr')].filter(row => row.dataset.configKey === config.key);
-    // Match by the trip's own departure time rather than row position - the table can list rows in a
-    // different order (overnight wrap, merged short workings) than this config's own trip array.
     rows.forEach(row => {
         const rowTime = row.dataset.tripTime;
         if (!rowTime) return;
@@ -1713,7 +1631,7 @@ function applyCrosslinkRunningNumber(crosslink, updatedTripDetailsByConfig, upda
     const returnTrip = returnConfig ? tripForCrosslinkId(returnConfig, crosslink.crosslinkReturnTripId, returnTrips) : null;
     const linkedTrips = (updatedTripDetailsByConfig.get(linkedConfig.key) || tripsOf(linkedConfig)).map(trip => ({ ...trip }));
     const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId, linkedTrips);
-    const assignments = assignRunningNumbersInOrder(selectedConfig, findPairedConfig(selectedConfig), liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
+    const assignments = assignRunningNumbersInOrder(selectedConfig, findPairedConfig(selectedConfig), liveRouteEntries.get(clean(selectedConfig?.routeName).toUpperCase()) || []);
     const assignedRun = fromTrip ? runningPool()[assignments.get(tripKey(fromTrip, fromConfig))?.dutyIndex] : '';
     const sharedRun = runningValue(fromTrip) || assignedRun;
     if (!sharedRun || !linkedTrip || (crosslink.crosslinkReturnTripId && !returnTrip)) return false;
@@ -1790,14 +1708,10 @@ $('save-running-button').addEventListener('click', async () => {
     if (duplicates.length) { status.textContent = `Cannot save: duplicate duty run name(s): ${duplicates.join(', ')}.`; return; }
     const tableEls = document.querySelectorAll('#suggested-tables .suggested-table');
     if (!tableEls.length) { status.textContent = 'Nothing to save yet.'; return; }
-    // Mirror the same promotion used to render the tables, so saving lines up with what's on screen
-    // even when the selected config is itself just a short working of a bigger sibling.
     const primaryConfig = findFullRouteConfigFor(selectedConfig) || selectedConfig;
     const paired = findPairedConfig(primaryConfig);
     const directionConfigs = [primaryConfig, paired];
     const circular = isCircularService(primaryConfig, paired);
-    // Short workings share their full route's table, so save them alongside it too - otherwise
-    // edits made in a merged short-working row would never persist and appear to "revert".
     const configTablePairs = [
         { config: primaryConfig, tableEl: tableEls[0] },
         ...shortWorkingConfigsFor(primaryConfig, [paired]).map(config => ({ config, tableEl: tableEls[0] })),

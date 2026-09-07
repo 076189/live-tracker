@@ -458,18 +458,22 @@ async function exportPdf() {
         const baseRoute = routeOrder.variant === 1 ? (clean(trip.route) || trip.route) : (routeOrder.base || trip.route);
         if (!dutiesByRoute.has(baseRoute)) dutiesByRoute.set(baseRoute, { route:baseRoute, duties:new Map() });
         const group = dutiesByRoute.get(baseRoute);
-        if (!group.duties.has(trip.runningNumber)) group.duties.set(trip.runningNumber, []);
-        group.duties.get(trip.runningNumber).push(trip);
+        // Key by running number AND operating profile together, so a running number that's
+        // used on both MF,Sa and Su (for example) gets its own separate table per profile,
+        // instead of interleaving both profiles' trips under one shared heading.
+        const dutyKey = `${trip.runningNumber}::${trip.profile || 'Unspecified'}`;
+        if (!group.duties.has(dutyKey)) group.duties.set(dutyKey, { runningNumber:trip.runningNumber, profile:trip.profile || 'Unspecified', trips:[] });
+        group.duties.get(dutyKey).trips.push(trip);
     });
     const sections = [...dutiesByRoute.values()].sort((first, second) => compareExportRoutes(first.route, second.route)).map(group => {
-        const duties = [...group.duties.entries()].sort(([firstRun], [secondRun]) =>
-            firstRun.localeCompare(secondRun, undefined, { numeric:true, sensitivity:'base' })
-        ).map(([runningNumber, trips]) => {
-            trips.sort((first, second) => compareOperatingDays(first.profile, second.profile)
-                || first.timeSort - second.timeSort
+        const duties = [...group.duties.values()].sort((first, second) =>
+            first.runningNumber.localeCompare(second.runningNumber, undefined, { numeric:true, sensitivity:'base' })
+            || compareOperatingDays(first.profile, second.profile)
+        ).map(({ runningNumber, profile, trips }) => {
+            trips.sort((first, second) => first.timeSort - second.timeSort
                 || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
-            const rows = trips.map(trip => `<tr><td>${esc(trip.route)}</td><td>${esc(trip.profile || '-')}</td><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.nextTrip)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
-            return `<section><h3>${esc(runningNumber)}</h3><table><thead><tr><th>Service</th><th>Operating day</th><th>Destination</th><th>Trip</th><th>Start</th><th>Finish</th><th>Next trip</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+            const rows = trips.map(trip => `<tr><td>${esc(trip.route)}</td><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.nextTrip)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
+            return `<section><h3>${esc(runningNumber)} (${esc(profile)})</h3><table><thead><tr><th>Service</th><th>Destination</th><th>Trip</th><th>Start</th><th>Finish</th><th>Next trip</th><th>Crosslink</th></tr></thead><tbody>${rows}</tbody></table></section>`;
         }).join('');
         return `<section><h2>Route ${esc(group.route)}</h2>${duties}</section>`;
     }).join('');
@@ -501,7 +505,10 @@ async function exportPdf() {
     cursor += 8;
     let hasRenderedDutyTable = false;
     [...dutiesByRoute.values()].sort((first, second) => compareExportRoutes(first.route, second.route)).forEach(group => {
-        [...group.duties.entries()].sort(([firstRun], [secondRun]) => firstRun.localeCompare(secondRun, undefined, { numeric:true, sensitivity:'base' })).forEach(([runningNumber, trips]) => {
+        [...group.duties.values()].sort((first, second) =>
+            first.runningNumber.localeCompare(second.runningNumber, undefined, { numeric:true, sensitivity:'base' })
+            || compareOperatingDays(first.profile, second.profile)
+        ).forEach(({ runningNumber, profile, trips }) => {
             const allTrips = trips;
             if (!allTrips.length) return;
             allTrips.sort((first, second) => {
@@ -510,7 +517,7 @@ async function exportPdf() {
                 const firstIsOvernight = (Number.isFinite(firstStart) && firstStart < 420) || (Number.isFinite(firstStart) && firstStart >= 1200);
                 const secondIsOvernight = (Number.isFinite(secondStart) && secondStart < 420) || (Number.isFinite(secondStart) && secondStart >= 1200);
                 if (firstIsOvernight !== secondIsOvernight) return firstIsOvernight ? 1 : -1;
-                return compareOperatingDays(first.profile, second.profile) || first.timeSort - second.timeSort || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
+                return first.timeSort - second.timeSort || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
             });
             if (hasRenderedDutyTable) {
                 pdf.addPage();
@@ -521,14 +528,14 @@ async function exportPdf() {
             }
             autoTable(pdf, {
                 startY:cursor,
-                head:[[`Route ${group.route} - ${runningNumber}`, 'Operating day', 'Destination', 'Trip', 'Start', 'Finish', 'Next trip', 'Crosslink']],
-                body:allTrips.map(trip => [trip.route, trip.profile || '-', trip.destination, trip.tripNumber, trip.start, trip.finish, trip.nextTrip, trip.notes.join('; ') || '-']),
+                head:[[`Route ${group.route} - ${runningNumber} (${profile})`, 'Destination', 'Trip', 'Start', 'Finish', 'Next trip', 'Crosslink']],
+                body:allTrips.map(trip => [trip.route, trip.destination, trip.tripNumber, trip.start, trip.finish, trip.nextTrip, trip.notes.join('; ') || '-']),
                 theme:'grid',
                 tableWidth:186,
                 styles:{ font:'times', fontSize:7.5, cellPadding:1.5, minCellWidth:0, overflow:'linebreak', textColor:titleColor },
                 headStyles:{ fillColor:titleColor, textColor:[255, 255, 255], fontStyle:'bold' },
                 margin:{ left:12, right:12 },
-                columnStyles:{ 0:{ cellWidth:18 }, 1:{ cellWidth:18 }, 2:{ cellWidth:38 }, 3:{ cellWidth:11 }, 4:{ cellWidth:13 }, 5:{ cellWidth:13 }, 6:{ cellWidth:26 }, 7:{ cellWidth:49 } }
+                columnStyles:{ 0:{ cellWidth:30 }, 1:{ cellWidth:44 }, 2:{ cellWidth:13 }, 3:{ cellWidth:15 }, 4:{ cellWidth:15 }, 5:{ cellWidth:30 }, 6:{ cellWidth:39 } }
             });
             cursor = pdf.lastAutoTable.finalY + 7;
             hasRenderedDutyTable = true;

@@ -3509,11 +3509,35 @@ function updateSubRunningCurrentVehicle_ExtraPage() {
     }
 
     let currentVehicle = null;
-    try {
-        const cachedAssignments = JSON.parse(localStorage.getItem('omsiTrackerVehicleAssignments_Standalone_v1') || '{}');
-        currentVehicle = cachedAssignments[`${routeKey}_RUN_${runningNumber}`] || null;
-    } catch (error) {
-        currentVehicle = null;
+    const activeRouteAlloc = vehicleAllocationData_extra[routeKey] || {};
+    const subAssignment = (Array.isArray(activeRouteAlloc.subVehicles) ? activeRouteAlloc.subVehicles : []).find(item => String(item.runningNumber || '').trim().toUpperCase() === runningNumber);
+
+    if (subAssignment) {
+        currentVehicle = { fleetNumber: subAssignment.fleetNumber, registration: subAssignment.registration };
+    } else {
+        try {
+            const cachedAssignments = JSON.parse(localStorage.getItem('omsiTrackerVehicleAssignments_Standalone_v1') || '{}');
+            currentVehicle = cachedAssignments[`${routeKey}_RUN_${runningNumber}`] || null;
+        } catch (error) {
+            currentVehicle = null;
+        }
+    }
+
+    if (!currentVehicle && window.firebaseOMSI && window.firebaseOMSI.database) {
+        const liveRunningIndex = window.firebaseOMSI.database;
+    }
+
+    if (!currentVehicle) {
+        const commonList = Array.isArray(activeRouteAlloc.commonVehicles) ? activeRouteAlloc.commonVehicles : [];
+        if (commonList.length > 0) {
+            let hash = 0;
+            for (let i = 0; i < runningNumber.length; i++) {
+                hash = ((hash << 5) - hash) + runningNumber.charCodeAt(i);
+                hash |= 0;
+            }
+            const index = Math.abs(hash) % commonList.length;
+            currentVehicle = commonList[index];
+        }
     }
 
     const displayVehicle = currentVehicle

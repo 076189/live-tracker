@@ -105,7 +105,6 @@
         <div class="counter" id="bus-counter">Tracked Services: 0</div>
     </div>
 
-    <!-- Direction A Table Container / Standard Live Services -->
     <h2 id="direction-a-heading">Live Services (Direction A)</h2>
     <table id="standard-table-a">
         <thead>
@@ -123,7 +122,6 @@
         </tbody>
     </table>
 
-    <!-- Direction B Table Container -->
     <h2 id="direction-b-heading" style="display:none;">Live Services (Direction B)</h2>
     <table id="direction-b-table-container" style="display:none;">
         <thead>
@@ -141,7 +139,6 @@
         </tbody>
     </table>
 
-    <!-- Rare Workings Table Container (All Routes) -->
     <h2 id="rare-heading" style="display:none;">Rare Workings (All Routes)</h2>
     <table id="rare-table-container" style="display:none;">
         <thead>
@@ -160,7 +157,6 @@
         </tbody>
     </table>
 
-    <!-- History Page Container -->
     <h2 id="history-heading" style="display:none;">Vehicle Sighting History</h2>
     <div id="history-page-container" style="display:none;">
         <div style="margin-bottom: 15px;">
@@ -217,8 +213,6 @@
         </div>
     </div>
 
-    <!-- Vehicle History Modal -->
-
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
       import { getAuth } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
@@ -246,11 +240,11 @@
     let closedStopIDsGlobal = []; 
     let ukBankHolidaysData = { dates: [], titles: {} };
     const schoolHolidayDateRanges = []; 
-    const earlyMorningThresholdHours = 5; 
+    const earlyMorningThresholdHours = 7; 
 
-    const MAX_UPCOMING_SECONDS_TRACKER = 3600;
-    const MIN_RELEVANT_PAST_SECONDS_TRACKER = -59; 
-    const MAX_PAST_SECONDS_TRACKER = -1800; // 30-minute timeout buffer after passing a stop
+    const MAX_UPCOMING_SECONDS_TRACKER = 1800; 
+    const MIN_RELEVANT_PAST_SECONDS_TRACKER = -1800; 
+    const MAX_PAST_SECONDS_TRACKER = -1800;
 
     let currentRouteFilter = null;
     let activeMassCurtailments = {};
@@ -260,22 +254,16 @@
 
     let watchedBuses = new Set(); 
     const WATCHED_BUSES_STORAGE_KEY = `omsiTrackerWatchedBuses_Arial_Standalone_v1`;
-    const ROUTE_HISTORY_STORAGE_KEY = 'omsiVehicleRouteHistory_v2';
-    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v3';
+    const VEHICLE_DETAILED_LOG_KEY = 'omsiVehicleDetailedLog_v4';
     const FB_PATH_SCHEDULES_BY_ROUTE = '/liveSchedule/schedulesByRoute';
     const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
     const FB_PATH_LIVE_VEHICLE_ASSIGNMENTS = '/liveVehicleAssignments';
     const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
     const FB_PATH_VEHICLE_HISTORY = '/vehicleSightingHistory';
     const VEHICLE_HISTORY_LOOKUP_URL = 'https://europe-west1-omsi-c5505.cloudfunctions.net/lookupVehicleHistory';
-    const HISTORY_ROUTE_KEYS = [
-        '4', '6', '9', '10', '11', '12', '22', '31', '32', '34', '35', '37', '88', '97', '98',
-        '102', '113', '232', '285', '302', '303', '304', '388', '389', '454', '604', '612', '635',
-        '823', '925', 'N22', 'N35', 'N98', 'N113', 'S304'
-    ];
     const vehicleHistoryLookupCache = new Map();
+    const vehicleHistoryMemoryCache = new Map();
     
-    // Route to Operator mapping
     const routeOperators = {
         '4': 'First', '6': 'Stagecoach', '9': 'First', '10': 'Kelly Group', '11': 'Arriva',
         '12': 'First', '22': 'First', 'N22': 'First', '31': 'Stagecoach', '32': 'First',
@@ -293,57 +281,20 @@
     
     let updateThrottleTimer = null;
 
-    let vehicleRouteHistoryMap = new Map();
     let vehicleDetailedLogMap = new Map();
-    let activeRouteListener = null; // Tracks current route listener for cleanup
-    let allRoutesListeners = []; // Tracks per-route listeners used by the lazy-loaded rare workings page
+    let activeRouteListener = null; 
+    let allRoutesListeners = []; 
 
     function stopAllRoutesListeners() {
         allRoutesListeners.forEach(unsubscribe => { try { unsubscribe(); } catch (error) {} });
         allRoutesListeners = [];
     }
-    let backgroundHistoryListener = null;
     let backgroundHistoryScheduleData = [];
     let backgroundHistoryProcessTimer = null;
     let firebaseListenerRetryTimer = null;
 
-    function loadRouteHistoryFromStorage() {
-        try {
-            localStorage.removeItem('omsiVehicleRouteHistory_v1');
-            const stored = localStorage.getItem(ROUTE_HISTORY_STORAGE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                vehicleRouteHistoryMap = new Map(Object.entries(parsed));
-            }
-        } catch (e) {
-            vehicleRouteHistoryMap = new Map();
-        }
-    }
-
-    function saveRouteHistoryToStorage() {
-        try {
-            const obj = Object.fromEntries(vehicleRouteHistoryMap);
-            localStorage.setItem(ROUTE_HISTORY_STORAGE_KEY, JSON.stringify(obj));
-        } catch (e) {}
-    }
-
-    function recordVehicleSighting(routeName, fleetNumber, registration) {
-        if (!routeName || (!fleetNumber && !registration)) return;
-        const routeUpper = routeName.toUpperCase();
-        const ident = (fleetNumber && fleetNumber !== "N/A" ? fleetNumber : registration).toUpperCase();
-        if (!ident || ident === "---") return;
-
-        if (!vehicleRouteHistoryMap.has(routeUpper)) {
-            vehicleRouteHistoryMap.set(routeUpper, {});
-        }
-        const routeSightings = vehicleRouteHistoryMap.get(routeUpper);
-        routeSightings[ident] = Date.now();
-        saveRouteHistoryToStorage();
-    }
-
     function loadDetailedLogFromStorage() {
         try {
-            localStorage.removeItem('omsiVehicleDetailedLog_v2');
             const stored = localStorage.getItem(VEHICLE_DETAILED_LOG_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
@@ -383,10 +334,11 @@
         const keys = [...new Set(identifiers.map(firebaseVehicleHistoryKey).filter(Boolean))];
         const snapshots = await Promise.all(keys.map(key => dbGet(dbRef(database, `${FB_PATH_VEHICLE_HISTORY}/${key}`))));
         const logs = [];
-
         snapshots.forEach(snapshot => {
             if (!snapshot.exists()) return;
-            Object.values(snapshot.val() || {}).forEach(routesForDay => {
+            const data = snapshot.val();
+            if (!data) return;
+            Object.entries(data).forEach(([dateKey, routesForDay]) => {
                 Object.entries(routesForDay || {}).forEach(([routeName, record]) => {
                     if (!record || !record.firstSeenAt || !record.lastSeenAt) return;
                     logs.push({
@@ -397,7 +349,8 @@
                         fleetNumber: record.fleetNumber || 'N/A',
                         registration: normalizeRegistration(record.registration || '---'),
                         runningNumber: record.runningNumber || '',
-                        garage: getGarageFromRunningNumber(record.runningNumber)
+                        garage: getGarageFromRunningNumber(record.runningNumber),
+                        dateKey: dateKey
                     });
                 });
             });
@@ -459,53 +412,74 @@
         return segments;
     }
 
-    function isSameLocalCalendarDay(firstTimestamp, secondTimestamp) {
-        const firstDate = new Date(firstTimestamp);
-        const secondDate = new Date(secondTimestamp);
-        return firstDate.getFullYear() === secondDate.getFullYear() &&
-               firstDate.getMonth() === secondDate.getMonth() &&
-               firstDate.getDate() === secondDate.getDate();
+    function isSameLocalCalendarDay(timestamp1, timestamp2) {
+    const d1 = new Date(timestamp1);
+    const d2 = new Date(timestamp2);
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+}
+
+    function recordDetailedVehicleSighting(routeName, fleetNumber, registration, blockId, runningNumber, tripStartTime, tripEndTime, timeToStationInSeconds) {
+    if (!routeName) return;
+    
+    if (timeToStationInSeconds === undefined || timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER) {
+        return;
     }
 
-    function recordDetailedVehicleSighting(routeName, fleetNumber, registration, blockId, runningNumber) {
-        if (!routeName) return;
-        registration = normalizeRegistration(registration);
-        const idents = [];
-        if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
-        if (registration && registration !== "---") idents.push(registration.toUpperCase());
-        
-        // If no valid vehicle identifiers, use blockId as fallback
-        if (idents.length === 0) {
-            if (blockId) {
-                idents.push(blockId.toUpperCase());
-            } else {
-                return;
-            }
+    registration = normalizeRegistration(registration);
+    const idents = [];
+    if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
+    if (registration && registration !== "---") idents.push(registration.toUpperCase());
+    
+    if (idents.length === 0) {
+        if (blockId) {
+            idents.push(blockId.toUpperCase());
+        } else {
+            return;
         }
-
-        const now = Date.now();
-        idents.forEach(ident => {
-            if (!vehicleDetailedLogMap.has(ident)) {
-                vehicleDetailedLogMap.set(ident, []);
-            }
-            const logs = vehicleDetailedLogMap.get(ident);
-            const routeUp = routeName.toUpperCase();
-            const existingLog = [...logs].reverse().find(log => {
-                const lastSeenAt = log.lastSeenAt || log.timestamp;
-                return log.routeName === routeUp && lastSeenAt && isSameLocalCalendarDay(lastSeenAt, now);
-            });
-            if (existingLog) {
-                existingLog.firstSeenAt = existingLog.firstSeenAt || existingLog.timestamp || now;
-                existingLog.lastSeenAt = now;
-                if (!existingLog.runningNumber && runningNumber) existingLog.runningNumber = runningNumber;
-                if (!existingLog.garage && runningNumber) existingLog.garage = getGarageFromRunningNumber(runningNumber);
-            } else {
-                logs.push({ routeName: routeUp, operator: getOperatorForRoute(routeUp), firstSeenAt: now, lastSeenAt: now, fleetNumber: fleetNumber || "N/A", registration: registration || "---", runningNumber: runningNumber || "", garage: getGarageFromRunningNumber(runningNumber) });
-                if (logs.length > 50) logs.shift();
-            }
-        });
-        saveDetailedLogToStorage();
     }
+
+    const now = Date.now();
+    let effectiveStartTime = tripStartTime && Number.isFinite(tripStartTime) ? tripStartTime : now;
+    let effectiveEndTime = tripEndTime && Number.isFinite(tripEndTime) ? tripEndTime : effectiveStartTime;
+    const routeUpper = routeName.toUpperCase();
+
+    const endDate = new Date(effectiveEndTime);
+    if (routeUpper.startsWith('N') && endDate.getHours() >= 5 && endDate.getHours() < 20) {
+        return; 
+    }
+
+    idents.forEach(ident => {
+        if (!vehicleDetailedLogMap.has(ident)) {
+            vehicleDetailedLogMap.set(ident, []);
+        }
+        const logs = vehicleDetailedLogMap.get(ident);
+        const existingLog = [...logs].reverse().find(log => {
+            const lastSeenAt = log.lastSeenAt || log.timestamp;
+            return log.routeName === routeUpper && lastSeenAt && isSameLocalCalendarDay(lastSeenAt, effectiveEndTime);
+        });
+        if (existingLog) {
+            existingLog.firstSeenAt = Math.min(existingLog.firstSeenAt || existingLog.timestamp || effectiveStartTime, effectiveStartTime);
+            existingLog.lastSeenAt = Math.max(existingLog.lastSeenAt || existingLog.timestamp || effectiveEndTime, effectiveEndTime);
+            if (!existingLog.runningNumber && runningNumber) existingLog.runningNumber = runningNumber;
+            if (!existingLog.garage && runningNumber) existingLog.garage = getGarageFromRunningNumber(runningNumber);
+        } else {
+            logs.push({ 
+                routeName: routeUpper, 
+                operator: getOperatorForRoute(routeUpper), 
+                firstSeenAt: effectiveStartTime, 
+                lastSeenAt: effectiveEndTime, 
+                fleetNumber: fleetNumber || "N/A", 
+                registration: registration || "---", 
+                runningNumber: runningNumber || "", 
+                garage: getGarageFromRunningNumber(runningNumber) 
+            });
+            if (logs.length > 50) logs.shift();
+        }
+    });
+    saveDetailedLogToStorage();
+}
 
     let vehicleAllocationData = {};
     let liveVehicleAssignments = {};
@@ -520,23 +494,29 @@
     }
 
     function getLiveAssignedVehicle(routeName, runningNumber) {
-        const routeAssignments = liveVehicleAssignments[String(routeName || '').trim().toUpperCase()] || {};
-        const assignment = routeAssignments[String(runningNumber || '').trim().toUpperCase()];
-        if (!assignment) return null;
-        const fleetNumber = String(assignment.fleetNumber || '').trim();
-        const registration = String(assignment.registration || '').trim();
-        return fleetNumber && fleetNumber !== 'N/A' || registration && registration !== '---'
-            ? { fleetNumber: fleetNumber || 'N/A', registration: normalizeRegistration(registration || '---') }
-            : null;
+        const targetRunning = String(runningNumber || '').trim().toUpperCase();
+        if (!targetRunning) return null;
+        
+        for (const rKey in liveVehicleAssignments) {
+            const routeAssignments = liveVehicleAssignments[rKey] || {};
+            for (const runKey in routeAssignments) {
+                if (runKey.toUpperCase() === targetRunning) {
+                    const assignment = routeAssignments[runKey];
+                    if (!assignment) continue;
+                    const fleetNumber = String(assignment.fleetNumber || '').trim();
+                    const registration = String(assignment.registration || '').trim();
+                    if (fleetNumber && fleetNumber !== 'N/A' || registration && registration !== '---') {
+                        return { fleetNumber: fleetNumber || 'N/A', registration: normalizeRegistration(registration || '---') };
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
     const ROUTE_SCHEDULE_CACHE_KEY = 'omsiTrackerRouteSchedules_Standalone_v1';
     let serviceInstanceVehicleCache = new Map();
-    // Caches the "rare working" determination per blockId so that recording a sighting
-    // during this same tracking session doesn't retroactively make an active rare working
-    // disappear on the next refresh (it would otherwise no longer look like it's been 60+
-    // days since it was last seen, because we ourselves just recorded a sighting for it).
     let serviceInstanceRareCache = new Map();
 
     let clockTimeElement, clockDateElement, trackerTableBodyA, trackerTableBodyB, trackerTableBodyRare, busCounterElement,
@@ -575,14 +555,13 @@
         const numericA = routeA.match(/^(\d+)(.*)$/);
         const numericB = routeB.match(/^(\d+)(.*)$/);
 
-        // Keep standard numbered routes together before night/special routes.
         if (numericA && !numericB) return -1;
         if (!numericA && numericB) return 1;
         if (!numericA && !numericB) return routeA.localeCompare(routeB, undefined, { numeric: true, sensitivity: 'base' });
 
         const numberComparison = parseInt(numericA[1], 10) - parseInt(numericB[1], 10);
         if (numberComparison !== 0) return numberComparison;
-        return numericA[2].localeCompare(numericB[2], undefined, { sensitivity: 'base' });
+        return numericA[2].localeCompare(routeB, undefined, { sensitivity: 'base' });
     }
     
     function loadWatchedBuses() { const stored = localStorage.getItem(WATCHED_BUSES_STORAGE_KEY); watchedBuses = new Set(stored ? JSON.parse(stored) : []); displayWatchedBusesList(); }
@@ -677,15 +656,12 @@
         rareHeading = document.getElementById('rare-heading');
         rareTableContainer = document.getElementById('rare-table-container');
 
-        loadRouteHistoryFromStorage();
         loadDetailedLogFromStorage();
         loadVehicleCacheFromStorage(); 
         setupUIListeners(); 
         updateClock(); 
         setInterval(updateClock, 1000);
-        startBackgroundHistoryLogging(); 
         setInterval(() => {
-            if (backgroundHistoryScheduleData.length > 0) queueBackgroundHistoryProcessing();
             if ((!currentRouteFilter && !isRarePageActive) || localScheduleData.length === 0) return;
             processAndDisplayAllData();
             if (isHistoryPageActive && currentHistoryIdentifier) displayVehicleHistoryModal(currentHistoryIdentifier);
@@ -812,14 +788,8 @@
         const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
         dbOnValue(massCurtailmentsRef, (snapshot) => {
             activeMassCurtailments = snapshot.exists() ? snapshot.val() || {} : {};
-            console.log("[TRACKER] Mass curtailments listener fired!");
-            console.log("[TRACKER] Snapshot exists:", snapshot.exists());
-            console.log("[TRACKER] Active curtailments:", activeMassCurtailments);
-            console.log("[TRACKER] Mass curtailments updated:", Object.keys(activeMassCurtailments).length, "entries");
-            // Always update the curtailments table when data changes
             populateCurtailmentsTable();
             if (currentRouteFilter && localScheduleData.length > 0) {
-                console.log("[TRACKER] Triggering display update for route:", currentRouteFilter);
                 throttledProcessAndDisplay();
             }
         });
@@ -871,8 +841,6 @@
         });
     }
 
-    // Vehicle allocation keys provide the route list for the rare-workings scan. Reading the
-    // whole schedule tree merely to discover extra route names blocks the sequential loader.
     let knownScheduleRouteKeys = new Set();
     let hasFetchedKnownScheduleRouteKeys = false;
     let isFetchingKnownScheduleRouteKeys = false;
@@ -913,8 +881,6 @@
         stopAllRoutesListeners();
 
         if (!hasReceivedInitialVehicleAllocations && window.firebaseOMSI_SA && window.firebaseOMSI_SA.database) {
-            // Vehicle allocations (which tell us which routes have rare vehicles) haven't
-            // loaded yet - wait for them before deciding which routes to fetch.
             if (searchStatusMessage) searchStatusMessage.textContent = `Loading vehicle allocations...`;
             setTimeout(() => { if (isRarePageActive && !currentRouteFilter) loadAllRoutesMetadataAndData(); }, 300);
             return;
@@ -949,8 +915,6 @@
             return;
         }
 
-        // Fetch each rare-eligible route's schedule one at a time (rather than one big
-        // listener covering every route) to avoid the heavy load that was crashing the page.
         loadRareEligibleRoutesSequentially(rareRouteKeys, 0);
     }
 
@@ -1014,102 +978,6 @@
             }
         }
         return flatEntries;
-    }
-
-    function processBackgroundHistoryEntries(scheduleEntries) {
-        if (!Array.isArray(scheduleEntries) || scheduleEntries.length === 0) return;
-        const now = new Date();
-        const serviceVehicles = new Map();
-
-        scheduleEntries.forEach(entry => {
-            if (!entry || typeof entry !== 'object' || !entry.stopID) return;
-            const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(entry);
-            const timing = calculatePreciseStopTimingsForTracker(entry, now);
-            if (!timing.finalAdjustedSchedTime) return;
-
-            // Only record a service while it is close to being in service. Recording every
-            // scheduled service here makes vehicles on inactive routes appear as used.
-            if (timing.timeToStationInSeconds < MAX_PAST_SECONDS_TRACKER || timing.timeToStationInSeconds > MAX_UPCOMING_SECONDS_TRACKER) return;
-            if (!serviceVehicles.has(serviceInstanceKey)) {
-                const subVehicle = getSubVehicleForRunningNumber(trueLineName, entry.runningNumber);
-                const cachedVehicle = serviceInstanceVehicleCache.get(blockId);
-                const assignedVehicle = subVehicle || (
-                    cachedVehicle && getVehicleKey(cachedVehicle)
-                        ? cachedVehicle
-                        : (entry.fleetNumber && entry.fleetNumber !== 'N/A' && entry.vehicleReg && entry.vehicleReg !== '---'
-                            ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg }
-                            : getAssignedVehicle(blockId, trueLineName, entry.runningNumber))
-                );
-                serviceVehicles.set(serviceInstanceKey, { assignedVehicle, blockId, runningNumber: entry.runningNumber || '', routeName: trueLineName });
-            }
-        });
-
-        serviceVehicles.forEach(service => {
-            recordVehicleSighting(service.routeName, service.assignedVehicle.fleetNumber, service.assignedVehicle.registration);
-            recordDetailedVehicleSighting(
-                service.routeName,
-                service.assignedVehicle.fleetNumber,
-                service.assignedVehicle.registration,
-                service.blockId,
-                service.runningNumber
-            );
-        });
-        saveVehicleCacheToStorage();
-    }
-
-    let backgroundHistoryRouteKeys = [];
-    let backgroundHistoryLoadInProgress = false;
-    const BACKGROUND_HISTORY_REFRESH_MS = 5 * 60 * 1000;
-
-    function startBackgroundHistoryLogging() {
-        loadAllRouteSchedulesForBackgroundLogging();
-        setInterval(loadAllRouteSchedulesForBackgroundLogging, BACKGROUND_HISTORY_REFRESH_MS);
-    }
-
-    // Fetches each route's schedule one at a time (rather than one big live listener
-    // covering every route at once) to avoid the heavy load that was slowing page startup.
-    // Uses vehicleAllocationData's keys as the route list instead of fetchKnownScheduleRouteKeysOnce,
-    // which downloads the ENTIRE schedules tree just to read route names - too heavy to run on
-    // every page load/refresh cycle (that full-tree fetch is only acceptable for the user-initiated
-    // Rare Workings page).
-    function loadAllRouteSchedulesForBackgroundLogging() {
-        if (backgroundHistoryLoadInProgress || !window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return;
-        if (!hasReceivedInitialVehicleAllocations) {
-            setTimeout(loadAllRouteSchedulesForBackgroundLogging, 500);
-            return;
-        }
-        backgroundHistoryLoadInProgress = true;
-        backgroundHistoryRouteKeys = HISTORY_ROUTE_KEYS;
-        backgroundHistoryScheduleData = [];
-        loadBackgroundHistoryRouteSequentially(0);
-    }
-
-    function loadBackgroundHistoryRouteSequentially(index) {
-        if (index >= backgroundHistoryRouteKeys.length) {
-            backgroundHistoryLoadInProgress = false;
-            queueBackgroundHistoryProcessing();
-            return;
-        }
-        const routeKey = backgroundHistoryRouteKeys[index];
-        const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
-        const routeRef = dbRef(database, `${FB_PATH_SCHEDULES_BY_ROUTE}/${routeKey}`);
-        console.log(`[TRACKER] Loading background history route ${index + 1} of ${backgroundHistoryRouteKeys.length} (${routeKey})...`);
-        dbGet(routeRef).then(snapshot => {
-            if (snapshot.exists()) {
-                backgroundHistoryScheduleData.push(...flattenSingleRouteData(routeKey, snapshot.val()));
-            }
-            loadBackgroundHistoryRouteSequentially(index + 1);
-        }).catch(() => {
-            loadBackgroundHistoryRouteSequentially(index + 1);
-        });
-    }
-
-    function queueBackgroundHistoryProcessing() {
-        if (backgroundHistoryProcessTimer) clearTimeout(backgroundHistoryProcessTimer);
-        backgroundHistoryProcessTimer = setTimeout(() => {
-            backgroundHistoryProcessTimer = null;
-            processBackgroundHistoryEntries(backgroundHistoryScheduleData);
-        }, 250);
     }
 
     function throttledProcessAndDisplay() {
@@ -1215,6 +1083,7 @@
     }
 
     function getAssignedVehicle(serviceInstanceKey, routeName, runningNumber) {
+        const now = new Date();
         const liveAssignment = getLiveAssignedVehicle(routeName, runningNumber);
         if (liveAssignment) {
             serviceInstanceVehicleCache.set(serviceInstanceKey, liveAssignment);
@@ -1245,12 +1114,11 @@
             const rarePoolRaw = parseFirebaseListOrMap(routeAlloc.rareVehicles);
             let rareChance = typeof routeAlloc.rareChance === 'number' ? routeAlloc.rareChance : 0.05;
             
-            // Normalize rareChance: if > 1, assume it's a percentage (0-100) and convert to decimal (0-1)
             if (rareChance > 1) {
                 rareChance = rareChance / 100;
             }
 
-            const dateKey = getLocalDateKey();
+            const dateKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
             const useRare = seededUnitInterval(`${serviceInstanceKey}|rare|${dateKey}`) < rareChance;
             let rawPool = [];
             
@@ -1292,12 +1160,10 @@
             serviceInstanceKey = `${trueLineName}_${unescapeHtml(busEntry.destinationName)}_${perStopScheduledTimeKeyComponent}_${busEntry.OperatingProfile}_${(busEntry.DayOffset || "0")}_NO_IDS`;
         }
 
-        // If running number is set, use it to create a block ID that keeps the same bus throughout the running
         let blockId;
         if (busEntry.runningNumber && String(busEntry.runningNumber).trim() !== "") {
-            blockId = `${trueLineName}_RUN_${String(busEntry.runningNumber).trim().toUpperCase()}`;
+            blockId = `GLOBAL_RUN_${String(busEntry.runningNumber).trim().toUpperCase()}`;
         } else {
-            // Fall back to existing logic: check tripBlockMapping or use serviceInstanceKey
             const tripKey = `${trueLineName}_${busEntry.OperatingProfile}_${busEntry.tripId}`;
             blockId = tripBlockMapping.has(tripKey) ? tripBlockMapping.get(tripKey) : serviceInstanceKey;
         }
@@ -1312,8 +1178,6 @@
         return String(vehicle.registration || '').trim().toUpperCase();
     }
 
-    // Deterministic (non-random) hash so every device resolves the same vehicle
-    // for the same seed string, instead of each device picking independently via Math.random().
     function seededUnitInterval(seedStr) {
         let hash = 5381;
         const str = String(seedStr || '');
@@ -1323,10 +1187,13 @@
         return (Math.abs(hash) % 100000) / 100000;
     }
 
-    function getLocalDateKey(dateObj) {
-        const d = dateObj || new Date();
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    }
+    function getLocalDateKey(timestamp) {
+    const d = new Date(timestamp);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
 
     function getVehicleIdentityKeys(fleetNumber, registration) {
         const identities = [];
@@ -1360,9 +1227,6 @@
             if (!busEntry || typeof busEntry !== 'object' || !busEntry.stopID) return;
             const { trueLineName, blockId } = computeServiceInstanceIds(busEntry);
             if (!blockRouteMap.has(blockId)) blockRouteMap.set(blockId, trueLineName);
-            // Use the first static vehicle found for a block (not the last one encountered while
-            // iterating) so that a running number keeps a single, consistent vehicle for the whole
-            // day rather than flipping between whatever each individual trip row happens to specify.
             if (!blockStaticVehicle.has(blockId) && busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
                 blockStaticVehicle.set(blockId, { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg });
             }
@@ -1378,9 +1242,6 @@
             const staticVehicle = blockStaticVehicle.get(blockId);
             if (staticVehicle) {
                 reserved.add(getVehicleKey(staticVehicle));
-                // Persist the static vehicle for this block so every trip sharing the same running
-                // number resolves to the same cached vehicle, instead of each trip re-reading its
-                // own (potentially differing) literal fleetNumber/vehicleReg from the raw data.
                 if (!serviceInstanceVehicleCache.has(blockId)) serviceInstanceVehicleCache.set(blockId, staticVehicle);
             }
         });
@@ -1391,9 +1252,8 @@
             if (blockStaticVehicle.has(blockId)) return;
 
             const routeName = blockRouteMap.get(blockId);
-            const runningNumberMarker = '_RUN_';
-            const runningNumberIndex = blockId.indexOf(runningNumberMarker);
-            const runningNumber = runningNumberIndex >= 0 ? blockId.slice(runningNumberIndex + runningNumberMarker.length) : '';
+            const runningNumberMarker = 'GLOBAL_RUN_';
+            const runningNumber = blockId.startsWith(runningNumberMarker) ? blockId.slice(runningNumberMarker.length) : '';
             const liveAssignment = getLiveAssignedVehicle(routeName, runningNumber);
             if (liveAssignment) {
                 serviceInstanceVehicleCache.set(blockId, liveAssignment);
@@ -1414,12 +1274,10 @@
                 return;
             }
             
-            // Decide if this block should use rare or common based on rareChance
             const routeAllocation = vehicleAllocationData[routeName] || vehicleAllocationData[String(routeName).toUpperCase()];
-            let rareChance = 0.05; // default
+            let rareChance = 0.05;
             if (routeAllocation && typeof routeAllocation.rareChance === 'number') {
                 rareChance = routeAllocation.rareChance;
-                // Normalize rareChance: if > 1, assume it's a percentage (0-100)
                 if (rareChance > 1) {
                     rareChance = rareChance / 100;
                 }
@@ -1507,7 +1365,7 @@
         return shortStartByService;
     }
 
-    function processAndDisplayAllData() {
+    async function processAndDisplayAllData() {
         fullServiceRunDataMap.clear();
 
         if (!localScheduleData || localScheduleData.length === 0) {
@@ -1543,15 +1401,22 @@
         }
 
         const nowForProcessing = new Date();
+        const currentHour = nowForProcessing.getHours();
+        const isDaytime = currentHour >= 5 && currentHour < 20;
+
         const activeServicesMap = new Map();
         const shortStartByService = startShortReturnsAfterCurtailment(dataToProcess, nowForProcessing);
 
-        dataToProcess.forEach((busEntryRaw) => {
-            if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) { return; }
+        for (const busEntryRaw of dataToProcess) {
+            if (!busEntryRaw || typeof busEntryRaw !== 'object' || !busEntryRaw.stopID) { continue; }
 
             let busEntry = busEntryRaw;
             
             const { trueLineName, serviceInstanceKey, blockId } = computeServiceInstanceIds(busEntry);
+
+            if (isDaytime && trueLineName.toUpperCase().startsWith('N') && (!currentRouteFilter || currentRouteFilter.toUpperCase() !== trueLineName.toUpperCase())) {
+                continue;
+            }
 
             if (!activeServicesMap.has(serviceInstanceKey)) {
                 let assignedVehicle;
@@ -1564,9 +1429,6 @@
                     assignedVehicle = subVehicle;
                     serviceInstanceVehicleCache.set(blockId, assignedVehicle);
                 } else if (serviceInstanceVehicleCache.has(blockId) && getVehicleKey(serviceInstanceVehicleCache.get(blockId))) {
-                    // A vehicle has already been resolved for this block (e.g. a running number),
-                    // so every trip sharing that block must keep using it, even if this particular
-                    // trip row happens to carry its own (stale/differing) literal vehicle data.
                     assignedVehicle = serviceInstanceVehicleCache.get(blockId);
                 } else if (busEntry.fleetNumber && busEntry.fleetNumber !== "N/A" && busEntry.vehicleReg && busEntry.vehicleReg !== "---") {
                     assignedVehicle = { fleetNumber: busEntry.fleetNumber, registration: busEntry.vehicleReg };
@@ -1579,31 +1441,33 @@
                 const fleetId = (assignedVehicle.fleetNumber && assignedVehicle.fleetNumber !== "N/A" ? assignedVehicle.fleetNumber : "").toUpperCase();
                 const regId = (assignedVehicle.registration && assignedVehicle.registration !== "---" ? assignedVehicle.registration : "").toUpperCase();
 
-                // Reuse the rare-working determination made earlier today for the same block/vehicle
-                // pairing, so a rare working stays on the Rare Workings page for as long as it keeps
-                // running that duty (recording its own sighting below shouldn't un-rare it mid-day).
-                // The cache key includes the calendar date so the determination is refreshed at
-                // midnight, at which point the normal 60-day rule applies again from scratch.
                 const rareCacheDateKey = `${nowForProcessing.getFullYear()}-${String(nowForProcessing.getMonth() + 1).padStart(2, '0')}-${String(nowForProcessing.getDate()).padStart(2, '0')}`;
                 const rareCacheKey = `${rareCacheDateKey}|${blockId}|${fleetId}|${regId}`;
                 let isRare;
                 if (serviceInstanceRareCache.has(rareCacheKey)) {
                     isRare = serviceInstanceRareCache.get(rareCacheKey);
                 } else {
-                    const routeSightings = vehicleRouteHistoryMap.get(routeUpper) || {};
+                    let firebaseLogs = [];
+                    const identsToCheck = [fleetId, regId].filter(id => id && id !== 'N/A' && id !== '---');
+                    if (identsToCheck.length > 0) {
+                        try {
+                            firebaseLogs = await loadFirebaseVehicleHistory(identsToCheck);
+                        } catch (e) {}
+                    }
 
                     let lastSeenTime = 0;
-                    if (fleetId && routeSightings[fleetId]) lastSeenTime = Math.max(lastSeenTime, routeSightings[fleetId]);
-                    if (regId && routeSightings[regId]) lastSeenTime = Math.max(lastSeenTime, routeSightings[regId]);
+                    firebaseLogs.forEach(log => {
+                        if (String(log.routeName || '').toUpperCase() === routeUpper) {
+                            const endT = Number(log.lastSeenAt || log.timestamp || 0);
+                            if (endT > lastSeenTime) lastSeenTime = endT;
+                        }
+                    });
 
                     const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
                     const currentTime = Date.now();
-
                     const hasSightingRecord = lastSeenTime > 0;
                     const isOlderThan60Days = !hasSightingRecord || (currentTime - lastSeenTime > sixtyDaysMs);
 
-                    // A bus is "rare" simply if it hasn't been seen on THIS specific route in 60+ days
-                    // No need to check vehicle allocation - just track route history
                     isRare = isOlderThan60Days;
                     serviceInstanceRareCache.set(rareCacheKey, isRare);
                 }
@@ -1623,7 +1487,7 @@
             }
             const { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText } = calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing);
             if (finalAdjustedSchedTime) { activeServicesMap.get(serviceInstanceKey).stops.push({ ...busEntry, stopName: unescapeHtml(busEntry.stopName), destinationName: unescapeHtml(busEntry.destinationName), preciseScheduledDateTime: finalAdjustedSchedTime, timeToStationInSeconds: timeToStationInSeconds, calculatedArrivalText: arrivalText }); }
-        });
+        }
         saveVehicleCacheToStorage(); 
         
         const allActiveBlockIds = new Set();
@@ -1649,62 +1513,112 @@
         }
 
         let servicesWithARelevantNextStop = [];
+        const blockRunsMap = new Map();
         activeServicesMap.forEach((serviceRun) => {
-            if (serviceRun.stops.length > 0) { serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));}
-            
-            let bestStopForThisRun = null;
-            let smallestFutureDiff = Infinity;
-            let largestPastDiff = -Infinity;
-            let reachedCurtailmentPoint = false;
-            let reachedShortStartPoint = !serviceRun.startShortAtStopID;
+            if (serviceRun.stops.length > 0) {
+                serviceRun.stops.sort((a, b) => (a.preciseScheduledDateTime?.getTime() || 0) - (b.preciseScheduledDateTime?.getTime() || 0));
+            }
+            const blockId = serviceRun.blockId;
+            if (!blockRunsMap.has(blockId)) blockRunsMap.set(blockId, []);
+            blockRunsMap.get(blockId).push(serviceRun);
+        });
 
-            for (const stop of serviceRun.stops) {
-                if (!stop.preciseScheduledDateTime) continue;
-                if (reachedCurtailmentPoint) break;
-                if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
-                if (!reachedShortStartPoint) {
-                    if (String(stop.stopID) !== String(serviceRun.startShortAtStopID)) continue;
-                    reachedShortStartPoint = true;
+        blockRunsMap.forEach((runs, blockId) => {
+            runs.sort((a, b) => {
+                const tA = a.stops[0]?.preciseScheduledDateTime?.getTime() || 0;
+                const tB = b.stops[0]?.preciseScheduledDateTime?.getTime() || 0;
+                return tA - tB;
+            });
+
+            let selectedRun = null;
+            let selectedBestStop = null;
+
+            for (let i = 0; i < runs.length; i++) {
+                const run = runs[i];
+                let bestStopForThisRun = null;
+                let smallestFutureDiff = Infinity;
+                let largestPastDiff = -Infinity;
+                let reachedCurtailmentPoint = false;
+                let reachedShortStartPoint = !run.startShortAtStopID;
+
+                for (const stop of run.stops) {
+                    if (!stop.preciseScheduledDateTime) continue;
+                    if (reachedCurtailmentPoint) break;
+                    if (closedStopIDsGlobal.includes(stop.stopID)) continue; 
+                    if (!reachedShortStartPoint) {
+                        if (String(stop.stopID) !== String(run.startShortAtStopID)) continue;
+                        reachedShortStartPoint = true;
+                    }
+
+                    const diff = stop.timeToStationInSeconds;
+                    if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
+                        if (diff < smallestFutureDiff) {
+                            smallestFutureDiff = diff;
+                            bestStopForThisRun = stop;
+                        }
+                    } else if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
+                        if (diff > largestPastDiff && smallestFutureDiff === Infinity) {
+                            largestPastDiff = diff;
+                            bestStopForThisRun = stop;
+                        }
+                    }
+
+                    if (run.curtailment && String(stop.stopID) === String(run.curtailment.curtailAtStopID)) {
+                        reachedCurtailmentPoint = true;
+                    }
                 }
 
-                const diff = stop.timeToStationInSeconds;
-                if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
-                    if (diff < smallestFutureDiff) {
-                        smallestFutureDiff = diff;
-                        bestStopForThisRun = stop;
+                if (bestStopForThisRun) {
+                    if (bestStopForThisRun.timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER) {
+                        selectedRun = run;
+                        selectedBestStop = bestStopForThisRun;
+                        if (bestStopForThisRun.timeToStationInSeconds >= 0) {
+                            break;
+                        }
                     }
-                } else if (diff < 0 && diff >= MAX_PAST_SECONDS_TRACKER) {
-                    if (diff > largestPastDiff && smallestFutureDiff === Infinity) {
-                        largestPastDiff = diff;
-                        bestStopForThisRun = stop;
-                    }
-                }
-
-                if (serviceRun.curtailment && String(stop.stopID) === String(serviceRun.curtailment.curtailAtStopID)) {
-                    reachedCurtailmentPoint = true;
                 }
             }
 
-            if (bestStopForThisRun) {
-                fullServiceRunDataMap.set(serviceRun.serviceId, serviceRun); 
-                servicesWithARelevantNextStop.push({ 
-                    serviceId: serviceRun.serviceId, 
-                    blockId: serviceRun.blockId,
-                    assignedFleetNumber: serviceRun.assignedFleetNumber, 
-                    assignedRegistration: serviceRun.assignedRegistration, 
-                    trueLineName: serviceRun.trueLineName, 
-                    displayDestination: serviceRun.displayDestination, 
-                    nextStopName: unescapeHtml(bestStopForThisRun.stopName), 
-                    nextStopActualTime: bestStopForThisRun.preciseScheduledDateTime, 
-                    _timeToNextStopSec: bestStopForThisRun.timeToStationInSeconds,
-                    isRareWorking: serviceRun.isRareWorking,
-                    runningNumber: serviceRun.runningNumber || '',
-                    curtailment: serviceRun.curtailment
+            if (selectedRun && selectedBestStop && selectedBestStop.timeToStationInSeconds < 0) {
+                const currentIndex = runs.indexOf(selectedRun);
+                if (currentIndex !== -1 && currentIndex + 1 < runs.length) {
+                    const nextRun = runs[currentIndex + 1];
+                    let nextRunBestStop = null;
+                    for (const stop of nextRun.stops) {
+                        if (!stop.preciseScheduledDateTime) continue;
+                        if (closedStopIDsGlobal.includes(stop.stopID)) continue;
+                        if (stop.timeToStationInSeconds >= 0) {
+                            nextRunBestStop = stop;
+                            break;
+                        }
+                    }
+                    if (nextRunBestStop) {
+                        selectedRun = nextRun;
+                        selectedBestStop = nextRunBestStop;
+                    }
+                }
+            }
+
+            if (selectedRun && selectedBestStop) {
+                fullServiceRunDataMap.set(selectedRun.serviceId, selectedRun);
+                servicesWithARelevantNextStop.push({
+                    serviceId: selectedRun.serviceId,
+                    blockId: selectedRun.blockId,
+                    assignedFleetNumber: selectedRun.assignedFleetNumber,
+                    assignedRegistration: selectedRun.assignedRegistration,
+                    trueLineName: selectedRun.trueLineName,
+                    displayDestination: selectedRun.displayDestination,
+                    nextStopName: unescapeHtml(selectedBestStop.stopName),
+                    nextStopActualTime: selectedBestStop.preciseScheduledDateTime,
+                    _timeToNextStopSec: selectedBestStop.timeToStationInSeconds,
+                    isRareWorking: selectedRun.isRareWorking,
+                    runningNumber: selectedRun.runningNumber || '',
+                    curtailment: selectedRun.curtailment,
+                    stops: selectedRun.stops
                 });
             }
         });
 
-        // Fixed block filtering: Prioritize active/upcoming trips or very recent past trips sequentially without jumping back prematurely.
         const blockNextActivityMap = new Map();
         servicesWithARelevantNextStop.forEach(serviceWithNextStop => {
             const key = serviceWithNextStop.blockId || `${serviceWithNextStop.assignedFleetNumber}-${serviceWithNextStop.assignedRegistration}`;
@@ -1716,13 +1630,10 @@
                 const isExistingPast = existing._timeToNextStopSec < 0;
                 const isIncomingPast = serviceWithNextStop._timeToNextStopSec < 0;
 
-                // If one is upcoming (>= 0) and the other is past (< 0), strictly prefer the upcoming/live one!
                 if (!isIncomingPast && isExistingPast) {
                     blockNextActivityMap.set(key, serviceWithNextStop);
                 } else if (isIncomingPast && !isExistingPast) {
-                    // keep existing live one
                 } else {
-                    // Both are live or both are past: pick the one closest to now (smallest absolute difference)
                     if (Math.abs(serviceWithNextStop._timeToNextStopSec) < Math.abs(existing._timeToNextStopSec)) {
                         blockNextActivityMap.set(key, serviceWithNextStop);
                     }
@@ -1748,7 +1659,6 @@
             const midnightToday = new Date(nowForProcessing);
             midnightToday.setHours(24, 0, 0, 0);
 
-            // Show ALL routes for rare workings - don't filter by currentRouteFilter
             currentTrackedServices = currentTrackedServices.filter(service => {
                 if (!service.isRareWorking) return false;
                 if (service.nextStopActualTime instanceof Date) {
@@ -1758,14 +1668,43 @@
             });
         }
 
-        populateVehiclesUsedTodayTable();
-
-        currentTrackedServices.sort((a, b) => { const fleetComparison = naturalSortCompareFleet(a.assignedFleetNumber, b.assignedFleetNumber); if (fleetComparison !== 0) return fleetComparison; const timeA = a._timeToNextStopSec || 99999; const timeB = b._timeToNextStopSec || 99999; return timeA - timeB; });
-
-        currentTrackedServices.forEach(service => {
-            recordVehicleSighting(service.trueLineName, service.assignedFleetNumber, service.assignedRegistration);
-            recordDetailedVehicleSighting(service.trueLineName, service.assignedFleetNumber, service.assignedRegistration, service.blockId, service.runningNumber);
+        currentTrackedServices.sort((a, b) => { 
+            const timeA = typeof a._timeToNextStopSec === 'number' ? a._timeToNextStopSec : 99999; 
+            const timeB = typeof b._timeToNextStopSec === 'number' ? b._timeToNextStopSec : 99999; 
+            return timeA - timeB; 
         });
+
+        fullServiceRunDataMap.forEach(serviceRun => {
+            if (!serviceRun.stops || serviceRun.stops.length === 0) return;
+            const lastStop = serviceRun.stops[serviceRun.stops.length - 1];
+
+            let minTripStartTime = Infinity;
+            let maxTripEndTime = 0;
+            serviceRun.stops.forEach(stop => {
+                if (stop && stop.preciseScheduledDateTime instanceof Date) {
+                    const stopTimeMs = stop.preciseScheduledDateTime.getTime();
+                    if (stopTimeMs < minTripStartTime) minTripStartTime = stopTimeMs;
+                    if (stopTimeMs > maxTripEndTime) maxTripEndTime = stopTimeMs;
+                }
+            });
+            if (minTripStartTime === Infinity) minTripStartTime = Date.now();
+            if (maxTripEndTime === 0) maxTripEndTime = minTripStartTime;
+
+            if (lastStop && typeof lastStop.timeToStationInSeconds === 'number' && lastStop.timeToStationInSeconds < MIN_RELEVANT_PAST_SECONDS_TRACKER) {
+                recordDetailedVehicleSighting(
+                    serviceRun.trueLineName, 
+                    serviceRun.assignedFleetNumber, 
+                    serviceRun.assignedRegistration, 
+                    serviceRun.blockId, 
+                    serviceRun.runningNumber,
+                    minTripStartTime,
+                    maxTripEndTime,
+                    lastStop.timeToStationInSeconds
+                );
+            }
+        });
+
+        populateVehiclesUsedTodayTable();
 
         if (busCounterElement) busCounterElement.textContent = `Tracked Services: ${currentTrackedServices.length}`;
         if (updateTimeElement) updateTimeElement.textContent = `Data Loaded: ${new Date().toLocaleTimeString()}`;
@@ -1792,9 +1731,13 @@
 
         tbody.innerHTML = "";
         filteredByDirection.forEach((service) => { 
-            const row = tbody.insertRow();
             const isPast = service._timeToNextStopSec < 0;
-            if (isPast) row.classList.add('past-stopped-bus');
+            if (service._timeToNextStopSec < MAX_PAST_SECONDS_TRACKER) return;
+
+            const row = tbody.insertRow();
+            if (isPast) {
+                row.classList.add('past-stopped-bus');
+            }
 
             if (service.serviceId && watchedBuses.has(service.serviceId)) row.classList.add('watched-bus');
             else if (service.assignedRegistration && watchedBuses.has(service.assignedRegistration.toUpperCase())) row.classList.add('watched-bus');
@@ -1803,54 +1746,39 @@
             const fleetVal = unescapeHtml(service.assignedFleetNumber || 'N/A');
             const regVal = unescapeHtml(service.assignedRegistration || '---');
             
-            // Check if there's an active curtailment for this route and destination
             let displayDestination = service.displayDestination || '?';
             let displayNextStop = service.nextStopName || '?';
             let displayTimeText = '?';
             const curtailment = service.curtailment || getApplicableCurtailment(service.trueLineName, service.displayDestination);
             if (curtailment) {
                 const curtailmentDestination = curtailment.newTerminusDisplayName || curtailment.newDestinationName;
-                console.log(`[TRACKER] Applying curtailment for ${service.trueLineName}: showing "${curtailmentDestination}" instead of "${displayDestination}"`);
                 displayDestination = curtailmentDestination || displayDestination;
                 if (service.nextStopActualTime instanceof Date) {
                     const time = service.nextStopActualTime;
                     const hours = String(time.getHours()).padStart(2, '0');
                     const minutes = String(time.getMinutes()).padStart(2, '0');
                     const seconds = String(time.getSeconds()).padStart(2, '0');
-                    displayTimeText = isPast ? `Last seen ${hours}:${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`;
+                    displayTimeText = `${hours}:${minutes}:${seconds}`;
                 } else {
                     displayTimeText = unescapeHtml(generateArrivalText(service._timeToNextStopSec));
                 }
             } else {
-                // No curtailment - normal ETA logic
                 if (service.nextStopActualTime instanceof Date) { 
                     const time = service.nextStopActualTime; 
-                    if (isPast) {
-                        const now = new Date();
-                        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                        const hours = String(time.getHours()).padStart(2, '0'); 
-                        const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                        const seconds = String(time.getSeconds()).padStart(2, '0');
-
-                        if (time.getTime() >= midnight.getTime()) {
-                            displayTimeText = `Last seen ${hours}:${minutes}:${seconds}`;
-                        } else {
-                            const day = String(time.getDate()).padStart(2, '0');
-                            const month = String(time.getMonth() + 1).padStart(2, '0');
-                            const year = time.getFullYear();
-                            displayTimeText = `Last seen ${day}/${month}/${year} - ${hours}:${minutes}:${seconds}`;
-                        }
-                    } else {
-                        const hours = String(time.getHours()).padStart(2, '0'); 
-                        const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                        const seconds = String(time.getSeconds()).padStart(2, '0'); 
-                        displayTimeText = `${hours}:${minutes}:${seconds}`; 
-                    }
+                    const hours = String(time.getHours()).padStart(2, '0'); 
+                    const minutes = String(time.getMinutes()).padStart(2, '0'); 
+                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
+                    displayTimeText = `${hours}:${minutes}:${seconds}`; 
                 } else { 
                     const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); 
                     displayTimeText = unescapeHtml(fallbackEtaText || '?'); 
                 }
             }
+
+            if (isPast) {
+                displayTimeText = `Last seen ${displayTimeText}`;
+            }
+
             const destVal = unescapeHtml(displayDestination);
             const stopVal = unescapeHtml(displayNextStop); 
 
@@ -1874,9 +1802,13 @@
 
         tbody.innerHTML = "";
         servicesToDisplay.slice().sort((a, b) => naturalSortCompareRoute(a.trueLineName, b.trueLineName)).forEach((service) => {
-            const row = tbody.insertRow();
             const isPast = service._timeToNextStopSec < 0;
-            if (isPast) row.classList.add('past-stopped-bus');
+            if (service._timeToNextStopSec < MAX_PAST_SECONDS_TRACKER) return;
+
+            const row = tbody.insertRow();
+            if (isPast) {
+                row.classList.add('past-stopped-bus');
+            }
 
             if (service.serviceId && watchedBuses.has(service.serviceId)) row.classList.add('watched-bus');
             else if (service.assignedRegistration && watchedBuses.has(service.assignedRegistration.toUpperCase())) row.classList.add('watched-bus');
@@ -1886,7 +1818,6 @@
             const fleetVal = unescapeHtml(service.assignedFleetNumber || 'N/A');
             const regVal = unescapeHtml(service.assignedRegistration || '---');
             
-            // Check if there's an active curtailment for this route and destination
             let displayDestination = service.displayDestination || '?';
             let displayNextStop = service.nextStopName || '?';
             let displayTimeText = '?';
@@ -1898,40 +1829,27 @@
                     const hours = String(time.getHours()).padStart(2, '0');
                     const minutes = String(time.getMinutes()).padStart(2, '0');
                     const seconds = String(time.getSeconds()).padStart(2, '0');
-                    displayTimeText = isPast ? `Last seen ${hours}:${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`;
+                    displayTimeText = `${hours}:${minutes}:${seconds}`;
                 } else {
                     displayTimeText = unescapeHtml(generateArrivalText(service._timeToNextStopSec));
                 }
             } else {
-                // No curtailment - normal ETA logic
                 if (service.nextStopActualTime instanceof Date) { 
                     const time = service.nextStopActualTime; 
-                    if (isPast) {
-                        const now = new Date();
-                        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                        const hours = String(time.getHours()).padStart(2, '0'); 
-                        const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                        const seconds = String(time.getSeconds()).padStart(2, '0');
-
-                        if (time.getTime() >= midnight.getTime()) {
-                            displayTimeText = `Last seen ${hours}:${minutes}:${seconds}`;
-                        } else {
-                            const day = String(time.getDate()).padStart(2, '0');
-                            const month = String(time.getMonth() + 1).padStart(2, '0');
-                            const year = time.getFullYear();
-                            displayTimeText = `Last seen ${day}/${month}/${year} - ${hours}:${minutes}:${seconds}`;
-                        }
-                    } else {
-                        const hours = String(time.getHours()).padStart(2, '0'); 
-                        const minutes = String(time.getMinutes()).padStart(2, '0'); 
-                        const seconds = String(time.getSeconds()).padStart(2, '0'); 
-                        displayTimeText = `${hours}:${minutes}:${seconds}`; 
-                    }
+                    const hours = String(time.getHours()).padStart(2, '0'); 
+                    const minutes = String(time.getMinutes()).padStart(2, '0'); 
+                    const seconds = String(time.getSeconds()).padStart(2, '0'); 
+                    displayTimeText = `${hours}:${minutes}:${seconds}`; 
                 } else { 
                     const fallbackEtaText = generateArrivalText(service._timeToNextStopSec); 
                     displayTimeText = unescapeHtml(fallbackEtaText || '?'); 
                 }
             }
+
+            if (isPast) {
+                displayTimeText = `Last seen ${displayTimeText}`;
+            }
+
             const destVal = unescapeHtml(displayDestination);
             const stopVal = unescapeHtml(displayNextStop);
 
@@ -1954,25 +1872,23 @@
         isHistoryPageActive = true;
         
         if (mainHeadingElement) {
-            mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle History: ${cleanIdent}`);
+            mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle/Running History: ${cleanIdent}`);
         }
         
-        // Normalize the identifier to handle both "F1 RST" and "F1RST" formats
+        vehicleHistoryMemoryCache.clear();
+        
         const identParts = cleanIdent.split(/\s+/).filter(p => p);
         const searchTerms = identParts.length === 2 
             ? [identParts[0], identParts[1], cleanIdent.replace(/\s+/g, '')] 
             : [cleanIdent];
         
-        // Look up the vehicle's fleet/reg from Firebase allocation data
         let displayFleet = '-';
         let displayReg = '-';
         
-        // Search through vehicleAllocationData to find matching vehicle
         for (const route in vehicleAllocationData) {
             const routeData = vehicleAllocationData[route];
             if (!routeData || typeof routeData !== 'object') continue;
             
-            // Search in all vehicle pools
             const allVehicles = [];
             if (routeData.commonVehicles) {
                 const common = parseFirebaseListOrMap(routeData.commonVehicles);
@@ -1983,13 +1899,11 @@
                 if (Array.isArray(rare)) allVehicles.push(...rare);
             }
             
-            // Look for matching vehicle - try all search term variations
             for (const vehicle of allVehicles) {
                 if (!vehicle) continue;
                 const f = String(vehicle.fleetNumber || "").toUpperCase();
                 const r = String(vehicle.registration || "").toUpperCase();
                 
-                // Check if any search term matches
                 const isMatch = searchTerms.some(term => f === term || r === term || f.includes(term) || r.includes(term));
                 if (isMatch) {
                     displayFleet = String(vehicle.fleetNumber || '-');
@@ -1997,7 +1911,6 @@
                     break;
                 }
             }
-            
             if (displayFleet !== '-' && displayReg !== '-') break;
         }
         
@@ -2005,7 +1918,6 @@
         if (logs.length === 0) {
             for (const [key, val] of vehicleDetailedLogMap.entries()) {
                 const keyUpper = key.toUpperCase();
-                // Try all search term variations
                 const isKeyMatch = searchTerms.some(term => keyUpper.includes(term) || term.includes(keyUpper));
                 if (isKeyMatch) {
                     logs = val;
@@ -2014,52 +1926,47 @@
             }
         }
 
-        // The scheduled Firebase logger indexes its records by running number. Include
-        // the active matching run so a fleet-number search can reach that central history.
-        const runningNumbers = new Set();
-        currentTrackedServices.forEach(service => {
-            const fleet = String(service.assignedFleetNumber || '').trim().toUpperCase();
-            const registration = String(service.assignedRegistration || '').trim().toUpperCase();
-            if (searchTerms.some(term => fleet === term || registration === term || fleet.includes(term) || registration.includes(term))) {
-                const runningNumber = String(service.runningNumber || '').trim().toUpperCase();
-                if (runningNumber) runningNumbers.add(runningNumber);
-            }
-        });
-
         let firebaseLogs = [];
-        try {
-            firebaseLogs = await loadFirebaseVehicleHistory([
-                ...searchTerms,
+        let historyLookupError = null;
+        const cacheKey = cleanIdent;
+
+        if (vehicleHistoryMemoryCache.has(cacheKey)) {
+            firebaseLogs = vehicleHistoryMemoryCache.get(cacheKey);
+        } else {
+            try {
+                firebaseLogs = await loadFirebaseVehicleHistory([
+                    ...searchTerms,
+                    displayFleet,
+                    displayReg,
+                    cleanIdent
+                ]);
+            } catch (error) {}
+
+            const historyLookupIdentifiers = [...new Set([
                 displayFleet,
                 displayReg,
-                ...runningNumbers
-            ]);
-        } catch (error) {}
-        let historyLookupError = null;
-        const historyLookupIdentifiers = [...new Set([
-            displayFleet,
-            displayReg,
-            ...searchTerms,
-            cleanIdent
-        ].map(value => String(value || '').trim()).filter(value => value && value !== '-' && value !== '---'))];
-        for (const historyLookupIdentifier of historyLookupIdentifiers) {
-            try {
-                const serverLogs = await loadServerVehicleHistory(historyLookupIdentifier);
-                firebaseLogs.push(...serverLogs);
-            } catch (error) {
-                historyLookupError = error;
-                console.warn('Central vehicle history lookup failed:', error);
+                ...searchTerms,
+                cleanIdent
+            ].map(value => String(value || '').trim()).filter(value => value && value !== '-' && value !== '---'))];
+
+            for (const historyLookupIdentifier of historyLookupIdentifiers) {
+                try {
+                    const serverLogs = await loadServerVehicleHistory(historyLookupIdentifier);
+                    firebaseLogs.push(...serverLogs);
+                } catch (error) {
+                    historyLookupError = error;
+                }
             }
+            vehicleHistoryMemoryCache.set(cacheKey, firebaseLogs);
         }
-        // Browser sightings are useful while offline, but they are inherently device-specific.
-        // Once central history is available, show only that shared record set on every device.
-        logs = firebaseLogs.length > 0 ? combineHistoryLogs([], firebaseLogs) : logs;
+
+        logs = firebaseLogs.length > 0 ? combineHistoryLogs(logs, firebaseLogs) : logs;
 
         let pageContent = '';
         if (logs.length === 0) {
             pageContent = historyLookupError
-                ? `<p>Could not load central vehicle history for ${escapeHtml(cleanIdent)}: ${escapeHtml(historyLookupError.message)}.</p>`
-                : `<p>No automatic route history has been recorded yet for ${escapeHtml(cleanIdent)}. The server records vehicles from active running-number schedule data every 15 minutes, even while this page is closed.</p>`;
+                ? `<p>Could not load history for ${escapeHtml(cleanIdent)}: ${escapeHtml(historyLookupError.message)}.</p>`
+                : `<p>No history records found for ${escapeHtml(cleanIdent)}.</p>`;
         } else {
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
             const getFirstSeenAt = log => log.firstSeenAt || log.timestamp;
@@ -2069,8 +1976,17 @@
             sortedLogs.forEach(log => {
                 const firstSeenAt = getFirstSeenAt(log);
                 const lastSeenAt = getLastSeenAt(log);
-                const dateObj = new Date(firstSeenAt);
-                const dateKey = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                
+                let rawDate = log.dateKey;
+                let dateKey = '';
+                if (rawDate) {
+                    const parts = rawDate.split('-');
+                    dateKey = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : rawDate;
+                } else {
+                    const dateObj = new Date(firstSeenAt);
+                    dateKey = dateObj.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                }
+
                 const routeName = String(log.routeName || '').toUpperCase();
                 const operator = log.operator || getOperatorForRoute(routeName);
                 const garage = log.garage || getGarageFromRunningNumber(log.runningNumber) || '-';
@@ -2089,14 +2005,14 @@
             displayReg = normalizeRegistration(displayReg);
              
             const formatHistoryTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-            [...groupedLogs.values()].sort((a, b) => b.from - a.from).forEach(group => {
+            [...groupedLogs.values()].sort((a, b) => b.until - a.until).forEach(group => {
                 const dateText = group.dateKey.replace(/\//g, '-');
                 const fromText = formatHistoryTime(group.from);
                 const untilText = formatHistoryTime(group.until);
                 tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.operator)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.routeName)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(dateText)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${fromText}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${untilText}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.garage)}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
-            pageContent = `<p><strong>Vehicle ${escapeHtml(logs[0].operator || getOperatorForRoute(logs[0].routeName))} ${escapeHtml(displayFleet)} (${escapeHtml(displayReg)}) has been used as follows :-</strong></p>${tableHTML}`;
+            pageContent = `<p><strong>History for ${escapeHtml(cleanIdent)} :-</strong></p>${tableHTML}`;
         }
         
         const historyPageContent = document.getElementById('history-page-content');
@@ -2158,18 +2074,10 @@
             if (historyPageContainer) historyPageContainer.style.display = "none";
             if (standardTableA) standardTableA.style.display = "table";
 
-            let allUniqueDestinations = [];
-            if (currentRouteFilter) {
-                allUniqueDestinations = [...new Set(localScheduleData.filter(e => e.lineName && e.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(e => unescapeHtml(e.destinationName)).filter(Boolean))].sort();
-            }
+            const primaryDests = currentRouteFilter ? getGroupedDestinationsForRoute(currentRouteFilter) : { dir1Name: null, dir1Destinations: [], dir2Name: null, dir2Destinations: [] };
 
-            // Use the same logic as route sequences to get primary directions
-            const primaryDests = currentRouteFilter ? getPrimaryDestinationsForRoute(currentRouteFilter) : { dir1: null, dir2: null };
-            const mainTerminus1 = primaryDests.dir1 || allUniqueDestinations[0] || "Direction A";
-            const mainTerminus2 = primaryDests.dir2 || null;
-
-            let dir1Destinations = mainTerminus1 ? [mainTerminus1] : [];
-            let dir2Destinations = mainTerminus2 ? [mainTerminus2] : [];
+            const mainTerminus1 = primaryDests.dir1Name || "Direction A";
+            const mainTerminus2 = primaryDests.dir2Name || null;
 
             if (directionAHeading) {
                 directionAHeading.textContent = unescapeHtml(`Live Services (Towards ${mainTerminus1})`);
@@ -2187,9 +2095,9 @@
                 if (directionBTableContainer) directionBTableContainer.style.display = "none";
             }
 
-            renderTrackerTable(currentTrackedServices, 'tracker-table-body-a', dir1Destinations);
+            renderTrackerTable(currentTrackedServices, 'tracker-table-body-a', primaryDests.dir1Destinations);
             if (mainTerminus2) {
-                renderTrackerTable(currentTrackedServices, 'tracker-table-body-b', dir2Destinations);
+                renderTrackerTable(currentTrackedServices, 'tracker-table-body-b', primaryDests.dir2Destinations);
             }
         }
 
@@ -2211,12 +2119,8 @@
         }
 
         if (identToSearch && hasHistoryPrefix) {
-            // Normalize the identifier: handle both "F1RST" and "F1 RST" formats
-            // If there's no space and it looks like a reg (e.g., F1RST), add space after first part
             let normalizedIdent = identToSearch;
             if (!identToSearch.includes(" ") && identToSearch.length > 1) {
-                // Try to split: assume first 1-3 chars are fleet, rest is reg
-                // Common format: F1 RST, 39403 DDE1, etc.
                 const match = identToSearch.match(/^([A-Z0-9]{1,5})([A-Z0-9]+)$/);
                 if (match && match[2].length >= 2) {
                     normalizedIdent = `${match[1]} ${match[2]}`;
@@ -2225,25 +2129,12 @@
             
             displayVehicleHistoryModal(normalizedIdent);
             searchStatusMessage.textContent = `Showing history for ${escapeHtml(normalizedIdent)}.`;
-            // Keep the text in the input box (don't clear it)
             return;
         }
 
         searchStatusMessage.textContent = `No vehicle ID found for "${escapeHtml(rawInput)}".`; 
     }
     
-    function isCurtailmentStillActive(curtailment) {
-        if (!curtailment || !curtailment.appliedAt) return false;
-        
-        const appliedDate = new Date(curtailment.appliedAt);
-        const today = new Date();
-        
-        // Check if appliedDate is today (same calendar date in local timezone)
-        return appliedDate.getFullYear() === today.getFullYear() &&
-               appliedDate.getMonth() === today.getMonth() &&
-               appliedDate.getDate() === today.getDate();
-    }
-
     function populateCurtailmentsTable() {
         populateVehiclesUsedTodayTable();
         if (!curtailedBusesTableBody) return;
@@ -2254,110 +2145,87 @@
             return;
         }
 
-        // Find curtailments logged today for this route
         const today = new Date();
-        const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const nextMidnight = new Date(midnight.getTime() + 24 * 60 * 60 * 1000);
+        const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+        const nextMidnight = midnight + 24 * 60 * 60 * 1000;
 
-        const curtailmentsByKey = {}; // Track unique curtailments by route+destination
         const curtailedEntries = [];
 
         Object.values(activeMassCurtailments).forEach(curtailment => {
-            // Check if route matches and was created today
             if (curtailment.routeName && curtailment.routeName.toUpperCase() === currentRouteFilter.toUpperCase()) {
-                const startTime = new Date(curtailment.startTime);
-                
+                const startTime = new Date(curtailment.startTime).getTime();
                 if (startTime >= midnight && startTime < nextMidnight) {
-                    const key = `${curtailment.routeName}|${curtailment.destinationName}`;
-                    curtailmentsByKey[key] = curtailment;
+                    curtailedEntries.push({
+                        fleetNumber: 'N/A',
+                        registration: '---',
+                        routeName: curtailment.routeName,
+                        destination: curtailment.newTerminusDisplayName || curtailment.newDestinationName || 'N/A',
+                        timestamp: startTime
+                    });
                 }
             }
         });
 
-        const individualCurtailmentsByTrip = new Map();
+        const tripMap = new Map();
         localScheduleData.forEach(entry => {
             if (!entry || String(entry.lineName || '').toUpperCase() !== currentRouteFilter.toUpperCase()) return;
-            const curtailment = entry.curtailment;
-            const appliedAt = new Date(curtailment?.appliedAt);
-            if (!curtailment?.curtailAtStopID || !curtailment?.newDestinationName || appliedAt < midnight || appliedAt >= nextMidnight) return;
-
-            const tripId = String(entry.tripId || entry.internalId || '').trim();
-            if (!tripId || individualCurtailmentsByTrip.has(tripId)) return;
-            const routeName = String(entry.lineName || '').toUpperCase();
-            const { blockId } = computeServiceInstanceIds(entry);
-            const resolvedVehicle = serviceInstanceVehicleCache.get(blockId);
-            const assignedVehicle = getLiveAssignedVehicle(routeName, entry.runningNumber) ||
-                getSubVehicleForRunningNumber(routeName, entry.runningNumber) ||
-                (resolvedVehicle && getVehicleKey(resolvedVehicle) ? resolvedVehicle : null) || (
-                entry.fleetNumber && entry.fleetNumber !== 'N/A' && entry.vehicleReg && entry.vehicleReg !== '---'
-                    ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg }
-                    : getAssignedVehicle(blockId, routeName, entry.runningNumber)
-                );
-            individualCurtailmentsByTrip.set(tripId, {
-                service: {
-                    assignedFleetNumber: assignedVehicle?.fleetNumber || 'N/A',
-                    assignedRegistration: assignedVehicle?.registration || '---',
-                    trueLineName: routeName
-                },
-                curtailment: {
-                    ...curtailment,
-                    routeName,
-                    startTime: appliedAt.toISOString()
+            const timing = calculatePreciseStopTimingsForTracker(entry, new Date());
+            if (!timing.finalAdjustedSchedTime) return;
+            
+            const tripKey = `${entry.tripId || entry.internalId || 'TRIP'}_${timing.finalAdjustedSchedTime.toDateString()}`;
+            if (!tripMap.has(tripKey)) {
+                tripMap.set(tripKey, {
+                    tripId: entry.tripId,
+                    runningNumber: entry.runningNumber || '',
+                    fleetNumber: entry.fleetNumber,
+                    vehicleReg: entry.vehicleReg,
+                    lineName: entry.lineName,
+                    firstTime: timing.finalAdjustedSchedTime.getTime(),
+                    curtailment: entry.curtailment,
+                    destinationName: entry.destinationName
+                });
+            } else {
+                const existing = tripMap.get(tripKey);
+                existing.firstTime = Math.min(existing.firstTime, timing.finalAdjustedSchedTime.getTime());
+                if (entry.curtailment && !existing.curtailment) {
+                    existing.curtailment = entry.curtailment;
                 }
-            });
+            }
         });
 
-        // Find currently tracked services that match these curtailments
-        if (currentTrackedServices && currentTrackedServices.length > 0) {
-            currentTrackedServices.forEach(service => {
-                if (service.trueLineName.toUpperCase() === currentRouteFilter.toUpperCase()) {
-                    const curtailment = service.curtailment || getApplicableCurtailment(service.trueLineName, service.displayDestination);
-                    if (curtailment) {
-                        const appliedAt = new Date(curtailment.startTime || curtailment.appliedAt);
-                        if (service.curtailment || curtailmentsByKey[`${curtailment.routeName}|${curtailment.destinationName}`]) {
-                            const entry = {
-                                service: service,
-                                curtailment: {
-                                    ...curtailment,
-                                    routeName: curtailment.routeName || service.trueLineName,
-                                    startTime: appliedAt.toISOString()
-                                }
-                            };
-                            const tripId = String(curtailment.tripId || service.serviceId || '').trim();
-                            if (service.curtailment && tripId) individualCurtailmentsByTrip.set(tripId, entry);
-                            else curtailedEntries.push(entry);
-                        }
-                    }
-                }
-            });
-        }
+        tripMap.forEach(trip => {
+            if (trip.firstTime < midnight || trip.firstTime >= nextMidnight) return;
+            if (trip.curtailment && trip.curtailment.curtailAtStopID) {
+                const shortDest = trip.curtailment.newDestinationName || trip.destinationName || 'Short Turn';
+                const routeName = String(trip.lineName || currentRouteFilter).toUpperCase();
+                const { blockId } = computeServiceInstanceIds({ lineName: routeName, tripId: trip.tripId, runningNumber: trip.runningNumber });
+                const assignedVehicle = getLiveAssignedVehicle(routeName, trip.runningNumber) ||
+                    getSubVehicleForRunningNumber(routeName, trip.runningNumber) ||
+                    serviceInstanceVehicleCache.get(blockId) ||
+                    (trip.fleetNumber && trip.fleetNumber !== 'N/A' ? { fleetNumber: trip.fleetNumber, registration: trip.vehicleReg } : getAssignedVehicle(blockId, routeName, trip.runningNumber));
 
-        curtailedEntries.push(...individualCurtailmentsByTrip.values());
+                curtailedEntries.push({
+                    fleetNumber: assignedVehicle?.fleetNumber || 'N/A',
+                    registration: assignedVehicle?.registration || '---',
+                    routeName,
+                    destination: shortDest,
+                    timestamp: trip.firstTime
+                });
+            }
+        });
 
         if (curtailedEntries.length === 0) {
             curtailedBusesTableBody.innerHTML = `<tr><td colspan="5">No curtailments logged for route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
             return;
         }
 
-        // Sort by curtailment start time
-        curtailedEntries.sort((a, b) => new Date(a.curtailment.startTime) - new Date(b.curtailment.startTime));
+        curtailedEntries.sort((a, b) => a.timestamp - b.timestamp);
         
         let curtailedRowsHTML = "";
         curtailedEntries.forEach(item => {
-            const s = item.service;
-            const c = item.curtailment;
-            const rName = unescapeHtml(c.routeName || "N/A");
-            const fleet = unescapeHtml(s.assignedFleetNumber || "N/A");
-            const reg = unescapeHtml(s.assignedRegistration || "---");
-            const cTo = unescapeHtml(c.newTerminusDisplayName || c.newDestinationName || "N/A");
-            
-            // Time curtailed (start time)
-            const startTime = new Date(c.startTime);
-            const hours = String(startTime.getHours()).padStart(2, '0');
-            const mins = String(startTime.getMinutes()).padStart(2, '0');
-            const timeCurtailed = `${hours}:${mins}`;
-            
-            curtailedRowsHTML += `<tr><td>${rName}</td><td>${fleet}</td><td>${reg}</td><td>${cTo}</td><td>${timeCurtailed}</td></tr>`;
+            const timeDate = new Date(item.timestamp);
+            const timeCurtailed = `${String(timeDate.getHours()).padStart(2, '0')}:${String(timeDate.getMinutes()).padStart(2, '0')}`;
+            curtailedRowsHTML += `<tr><td>${escapeHtml(item.routeName)}</td><td>${escapeHtml(item.fleetNumber)}</td><td>${escapeHtml(item.registration)}</td><td>${escapeHtml(item.destination)}</td><td>${timeCurtailed}</td></tr>`;
         });
         curtailedBusesTableBody.innerHTML = curtailedRowsHTML;
     }
@@ -2372,33 +2240,93 @@
             return;
         }
 
+        const activeLiveIdentities = new Set();
+        currentTrackedServices.forEach(service => {
+            if (!service.trueLineName || service.trueLineName.toUpperCase() !== currentRouteFilter.toUpperCase()) return;
+            const fleet = String(service.assignedFleetNumber || '').trim().toUpperCase();
+            const reg = String(service.assignedRegistration || '').trim().toUpperCase();
+            if (fleet && fleet !== 'N/A') activeLiveIdentities.add(fleet);
+            if (reg && reg !== '---') activeLiveIdentities.add(reg);
+        });
+
         const today = new Date();
         const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
         const nextMidnight = midnight + 24 * 60 * 60 * 1000;
+        const nowMs = Date.now();
         const vehiclesByIdentity = new Map();
-        const currentlyLiveVehicles = new Set();
-        currentTrackedServices.forEach(service => {
-            if (String(service.trueLineName || '').toUpperCase() !== currentRouteFilter.toUpperCase()) return;
-            const fleet = String(service.assignedFleetNumber || '').trim().toUpperCase();
-            const registration = String(service.assignedRegistration || '').trim().toUpperCase();
-            if (fleet && fleet !== 'N/A') currentlyLiveVehicles.add(fleet);
-            if (registration && registration !== '---') currentlyLiveVehicles.add(registration);
-        });
+
+        if (localScheduleData && localScheduleData.length > 0) {
+            const vehicleTripEntries = new Map();
+
+            localScheduleData.forEach(entry => {
+                if (!entry || String(entry.lineName || '').toUpperCase() !== currentRouteFilter.toUpperCase()) return;
+                const timing = calculatePreciseStopTimingsForTracker(entry, today);
+                if (!timing.finalAdjustedSchedTime) return;
+                
+                const timeMs = timing.finalAdjustedSchedTime.getTime();
+                if (timeMs < midnight || timeMs >= nextMidnight || timeMs > nowMs) return;
+
+                const runningNumber = String(entry.runningNumber || '').trim().toUpperCase();
+                const blockId = computeServiceInstanceIds(entry).blockId;
+                const assignedVehicle = getLiveAssignedVehicle(currentRouteFilter, runningNumber) ||
+                    getSubVehicleForRunningNumber(currentRouteFilter, runningNumber) ||
+                    serviceInstanceVehicleCache.get(blockId) ||
+                    (entry.fleetNumber && entry.fleetNumber !== 'N/A' ? { fleetNumber: entry.fleetNumber, registration: entry.vehicleReg } : getAssignedVehicle(blockId, currentRouteFilter, runningNumber));
+
+                const fleet = String(assignedVehicle?.fleetNumber || entry.fleetNumber || 'N/A').trim();
+                const registration = normalizeRegistration(assignedVehicle?.registration || entry.vehicleReg || '---');
+                if ((!fleet || fleet === 'N/A') && (!registration || registration === '---')) return;
+
+                const identity = fleet !== 'N/A' ? fleet.toUpperCase() : registration.toUpperCase();
+
+                if (!vehicleTripEntries.has(identity)) {
+                    vehicleTripEntries.set(identity, { fleet, registration, minTime: timeMs, maxTime: timeMs });
+                } else {
+                    const v = vehicleTripEntries.get(identity);
+                    v.minTime = Math.min(v.minTime, timeMs);
+                    v.maxTime = Math.max(v.maxTime, timeMs);
+                }
+            });
+
+            vehicleTripEntries.forEach(v => {
+                const fleetUpper = v.fleet.toUpperCase();
+                const regUpper = v.registration.toUpperCase();
+
+                if (activeLiveIdentities.has(fleetUpper) || activeLiveIdentities.has(regUpper)) {
+                    return;
+                }
+
+                const key = `${fleetUpper}|${regUpper}`;
+                vehiclesByIdentity.set(key, { fleet: v.fleet, registration: v.registration, usedFrom: v.minTime, usedUntil: Math.min(v.maxTime, nowMs) });
+            });
+        }
 
         vehicleDetailedLogMap.forEach(logs => {
             logs.forEach(log => {
                 const routeName = String(log.routeName || '').toUpperCase();
-                const firstSeenAt = Number(log.firstSeenAt || log.timestamp);
-                const lastSeenAt = Number(log.lastSeenAt || log.timestamp);
-                if (routeName !== currentRouteFilter.toUpperCase() || firstSeenAt < midnight || firstSeenAt >= nextMidnight) return;
+                const rawFirstSeen = Number(log.firstSeenAt || log.timestamp);
+                const rawLastSeen = Number(log.lastSeenAt || log.timestamp);
+                
+                if (routeName !== currentRouteFilter.toUpperCase()) return;
+                if (rawLastSeen < midnight || rawFirstSeen >= nextMidnight || rawFirstSeen > nowMs) return;
 
                 const fleet = String(log.fleetNumber || '').trim();
                 const registration = String(log.registration || '').trim();
-                const identity = fleet && fleet !== 'N/A' ? fleet.toUpperCase() : registration.toUpperCase();
+                const fleetUpper = fleet.toUpperCase();
+                const regUpper = registration.toUpperCase();
+                const identity = fleet && fleet !== 'N/A' ? fleetUpper : regUpper;
                 if (!identity || identity === '---') return;
-                if (currentlyLiveVehicles.has(identity) || currentlyLiveVehicles.has(registration.toUpperCase()) || currentlyLiveVehicles.has(fleet.toUpperCase())) return;
 
-                const key = `${fleet.toUpperCase()}|${registration.toUpperCase()}`;
+                if (activeLiveIdentities.has(fleetUpper) || activeLiveIdentities.has(regUpper)) {
+                    return;
+                }
+
+                const firstSeenAt = Math.max(rawFirstSeen, midnight);
+                const lastSeenAt = Math.min(rawLastSeen, nextMidnight - 1000, nowMs);
+                
+                if (firstSeenAt > lastSeenAt) return;
+
+                const key = `${fleetUpper}|${regUpper}`;
                 const existing = vehiclesByIdentity.get(key);
                 if (existing) {
                     existing.usedFrom = Math.min(existing.usedFrom, firstSeenAt);
@@ -2410,7 +2338,7 @@
         });
 
         if (vehiclesByIdentity.size === 0) {
-            tableBody.innerHTML = `<tr><td colspan="4">No vehicles logged on route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="4">No completed vehicles logged on route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
             return;
         }
 
@@ -2422,79 +2350,143 @@
             });
     }
     
-    // Get the primary destinations for a route (sorted by stop count, highest first)
-    function getPrimaryDestinationsForRoute(routeKey) {
-        if (!routeKey || !localScheduleData || localScheduleData.length === 0) return { dir1: null, dir2: null };
+    function getLongestStopSequenceForDestination(routeKey, targetDestination) {
+        let longestRunStops = [];
+        let maxStopsInRun = 0;
+        const serviceRunsMap = new Map();
+        const filteredEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeKey.toUpperCase() && unescapeHtml(entry.destinationName || '').trim().toUpperCase() === unescapeHtml(targetDestination || '').trim().toUpperCase());
         
-        const extractStopSequenceForDirection = (routeToDisplay, targetDestination) => {
-            let longestRunStops = []; let maxStopsInRun = 0; const serviceRunsMap = new Map();
-            const filteredEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeToDisplay.toUpperCase() && unescapeHtml(entry.destinationName) === unescapeHtml(targetDestination) && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") );
-            filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: unescapeHtml(entry.stopName), preciseScheduledDateTime: finalAdjustedSchedTime }); } });
-            serviceRunsMap.forEach((stopsArray) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
-            if (longestRunStops.length > 0) { return longestRunStops.map(stop => stop.stopName); }
-            return [];
-        };
+        filteredEntries.forEach(entry => {
+            const tripKey = entry.tripId || entry.internalId || 'DEFAULT_TRIP';
+            if (!serviceRunsMap.has(tripKey)) {
+                serviceRunsMap.set(tripKey, []);
+            }
+            serviceRunsMap.get(tripKey).push({
+                stopID: entry.stopID,
+                stopName: unescapeHtml(entry.stopName || '')
+            });
+        });
+        
+        serviceRunsMap.forEach((stopsArray) => {
+            if (stopsArray.length > maxStopsInRun) {
+                maxStopsInRun = stopsArray.length;
+                longestRunStops = stopsArray;
+            }
+        });
+        
+        if (longestRunStops.length > 0) {
+            const uniqueStops = [];
+            const seenStopIds = new Set();
+            longestRunStops.forEach(stop => {
+                if (!seenStopIds.has(stop.stopID)) {
+                    seenStopIds.add(stop.stopID);
+                    uniqueStops.push(stop.stopName);
+                }
+            });
+            return uniqueStops;
+        }
+        return [];
+    }
+
+    function getSequenceSimilarity(shortSeq, longSeq) {
+        if (!shortSeq || !longSeq || !shortSeq.length || !longSeq.length) return 0;
+        let i = 0, j = 0, matches = 0;
+        while (i < shortSeq.length && j < longSeq.length) {
+            if (shortSeq[i] === longSeq[j]) {
+                matches++; i++; j++;
+            } else {
+                let found = false;
+                for (let k = j + 1; k < longSeq.length; k++) {
+                    if (shortSeq[i] === longSeq[k]) {
+                        matches++; j = k + 1; i++; found = true; break;
+                    }
+                }
+                if (!found) i++;
+            }
+        }
+        return matches / shortSeq.length;
+    }
+
+    function getGroupedDestinationsForRoute(routeKey) {
+        if (!routeKey || !localScheduleData || localScheduleData.length === 0) return { dir1Name: null, dir1Destinations: [], dir2Name: null, dir2Destinations: [] };
         
         const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeKey.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))];
         
-        // For each destination, get stops
         const destWithStops = {};
         destinationNames.forEach(dest => {
-            const stops = extractStopSequenceForDirection(routeKey, dest);
+            const stops = getLongestStopSequenceForDestination(routeKey, dest);
             if (stops && stops.length > 0) {
                 destWithStops[dest] = stops;
             }
         });
 
-        // Get destinations sorted by number of stops (most first)
-        const destinationsWithStops = Object.keys(destWithStops).sort((a, b) => destWithStops[b].length - destWithStops[a].length);
+        const sortedDests = Object.keys(destWithStops).sort((a, b) => destWithStops[b].length - destWithStops[a].length);
 
-        const dir1 = destinationsWithStops.length > 0 ? destinationsWithStops[0] : null;
-        const dir2 = destinationsWithStops.length > 1 ? destinationsWithStops[1] : null;
-        
-        return { dir1, dir2 };
+        if (sortedDests.length === 0) return { dir1Name: null, dir1Destinations: [], dir2Name: null, dir2Destinations: [] };
+
+        const dir1Name = sortedDests[0];
+        const dir1Seq = destWithStops[dir1Name];
+        let dir2Name = null;
+        let dir2Seq = [];
+
+        for (let i = 1; i < sortedDests.length; i++) {
+            const candidate = sortedDests[i];
+            const candidateSeq = destWithStops[candidate];
+            const similarity = getSequenceSimilarity(candidateSeq, dir1Seq);
+            if (similarity < 0.4) {
+                dir2Name = candidate;
+                dir2Seq = candidateSeq;
+                break;
+            }
+        }
+
+        const dir1Destinations = [dir1Name];
+        const dir2Destinations = dir2Name ? [dir2Name] : [];
+
+        for (let i = 1; i < sortedDests.length; i++) {
+            const dest = sortedDests[i];
+            if (dest === dir2Name) continue;
+            
+            const destSeq = destWithStops[dest];
+            const sim1 = getSequenceSimilarity(destSeq, dir1Seq);
+            const sim2 = dir2Name ? getSequenceSimilarity(destSeq, dir2Seq) : -1;
+
+            if (sim1 >= sim2) {
+                dir1Destinations.push(dest);
+            } else {
+                dir2Destinations.push(dest);
+            }
+        }
+
+        return { dir1Name, dir1Destinations, dir2Name, dir2Destinations };
     }
     
     function getApplicableCurtailment(routeName, destinationName) {
-        // Check if there's an active curtailment for this route AND destination
         if (!activeMassCurtailments || Object.keys(activeMassCurtailments).length === 0) {
             return null;
         }
         const now = new Date();
-        console.log(`[TRACKER DEBUG] Checking curtailments for route: ${routeName}, destination: ${destinationName}, active curtailments count: ${Object.keys(activeMassCurtailments).length}`);
         
         for (const key in activeMassCurtailments) {
             const curtailment = activeMassCurtailments[key];
-            console.log(`[TRACKER DEBUG] Curtailment ${key}:`, curtailment);
-            
             if (!curtailment || !curtailment.routeName) {
-                console.log(`[TRACKER DEBUG] Skipping ${key} - no curtailment or routeName`);
                 continue;
             }
-            
             if (curtailment.routeName !== routeName) {
-                console.log(`[TRACKER DEBUG] Skipping ${key} - route mismatch: ${curtailment.routeName} !== ${routeName}`);
                 continue;
             }
-            
-            // Check destination match (case-insensitive)
             if (curtailment.destinationName) {
                 if (curtailment.destinationName.toUpperCase() !== (destinationName || '').toUpperCase()) {
-                    console.log(`[TRACKER DEBUG] Skipping ${key} - destination mismatch: ${curtailment.destinationName} !== ${destinationName}`);
                     continue;
                 }
             }
             
             const startTime = new Date(curtailment.startTime);
             const endTime = new Date(curtailment.endTime);
-            console.log(`[TRACKER DEBUG] Time check for ${key}: now=${now.toISOString()}, start=${startTime.toISOString()}, end=${endTime.toISOString()}`);
-            
             if (now >= startTime && now <= endTime) {
-                console.log(`[TRACKER DEBUG] FOUND ACTIVE CURTAILMENT for route ${routeName}, destination ${destinationName}:`, curtailment);
                 return curtailment;
             }
         }
-        console.log(`[TRACKER DEBUG] No active curtailment found for route ${routeName}, destination ${destinationName}`);
         return null;
     }
     
@@ -2511,66 +2503,31 @@
             if(document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = `Route Sequence (Direction 2)`;
             return;
         }
+        
         if(!localScheduleData || !outboundSequenceTableContainer || !inboundSequenceTableContainer){
             if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML="<p>Route data unavailable.</p>";
             if(inboundSequenceTableContainer) inboundSequenceTableContainer.innerHTML="<p>Route data unavailable.</p>";
             return;
         }
 
-        const extractStopSequenceForDirection = (routeToDisplay, targetDestination) => {
-            let longestRunStops = []; let maxStopsInRun = 0; const serviceRunsMap = new Map();
-            const filteredEntries = localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === routeToDisplay.toUpperCase() && unescapeHtml(entry.destinationName) === unescapeHtml(targetDestination) && entry.tripId && !entry.tripId.startsWith("NO_TRIPID_") );
-            filteredEntries.forEach(entry => { const tripIdKey = entry.tripId; if (!serviceRunsMap.has(tripIdKey)) { serviceRunsMap.set(tripIdKey, []); } const { finalAdjustedSchedTime } = calculatePreciseStopTimingsForTracker(entry, new Date()); if (finalAdjustedSchedTime) { serviceRunsMap.get(tripIdKey).push({ stopID: entry.stopID, stopName: unescapeHtml(entry.stopName), preciseScheduledDateTime: finalAdjustedSchedTime }); } });
-            serviceRunsMap.forEach((stopsArray) => { if (stopsArray.length > maxStopsInRun) { maxStopsInRun = stopsArray.length; longestRunStops = stopsArray; } });
-            if (longestRunStops.length > 0) { const stopsInSequenceOrder = longestRunStops.map(stop => stop.stopName); return stopsInSequenceOrder; }
-            return [];
-        };
-        
-        const destinationNames = [...new Set(localScheduleData.filter(entry => entry.lineName && entry.lineName.toUpperCase() === currentRouteFilter.toUpperCase()).map(entry => unescapeHtml(entry.destinationName)).filter(Boolean))];
-        
-        if (destinationNames.length === 0) {
-            if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML = "<p>No destinations found for this route.</p>";
-            if(container1) container1.style.display = "block";
-            if(container2) container2.style.display = "none";
-            return;
-        }
+        const primaryDests = getGroupedDestinationsForRoute(currentRouteFilter);
 
-        // For each destination, get stops and count them
-        const destWithStops = {};
-        destinationNames.forEach(dest => {
-            const stops = extractStopSequenceForDirection(currentRouteFilter, dest);
-            if (stops && stops.length > 0) {
-                destWithStops[dest] = stops;
-            }
-        });
-
-        // Get destinations that actually have stops, sorted by number of stops (most first)
-        const destinationsWithStops = Object.keys(destWithStops).sort((a, b) => destWithStops[b].length - destWithStops[a].length);
-
-        if (destinationsWithStops.length === 0) {
+        if (!primaryDests.dir1Name) {
             if(outboundSequenceTableContainer) outboundSequenceTableContainer.innerHTML = "<p>No valid sequences found for this route.</p>";
             if(container1) container1.style.display = "block";
             if(container2) container2.style.display = "none";
             return;
         }
 
-        let dir1Name = destinationsWithStops[0];
-        let dir1Stops = destWithStops[dir1Name];
+        const dir1Stops = getLongestStopSequenceForDestination(currentRouteFilter, primaryDests.dir1Name);
         
-        // Show dir2 if there's another destination with actual stops
-        let dir2Name = null;
-        let dir2Stops = [];
-        if (destinationsWithStops.length > 1) {
-            dir2Name = destinationsWithStops[1];
-            dir2Stops = destWithStops[dir2Name];
-        }
-
-        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir1Name})`);
+        if (document.getElementById('outbound-sequence-heading')) document.getElementById('outbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${primaryDests.dir1Name})`);
         displaySequenceInTable(outboundSequenceTableContainer, dir1Stops);
         if(container1) container1.style.display = "block";
 
-        if (dir2Name) {
-            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${dir2Name})`);
+        if (primaryDests.dir2Name) {
+            const dir2Stops = getLongestStopSequenceForDestination(currentRouteFilter, primaryDests.dir2Name);
+            if (document.getElementById('inbound-sequence-heading')) document.getElementById('inbound-sequence-heading').textContent = unescapeHtml(`Route Sequence (Towards ${primaryDests.dir2Name})`);
             displaySequenceInTable(inboundSequenceTableContainer, dir2Stops);
             if(container2) container2.style.display = "block";
         } else {

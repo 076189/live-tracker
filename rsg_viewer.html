@@ -2014,13 +2014,19 @@ $('save-as-draft-button').addEventListener('click', async () => {
         updatedTripDetailsByConfig.set(config.key, tripDetailsWithEdits(config, tableEl));
     });
     if (!updatedTripDetailsByConfig.size) { status.textContent = 'No saved configuration key found to draft.'; return; }
-    // Crosslinks are validated for structural correctness (turnaround times, duplicate targets)
-    // but the shared running number is NOT auto-written into the linked route here, since that
-    // route may not itself be part of this draft - drafts must never write straight to /rsgConfigs.
-    // Save/update the linked route separately (live or as its own draft) to pick up its number.
     const crosslinkWarnings = poolSettings.crosslinks.flatMap((crosslink, index) => crosslinkHandoverWarnings(crosslink, updatedTripDetailsByConfig).map(warning => `Crosslink ${index + 1}: ${warning}`));
     crosslinkWarnings.push(...duplicateCrosslinkTargetWarnings(poolSettings.crosslinks));
     if (crosslinkWarnings.length) { status.textContent = `Cannot save crosslink: ${crosslinkWarnings.join(' ')}`; return; }
+    // Reuse the same crosslink running-number propagation as the live save, but into a scratch
+    // object: it mutates updatedTripDetailsByConfig (so our own drafted trips inherit the shared
+    // number correctly) without letting its direct Firebase writes reach an unrelated live/draft
+    // config that isn't part of this draft batch - the per-config rebuild below is the only writer.
+    const crosslinkPropagationScratch = {};
+    const propagatedCrosslinks = poolSettings.crosslinks.filter(crosslink => applyCrosslinkRunningNumber(crosslink, updatedTripDetailsByConfig, crosslinkPropagationScratch)).length;
+    if (poolSettings.crosslinks.length && propagatedCrosslinks !== poolSettings.crosslinks.length) {
+        status.textContent = `Cannot save: ${poolSettings.crosslinks.length - propagatedCrosslinks} crosslink target trip(s) could not receive a running number.`;
+        return;
+    }
     const conflicts = runningNumberConflicts([primaryConfig, paired], updatedTripDetailsByConfig);
     if (conflicts.length && !window.confirm(`Running number(s) are already used on another route:\n\n${conflicts.join('\n')}\n\nSave draft anyway?`)) {
         status.textContent = 'Save cancelled: review the matching running numbers.';
@@ -2054,8 +2060,8 @@ $('save-as-draft-button').addEventListener('click', async () => {
             selectedConfig = drafts.find(draft => draft.key === reselectedKey) || selectedConfig;
         }
         renderDraftsList();
-        status.textContent = poolSettings.crosslinks.length
-            ? `${draftCount} draft configuration(s) saved, effective from ${draftDate}. Crosslinked route trip numbers may need saving separately on their own configuration.`
+        status.textContent = propagatedCrosslinks
+            ? `${draftCount} draft configuration(s) saved, effective from ${draftDate}. ${propagatedCrosslinks} crosslink running number(s) matched to their source trip. They will not affect the live RSG until moved to RSG Configs.`
             : `${draftCount} draft configuration(s) saved, effective from ${draftDate}. They will not affect the live RSG until moved to RSG Configs.`;
     } catch (error) {
         status.textContent = `Draft save failed: ${error.message}`;

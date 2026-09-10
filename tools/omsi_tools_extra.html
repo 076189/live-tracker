@@ -1148,6 +1148,11 @@ align-items: center;
         <p id="rsg-load-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
         <div id="rsg-saved-configs-list-extra"></div>
     </div>
+    <div class="subsection">
+        <h3 class="subsection-title">RSG Drafts</h3>
+        <p style="font-size:0.85em; opacity:0.8;">Drafts are saved separately from the live configs and are ignored by route tiles, live schedule generation and RSG Viewer's active list until you click Activate.</p>
+        <div id="rsg-drafts-list-extra"><p style="opacity:0.7;">No drafts saved.</p></div>
+    </div>
 </div>
             
             <div id="route-profile-deletion-section_extra" class="tool-content-section section" style="display:none;">
@@ -1419,9 +1424,15 @@ align-items: center;
                     <label for="rsg-config-name-input-extra">Configuration Name:</label>
                     <input type="text" id="rsg-config-name-input-extra" class="schedule-generator-input">
                 </div>
+                <div class="form-field-group">
+                    <label for="rsg-draft-effective-date-input-extra">Or save as a draft for a future date (leave blank to save live now):</label>
+                    <input type="date" id="rsg-draft-effective-date-input-extra" class="schedule-generator-input">
+                    <p style="font-size:0.8em; opacity:0.8; margin-top:0.3rem;">A draft is stored separately and has no effect on the live schedule or RSG Viewer's active list until you click Activate on it.</p>
+                </div>
                 <p id="rsg-save-config-modal-status-extra" style="min-height:1.2em;"></p>
                 <div class="rsg-modal-actions">
                     <button id="rsg-save-config-cancel-button-extra" class="button neutral">Cancel</button>
+                    <button id="rsg-save-as-draft-button-extra" class="button tertiary">Save as Draft</button>
                     <button id="rsg-save-config-confirm-button-extra" class="button save">Save</button>
                 </div>
             </div>
@@ -1629,6 +1640,7 @@ align-items: center;
         let rsg_copySourceSelection_extra = { route: '', destination: '', profile: '' };
         let rsg_generatedPreviewEntries_extra = [];
         let rsg_loadedConfigs_extra = {};
+        let rsg_loadedDrafts_extra = {}; // Cache of /rsgConfigDrafts: same shape as a saved config, plus draft metadata
 	let todayKeyTripEvents_extra = []; // Stores { lineName, destinationName, originStopName, departureTime, departureTimeObj, type: 'first'|'last' }
 	let shownTripAlerts_extra = {};    // Tracks shown alerts: key = "Route|Dest|Type|Time", value = true
 	let lastAlertDataPreparedDate_extra = null; // To know when to refresh todayKeyTripEvents_extra
@@ -1688,6 +1700,7 @@ align-items: center;
 	const ALERT_LEAD_TIME_MINUTES = 15; // Notify 15 minutes before departure
 	const ALERT_CHECK_INTERVAL_MS = 30 * 1000; // Check every 30 seconds (adjust as needed)
         const FB_PATH_SCHEDULED_ROUTE_UPDATES = '/scheduledRouteUpdates';
+        const FB_PATH_RSG_CONFIG_DRAFTS = '/rsgConfigDrafts'; // Draft copies of RSG configs, kept out of /rsgConfigs until manually activated
         const BANK_HOLIDAY_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
 	const FB_PATH_EDITABLE_OP_PROFILES = '/settings/operatingProfilesList';
 	const FB_PATH_SCHOOL_HOLIDAYS = '/settings/schoolHolidayRanges';
@@ -2494,6 +2507,14 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
             renderOperatorChangesList_ExtraPage();
         }
     }));
+
+    // Listener for RSG config drafts, kept separate from the live /rsgConfigs listener above.
+    const rsgDraftsRef = dbRef(database, FB_PATH_RSG_CONFIG_DRAFTS);
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgDraftsRef, (snapshot) => {
+        rsg_loadedDrafts_extra = snapshot.exists() ? snapshot.val() || {} : {};
+        if (typeof rsg_renderDraftsList_ExtraPage === 'function') rsg_renderDraftsList_ExtraPage();
+    }));
+
 
     console.log("Real-time Firebase listeners set up for Extra Tools page.");
 }
@@ -12845,6 +12866,8 @@ function rsg_showSaveConfigModal_ExtraPage() {
     }
 
     configNameInput.value = defaultConfigName;
+    const draftDateInputForReset = document.getElementById('rsg-draft-effective-date-input-extra');
+    if (draftDateInputForReset) draftDateInputForReset.value = '';
     if (modalStatus) { // Ensure modalStatus element exists before setting its properties
         modalStatus.textContent = ''; 
         modalStatus.style.color = ''; // Reset color
@@ -12962,8 +12985,154 @@ async function rsg_performSaveConfiguration_ExtraPage() {
     }
 }
 
+// Saves the currently-edited RSG config into /rsgConfigDrafts instead of /rsgConfigs, so it has
+// no effect on route tiles, live schedule generation, or RSG Viewer's active list until activated.
+async function rsg_performSaveAsDraft_ExtraPage() {
+    const configNameInput = document.getElementById('rsg-config-name-input-extra');
+    const draftDateInput = document.getElementById('rsg-draft-effective-date-input-extra');
+    const modalStatus = document.getElementById('rsg-save-config-modal-status-extra');
+    if (!configNameInput || !draftDateInput || !modalStatus) return;
+
+    const userDefinedConfigName = configNameInput.value.trim();
+    if (!userDefinedConfigName) {
+        modalStatus.textContent = "Configuration Name is required.";
+        modalStatus.style.color = "#e74c3c";
+        return;
+    }
+    const draftEffectiveDate = draftDateInput.value;
+    if (!draftEffectiveDate) {
+        modalStatus.textContent = "Enter a date for this draft, or use 'Save' to save it live now.";
+        modalStatus.style.color = "#e74c3c";
+        return;
+    }
+
+    const currentRouteName = (rsgNewRouteNameInput_el_extra && rsgNewRouteNameInput_el_extra.value.trim() !== '') ? rsgNewRouteNameInput_el_extra.value.trim() : (rsg_selectedRoute_extra || rsgRouteNameInput_el_extra.value.trim());
+    const currentDestName = rsgDestinationNameInput_el_extra.value.trim();
+    const currentOpProfiles = rsg_getSelectedOpProfilesString_ExtraPage();
+    const stopSequenceToSave = rsg_selectedStops_extra;
+    const firstStopTimesToSave = rsgFirstStopTimesInput_el_extra.value.trim();
+
+    if (!currentRouteName || !currentDestName || !currentOpProfiles || stopSequenceToSave.length === 0 || !firstStopTimesToSave) {
+        modalStatus.textContent = "Cannot save: All fields (Route, Dest, Profile, Sequence, Times) are required.";
+        modalStatus.style.color = "#e74c3c";
+        return;
+    }
+
+    // Target the live config this draft will replace on activation (null = a brand new config).
+    const draftTargetConfigKey = rsg_currentlyEditingConfigKey_extra || null;
+    const draftKey = draftTargetConfigKey || (sanitizeFirebaseKey(userDefinedConfigName) + `_draft_${Date.now()}`);
+
+    const draftToSave = {
+        userDisplayName: userDefinedConfigName,
+        routeName: currentRouteName,
+        destinationName: currentDestName,
+        operatingProfile: currentOpProfiles,
+        stopSequence: JSON.parse(JSON.stringify(stopSequenceToSave)),
+        firstStopTimes: firstStopTimesToSave,
+        tripDetails: JSON.parse(JSON.stringify(rsg_tripDetails_extra)),
+        lastSaved: new Date().toISOString(),
+        draftEffectiveDate: draftEffectiveDate,
+        draftTargetConfigKey: draftTargetConfigKey
+    };
+
+    modalStatus.textContent = `Saving draft "${userDefinedConfigName}"...`;
+    const { database, dbSet, dbRef } = window.firebaseOMSI;
+    try {
+        await dbSet(dbRef(database, `${FB_PATH_RSG_CONFIG_DRAFTS}/${draftKey}`), draftToSave);
+        rsg_loadedDrafts_extra[draftKey] = JSON.parse(JSON.stringify(draftToSave));
+        rsg_renderDraftsList_ExtraPage();
+        modalStatus.textContent = `Draft saved. It will not affect anything live until you click Activate.`;
+        modalStatus.style.color = "#2ecc71";
+        setTimeout(rsg_hideSaveConfigModal_ExtraPage, 1500);
+    } catch (error) {
+        console.error("Error saving RSG draft to Firebase:", error);
+        modalStatus.textContent = "Error saving draft: " + error.message;
+        modalStatus.style.color = "#e74c3c";
+    }
+}
+
+function rsg_renderDraftsList_ExtraPage() {
+    const container = document.getElementById('rsg-drafts-list-extra');
+    if (!container) return;
+    const draftKeys = Object.keys(rsg_loadedDrafts_extra || {});
+    if (draftKeys.length === 0) {
+        container.innerHTML = '<p style="opacity:0.7;">No drafts saved.</p>';
+        return;
+    }
+    const sortedKeys = draftKeys.sort((a, b) => {
+        const draftA = rsg_loadedDrafts_extra[a], draftB = rsg_loadedDrafts_extra[b];
+        return (draftA.draftEffectiveDate || '').localeCompare(draftB.draftEffectiveDate || '');
+    });
+    container.innerHTML = sortedKeys.map(draftKey => {
+        const draft = rsg_loadedDrafts_extra[draftKey];
+        const dateLabel = formatDateToDDMonthYYYY_ExtraPage(draft.draftEffectiveDate) !== 'Invalid Date' ? formatDateToDDMonthYYYY_ExtraPage(draft.draftEffectiveDate) : (draft.draftEffectiveDate || 'No date');
+        const targetLabel = draft.draftTargetConfigKey ? 'Replaces existing live config' : 'New config (no live config yet)';
+        return `<div class="subsection" style="margin-bottom:0.75rem; border-left:4px solid #8e44ad;">
+            <strong>${escapeHtmlAttr_rsgDrafts(draft.userDisplayName)}</strong>
+            <div style="font-size:0.85em; opacity:0.85; margin:0.2rem 0;">${escapeHtmlAttr_rsgDrafts(draft.routeName)} to ${escapeHtmlAttr_rsgDrafts(draft.destinationName)} (${escapeHtmlAttr_rsgDrafts(draft.operatingProfile)})</div>
+            <div style="font-size:0.85em; margin-bottom:0.5rem;">Effective from: <strong>${dateLabel}</strong> &middot; ${targetLabel}</div>
+            <button class="button save small-action" onclick="rsg_handleActivateDraft_ExtraPage('${draftKey}')">Activate Now</button>
+            <button class="button secondary small-action" onclick="rsg_handleDeleteDraft_ExtraPage('${draftKey}')">Delete Draft</button>
+        </div>`;
+    }).join('');
+}
+
+function escapeHtmlAttr_rsgDrafts(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function rsg_handleActivateDraft_ExtraPage(draftKey) {
+    if (!currentUser_extra || !window.firebaseOMSI) { alert("Please log in."); return; }
+    const draft = rsg_loadedDrafts_extra[draftKey];
+    if (!draft) return;
+    if (!confirm(`Activate draft "${draft.userDisplayName}"? This will make it the live RSG configuration and it will immediately appear in route tiles, the live schedule build, and RSG Viewer.`)) return;
+
+    const targetKey = draft.draftTargetConfigKey || (sanitizeFirebaseKey(draft.userDisplayName) + `_${Date.now()}`);
+    const liveConfig = {
+        userDisplayName: draft.userDisplayName,
+        routeName: draft.routeName,
+        destinationName: draft.destinationName,
+        operatingProfile: draft.operatingProfile,
+        stopSequence: draft.stopSequence,
+        firstStopTimes: draft.firstStopTimes,
+        tripDetails: draft.tripDetails,
+        lastSaved: new Date().toISOString()
+    };
+    // Preserve running number / crosslink settings already on the live config being replaced.
+    const existingLiveConfig = draft.draftTargetConfigKey ? rsg_loadedConfigs_extra[draft.draftTargetConfigKey] : null;
+    if (existingLiveConfig && existingLiveConfig.runningPoolSettings) liveConfig.runningPoolSettings = existingLiveConfig.runningPoolSettings;
+
+    const { database, dbSet, dbRemove, dbRef } = window.firebaseOMSI;
+    try {
+        await dbSet(dbRef(database, `${FB_PATH_RSG_CONFIGS}/${targetKey}`), liveConfig);
+        await dbRemove(dbRef(database, `${FB_PATH_RSG_CONFIG_DRAFTS}/${draftKey}`));
+        delete rsg_loadedDrafts_extra[draftKey];
+        rsg_renderDraftsList_ExtraPage();
+    } catch (error) {
+        console.error("Error activating RSG draft:", error);
+        alert("Error activating draft: " + error.message);
+    }
+}
+
+async function rsg_handleDeleteDraft_ExtraPage(draftKey) {
+    if (!currentUser_extra || !window.firebaseOMSI) { alert("Please log in."); return; }
+    const draft = rsg_loadedDrafts_extra[draftKey];
+    if (!draft) return;
+    if (!confirm(`Delete draft "${draft.userDisplayName}"? This cannot be undone.`)) return;
+    const { database, dbRemove, dbRef } = window.firebaseOMSI;
+    try {
+        await dbRemove(dbRef(database, `${FB_PATH_RSG_CONFIG_DRAFTS}/${draftKey}`));
+        delete rsg_loadedDrafts_extra[draftKey];
+        rsg_renderDraftsList_ExtraPage();
+    } catch (error) {
+        console.error("Error deleting RSG draft:", error);
+        alert("Error deleting draft: " + error.message);
+    }
+}
+
 async function rsg_performRenameConfiguration_ExtraPage(configKeyToRename, newDisplayName) {
     const statusElement = document.getElementById('rsg-load-status-message-extra'); // Use the status message for the saved configs list
+
 
     if (!configKeyToRename) {
         if (statusElement) {
@@ -17825,6 +17994,7 @@ function rsg_openCopyFromModal_ExtraPage() {
         } else if (sectionId === 'route-schedule-generator-section_extra') {
             if (typeof rsg_populateProfileCheckboxes_ExtraPage === 'function') rsg_populateProfileCheckboxes_ExtraPage();
             if (typeof rsg_renderSavedConfigsList_ExtraPage === 'function') rsg_renderSavedConfigsList_ExtraPage();
+            if (typeof rsg_renderDraftsList_ExtraPage === 'function') rsg_renderDraftsList_ExtraPage();
         } else if (sectionId === 'route-profile-deletion-section_extra') {
             if (typeof rpd_populateRouteSelect_ExtraPage === 'function') rpd_populateRouteSelect_ExtraPage();
         } else if (sectionId === 'view-departures-section_extra') {
@@ -17959,6 +18129,7 @@ async function loadInitialData_ExtraPage() {
     // Initialize all global state variables
     currentWorkingSchedule_extra = [];
     rsg_loadedConfigs_extra = {};
+    rsg_loadedDrafts_extra = {};
     allDefinedStops_data = {};
     globalCustomRouteColours_extra = {};
     liveScheduleForToolsDisplay = [];
@@ -18012,6 +18183,10 @@ async function loadInitialData_ExtraPage() {
         rsg_loadedConfigs_extra = rsgConfigsSnap.exists() ? rsgConfigsSnap.val() || {} : {};
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
+
+        // --- Load RSG config drafts (kept separate from the live configs above) ---
+        const rsgDraftsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIG_DRAFTS));
+        rsg_loadedDrafts_extra = rsgDraftsSnap.exists() ? rsgDraftsSnap.val() || {} : {};
 
         // --- Load other ancillary data ---
         const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));
@@ -18896,6 +19071,10 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
     const rsgSaveConfirmBtn_local = document.getElementById('rsg-save-config-confirm-button-extra');
     if (rsgSaveConfirmBtn_local && typeof rsg_performSaveConfiguration_ExtraPage === 'function') {
         rsgSaveConfirmBtn_local.addEventListener('click', rsg_performSaveConfiguration_ExtraPage);
+    }
+    const rsgSaveAsDraftBtn_local = document.getElementById('rsg-save-as-draft-button-extra');
+    if (rsgSaveAsDraftBtn_local && typeof rsg_performSaveAsDraft_ExtraPage === 'function') {
+        rsgSaveAsDraftBtn_local.addEventListener('click', rsg_performSaveAsDraft_ExtraPage);
     }
     const rsgSaveCancelBtn_local = document.getElementById('rsg-save-config-cancel-button-extra');
     if (rsgSaveCancelBtn_local && typeof rsg_hideSaveConfigModal_ExtraPage === 'function') {

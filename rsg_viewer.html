@@ -42,8 +42,8 @@
         .garage-group h3 span { color:var(--muted); font-weight:normal; }
         .garage-runs { display:flex; flex-wrap:wrap; gap:8px; }
         .route-run { padding:7px 9px; background:#fffaf6; border-left:4px solid var(--accent); font-size:.84rem; line-height:1.4; }
-        .route-run.draft-card.selected { outline:2px solid var(--ink); outline-offset:-1px; }
         .route-run strong { margin-right:5px; }
+        .stacked-panels { display:grid; gap:20px; align-content:start; }
         .spare-label { margin-left:8px; color:var(--green); font-weight:bold; }
         .layout { display:grid; grid-template-columns:minmax(0,.7fr) minmax(340px,1.3fr); gap:20px; align-items:start; }
         .panel { background:rgba(255,255,255,.82); border:1px solid var(--line); padding:18px; box-shadow:0 5px 16px rgba(16,42,67,.06); }
@@ -112,15 +112,13 @@
         <h2 id="route-runs-heading">Route Running Numbers</h2>
         <div id="route-runs-list" class="route-runs-list"><span class="meta">Loading saved running numbers...</span></div>
     </section>
-    <section class="route-runs" aria-labelledby="rsg-drafts-heading">
-        <h2 id="rsg-drafts-heading">RSG Drafts</h2>
-        <p class="meta" style="margin:0 0 10px;">Drafts have no effect on the live RSG until you click Activate.</p>
-        <div id="rsg-drafts-list"><span class="meta">Loading drafts...</span></div>
-    </section>
     <div id="status" class="status">Connecting to saved RSG configurations...</div>
     <div id="missing-runs-overview" class="missing-runs missing-runs-overview" hidden></div>
     <div class="layout">
-        <section class="panel"><h2>Saved configurations <span id="count" class="meta"></span></h2><div id="config-list" class="config-list"><div class="empty">Loading...</div></div></section>
+        <div class="stacked-panels">
+            <section class="panel"><h2>Saved configurations <span id="count" class="meta"></span></h2><div id="config-list" class="config-list"><div class="empty">Loading...</div></div></section>
+            <section class="panel"><h2>RSG Drafts <span id="drafts-count" class="meta"></span></h2><p class="meta" style="margin:0 0 10px;">Drafts have no effect on the live RSG until you move them to RSG Configs.</p><div id="rsg-drafts-list" class="config-list"><span class="meta">Loading drafts...</span></div></section>
+        </div>
         <aside class="panel">
             <h2>Number suggestions</h2>
             <div class="suggestions"><div class="suggestion"><span>Next trip number</span><b id="trip-suggestion">-</b></div><div class="suggestion"><span>Next running number</span><b id="running-suggestion">-</b></div></div>
@@ -249,7 +247,7 @@ function render() {
     const visible = groupedRouteConfigs();
     $('count').textContent = `(${visible.length})`;
     $('config-list').innerHTML = visible.length ? visible.map(config => `<article class="config" data-index="${configs.indexOf(config)}"><strong>${esc(routeProfileLabel(config))}</strong><div class="meta">Outbound trips: ${tripsOf(config).length} | Click to view both directions</div></article>`).join('') : '<div class="empty">No saved configurations match these filters.</div>';
-    document.querySelectorAll('.config').forEach(card => card.addEventListener('click', () => selectConfig(configs[Number(card.dataset.index)], card)));
+    $('config-list').querySelectorAll('.config').forEach(card => card.addEventListener('click', () => selectConfig(configs[Number(card.dataset.index)], card)));
 }
 function renderMissingRunningNumbersOverview() {
     const container = $('missing-runs-overview');
@@ -1483,7 +1481,7 @@ function renderSuggestedTables(config, entries) {
 function clearSelection() {
     selectedConfig = null;
     crosslinkConfig = null;
-    document.querySelectorAll('.config, .draft-card').forEach(item => item.classList.remove('selected'));
+    document.querySelectorAll('.config').forEach(item => item.classList.remove('selected'));
     $('details').innerHTML = '<h2>Configuration details</h2><div class="empty">Select a configuration to view its trips, running numbers and stop sequence.</div>';
     $('suggestion-context').textContent = 'Select a saved configuration to calculate suggestions.';
     $('trip-suggestion').textContent = '-';
@@ -1495,7 +1493,7 @@ function clearSelection() {
 async function selectConfig(config, card) {
     selectedConfig = config;
     crosslinkConfig = crosslinkOwnerFor(config);
-    document.querySelectorAll('.config, .draft-card').forEach(item => item.classList.remove('selected'));
+    document.querySelectorAll('.config').forEach(item => item.classList.remove('selected'));
     if (card) card.classList.add('selected');
     const sequence = Array.isArray(config.stopSequence) ? config.stopSequence : [];
     const draftBadge = config.isDraft ? ` <span style="color:var(--accent); font-size:.6em; text-transform:uppercase; letter-spacing:.06em; vertical-align:middle;">(Draft${config.draftTargetConfigKey ? ' - replaces existing live config' : ' - new route'})</span>` : '';
@@ -1555,8 +1553,9 @@ function groupedDraftConfigs() {
 function renderDraftsList() {
     const container = $('rsg-drafts-list');
     if (!container) return;
-    if (!drafts.length) { container.innerHTML = '<span class="meta">No drafts saved.</span>'; return; }
     const groups = groupedDraftConfigs();
+    if ($('drafts-count')) $('drafts-count').textContent = groups.length ? `(${groups.length})` : '';
+    if (!drafts.length) { container.innerHTML = '<span class="meta">No drafts saved.</span>'; return; }
     container.innerHTML = groups.map(draft => {
         const paired = findPairedConfig(draft);
         const pairedDraft = paired && paired.isDraft ? paired : null;
@@ -1565,10 +1564,10 @@ function renderDraftsList() {
         const targetLabel = draft.draftTargetConfigKey ? 'Replaces existing live config' : 'New config (no live config yet)';
         const directionNote = pairedDraft ? 'Both directions drafted' : (paired ? 'Other direction still live' : 'Single direction');
         const isSelected = selectedConfig && selectedConfig.isDraft && groupKeys.includes(selectedConfig.key);
-        return `<div class="route-run draft-card${isSelected ? ' selected' : ''}" data-draft-keys="${esc(groupKeys.join(','))}">
+        return `<div class="config draft-card${isSelected ? ' selected' : ''}" data-draft-keys="${esc(groupKeys.join(','))}">
             <strong>${esc(routeProfileLabel(draft))}</strong>
             <div class="meta">Outbound trips: ${tripsOf(draft).length} | ${esc(directionNote)}</div>
-            <div>Effective from ${esc(dateLabel)} &middot; ${esc(targetLabel)}</div>
+            <div class="meta">Effective from ${esc(dateLabel)} &middot; ${esc(targetLabel)}</div>
             <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;"><button type="button" data-edit-draft="${esc(draft.key)}">Edit numbers / crosslinks</button><button type="button" data-activate-draft="${esc(groupKeys.join(','))}">Move to RSG Configs</button><button type="button" class="secondary" data-delete-draft="${esc(groupKeys.join(','))}">Delete</button></div>
         </div>`;
     }).join('');

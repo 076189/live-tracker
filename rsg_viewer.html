@@ -2016,12 +2016,12 @@ $('save-as-draft-button').addEventListener('click', async () => {
     const crosslinkWarnings = poolSettings.crosslinks.flatMap((crosslink, index) => crosslinkHandoverWarnings(crosslink, updatedTripDetailsByConfig).map(warning => `Crosslink ${index + 1}: ${warning}`));
     crosslinkWarnings.push(...duplicateCrosslinkTargetWarnings(poolSettings.crosslinks));
     if (crosslinkWarnings.length) { status.textContent = `Cannot save crosslink: ${crosslinkWarnings.join(' ')}`; return; }
-    // Reuse the same crosslink running-number propagation as the live save, but into a scratch
-    // object: it mutates updatedTripDetailsByConfig (so our own drafted trips inherit the shared
-    // number correctly) without letting its direct Firebase writes reach an unrelated live/draft
-    // config that isn't part of this draft batch - the per-config rebuild below is the only writer.
-    const crosslinkPropagationScratch = {};
-    const propagatedCrosslinks = poolSettings.crosslinks.filter(crosslink => applyCrosslinkRunningNumber(crosslink, updatedTripDetailsByConfig, crosslinkPropagationScratch)).length;
+    const updates = {};
+    // Reuses the live-save propagation logic purely for its mutation of updatedTripDetailsByConfig
+    // (so our own drafted trips inherit the shared running number correctly). Any write it queues
+    // for an external LIVE config is dropped below - a draft action must NEVER touch /rsgConfigs,
+    // full stop. Writes to an external DRAFT stay in, since that's still just another draft.
+    const propagatedCrosslinks = poolSettings.crosslinks.filter(crosslink => applyCrosslinkRunningNumber(crosslink, updatedTripDetailsByConfig, updates)).length;
     if (poolSettings.crosslinks.length && propagatedCrosslinks !== poolSettings.crosslinks.length) {
         status.textContent = `Cannot save: ${poolSettings.crosslinks.length - propagatedCrosslinks} crosslink target trip(s) could not receive a running number.`;
         return;
@@ -2031,7 +2031,12 @@ $('save-as-draft-button').addEventListener('click', async () => {
         status.textContent = 'Save cancelled: review the matching running numbers.';
         return;
     }
-    const updates = {};
+    Object.keys(updates).forEach(path => { if (path.startsWith('/rsgConfigs/')) delete updates[path]; });
+    const batchKeys = new Set(configTablePairs.map(({ config }) => config?.key).filter(Boolean));
+    batchKeys.forEach(key => {
+        delete updates[`/rsgConfigs/${key}/tripDetails`];
+        delete updates[`/rsgConfigDrafts/${key}/tripDetails`];
+    });
     let draftCount = 0;
     configTablePairs.forEach(({ config }) => {
         if (!config || !config.key || !updatedTripDetailsByConfig.has(config.key)) return;

@@ -515,12 +515,48 @@ align-items: center;
 		<button class="menu-button" data-section="global-route-colour-management-section-extra">Global Route Colours</button>
 		<button class="menu-button" data-section="stop-specific-route-colour-management-section-extra">Stop-Specific Colours</button>
 		<button class="menu-button" data-section="vehicle-allocation-management-section_extra">Vehicle Allocations</button>
+		<button class="menu-button" data-section="route-operator-changes-section_extra">Route Operator Changes</button>
 		<button class="menu-button" data-section="settings-section_extra">App Settings</button>
 		<button class="menu-button" data-section="user-management-section_extra">User Management</button>
             </div>
         </div>
 
         <div id="tool-sections-wrapper_extra">
+
+<div id="route-operator-changes-section_extra" class="tool-content-section section" style="display:none;">
+    <h2>Route Operator Changes</h2>
+    <p>Manage date-based operator changes for routes. Select routes, specify a date, and set the new operator.</p>
+    
+    <div class="subsection">
+        <h3>Select Routes</h3>
+        <div id="rocRouteTiles_extra" class="selectable-route-tile-container" style="margin-bottom: 15px;">
+            <p style="text-align: center; opacity: 0.7; width: 100%; padding: 20px;">Loading routes...</p>
+        </div>
+    </div>
+    
+    <div class="subsection">
+        <h3>Configure Change</h3>
+        <div class="form-field-group">
+            <label for="rocEffectiveDate_extra">Effective Date:</label>
+            <input type="date" id="rocEffectiveDate_extra" class="schedule-generator-input">
+        </div>
+        
+        <div class="form-field-group">
+            <label for="rocNewOperator_extra">New Operator:</label>
+            <input type="text" id="rocNewOperator_extra" placeholder="e.g., First, Stagecoach, Arriva" class="schedule-generator-input">
+        </div>
+        
+        <button id="rocAddButton_extra" class="button secondary">Add Change for Selected Routes</button>
+        <p id="rocAddStatus_extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+    </div>
+    
+    <div class="subsection">
+        <h3>Active Operator Changes</h3>
+        <div id="rocChangesList_extra" style="max-height: 400px; overflow-y: auto;">
+            <p style="text-align: center; color: #999; font-style: italic;">Loading changes...</p>
+        </div>
+    </div>
+</div>
 
 <div id="um-suspend-modal-extra" class="rsg-modal" style="display:none;">
     <div class="rsg-modal-content">
@@ -1712,6 +1748,14 @@ const setStopSpecificDayBusColor_el_extra = document.getElementById('setStopSpec
 const setStopSpecificNightBusColor_el_extra = document.getElementById('setStopSpecificNightBusColor_extra');
 const setStopSpecificSchoolBusColor_el_extra = document.getElementById('setStopSpecificSchoolBusColor_extra');
 const setStopSpecificRailReplacementColor_el_extra = document.getElementById('setStopSpecificRailReplacementColor_extra');
+
+// Route Operator Changes
+const rocRouteTiles_el_extra = document.getElementById('rocRouteTiles_extra');
+const rocEffectiveDate_el_extra = document.getElementById('rocEffectiveDate_extra');
+const rocNewOperator_el_extra = document.getElementById('rocNewOperator_extra');
+const rocAddButton_el_extra = document.getElementById('rocAddButton_extra');
+const rocAddStatus_el_extra = document.getElementById('rocAddStatus_extra');
+const rocChangesList_el_extra = document.getElementById('rocChangesList_extra');
 	const globalRouteColourManagementSection_el_extra = document.getElementById('global-route-colour-management-section-extra');
 const selectRouteNameColour_el_extra = document.getElementById('selectRouteNameColour_extra');
 const inputRouteColour_el_extra = document.getElementById('inputRouteColour_extra');
@@ -2440,6 +2484,16 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
         }
     }));
     // *** END CORRECTION ***
+
+    // Listener for Route Operator Changes by Date
+    const rocRef = dbRef(database, '/routeOperatorChangesByDate');
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(rocRef, (snapshot) => {
+        console.log("[ROC Listener] Route operator changes data updated.");
+        routeOperatorChangesByDate_extra = snapshot.exists() ? snapshot.val() || {} : {};
+        if (typeof renderOperatorChangesList_ExtraPage === 'function') {
+            renderOperatorChangesList_ExtraPage();
+        }
+    }));
 
     console.log("Real-time Firebase listeners set up for Extra Tools page.");
 }
@@ -4385,6 +4439,264 @@ async function handleCleanupWithdrawnRouteColours_ExtraPage() {
     } else {
         globalRouteColourStatusMessage_el_extra.textContent = `Removed colours for ${withdrawnRouteKeys.length} withdrawn route(s).`;
         globalRouteColourStatusMessage_el_extra.style.color = '#2ecc71';
+    }
+}
+
+// Route Operator Changes Management Functions
+let routeOperatorChangesByDate_extra = {}; // Cache: { 'YYYY-MM-DD': { 'ROUTE': 'Operator', ... } }
+let rocSelectedRoutes_extra = new Set(); // Track selected routes
+
+// Default operator per route - mirrors the hardcoded fallback map in omsi_live_tracker.html
+const ROC_DEFAULT_OPERATORS_extra = {
+    '4': 'First', '6': 'Stagecoach', '9': 'First', '10': 'Kelly Group', '11': 'Arriva',
+    '12': 'First', '22': 'First', 'N22': 'First', '31': 'Stagecoach', '32': 'First',
+    '34': 'First', '35': 'Stagecoach', 'N35': 'Stagecoach', '37': 'First', '88': 'First',
+    '97': 'First', '98': 'Stagecoach', 'N98': 'Stagecoach', '102': 'First', '113': 'First',
+    'N113': 'First', '232': 'First', '285': 'Stagecoach', '302': 'First', '303': 'First',
+    '86': 'Stagecoach', 'N86': 'Stagecoach', '304': 'First', 'S304': 'First', '388': 'First', '389': 'First', '454': 'First',
+    '604': 'Stagecoach', '612': 'First', '635': 'Kelly Group', '823': 'First', '925': 'Kelly Group'
+};
+
+// Operator in effect for a route on/before a given cutoff date (exclusive when strict=true), else the hardcoded default.
+function roc_getOperatorInEffectBeforeDate_ExtraPage(routeName, cutoffDateStr, strict) {
+    const routeUpper = String(routeName || '').trim().toUpperCase();
+    if (!routeUpper) return 'Unknown Operator';
+
+    let mostRecentDate = null;
+    let mostRecentOperator = null;
+
+    Object.keys(routeOperatorChangesByDate_extra || {}).forEach(dateStr => {
+        if (strict ? dateStr >= cutoffDateStr : dateStr > cutoffDateStr) return; // Only changes already in effect
+        const changesForDate = routeOperatorChangesByDate_extra[dateStr] || {};
+        const matchingRouteKey = Object.keys(changesForDate).find(r => r.toUpperCase() === routeUpper);
+        if (matchingRouteKey && (!mostRecentDate || dateStr > mostRecentDate)) {
+            mostRecentDate = dateStr;
+            mostRecentOperator = changesForDate[matchingRouteKey];
+        }
+    });
+
+    if (mostRecentOperator) return mostRecentOperator;
+
+    const defaultKey = Object.keys(ROC_DEFAULT_OPERATORS_extra).find(r => r.toUpperCase() === routeUpper);
+    return defaultKey ? ROC_DEFAULT_OPERATORS_extra[defaultKey] : 'New Route';
+}
+
+// Current operator in effect for a route: latest dated override on/before today, else the hardcoded default.
+function roc_getCurrentOperatorForRoute_ExtraPage(routeName) {
+    return roc_getOperatorInEffectBeforeDate_ExtraPage(routeName, getYYYYMMDD_ExtraPage(new Date()), false);
+}
+
+async function loadOperatorChanges_ExtraPage() {
+    if (!currentUser_extra) return;
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        console.error("Firebase not ready");
+        return;
+    }
+    
+    const { database, dbRef, dbGet } = window.firebaseOMSI;
+    const rocRef = dbRef(database, '/routeOperatorChangesByDate');
+    try {
+        const snapshot = await dbGet(rocRef);
+        if (snapshot.exists()) {
+            routeOperatorChangesByDate_extra = snapshot.val() || {};
+        } else {
+            routeOperatorChangesByDate_extra = {};
+        }
+        renderOperatorChangesList_ExtraPage();
+    } catch (error) {
+        console.error('Error loading operator changes:', error);
+    }
+}
+
+function renderOperatorChangesList_ExtraPage() {
+    if (!rocChangesList_el_extra) return;
+    
+    if (Object.keys(routeOperatorChangesByDate_extra).length === 0) {
+        rocChangesList_el_extra.innerHTML = '<p style="text-align: center; color: #999; font-style: italic;">No operator changes scheduled.</p>';
+        return;
+    }
+    
+    // Sort by date (newest first)
+    const sortedDates = Object.keys(routeOperatorChangesByDate_extra).sort().reverse();
+    
+    let html = '';
+    sortedDates.forEach(dateStr => {
+        const changes = routeOperatorChangesByDate_extra[dateStr];
+        html += `<div style="margin-bottom: 15px; padding: 10px; background-color: rgba(0,0,0,0.15); border: 1px solid rgba(127,140,141,0.2); border-radius: 0.375rem; border-left: 4px solid #3498db;">`;
+        html += `<strong style="color: #ecf0f1;">From ${dateStr}:</strong>`;
+        html += `<ul style="margin: 8px 0; padding-left: 20px; color: #ecf0f1;">`;
+        
+        Object.entries(changes).forEach(([route, operator]) => {
+            const previousOperator = roc_getOperatorInEffectBeforeDate_ExtraPage(route, dateStr, true);
+            html += `<li>${route}: ${previousOperator} → ${operator} <button class="button micro" onclick="rocDeleteChange_ExtraPage('${dateStr}', '${route}')">Delete</button></li>`;
+        });
+        
+        html += `</ul></div>`;
+    });
+    
+    rocChangesList_el_extra.innerHTML = html;
+}
+
+function rocRenderRouteTiles_ExtraPage() {
+    if (!rocRouteTiles_el_extra) return;
+    
+    // Get all unique route names from RSG configs (extract routeName property, not the keys)
+    const configs = (rsg_loadedConfigs_extra && typeof rsg_loadedConfigs_extra === 'object') ? Object.values(rsg_loadedConfigs_extra) : [];
+    
+    const uniqueRoutes = [...new Set(
+        configs
+            .filter(config => config && config.routeName && config.routeName.trim() !== '')
+            .map(config => config.routeName)
+    )].sort((a, b) => {
+        const numA = parseInt(a);
+        const numB = parseInt(b);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        if (!isNaN(numA)) return -1;
+        if (!isNaN(numB)) return 1;
+        return a.localeCompare(b);
+    });
+    
+    if (uniqueRoutes.length === 0) {
+        rocRouteTiles_el_extra.innerHTML = '<p style="text-align: center; opacity: 0.7; width: 100%; padding: 20px;">No routes available.</p>';
+        return;
+    }
+    
+    rocRouteTiles_el_extra.innerHTML = '';
+    
+    uniqueRoutes.forEach(route => {
+        const tile = document.createElement('span');
+        tile.classList.add('selectable-route-tile');
+        tile.dataset.route = route;
+
+        const currentOperator = roc_getCurrentOperatorForRoute_ExtraPage(route);
+        const routeLabel = document.createElement('div');
+        routeLabel.style.fontWeight = 'bold';
+        routeLabel.textContent = route;
+        const operatorLabel = document.createElement('div');
+        operatorLabel.style.fontSize = '0.7em';
+        operatorLabel.style.fontWeight = 'normal';
+        operatorLabel.style.opacity = '0.85';
+        operatorLabel.textContent = currentOperator;
+        tile.appendChild(routeLabel);
+        tile.appendChild(operatorLabel);
+        tile.title = `Current operator: ${currentOperator}`;
+        
+        // Use same color system as RSG tiles
+        const bgColor = getRouteTileColour_ExtraPage(route);
+        tile.style.backgroundColor = bgColor;
+        tile.style.color = getTextColourForBackground_ExtraPage(bgColor);
+        
+        if (rocSelectedRoutes_extra.has(route)) {
+            tile.classList.add('selected');
+        }
+        
+        tile.addEventListener('click', () => rocToggleRoute_ExtraPage(route));
+        rocRouteTiles_el_extra.appendChild(tile);
+    });
+}
+
+function rocToggleRoute_ExtraPage(route) {
+    if (rocSelectedRoutes_extra.has(route)) {
+        rocSelectedRoutes_extra.delete(route);
+    } else {
+        rocSelectedRoutes_extra.add(route);
+    }
+    rocRenderRouteTiles_ExtraPage();
+}
+
+async function rocAddChange_ExtraPage() {
+    if (!currentUser_extra) {
+        rocAddStatus_el_extra.textContent = 'Not logged in.';
+        rocAddStatus_el_extra.style.color = '#e74c3c';
+        return;
+    }
+    
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        rocAddStatus_el_extra.textContent = 'Firebase not ready.';
+        rocAddStatus_el_extra.style.color = '#e74c3c';
+        return;
+    }
+    
+    const { database, dbRef, dbSet } = window.firebaseOMSI;
+    const dateStr = rocEffectiveDate_el_extra.value;
+    const selectedRoutes = [...rocSelectedRoutes_extra];
+    const operator = rocNewOperator_el_extra.value.trim();
+    
+    if (!dateStr) {
+        rocAddStatus_el_extra.textContent = 'Please select a date.';
+        rocAddStatus_el_extra.style.color = '#f1c40f';
+        return;
+    }
+    if (selectedRoutes.length === 0) {
+        rocAddStatus_el_extra.textContent = 'Please select at least one route.';
+        rocAddStatus_el_extra.style.color = '#f1c40f';
+        return;
+    }
+    if (!operator) {
+        rocAddStatus_el_extra.textContent = 'Please enter an operator name.';
+        rocAddStatus_el_extra.style.color = '#f1c40f';
+        return;
+    }
+    
+    try {
+        // Ensure date entry exists
+        if (!routeOperatorChangesByDate_extra[dateStr]) {
+            routeOperatorChangesByDate_extra[dateStr] = {};
+        }
+        
+        // Add all selected routes
+        selectedRoutes.forEach(route => {
+            routeOperatorChangesByDate_extra[dateStr][route] = operator;
+        });
+        
+        // Save to Firebase
+        const rocRef = dbRef(database, `/routeOperatorChangesByDate/${dateStr}`);
+        await dbSet(rocRef, routeOperatorChangesByDate_extra[dateStr]);
+        
+        rocAddStatus_el_extra.textContent = `✓ Added: ${selectedRoutes.join(', ')} → ${operator} from ${dateStr}`;
+        rocAddStatus_el_extra.style.color = '#2ecc71';
+        
+        // Clear form
+        rocEffectiveDate_el_extra.value = '';
+        rocNewOperator_el_extra.value = '';
+        rocSelectedRoutes_extra.clear();
+        rocRenderRouteTiles_ExtraPage();
+        
+        renderOperatorChangesList_ExtraPage();
+    } catch (error) {
+        rocAddStatus_el_extra.textContent = `Error: ${error.message}`;
+        rocAddStatus_el_extra.style.color = '#e74c3c';
+    }
+}
+
+async function rocDeleteChange_ExtraPage(dateStr, route) {
+    if (!confirm(`Remove operator change for route ${route} on ${dateStr}?`)) return;
+    
+    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+        console.error("Firebase not ready");
+        return;
+    }
+    
+    const { database, dbRef, dbSet, dbRemove } = window.firebaseOMSI;
+    
+    try {
+        if (routeOperatorChangesByDate_extra[dateStr]) {
+            delete routeOperatorChangesByDate_extra[dateStr][route];
+            
+            // If no more routes for this date, delete the date entry
+            if (Object.keys(routeOperatorChangesByDate_extra[dateStr]).length === 0) {
+                const rocRef = dbRef(database, `/routeOperatorChangesByDate/${dateStr}`);
+                await dbRemove(rocRef);
+                delete routeOperatorChangesByDate_extra[dateStr];
+            } else {
+                const rocRef = dbRef(database, `/routeOperatorChangesByDate/${dateStr}`);
+                await dbSet(rocRef, routeOperatorChangesByDate_extra[dateStr]);
+            }
+            
+            renderOperatorChangesList_ExtraPage();
+        }
+    } catch (error) {
+        console.error('Error deleting operator change:', error);
     }
 }
 
@@ -10391,10 +10703,6 @@ function isStandStop_ExtraPage(stopID) {
                typeof globalCustomRouteColours_extra[upName] === 'string' &&
                globalCustomRouteColours_extra[upName].startsWith('#')) {
         color = globalCustomRouteColours_extra[upName];
-        // DEBUG: Log specific routes
-        if (upName === '232' || upName === '303') {
-            console.log(`[DEBUG] Route ${upName} has saved color in Firebase:`, color);
-        }
     }
     // Check initial (hardcoded) map - though yours is empty
     else if (initialRouteColourMapForTools_extra[upName] &&
@@ -17544,6 +17852,9 @@ function rsg_openCopyFromModal_ExtraPage() {
         } else if (sectionId === 'curtailment-config-section_extra') {
              if (typeof op_points_populateRouteSelect === 'function') op_points_populateRouteSelect();
              if (typeof op_points_populateReturnOriginSelect === 'function') op_points_populateReturnOriginSelect();
+        } else if (sectionId === 'route-operator-changes-section_extra') {
+            if (typeof rocRenderRouteTiles_ExtraPage === 'function') rocRenderRouteTiles_ExtraPage();
+            if (typeof loadOperatorChanges_ExtraPage === 'function') loadOperatorChanges_ExtraPage();
         } else if (sectionId === 'trip-curtailment-section_extra') {
             if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
             if (typeof curtail_renderTripCards === 'function') {
@@ -17795,6 +18106,12 @@ function renderUIDependentElements_ExtraPage() {
         if (typeof srd_populateRouteSelect_ExtraPage === 'function') {
             srd_populateRouteSelect_ExtraPage();
         }
+        if (typeof loadOperatorChanges_ExtraPage === 'function') {
+            loadOperatorChanges_ExtraPage();
+        }
+        if (typeof rocRenderRouteTiles_ExtraPage === 'function') {
+            rocRenderRouteTiles_ExtraPage();
+        }
         
         // --- THIS IS THE ADDED LINE ---
         if (typeof curtail_populateSelectors === 'function') {
@@ -17839,6 +18156,11 @@ const syncRsgStopNamesButton = document.getElementById('sync-rsg-stop-names-butt
     if (syncRsgStopNamesButton && typeof handleSyncRsgStopNames_ExtraPage === 'function') {
         syncRsgStopNamesButton.addEventListener('click', handleSyncRsgStopNames_ExtraPage);
     }
+
+// Route Operator Changes Event Listeners
+if (rocAddButton_el_extra && typeof rocAddChange_ExtraPage === 'function') {
+    rocAddButton_el_extra.addEventListener('click', rocAddChange_ExtraPage);
+}
 
 const topMenuBar = document.getElementById('top-menu-bar_extra');
             if (topMenuBar) {

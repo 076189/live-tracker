@@ -1508,9 +1508,14 @@ async function load() {
         const snapshot = await get(ref(database, '/rsgConfigs'));
         const raw = snapshot.exists() ? snapshot.val() : {};
         configs = Object.entries(raw || {}).filter(([, config]) => config && typeof config === 'object').map(([key, config]) => ({ ...config, key }));
-        const draftsSnapshot = await get(ref(database, '/rsgConfigDrafts'));
-        const rawDrafts = draftsSnapshot.exists() ? draftsSnapshot.val() : {};
-        drafts = Object.entries(rawDrafts || {}).filter(([, draft]) => draft && typeof draft === 'object').map(([key, draft]) => ({ ...draft, key }));
+        try {
+            const draftsSnapshot = await get(ref(database, '/rsgConfigDrafts'));
+            const rawDrafts = draftsSnapshot.exists() ? draftsSnapshot.val() : {};
+            drafts = Object.entries(rawDrafts || {}).filter(([, draft]) => draft && typeof draft === 'object').map(([key, draft]) => ({ ...draft, key }));
+        } catch (draftsError) {
+            console.warn('Could not load RSG config drafts (check Firebase rules for /rsgConfigDrafts):', draftsError);
+            drafts = [];
+        }
         window.rsgDebug = { configs, shortWorkingRelation, stopsMatch, shortWorkingConfigsFor, findPairedConfig, findFullRouteConfigFor, profileCoveredBy, isNightConfig, isTwentyFourHourContinuation, buildDirectionEvents, assignRunningNumbersInOrder, configTermini, isCircularService, runningPool, calculateDutyAssignments, runningValue, tripKey, crosslinksFor, generatedRunningPool, tripsOf };
         populateFilters(); render(); renderRouteRunningNumbers(); renderMissingRunningNumbersOverview(); renderDraftsList(); $('status').textContent = `${configs.length} saved RSG configuration(s) loaded.`;
     } catch (error) { $('status').textContent = `Could not load RSG configurations: ${error.message}`; $('config-list').innerHTML = '<div class="empty">Check Firebase access and refresh the page.</div>'; }

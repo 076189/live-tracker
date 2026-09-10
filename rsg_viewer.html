@@ -432,12 +432,26 @@ async function exportPdf() {
             reportTrips.push(reportTrip);
         });
     });
-    const reportTripsByKey = new Map(reportTrips.map(trip => [reportTripKey(trip.configKey, trip.tripId), trip]));
+    console.log(`[PDF] Total reportTrips: ${reportTrips.length}`);
+    reportTrips.filter(t => t.runningNumber.toUpperCase() === 'SC911').forEach(t => console.log(`  SC911: ${t.route} / ${t.tripNumber} / ${t.start} / ${t.configKey}`));
+    // Dedupe trips: by (route, trip_time, trip_number, profile) to preserve different profiles for same trip
+    const seenReportTrips = new Map();
+    const uniqueReportTrips = [];
+    reportTrips.forEach(trip => {
+        const routeTripsKey = `${trip.route}::${trip.start}::${trip.tripNumber}::${trip.profile}`;
+        if (!seenReportTrips.has(routeTripsKey)) {
+            seenReportTrips.set(routeTripsKey, true);
+            uniqueReportTrips.push(trip);
+        }
+    });
+    console.log(`[PDF] After dedup uniqueReportTrips: ${uniqueReportTrips.length}`);
+    uniqueReportTrips.filter(t => t.runningNumber.toUpperCase() === 'SC911').forEach(t => console.log(`  SC911 (dedup): ${t.route} / ${t.tripNumber} / ${t.start} / ${t.configKey}`));
+    const reportTripsByKey = new Map(uniqueReportTrips.map(trip => [reportTripKey(trip.configKey, trip.tripId), trip]));
     const reportTripForCrosslinkTransition = (currentTrip, nextTrip) =>
         crosslinkTargetsByTrip.get(reportTripKey(currentTrip.configKey, currentTrip.tripId))?.has(reportTripKey(nextTrip.configKey, nextTrip.tripId))
         && clean(currentTrip.runningNumber).toUpperCase() === clean(nextTrip.runningNumber).toUpperCase();
     const tripsByDuty = new Map();
-    reportTrips.forEach(trip => {
+    uniqueReportTrips.forEach(trip => {
         const key = `${trip.route}::${trip.profile}::${clean(trip.runningNumber).toUpperCase()}`;
         if (!tripsByDuty.has(key)) tripsByDuty.set(key, []);
         tripsByDuty.get(key).push(trip);
@@ -446,8 +460,8 @@ async function exportPdf() {
         trips.sort((first, second) => {
             const firstMinutes = minutesFromTime(first.start);
             const secondMinutes = minutesFromTime(second.start);
-            const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 240 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
-            const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 240 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
+            const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 360 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
+            const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 360 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
             return firstOrder - secondOrder || first.route.localeCompare(second.route, undefined, { numeric:true, sensitivity:'base' }) || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
         });
         trips.forEach((trip, index) => {
@@ -458,26 +472,58 @@ async function exportPdf() {
             trip.nextTrip = nextTrip ? `${crosslinkTrip ? `${exportCrosslinkRouteLabel(nextTrip.route)} / ` : ''}${nextTrip.tripNumber} at ${nextTrip.start}` : '-';
         });
     });
-    const dutiesByRoute = new Map();
-    reportTrips.forEach(trip => {
+    const baseRouteForTrip = trip => {
         const routeOrder = exportRouteOrder(trip.route);
-        const baseRoute = routeOrder.variant === 1 ? (clean(trip.route) || trip.route) : (routeOrder.base || trip.route);
-        if (!dutiesByRoute.has(baseRoute)) dutiesByRoute.set(baseRoute, { route:baseRoute, duties:new Map() });
-        const group = dutiesByRoute.get(baseRoute);
-        const dutyKey = `${trip.runningNumber}::${trip.profile || 'Unspecified'}`;
-        if (!group.duties.has(dutyKey)) group.duties.set(dutyKey, { runningNumber:trip.runningNumber, profile:trip.profile || 'Unspecified', trips:[] });
-        group.duties.get(dutyKey).trips.push(trip);
+        return routeOrder.variant === 1 ? (clean(trip.route) || trip.route) : (routeOrder.base || trip.route);
+    };
+    const dutiesByDutyKey = new Map();
+    uniqueReportTrips.forEach(trip => {
+        const isUnassigned = clean(trip.runningNumber).toUpperCase() === 'UNASSIGNED';
+        const dutyKey = isUnassigned ? `${baseRouteForTrip(trip)}::${trip.profile}::UNASSIGNED` : `${clean(trip.runningNumber).toUpperCase()}`;
+        if (!dutiesByDutyKey.has(dutyKey)) dutiesByDutyKey.set(dutyKey, { runningNumber:trip.runningNumber, profile:trip.profile, profiles:new Set([trip.profile]), trips:[], tripsSeen:new Set(), routes:new Set() });
+        const duty = dutiesByDutyKey.get(dutyKey);
+        const tripIdentity = `${trip.configKey}::${trip.tripId}`;
+        if (!duty.tripsSeen.has(tripIdentity)) {
+            duty.trips.push(trip);
+            duty.tripsSeen.add(tripIdentity);
+            duty.profiles.add(trip.profile);
+            duty.routes.add(baseRouteForTrip(trip));
+        }
+    });
+    dutiesByDutyKey.forEach(duty => {
+        duty.trips.sort((first, second) => (first.timeSort - second.timeSort) || first.route.localeCompare(second.route, undefined, { numeric:true, sensitivity:'base' }) || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' }));
+        // Dedupe profiles by normalized value
+        const uniqueProfiles = [...new Set([...duty.profiles].map(p => clean(p)))];
+        duty.profiles = new Set(uniqueProfiles);
+    });
+    console.log(`[PDF] Duties created:`, dutiesByDutyKey.size);
+    dutiesByDutyKey.forEach((duty, key) => {
+        if (duty.runningNumber.toUpperCase() === 'SC911') {
+            console.log(`  SC911 duty: routes=${[...duty.routes].join(',')} profiles=${[...duty.profiles].join(',')} trips=${duty.trips.length}`);
+            duty.trips.forEach(t => console.log(`    - ${t.route} / ${t.tripNumber} / ${t.start} / key=${t.configKey}`));
+        }
+    });
+    const dutiesByRoute = new Map();
+    dutiesByDutyKey.forEach(duty => {
+        duty.routes.forEach(route => {
+            if (!dutiesByRoute.has(route)) dutiesByRoute.set(route, { route, duties:new Map() });
+            dutiesByRoute.get(route).duties.set(duty.runningNumber, duty);
+        });
     });
     const sections = [...dutiesByRoute.values()].sort((first, second) => compareExportRoutes(first.route, second.route)).map(group => {
-        const duties = [...group.duties.values()].sort((first, second) =>
-            first.runningNumber.localeCompare(second.runningNumber, undefined, { numeric:true, sensitivity:'base' })
-            || compareOperatingDays(first.profile, second.profile)
-        ).map(({ runningNumber, profile, trips }) => {
+        const duties = [...group.duties.values()].sort((first, second) => {
+            const firstTripA = first.trips[0];
+            const firstTripB = second.trips[0];
+            const timeA = firstTripA ? (minutesFromTime(firstTripA.start) < 360 ? minutesFromTime(firstTripA.start) + 1440 : minutesFromTime(firstTripA.start)) : 0;
+            const timeB = firstTripB ? (minutesFromTime(firstTripB.start) < 360 ? minutesFromTime(firstTripB.start) + 1440 : minutesFromTime(firstTripB.start)) : 0;
+            return timeA - timeB || first.runningNumber.localeCompare(second.runningNumber, undefined, { numeric:true, sensitivity:'base' })
+                || compareOperatingDays(first.profile, second.profile);
+        }).map(({ runningNumber, profile, trips }) => {
             trips.sort((first, second) => {
                 const firstMinutes = minutesFromTime(first.start);
                 const secondMinutes = minutesFromTime(second.start);
-                const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 240 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
-                const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 240 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
+                const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 360 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
+                const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 360 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
                 return firstOrder - secondOrder || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
             });
             const rows = trips.map(trip => `<tr><td>${esc(trip.route)}</td><td>${esc(trip.destination)}</td><td>${esc(trip.tripNumber)}</td><td>${esc(trip.start)}</td><td>${esc(trip.finish)}</td><td>${esc(trip.nextTrip)}</td><td>${esc(trip.notes.join('; ') || '-')}</td></tr>`).join('');
@@ -486,73 +532,95 @@ async function exportPdf() {
         return `<section><h2>Route ${esc(group.route)}</h2>${duties}</section>`;
     }).join('');
     try {
-    const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm');
-    const autoTableModule = await import('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.3/+esm');
-    const autoTable = autoTableModule.default?.default || autoTableModule.default || autoTableModule.autoTable;
-    if (typeof autoTable !== 'function') throw new Error('The PDF table library did not load correctly.');
-    const pdf = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-    const titleColor = [16, 42, 67];
-    const drawTitle = (title, subtitle = '') => {
+        const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm');
+        const autoTableModule = await import('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.3/+esm');
+        const autoTable = autoTableModule.default?.default || autoTableModule.default || autoTableModule.autoTable;
+        if (typeof autoTable !== 'function') throw new Error('The PDF table library did not load correctly.');
+        const pdf = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+        const titleColor = [16, 42, 67];
+        const drawTitle = (title, subtitle = '') => {
+            pdf.setTextColor(...titleColor);
+            pdf.setFont('times', 'bold');
+            pdf.setFontSize(18);
+            pdf.text(title, 14, 14);
+            pdf.setFont('times', 'normal');
+            pdf.setFontSize(9);
+            pdf.setTextColor(82, 105, 126);
+            if (subtitle) pdf.text(subtitle, 14, 20);
+            return subtitle ? 25 : 20;
+        };
+        const minimumTableStartSpace = 45;
+        let cursor = drawTitle('RSG Duty Report', `Generated ${new Date().toLocaleString('en-GB')}`);
         pdf.setTextColor(...titleColor);
         pdf.setFont('times', 'bold');
-        pdf.setFontSize(18);
-        pdf.text(title, 14, 14);
-        pdf.setFont('times', 'normal');
-        pdf.setFontSize(9);
-        pdf.setTextColor(82, 105, 126);
-        if (subtitle) pdf.text(subtitle, 14, 20);
-        return subtitle ? 25 : 20;
-    };
-    const operatingProfiles = uniqueSorted(reportTrips.map(trip => trip.profile || 'Unspecified')).sort(compareOperatingDays);
-    const minimumTableStartSpace = 45;
-    let cursor = drawTitle('RSG Duty Report', `Generated ${new Date().toLocaleString('en-GB')}`);
-    pdf.setTextColor(...titleColor);
-    pdf.setFont('times', 'bold');
-    pdf.setFontSize(13);
-    pdf.text('Running number duties', 14, cursor + 4);
-    cursor += 8;
-    let hasRenderedDutyTable = false;
-    [...dutiesByRoute.values()].sort((first, second) => compareExportRoutes(first.route, second.route)).forEach(group => {
-        [...group.duties.values()].sort((first, second) =>
-            first.runningNumber.localeCompare(second.runningNumber, undefined, { numeric:true, sensitivity:'base' })
-            || compareOperatingDays(first.profile, second.profile)
-        ).forEach(({ runningNumber, profile, trips }) => {
-            const allTrips = trips;
-            if (!allTrips.length) return;
-            allTrips.sort((first, second) => {
-                const firstMinutes = minutesFromTime(first.start);
-                const secondMinutes = minutesFromTime(second.start);
-                const firstOrder = Number.isFinite(firstMinutes) ? (firstMinutes < 240 ? firstMinutes + 1440 : firstMinutes) : first.timeSort;
-                const secondOrder = Number.isFinite(secondMinutes) ? (secondMinutes < 240 ? secondMinutes + 1440 : secondMinutes) : second.timeSort;
-                return firstOrder - secondOrder || first.tripNumber.localeCompare(second.tripNumber, undefined, { numeric:true, sensitivity:'base' });
+        pdf.setFontSize(13);
+        pdf.text('Running number duties', 14, cursor + 4);
+        cursor += 8;
+        let hasRenderedDutyTable = false;
+        [...dutiesByRoute.values()].sort((first, second) => compareExportRoutes(first.route, second.route)).forEach(group => {
+            [...group.duties.values()].sort((first, second) => {
+                const timeA = first.trips[0]?.timeSort ?? 0;
+                const timeB = second.trips[0]?.timeSort ?? 0;
+                return timeA - timeB || first.runningNumber.localeCompare(second.runningNumber, undefined, { numeric:true, sensitivity:'base' })
+                    || compareOperatingDays(first.profile, second.profile);
+            }).forEach((duty) => {
+                const { runningNumber, trips } = duty;
+                if (!trips.length) return;
+                // Final trip deduplication before rendering (by route + time + trip number + profile to avoid duplicates from different configs while preserving profile variants)
+                const tripsWithoutDupes = (() => {
+                    const seen = new Set();
+                    return trips.filter(trip => {
+                        const id = `${trip.route}::${trip.start}::${trip.tripNumber}::${trip.profile}`;
+                        if (seen.has(id)) return false;
+                        seen.add(id);
+                        return true;
+                    });
+                })();
+                if (!tripsWithoutDupes.length) return;
+                if (runningNumber.toUpperCase() === 'SC911') {
+                    console.log(`[PDF Render] ${group.route} - ${runningNumber}: ${tripsWithoutDupes.length} trips, ${duty.routes.size} routes`);
+                    tripsWithoutDupes.forEach(t => console.log(`  - ${t.route} / ${t.tripNumber} / ${t.start}`));
+                }
+                // Crosslinked duties (appear in multiple routes) show all routes in header; all duties split by profile for separate pages.
+                const isCrosslinked = duty.routes.size > 1;
+                const dutyGroups = [...new Map(tripsWithoutDupes.map(trip => [trip.profile, trip])).entries()].map(([profile, _]) => ({ profile, trips: tripsWithoutDupes.filter(t => t.profile === profile) })).sort((a, b) => compareOperatingDays(a.profile, b.profile));
+                dutyGroups.forEach(({ profile, trips: profileTrips }) => {
+                    if (!profileTrips.length) return;
+                    // For this profile, determine which routes actually have trips
+                    const routesInProfile = [...new Set(profileTrips.map(t => baseRouteForTrip(t)))].sort(compareExportRoutes);
+                    const routeHeader = routesInProfile.join(' / ');
+                    // Only render if current group.route is in the routes for this profile, AND it's the first route that has this profile
+                    if (!routesInProfile.includes(group.route)) return; // Skip if current route doesn't have trips for this profile
+                    if (group.route !== routesInProfile[0]) return; // Skip if current route isn't the first route with this profile
+                    if (!profileTrips.length) return;
+                    if (runningNumber.toUpperCase() === 'SC911') console.log(`  Group: profile="${profile}" trips=${profileTrips.length}`);
+                    if (hasRenderedDutyTable) {
+                        pdf.addPage();
+                        cursor = 14;
+                    } else if (cursor + minimumTableStartSpace > pdf.internal.pageSize.getHeight() - 14) {
+                        pdf.addPage();
+                        cursor = 14;
+                    }
+                    autoTable(pdf, {
+                        startY:cursor,
+                        head:[[`Route ${routeHeader} - ${runningNumber} (${profile})`, 'Destination', 'Trip', 'Start', 'Finish', 'Next trip', 'Crosslink']],
+                        body:profileTrips.map(trip => [trip.route, trip.destination, trip.tripNumber, trip.start, trip.finish, trip.nextTrip, trip.notes.join('; ') || '-']),
+                        theme:'grid',
+                        tableWidth:186,
+                        styles:{ font:'times', fontSize:7.5, cellPadding:1.5, minCellWidth:0, overflow:'linebreak', textColor:titleColor },
+                        headStyles:{ fillColor:titleColor, textColor:[255, 255, 255], fontStyle:'bold' },
+                        margin:{ left:12, right:12 },
+                        columnStyles:{ 0:{ cellWidth:30 }, 1:{ cellWidth:44 }, 2:{ cellWidth:13 }, 3:{ cellWidth:15 }, 4:{ cellWidth:15 }, 5:{ cellWidth:30 }, 6:{ cellWidth:39 } }
+                    });
+                    cursor = pdf.lastAutoTable.finalY + 7;
+                    hasRenderedDutyTable = true;
+                });
             });
-            if (hasRenderedDutyTable) {
-                pdf.addPage();
-                cursor = 14;
-            } else if (cursor + minimumTableStartSpace > pdf.internal.pageSize.getHeight() - 14) {
-                pdf.addPage();
-                cursor = 14;
-            }
-            autoTable(pdf, {
-                startY:cursor,
-                head:[[`Route ${group.route} - ${runningNumber} (${profile})`, 'Destination', 'Trip', 'Start', 'Finish', 'Next trip', 'Crosslink']],
-                body:allTrips.map(trip => [trip.route, trip.destination, trip.tripNumber, trip.start, trip.finish, trip.nextTrip, trip.notes.join('; ') || '-']),
-                theme:'grid',
-                tableWidth:186,
-                styles:{ font:'times', fontSize:7.5, cellPadding:1.5, minCellWidth:0, overflow:'linebreak', textColor:titleColor },
-                headStyles:{ fillColor:titleColor, textColor:[255, 255, 255], fontStyle:'bold' },
-                margin:{ left:12, right:12 },
-                columnStyles:{ 0:{ cellWidth:30 }, 1:{ cellWidth:44 }, 2:{ cellWidth:13 }, 3:{ cellWidth:15 }, 4:{ cellWidth:15 }, 5:{ cellWidth:30 }, 6:{ cellWidth:39 } }
-            });
-            cursor = pdf.lastAutoTable.finalY + 7;
-            hasRenderedDutyTable = true;
         });
-    });
-    const filename = `rsg-duty-report-${new Date().toISOString().slice(0, 10)}.pdf`;
-    pdf.save(filename);
-    $('status').textContent = `Downloaded ${filename}.`;
+        const filename = `rsg-duty-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+        pdf.save(filename);
+        $('status').textContent = `Downloaded ${filename}.`;
     } catch (error) {
-        console.error('PDF export failed:', error);
         $('status').textContent = `Could not create the PDF: ${error.message}`;
     }
 }
@@ -730,6 +798,18 @@ function shortWorkingRelation(shortConfig, fullConfig) {
 }
 function isShortWorkingOf(shortConfig, fullConfig) {
     return shortWorkingRelation(shortConfig, fullConfig) !== null;
+}
+function stopDisplayName(stop) {
+    return clean(stop?.stopName || stop?.name || stop?.stopID || stop?.id || stop);
+}
+function shortWorkingDescription(kind, shortConfig) {
+    const stops = Array.isArray(shortConfig?.stopSequence) ? shortConfig.stopSequence : [];
+    const startName = stopDisplayName(stops[0]);
+    const endName = stopDisplayName(stops.at(-1));
+    if (kind === 'late') return `Starts partway down route${startName ? ` at ${startName}` : ''}`;
+    if (kind === 'partial') return `Short working (partial route)${startName && endName ? ` from ${startName} to ${endName}` : ''}`;
+    if (kind === 'shortcut') return `Curtails early (skips stops)${endName ? `, ends at ${endName}` : ''}`;
+    return `Curtails early${endName ? ` at ${endName}` : ''}`;
 }
 function shortWorkingConfigsFor(fullConfig, excludeConfigs = []) {
     if (!fullConfig) return [];
@@ -1370,7 +1450,7 @@ function renderSuggestedTable(title, config, directionIndex, entries, assignment
     }), row => minutesFromTime(tripTime(row.trip)));
     const generatedActive = generatedRunningPool().length > 0;
     const crosslinkActive = crosslinksFor(selectedConfig).some(crosslink => crosslink.crosslinkFromTripId && crosslink.crosslinkToTripId);
-    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${tripRows.length ? tripRows.map(({ directionConfig, directionEntries, trip, index }) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, directionConfig)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const inheritedCrosslinkRun = duty?.runningNumberOverride || crosslinkSourceRunningNumber(directionConfig, trip); const suggestedRunning = inheritedCrosslinkRun || (generatedActive || crosslinkActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning)); const markers = crosslinkMarkersForTrip(directionConfig, trip); const markerHtml = markers.length ? `<div class="crosslink-markers">${markers.map(marker => `<span class="crosslink-marker">${marker}</span>`).join('')}</div>` : ''; const shortWorkingRelationKind = shortWorkingRelationByKey.get(directionConfig.key) || null; const shortWorkingNoteHtml = shortWorkingRelationKind ? `<span class="short-working-note">${shortWorkingRelationKind === 'late' ? 'Starts partway down route' : shortWorkingRelationKind === 'partial' ? 'Short working (partial route)' : shortWorkingRelationKind === 'shortcut' ? 'Curtails early (skips stops)' : 'Curtails early'}</span>` : ''; return `<tr data-config-key="${esc(directionConfig.key)}" data-trip-time="${esc(tripTime(trip))}"><td title="${esc(directionConfig.userDisplayName || directionConfig.destinationName || 'Unknown')} | ${esc(directionConfig.operatingProfile || 'Unknown profile')} | key:${esc(directionConfig.key)} | ${tripsOf(directionConfig).length} trip(s) | stops:${(Array.isArray(directionConfig.stopSequence) ? directionConfig.stopSequence.length : 0)}"><input class="trip-number-input" value="${esc(suggestedTripNumber(directionConfig, index, (directionConfig === config || isShortWorkingOf(directionConfig, config)) ? 0 : 1, paired, directionEntries, trip))}" aria-label="Trip number">${markerHtml}${shortWorkingNoteHtml}</td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(directionConfig, trip, directionEntries) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
+    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${tripRows.length ? tripRows.map(({ directionConfig, directionEntries, trip, index }) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, directionConfig)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const inheritedCrosslinkRun = duty?.runningNumberOverride || crosslinkSourceRunningNumber(directionConfig, trip); const suggestedRunning = inheritedCrosslinkRun || (generatedActive || crosslinkActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning)); const markers = crosslinkMarkersForTrip(directionConfig, trip); const markerHtml = markers.length ? `<div class="crosslink-markers">${markers.map(marker => `<span class="crosslink-marker">${marker}</span>`).join('')}</div>` : ''; const shortWorkingRelationKind = shortWorkingRelationByKey.get(directionConfig.key) || null; const shortWorkingNoteHtml = shortWorkingRelationKind ? `<span class="short-working-note">${esc(shortWorkingDescription(shortWorkingRelationKind, directionConfig))}</span>` : ''; return `<tr data-config-key="${esc(directionConfig.key)}" data-trip-time="${esc(tripTime(trip))}"><td title="${esc(directionConfig.userDisplayName || directionConfig.destinationName || 'Unknown')} | ${esc(directionConfig.operatingProfile || 'Unknown profile')} | key:${esc(directionConfig.key)} | ${tripsOf(directionConfig).length} trip(s) | stops:${(Array.isArray(directionConfig.stopSequence) ? directionConfig.stopSequence.length : 0)}"><input class="trip-number-input" value="${esc(suggestedTripNumber(directionConfig, index, (directionConfig === config || isShortWorkingOf(directionConfig, config)) ? 0 : 1, paired, directionEntries, trip))}" aria-label="Trip number">${markerHtml}${shortWorkingNoteHtml}</td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(directionConfig, trip, directionEntries) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
 }
 function renderSuggestedTables(config, entries) {
     const container = $('suggested-tables');

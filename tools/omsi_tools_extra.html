@@ -1142,6 +1142,7 @@ align-items: center;
             <div style="display:flex; align-items: center; gap: 0.5rem;">
                 <input type="checkbox" id="rsg-select-all-configs-checkbox-extra" style="margin-right:4px; vertical-align:middle;">
                 <label for="rsg-select-all-configs-checkbox-extra" style="font-size:0.9em;">Select All</label>
+                <button id="rsg-copy-selected-configs-to-draft-button-extra" class="button" style="background-color: #8e44ad;" disabled>Copy Selected to Draft...</button>
                 <button id="rsg-schedule-selected-configs-button-extra" class="button" style="background-color: #16a085;">Schedule Selected...</button>
             </div>
         </div>
@@ -1947,6 +1948,7 @@ const srdGoLiveDateTimeInput_el_extra = document.getElementById('srd-go-live-dat
 const srdScheduleDeletionButton_el_extra = document.getElementById('srd-schedule-deletion-button-extra');
 const srdStatusMessage_el_extra = document.getElementById('srd-status-message-extra');
 const rsgScheduleSelectedConfigsButton_el_extra = document.getElementById('rsg-schedule-selected-configs-button-extra');
+const rsgCopySelectedConfigsToDraftButton_el_extra = document.getElementById('rsg-copy-selected-configs-to-draft-button-extra');
 const rsgScheduleThisConfigButton_el_extra = document.getElementById('rsg-schedule-this-config-button-extra');
 const rsgScheduleDateTimeConfirmBtn = document.getElementById('rsg-schedule-datetime-confirm-button-extra');
 const rsgScheduleDateTimeCancelBtn = document.getElementById('rsg-schedule-datetime-cancel-button-extra');
@@ -12987,6 +12989,79 @@ async function rsg_performSaveConfiguration_ExtraPage() {
     }
 }
 
+async function rsg_handleCopySelectedConfigsToDraft_ExtraPage() {
+    if (!currentUser_extra || !window.firebaseOMSI) { alert("Please log in."); return; }
+    const tickedCheckboxes = document.querySelectorAll('.rsg-saved-config-checkbox:checked');
+    if (tickedCheckboxes.length === 0) {
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "No saved configurations selected to copy to draft.";
+            rsgStatusMessage_el_extra.style.color = "#f1c40f";
+        }
+        return;
+    }
+    const draftEffectiveDateInput = prompt(`Enter the effective date for ${tickedCheckboxes.length} draft(s) (YYYY-MM-DD):`, new Date().toISOString().slice(0, 10));
+    if (!draftEffectiveDateInput) return;
+    const draftEffectiveDate = draftEffectiveDateInput.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(draftEffectiveDate)) {
+        alert("Invalid date format. Please use YYYY-MM-DD.");
+        return;
+    }
+
+    const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+    const updates = {};
+    let copiedCount = 0;
+    let skippedCount = 0;
+    tickedCheckboxes.forEach(checkbox => {
+        const configKey = checkbox.dataset.configKey;
+        const configData = rsg_loadedConfigs_extra[configKey];
+        if (!configData) { skippedCount++; return; }
+        // Always distinct from the live config's key (suffixed) so RSG Viewer's combined draft/live
+        // lookups (pairing, crosslinks) never get an ambiguous match between the two.
+        const draftKey = `${configKey}__draft`;
+        updates[`${FB_PATH_RSG_CONFIG_DRAFTS}/${draftKey}`] = {
+            userDisplayName: configData.userDisplayName || `${configData.routeName} to ${configData.destinationName}`,
+            routeName: configData.routeName,
+            destinationName: configData.destinationName,
+            operatingProfile: configData.operatingProfile,
+            stopSequence: configData.stopSequence || [],
+            firstStopTimes: configData.firstStopTimes || '',
+            tripDetails: configData.tripDetails || [],
+            ...(configData.runningPoolSettings ? { runningPoolSettings: configData.runningPoolSettings } : {}),
+            draftEffectiveDate: draftEffectiveDate,
+            draftTargetConfigKey: configKey,
+            lastSaved: new Date().toISOString()
+        };
+        copiedCount++;
+    });
+
+    if (!copiedCount) {
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "No valid configurations found to copy to draft.";
+            rsgStatusMessage_el_extra.style.color = "#e74c3c";
+        }
+        return;
+    }
+
+    try {
+        await dbUpdate(dbRef(database), updates);
+        Object.entries(updates).forEach(([path, value]) => {
+            const draftKey = path.split('/').pop();
+            rsg_loadedDrafts_extra[draftKey] = JSON.parse(JSON.stringify(value));
+        });
+        rsg_renderDraftsList_ExtraPage();
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = `${copiedCount} configuration(s) copied to drafts, effective from ${draftEffectiveDate}.` + (skippedCount ? ` ${skippedCount} skipped (data not found).` : '');
+            rsgStatusMessage_el_extra.style.color = "#2ecc71";
+        }
+    } catch (error) {
+        console.error("Error copying selected configs to draft:", error);
+        if (rsgStatusMessage_el_extra) {
+            rsgStatusMessage_el_extra.textContent = "Error copying to draft: " + error.message;
+            rsgStatusMessage_el_extra.style.color = "#e74c3c";
+        }
+    }
+}
+
 // Saves the currently-edited RSG config into /rsgConfigDrafts instead of /rsgConfigs, so it has
 // no effect on route tiles, live schedule generation, or RSG Viewer's active list until activated.
 async function rsg_performSaveAsDraft_ExtraPage() {
@@ -13207,6 +13282,9 @@ function rsg_handleSavedConfigCheckboxChange_ExtraPage() {
 
     if (rsgScheduleSelectedConfigsButton_el_extra) {
         rsgScheduleSelectedConfigsButton_el_extra.disabled = (tickedCount === 0);
+    }
+    if (rsgCopySelectedConfigsToDraftButton_el_extra) {
+        rsgCopySelectedConfigsToDraftButton_el_extra.disabled = (tickedCount === 0);
     }
 
     const disableMainActions = tickedCount > 1;
@@ -17631,6 +17709,9 @@ function rsg_updateRsgActionButtonsState() {
     if (rsgScheduleSelectedConfigsButton_el_extra) {
         rsgScheduleSelectedConfigsButton_el_extra.disabled = (tickedSavedConfigsCount === 0);
     }
+    if (rsgCopySelectedConfigsToDraftButton_el_extra) {
+        rsgCopySelectedConfigsToDraftButton_el_extra.disabled = (tickedSavedConfigsCount === 0);
+    }
 }
 
 function rsg_openCopyFromModal_ExtraPage() { 
@@ -19049,6 +19130,10 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
     const rsgScheduleSelectedBtn_local = document.getElementById('rsg-schedule-selected-configs-button-extra');
     if (rsgScheduleSelectedBtn_local && typeof rsg_handleScheduleSelectedConfigs_ExtraPage === 'function') {
         rsgScheduleSelectedBtn_local.addEventListener('click', rsg_handleScheduleSelectedConfigs_ExtraPage);
+    }
+    const rsgCopySelectedToDraftBtn_local = document.getElementById('rsg-copy-selected-configs-to-draft-button-extra');
+    if (rsgCopySelectedToDraftBtn_local && typeof rsg_handleCopySelectedConfigsToDraft_ExtraPage === 'function') {
+        rsgCopySelectedToDraftBtn_local.addEventListener('click', rsg_handleCopySelectedConfigsToDraft_ExtraPage);
     }
     const rsgSelectAllGlobalCheckbox_local = document.getElementById('rsg-select-all-configs-checkbox-extra');
     if (rsgSelectAllGlobalCheckbox_local && typeof rsg_handleSelectAllConfigsChange_ExtraPage === 'function') {

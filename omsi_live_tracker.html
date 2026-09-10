@@ -264,6 +264,7 @@
     const vehicleHistoryLookupCache = new Map();
     const vehicleHistoryMemoryCache = new Map();
     
+    // Default operators (read from Firebase, falls back to this if not available)
     const routeOperators = {
         '4': 'First', '6': 'Stagecoach', '9': 'First', '10': 'Kelly Group', '11': 'Arriva',
         '12': 'First', '22': 'First', 'N22': 'First', '31': 'Stagecoach', '32': 'First',
@@ -274,9 +275,29 @@
         '604': 'Stagecoach', '612': 'First', '635': 'Kelly Group', '823': 'First', '925': 'Kelly Group'
     };
     
+    let routeOperatorsByDate = {}; // Will be populated from Firebase
+    
     function getOperatorForRoute(routeKey) {
         if (!routeKey) return 'OMSI Live Tracker';
-        return routeOperators[routeKey] || 'OMSI Live Tracker';
+        const routeUpper = String(routeKey).toUpperCase();
+
+        // Find the latest dated ROC override on/before today, so a change applies
+        // from its effective date onward instead of only on that exact day.
+        const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+        let mostRecentDate = null;
+        let mostRecentOperator = null;
+        Object.keys(routeOperatorsByDate || {}).forEach(dateStr => {
+            if (dateStr > todayStr) return; // Not yet effective
+            const changesForDate = routeOperatorsByDate[dateStr] || {};
+            const matchingRouteKey = Object.keys(changesForDate).find(r => r.toUpperCase() === routeUpper);
+            if (matchingRouteKey && (!mostRecentDate || dateStr > mostRecentDate)) {
+                mostRecentDate = dateStr;
+                mostRecentOperator = changesForDate[matchingRouteKey];
+            }
+        });
+        if (mostRecentOperator) return mostRecentOperator;
+
+        return routeOperators[routeKey] || 'Unknown Operator';
     }
     
     let updateThrottleTimer = null;
@@ -413,73 +434,68 @@
     }
 
     function isSameLocalCalendarDay(timestamp1, timestamp2) {
-    const d1 = new Date(timestamp1);
-    const d2 = new Date(timestamp2);
-    return d1.getFullYear() === d2.getFullYear() &&
-           d1.getMonth() === d2.getMonth() &&
-           d1.getDate() === d2.getDate();
-}
+        const d1 = new Date(timestamp1);
+        const d2 = new Date(timestamp2);
+        return d1.getFullYear() === d2.getFullYear() &&
+               d1.getMonth() === d2.getMonth() &&
+               d1.getDate() === d2.getDate();
+    }
 
     function recordDetailedVehicleSighting(routeName, fleetNumber, registration, blockId, runningNumber, tripStartTime, tripEndTime, timeToStationInSeconds) {
-    if (!routeName) return;
-    
-    if (timeToStationInSeconds === undefined || timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER) {
-        return;
-    }
-
-    registration = normalizeRegistration(registration);
-    const idents = [];
-    if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
-    if (registration && registration !== "---") idents.push(registration.toUpperCase());
-    
-    if (idents.length === 0) {
-        if (blockId) {
-            idents.push(blockId.toUpperCase());
-        } else {
+        if (!routeName) return;
+        
+        if (timeToStationInSeconds === undefined || timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER) {
             return;
         }
-    }
 
-    const now = Date.now();
-    let effectiveStartTime = tripStartTime && Number.isFinite(tripStartTime) ? tripStartTime : now;
-    let effectiveEndTime = tripEndTime && Number.isFinite(tripEndTime) ? tripEndTime : effectiveStartTime;
-    const routeUpper = routeName.toUpperCase();
-
-    const endDate = new Date(effectiveEndTime);
-    if (routeUpper.startsWith('N') && endDate.getHours() >= 5 && endDate.getHours() < 20) {
-        return; 
-    }
-
-    idents.forEach(ident => {
-        if (!vehicleDetailedLogMap.has(ident)) {
-            vehicleDetailedLogMap.set(ident, []);
+        registration = normalizeRegistration(registration);
+        const idents = [];
+        if (fleetNumber && fleetNumber !== "N/A") idents.push(fleetNumber.toUpperCase());
+        if (registration && registration !== "---") idents.push(registration.toUpperCase());
+        
+        if (idents.length === 0) {
+            if (blockId) {
+                idents.push(blockId.toUpperCase());
+            } else {
+                return;
+            }
         }
-        const logs = vehicleDetailedLogMap.get(ident);
-        const existingLog = [...logs].reverse().find(log => {
-            const lastSeenAt = log.lastSeenAt || log.timestamp;
-            return log.routeName === routeUpper && lastSeenAt && isSameLocalCalendarDay(lastSeenAt, effectiveEndTime);
-        });
-        if (existingLog) {
-            existingLog.firstSeenAt = Math.min(existingLog.firstSeenAt || existingLog.timestamp || effectiveStartTime, effectiveStartTime);
-            existingLog.lastSeenAt = Math.max(existingLog.lastSeenAt || existingLog.timestamp || effectiveEndTime, effectiveEndTime);
-            if (!existingLog.runningNumber && runningNumber) existingLog.runningNumber = runningNumber;
-            if (!existingLog.garage && runningNumber) existingLog.garage = getGarageFromRunningNumber(runningNumber);
-        } else {
-            logs.push({ 
-                routeName: routeUpper, 
-                operator: getOperatorForRoute(routeUpper), 
-                firstSeenAt: effectiveStartTime, 
-                lastSeenAt: effectiveEndTime, 
-                fleetNumber: fleetNumber || "N/A", 
-                registration: registration || "---", 
-                runningNumber: runningNumber || "", 
-                garage: getGarageFromRunningNumber(runningNumber) 
+
+        const now = Date.now();
+        let effectiveStartTime = tripStartTime && Number.isFinite(tripStartTime) ? tripStartTime : now;
+        let effectiveEndTime = tripEndTime && Number.isFinite(tripEndTime) ? tripEndTime : effectiveStartTime;
+        const routeUpper = routeName.toUpperCase();
+
+        idents.forEach(ident => {
+            if (!vehicleDetailedLogMap.has(ident)) {
+                vehicleDetailedLogMap.set(ident, []);
+            }
+            const logs = vehicleDetailedLogMap.get(ident);
+            const existingLog = [...logs].reverse().find(log => {
+                const lastSeenAt = log.lastSeenAt || log.timestamp;
+                return log.routeName === routeUpper && lastSeenAt && isSameLocalCalendarDay(lastSeenAt, effectiveEndTime);
             });
-            if (logs.length > 50) logs.shift();
-        }
-    });
-    saveDetailedLogToStorage();
-}
+            if (existingLog) {
+                existingLog.firstSeenAt = Math.min(existingLog.firstSeenAt || existingLog.timestamp || effectiveStartTime, effectiveStartTime);
+                existingLog.lastSeenAt = Math.max(existingLog.lastSeenAt || existingLog.timestamp || effectiveEndTime, effectiveEndTime);
+                if (!existingLog.runningNumber && runningNumber) existingLog.runningNumber = runningNumber;
+                if (!existingLog.garage && runningNumber) existingLog.garage = getGarageFromRunningNumber(runningNumber);
+            } else {
+                logs.push({ 
+                    routeName: routeUpper, 
+                    operator: getOperatorForRoute(routeUpper), 
+                    firstSeenAt: effectiveStartTime, 
+                    lastSeenAt: effectiveEndTime, 
+                    fleetNumber: fleetNumber || "N/A", 
+                    registration: registration || "---", 
+                    runningNumber: runningNumber || "", 
+                    garage: getGarageFromRunningNumber(runningNumber) 
+                });
+                if (logs.length > 50) logs.shift();
+            }
+        });
+        saveDetailedLogToStorage();
+    }
 
     let vehicleAllocationData = {};
     let liveVehicleAssignments = {};
@@ -778,6 +794,13 @@
 
         const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
         dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
+
+        // Load operator changes by date from Firebase
+        const rocRef = dbRef(database, '/routeOperatorChangesByDate');
+        dbOnValue(rocRef, (snapshot) => {
+            routeOperatorsByDate = snapshot.exists() ? snapshot.val() || {} : {};
+            if (localScheduleData.length > 0) throttledProcessAndDisplay();
+        });
 
         const liveVehicleAssignmentsRef = dbRef(database, `${FB_PATH_LIVE_VEHICLE_ASSIGNMENTS}/${getLocalDateKey()}`);
         dbOnValue(liveVehicleAssignmentsRef, (snapshot) => {
@@ -1188,12 +1211,12 @@
     }
 
     function getLocalDateKey(timestamp) {
-    const d = new Date(timestamp);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
+        const d = new Date(timestamp);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
 
     function getVehicleIdentityKeys(fleetNumber, registration) {
         const identities = [];

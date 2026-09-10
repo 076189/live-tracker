@@ -111,6 +111,11 @@
         <h2 id="route-runs-heading">Route Running Numbers</h2>
         <div id="route-runs-list" class="route-runs-list"><span class="meta">Loading saved running numbers...</span></div>
     </section>
+    <section class="route-runs" aria-labelledby="rsg-drafts-heading">
+        <h2 id="rsg-drafts-heading">RSG Drafts</h2>
+        <p class="meta" style="margin:0 0 10px;">Drafts have no effect on the live RSG until you click Activate.</p>
+        <div id="rsg-drafts-list"><span class="meta">Loading drafts...</span></div>
+    </section>
     <div id="status" class="status">Connecting to saved RSG configurations...</div>
     <div id="missing-runs-overview" class="missing-runs missing-runs-overview" hidden></div>
     <div class="layout">
@@ -119,7 +124,7 @@
             <h2>Number suggestions</h2>
             <div class="suggestions"><div class="suggestion"><span>Next trip number</span><b id="trip-suggestion">-</b></div><div class="suggestion"><span>Next running number</span><b id="running-suggestion">-</b></div></div>
             <p id="suggestion-context" class="meta">Select a saved configuration to calculate suggestions.</p>
-            <div class="calculator"><div class="calculator-grid"><div><label for="pvr-input">PVR override</label><input id="pvr-input" type="number" min="1" step="1" placeholder="Auto"></div><div><label for="running-prefix">Running prefix</label><input id="running-prefix" type="text" placeholder="e.g. AB"></div><div><label for="running-start">Starting number</label><input id="running-start" type="number" min="0" step="1" placeholder="e.g. 253"></div><div><label for="running-pattern">Duty run order (optional)</label><input id="running-pattern" type="text" placeholder="SC4, SC6, SC2, SC7"></div></div><div id="crosslink-list"></div><button id="add-crosslink-button" type="button" class="secondary">Add crosslink</button><button id="suggest-crosslinks-button" type="button" class="secondary">Suggest Cross Links</button><div class="short-stand-controls"><label class="short-stand-option"><input id="short-stand-direction-1" type="checkbox"> <span id="short-stand-direction-1-label">Allow 0-4 min stand</span></label><label class="short-stand-option"><input id="short-stand-direction-2" type="checkbox"> <span id="short-stand-direction-2-label">Allow 0-4 min stand</span></label></div><button id="suggest-duty-order-button" type="button" class="secondary">Suggest sequential duty order</button><button id="swap-trip-numbers-button" type="button" class="secondary">Swap odd/even trip numbers</button><button id="calculate-button" type="button">Calculate running numbers</button><button id="save-running-button" type="button" class="secondary" style="margin-top:6px;">Save running numbers to RSG</button><p id="save-running-status" class="meta" style="min-height:1.2em;"></p></div>
+            <div class="calculator"><div class="calculator-grid"><div><label for="pvr-input">PVR override</label><input id="pvr-input" type="number" min="1" step="1" placeholder="Auto"></div><div><label for="running-prefix">Running prefix</label><input id="running-prefix" type="text" placeholder="e.g. AB"></div><div><label for="running-start">Starting number</label><input id="running-start" type="number" min="0" step="1" placeholder="e.g. 253"></div><div><label for="running-pattern">Duty run order (optional)</label><input id="running-pattern" type="text" placeholder="SC4, SC6, SC2, SC7"></div></div><div id="crosslink-list"></div><button id="add-crosslink-button" type="button" class="secondary">Add crosslink</button><button id="suggest-crosslinks-button" type="button" class="secondary">Suggest Cross Links</button><div class="short-stand-controls"><label class="short-stand-option"><input id="short-stand-direction-1" type="checkbox"> <span id="short-stand-direction-1-label">Allow 0-4 min stand</span></label><label class="short-stand-option"><input id="short-stand-direction-2" type="checkbox"> <span id="short-stand-direction-2-label">Allow 0-4 min stand</span></label></div><button id="suggest-duty-order-button" type="button" class="secondary">Suggest sequential duty order</button><button id="swap-trip-numbers-button" type="button" class="secondary">Swap odd/even trip numbers</button><button id="calculate-button" type="button">Calculate running numbers</button><button id="save-running-button" type="button" class="secondary" style="margin-top:6px;">Save running numbers to RSG</button><div style="margin-top:6px; display:grid; grid-template-columns:1fr auto; gap:6px;"><input id="draft-effective-date-input" type="date" aria-label="Draft effective date"><button id="save-as-draft-button" type="button" class="secondary">Save as Draft</button></div><p id="save-running-status" class="meta" style="min-height:1.2em;"></p></div>
             <div id="missing-runs" class="missing-runs" hidden></div>
             <div id="suggested-tables" class="suggested-tables"></div>
             <p class="note">Suggestions are based on the numbers already present in the saved RSG data. Running numbers are a convenience hint, not a live allocation: check the duty sheet before using one.</p>
@@ -138,6 +143,7 @@ const database = getDatabase(app);
 const auth = getAuth(app);
 let currentUser = null;
 let configs = [];
+let drafts = [];
 let selectedConfig = null;
 let liveRouteEntries = new Map();
 let crosslinkConfig = null;
@@ -1502,10 +1508,59 @@ async function load() {
         const snapshot = await get(ref(database, '/rsgConfigs'));
         const raw = snapshot.exists() ? snapshot.val() : {};
         configs = Object.entries(raw || {}).filter(([, config]) => config && typeof config === 'object').map(([key, config]) => ({ ...config, key }));
+        const draftsSnapshot = await get(ref(database, '/rsgConfigDrafts'));
+        const rawDrafts = draftsSnapshot.exists() ? draftsSnapshot.val() : {};
+        drafts = Object.entries(rawDrafts || {}).filter(([, draft]) => draft && typeof draft === 'object').map(([key, draft]) => ({ ...draft, key }));
         window.rsgDebug = { configs, shortWorkingRelation, stopsMatch, shortWorkingConfigsFor, findPairedConfig, findFullRouteConfigFor, profileCoveredBy, isNightConfig, isTwentyFourHourContinuation, buildDirectionEvents, assignRunningNumbersInOrder, configTermini, isCircularService, runningPool, calculateDutyAssignments, runningValue, tripKey, crosslinksFor, generatedRunningPool, tripsOf };
-        populateFilters(); render(); renderRouteRunningNumbers(); renderMissingRunningNumbersOverview(); $('status').textContent = `${configs.length} saved RSG configuration(s) loaded.`;
+        populateFilters(); render(); renderRouteRunningNumbers(); renderMissingRunningNumbersOverview(); renderDraftsList(); $('status').textContent = `${configs.length} saved RSG configuration(s) loaded.`;
     } catch (error) { $('status').textContent = `Could not load RSG configurations: ${error.message}`; $('config-list').innerHTML = '<div class="empty">Check Firebase access and refresh the page.</div>'; }
 }
+function renderDraftsList() {
+    const container = $('rsg-drafts-list');
+    if (!container) return;
+    if (!drafts.length) { container.innerHTML = '<span class="meta">No drafts saved.</span>'; return; }
+    const sortedDrafts = [...drafts].sort((first, second) => clean(first.draftEffectiveDate).localeCompare(clean(second.draftEffectiveDate)));
+    container.innerHTML = sortedDrafts.map(draft => {
+        const dateLabel = clean(draft.draftEffectiveDate) || 'No date';
+        const targetLabel = draft.draftTargetConfigKey ? 'Replaces existing live config' : 'New config (no live config yet)';
+        const nameLabel = clean(draft.userDisplayName) || `${clean(draft.routeName) || 'Unnamed route'} to ${clean(draft.destinationName) || 'unknown destination'}`;
+        return `<div class="route-run"><strong>${esc(nameLabel)}</strong>Effective from ${esc(dateLabel)} &middot; ${esc(targetLabel)}<div style="margin-top:6px; display:flex; gap:6px;"><button type="button" data-activate-draft="${esc(draft.key)}">Activate</button><button type="button" class="secondary" data-delete-draft="${esc(draft.key)}">Delete</button></div></div>`;
+    }).join('');
+}
+document.addEventListener('click', async event => {
+    const activateButton = event.target.closest('[data-activate-draft]');
+    const deleteButton = event.target.closest('[data-delete-draft]');
+    if (activateButton) {
+        const draftKey = activateButton.dataset.activateDraft;
+        const draft = drafts.find(item => item.key === draftKey);
+        if (!draft) return;
+        const nameLabel = clean(draft.userDisplayName) || clean(draft.routeName);
+        if (!window.confirm(`Activate draft "${nameLabel}"? This makes it the live RSG configuration immediately.`)) return;
+        const targetKey = draft.draftTargetConfigKey || draftKey;
+        const liveConfig = {
+            userDisplayName: draft.userDisplayName, routeName: draft.routeName, destinationName: draft.destinationName,
+            operatingProfile: draft.operatingProfile, stopSequence: draft.stopSequence || [], firstStopTimes: draft.firstStopTimes || '',
+            tripDetails: draft.tripDetails || [], lastSaved: new Date().toISOString()
+        };
+        if (draft.runningPoolSettings) liveConfig.runningPoolSettings = draft.runningPoolSettings;
+        try {
+            await update(ref(database), { [`/rsgConfigs/${targetKey}`]: liveConfig, [`/rsgConfigDrafts/${draftKey}`]: null });
+            await load();
+        } catch (error) {
+            $('status').textContent = `Could not activate draft: ${error.message}`;
+        }
+    } else if (deleteButton) {
+        const draftKey = deleteButton.dataset.deleteDraft;
+        if (!window.confirm('Delete this draft? This cannot be undone.')) return;
+        try {
+            await update(ref(database), { [`/rsgConfigDrafts/${draftKey}`]: null });
+            drafts = drafts.filter(item => item.key !== draftKey);
+            renderDraftsList();
+        } catch (error) {
+            $('status').textContent = `Could not delete draft: ${error.message}`;
+        }
+    }
+});
 ['route-filter','profile-filter','search-filter'].forEach(id => $(id).addEventListener(id === 'search-filter' ? 'input' : 'change', render));
 $('pvr-input').addEventListener('input', event => { event.target.dataset.manuallySet = 'true'; });
 ['short-stand-direction-1', 'short-stand-direction-2'].forEach(id => $(id).addEventListener('change', () => {
@@ -1859,6 +1914,65 @@ $('save-running-button').addEventListener('click', async () => {
         status.textContent = propagatedCrosslinks ? `${propagatedCrosslinks} crosslink running number(s) saved to their target trip(s). OMSI Tools will pick these up next time it loads the RSG.` : 'Running numbers saved to RSG. OMSI Tools will pick these up next time it loads the RSG.';
     } catch (error) {
         status.textContent = `Save failed: ${error.message}`;
+    }
+});
+$('save-as-draft-button').addEventListener('click', async () => {
+    const status = $('save-running-status');
+    const draftDate = clean($('draft-effective-date-input').value);
+    if (!selectedConfig) { status.textContent = 'Select a configuration first.'; return; }
+    if (!draftDate) { status.textContent = 'Enter an effective date to save as a draft.'; return; }
+    const duplicates = duplicateDutyRuns();
+    if (duplicates.length) { status.textContent = `Cannot save: duplicate duty run name(s): ${duplicates.join(', ')}.`; return; }
+    const tableEls = document.querySelectorAll('#suggested-tables .suggested-table');
+    if (!tableEls.length) { status.textContent = 'Nothing to save yet.'; return; }
+    if (crosslinksFor().some(crosslink => crosslink.crosslinkFromTripId && crosslink.crosslinkToTripId)) {
+        status.textContent = 'Configurations with crosslinks must be saved live for now; drafts do not support crosslinks yet.';
+        return;
+    }
+    const primaryConfig = findFullRouteConfigFor(selectedConfig) || selectedConfig;
+    const paired = findPairedConfig(primaryConfig);
+    const circular = isCircularService(primaryConfig, paired);
+    const configTablePairs = [
+        { config: primaryConfig, tableEl: tableEls[0] },
+        ...shortWorkingConfigsFor(primaryConfig, [paired]).map(config => ({ config, tableEl: tableEls[0] })),
+        ...(paired ? [{ config: paired, tableEl: tableEls[circular ? 0 : 1] }, ...shortWorkingConfigsFor(paired, [primaryConfig]).map(config => ({ config, tableEl: tableEls[circular ? 0 : 1] }))] : [])
+    ];
+    const poolSettings = {
+        pvr: clean($('pvr-input').value),
+        prefix: clean($('running-prefix').value),
+        start: clean($('running-start').value),
+        order: clean($('running-pattern').value),
+        shortStandDirectionKeys: [
+            $('short-stand-direction-1').checked ? primaryConfig.key : '',
+            $('short-stand-direction-2').checked && paired?.key ? paired.key : ''
+        ].filter(Boolean),
+        crosslinks: []
+    };
+    const updates = {};
+    let draftCount = 0;
+    configTablePairs.forEach(({ config, tableEl }) => {
+        if (!config || !tableEl || !config.key) return;
+        const updatedTripDetails = tripDetailsWithEdits(config, tableEl);
+        updates[`/rsgConfigDrafts/${config.key}`] = {
+            userDisplayName: config.userDisplayName || `${config.routeName} to ${config.destinationName}`,
+            routeName: config.routeName, destinationName: config.destinationName, operatingProfile: config.operatingProfile,
+            stopSequence: config.stopSequence || [], firstStopTimes: config.firstStopTimes || '',
+            tripDetails: updatedTripDetails, runningPoolSettings: poolSettings,
+            draftEffectiveDate: draftDate, draftTargetConfigKey: config.key, lastSaved: new Date().toISOString()
+        };
+        draftCount++;
+    });
+    if (!draftCount) { status.textContent = 'No saved configuration key found to draft.'; return; }
+    status.textContent = 'Saving draft(s)...';
+    try {
+        await update(ref(database), updates);
+        const draftsSnapshot = await get(ref(database, '/rsgConfigDrafts'));
+        const rawDrafts = draftsSnapshot.exists() ? draftsSnapshot.val() : {};
+        drafts = Object.entries(rawDrafts || {}).filter(([, draft]) => draft && typeof draft === 'object').map(([key, draft]) => ({ ...draft, key }));
+        renderDraftsList();
+        status.textContent = `${draftCount} draft configuration(s) saved, effective from ${draftDate}. They will not affect the live RSG until activated.`;
+    } catch (error) {
+        status.textContent = `Draft save failed: ${error.message}`;
     }
 });
 $('refresh-button').addEventListener('click', load);

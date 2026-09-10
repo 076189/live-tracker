@@ -1539,17 +1539,38 @@ async function load() {
         populateFilters(); render(); renderRouteRunningNumbers(); renderMissingRunningNumbersOverview(); renderDraftsList(); $('status').textContent = `${configs.length} saved RSG configuration(s) loaded.`;
     } catch (error) { $('status').textContent = `Could not load RSG configurations: ${error.message}`; $('config-list').innerHTML = '<div class="empty">Check Firebase access and refresh the page.</div>'; }
 }
+function groupedDraftConfigs() {
+    const grouped = new Map();
+    drafts.forEach(draft => {
+        const key = `${routeNumberForCrosslink(draft)}|${clean(draft.operatingProfile).toUpperCase()}|${isNightConfig(draft) ? 'night' : 'day'}`;
+        const current = grouped.get(key);
+        if (!current || tripParityBalance(draft) > tripParityBalance(current)) grouped.set(key, draft);
+    });
+    return [...grouped.values()].sort((first, second) =>
+        routeNumberForCrosslink(first).localeCompare(routeNumberForCrosslink(second), undefined, { numeric:true, sensitivity:'base' })
+        || Number(isNightConfig(first)) - Number(isNightConfig(second))
+        || clean(first.operatingProfile).localeCompare(clean(second.operatingProfile), undefined, { numeric:true, sensitivity:'base' })
+    );
+}
 function renderDraftsList() {
     const container = $('rsg-drafts-list');
     if (!container) return;
     if (!drafts.length) { container.innerHTML = '<span class="meta">No drafts saved.</span>'; return; }
-    const sortedDrafts = [...drafts].sort((first, second) => clean(first.draftEffectiveDate).localeCompare(clean(second.draftEffectiveDate)));
-    container.innerHTML = sortedDrafts.map(draft => {
+    const groups = groupedDraftConfigs();
+    container.innerHTML = groups.map(draft => {
+        const paired = findPairedConfig(draft);
+        const pairedDraft = paired && paired.isDraft ? paired : null;
+        const groupKeys = [draft.key, ...(pairedDraft ? [pairedDraft.key] : [])];
         const dateLabel = clean(draft.draftEffectiveDate) || 'No date';
         const targetLabel = draft.draftTargetConfigKey ? 'Replaces existing live config' : 'New config (no live config yet)';
-        const nameLabel = clean(draft.userDisplayName) || `${clean(draft.routeName) || 'Unnamed route'} to ${clean(draft.destinationName) || 'unknown destination'}`;
-        const isSelected = selectedConfig && selectedConfig.isDraft && selectedConfig.key === draft.key;
-        return `<div class="route-run draft-card${isSelected ? ' selected' : ''}" data-draft-key="${esc(draft.key)}"><strong>${esc(nameLabel)}</strong>Effective from ${esc(dateLabel)} &middot; ${esc(targetLabel)}<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;"><button type="button" data-edit-draft="${esc(draft.key)}">Edit numbers / crosslinks</button><button type="button" data-activate-draft="${esc(draft.key)}">Move to RSG Configs</button><button type="button" class="secondary" data-delete-draft="${esc(draft.key)}">Delete</button></div></div>`;
+        const directionNote = pairedDraft ? 'Both directions drafted' : (paired ? 'Other direction still live' : 'Single direction');
+        const isSelected = selectedConfig && selectedConfig.isDraft && groupKeys.includes(selectedConfig.key);
+        return `<div class="route-run draft-card${isSelected ? ' selected' : ''}" data-draft-keys="${esc(groupKeys.join(','))}">
+            <strong>${esc(routeProfileLabel(draft))}</strong>
+            <div class="meta">Outbound trips: ${tripsOf(draft).length} | ${esc(directionNote)}</div>
+            <div>Effective from ${esc(dateLabel)} &middot; ${esc(targetLabel)}</div>
+            <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;"><button type="button" data-edit-draft="${esc(draft.key)}">Edit numbers / crosslinks</button><button type="button" data-activate-draft="${esc(groupKeys.join(','))}">Move to RSG Configs</button><button type="button" class="secondary" data-delete-draft="${esc(groupKeys.join(','))}">Delete</button></div>
+        </div>`;
     }).join('');
 }
 document.addEventListener('click', async event => {
@@ -1560,37 +1581,45 @@ document.addEventListener('click', async event => {
         const draftKey = editButton.dataset.editDraft;
         const draft = drafts.find(item => item.key === draftKey);
         if (!draft) return;
-        await selectConfig(draft, editButton.closest('[data-draft-key]'));
+        await selectConfig(draft, editButton.closest('[data-draft-keys]'));
     } else if (activateButton) {
-        const draftKey = activateButton.dataset.activateDraft;
-        const draft = drafts.find(item => item.key === draftKey);
-        if (!draft) return;
-        const nameLabel = clean(draft.userDisplayName) || clean(draft.routeName);
-        if (!window.confirm(`Activate draft "${nameLabel}"? This makes it the live RSG configuration immediately.`)) return;
-        const targetKey = draft.draftTargetConfigKey || draftKey;
-        const liveConfig = {
-            userDisplayName: draft.userDisplayName, routeName: draft.routeName, destinationName: draft.destinationName,
-            operatingProfile: draft.operatingProfile, stopSequence: draft.stopSequence || [], firstStopTimes: draft.firstStopTimes || '',
-            tripDetails: draft.tripDetails || [], lastSaved: new Date().toISOString()
-        };
-        if (draft.runningPoolSettings) liveConfig.runningPoolSettings = draft.runningPoolSettings;
+        const draftKeys = activateButton.dataset.activateDraft.split(',').filter(Boolean);
+        const draftItems = draftKeys.map(key => drafts.find(item => item.key === key)).filter(Boolean);
+        if (!draftItems.length) return;
+        const nameLabel = draftItems.map(item => clean(item.userDisplayName) || clean(item.routeName)).join(' & ');
+        const plural = draftItems.length > 1;
+        if (!window.confirm(`Move "${nameLabel}" to RSG Configs? This makes ${plural ? 'them' : 'it'} the live RSG configuration${plural ? 's' : ''} immediately.`)) return;
+        const updatesPayload = {};
+        draftItems.forEach(draft => {
+            const targetKey = draft.draftTargetConfigKey || draft.key;
+            const liveConfig = {
+                userDisplayName: draft.userDisplayName, routeName: draft.routeName, destinationName: draft.destinationName,
+                operatingProfile: draft.operatingProfile, stopSequence: draft.stopSequence || [], firstStopTimes: draft.firstStopTimes || '',
+                tripDetails: draft.tripDetails || [], lastSaved: new Date().toISOString()
+            };
+            if (draft.runningPoolSettings) liveConfig.runningPoolSettings = draft.runningPoolSettings;
+            updatesPayload[`/rsgConfigs/${targetKey}`] = liveConfig;
+            updatesPayload[`/rsgConfigDrafts/${draft.key}`] = null;
+        });
         try {
-            await update(ref(database), { [`/rsgConfigs/${targetKey}`]: liveConfig, [`/rsgConfigDrafts/${draftKey}`]: null });
-            if (selectedConfig?.isDraft && selectedConfig.key === draftKey) clearSelection();
+            await update(ref(database), updatesPayload);
+            if (selectedConfig?.isDraft && draftKeys.includes(selectedConfig.key)) clearSelection();
             await load();
         } catch (error) {
-            $('status').textContent = `Could not activate draft: ${error.message}`;
+            $('status').textContent = `Could not move draft(s) to RSG Configs: ${error.message}`;
         }
     } else if (deleteButton) {
-        const draftKey = deleteButton.dataset.deleteDraft;
-        if (!window.confirm('Delete this draft? This cannot be undone.')) return;
+        const draftKeys = deleteButton.dataset.deleteDraft.split(',').filter(Boolean);
+        if (!window.confirm(draftKeys.length > 1 ? 'Delete both direction drafts? This cannot be undone.' : 'Delete this draft? This cannot be undone.')) return;
         try {
-            await update(ref(database), { [`/rsgConfigDrafts/${draftKey}`]: null });
-            drafts = drafts.filter(item => item.key !== draftKey);
-            if (selectedConfig?.isDraft && selectedConfig.key === draftKey) clearSelection();
+            const updatesPayload = {};
+            draftKeys.forEach(key => { updatesPayload[`/rsgConfigDrafts/${key}`] = null; });
+            await update(ref(database), updatesPayload);
+            drafts = drafts.filter(item => !draftKeys.includes(item.key));
+            if (selectedConfig?.isDraft && draftKeys.includes(selectedConfig.key)) clearSelection();
             renderDraftsList();
         } catch (error) {
-            $('status').textContent = `Could not delete draft: ${error.message}`;
+            $('status').textContent = `Could not delete draft(s): ${error.message}`;
         }
     }
 });

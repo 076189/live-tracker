@@ -2070,6 +2070,13 @@ $('save-as-draft-button').addEventListener('click', async () => {
         crosslinkToTripId: remapTripId(crosslink.crosslinkToTripId),
         crosslinkReturnTripId: crosslink.crosslinkReturnTripId ? remapTripId(crosslink.crosslinkReturnTripId) : crosslink.crosslinkReturnTripId
     }));
+    // The crosslink owner can live outside this batch (e.g. you're drafting the OTHER end of a
+    // crosslink pair that was created earlier). If that owner is itself a draft, its stored
+    // crosslinks still need the just-remapped keys, or it keeps pointing at this config's old
+    // (live) key forever. Never do this for a LIVE owner - that would violate the no-live-write rule.
+    if (crosslinkOwner && crosslinkOwner.isDraft && !configTablePairs.some(({ config }) => config === crosslinkOwner)) {
+        updates[`/rsgConfigDrafts/${crosslinkOwner.key}/runningPoolSettings`] = { ...(crosslinkOwner.runningPoolSettings || {}), crosslinks: remappedCrosslinks };
+    }
     configTablePairs.forEach(({ config }) => {
         if (!config || !config.key || !updatedTripDetailsByConfig.has(config.key)) return;
         const targetDraftKey = keyRemap.get(config.key) || (config.isDraft ? config.key : `${config.key}__draft`);
@@ -2098,6 +2105,8 @@ $('save-as-draft-button').addEventListener('click', async () => {
         if (selectedConfig) {
             const reselectedKey = selectedConfig.isDraft ? selectedConfig.key : `${selectedConfig.key}__draft`;
             selectedConfig = drafts.find(draft => draft.key === reselectedKey) || selectedConfig;
+            crosslinkConfig = crosslinkOwnerFor(selectedConfig);
+            suggest(selectedConfig, liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
         }
         renderDraftsList();
         status.textContent = propagatedCrosslinks

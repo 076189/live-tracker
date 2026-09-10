@@ -1148,7 +1148,7 @@ function crosslinkDutyReservations(config, events) {
         const fromConfig = configForKey(crosslink.crosslinkFromDirectionKey) || config;
         const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
         const returnConfig = configForKey(crosslink.crosslinkReturnDirectionKey);
-        const sourceEvent = events.find(event => event.config.key === fromConfig?.key && crosslinkIdForTrip(event.config, event.trip) === crosslink.crosslinkFromTripId);
+        const sourceEvent = events.find(event => event.config.key === fromConfig?.key && crosslinkTripIdentity(crosslinkIdForTrip(event.config, event.trip)) === crosslinkTripIdentity(crosslink.crosslinkFromTripId));
         const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
         if (!sourceEvent || !linkedConfig || !linkedTrip) return;
         const linkedInterval = tripInterval(linkedConfig, linkedTrip);
@@ -1388,7 +1388,7 @@ function orderTripsChronologically(trips) {
 function crosslinkMarkersForTrip(config, trip) {
     const tripIndex = orderTripsChronologically(tripsOf(config)).findIndex(candidate => tripTime(candidate) === tripTime(trip));
     if (tripIndex < 0) return [];
-    const id = crosslinkTripId(config, trip, tripIndex);
+    const id = crosslinkTripIdentity(crosslinkTripId(config, trip, tripIndex));
     const markers = [];
     allEntries().forEach(ownerConfig => storedCrosslinksFor(ownerConfig).forEach(crosslink => {
         const fromConfig = configForKey(crosslink.crosslinkFromDirectionKey) || ownerConfig;
@@ -1399,9 +1399,9 @@ function crosslinkMarkersForTrip(config, trip) {
         const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
         const returnTrip = tripForCrosslinkId(returnConfig, crosslink.crosslinkReturnTripId);
         const tripNumber = tripEntry => clean(tripEntry?.tripNumber || tripEntry?.tripNo || tripEntry?.trip || tripEntry?.number) || '?';
-        if (config.key === fromConfig?.key && id === crosslink.crosslinkFromTripId && linkedConfig) markers.push(`&rarr; ${esc(crosslinkRouteMarker(linkedConfig))} / ${esc(tripNumber(linkedTrip))}`);
-        if (config.key === linkedConfig?.key && id === crosslink.crosslinkToTripId && fromConfig) markers.push(`&larr; ${esc(crosslinkRouteMarker(fromConfig))} / ${esc(tripNumber(fromTrip))}`);
-        if (config.key === returnConfig?.key && id === crosslink.crosslinkReturnTripId && linkedConfig) markers.push(`&larr; ${esc(crosslinkRouteMarker(linkedConfig))} / ${esc(tripNumber(linkedTrip))}`);
+        if (config.key === fromConfig?.key && id === crosslinkTripIdentity(crosslink.crosslinkFromTripId) && linkedConfig) markers.push(`&rarr; ${esc(crosslinkRouteMarker(linkedConfig))} / ${esc(tripNumber(linkedTrip))}`);
+        if (config.key === linkedConfig?.key && id === crosslinkTripIdentity(crosslink.crosslinkToTripId) && fromConfig) markers.push(`&larr; ${esc(crosslinkRouteMarker(fromConfig))} / ${esc(tripNumber(fromTrip))}`);
+        if (config.key === returnConfig?.key && id === crosslinkTripIdentity(crosslink.crosslinkReturnTripId) && linkedConfig) markers.push(`&larr; ${esc(crosslinkRouteMarker(linkedConfig))} / ${esc(tripNumber(linkedTrip))}`);
     }));
     return [...new Set(markers)];
 }

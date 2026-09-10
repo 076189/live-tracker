@@ -2513,6 +2513,8 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
     firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgDraftsRef, (snapshot) => {
         rsg_loadedDrafts_extra = snapshot.exists() ? snapshot.val() || {} : {};
         if (typeof rsg_renderDraftsList_ExtraPage === 'function') rsg_renderDraftsList_ExtraPage();
+    }, (error) => {
+        console.warn("RSG drafts listener denied (check Firebase rules for /rsgConfigDrafts):", error);
     }));
 
 
@@ -18185,8 +18187,15 @@ async function loadInitialData_ExtraPage() {
         console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
 
         // --- Load RSG config drafts (kept separate from the live configs above) ---
-        const rsgDraftsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIG_DRAFTS));
-        rsg_loadedDrafts_extra = rsgDraftsSnap.exists() ? rsgDraftsSnap.val() || {} : {};
+        // Wrapped separately: if Firebase rules don't yet grant access to this newer path,
+        // a permission error here must not abort loading the rest of the app's data below.
+        try {
+            const rsgDraftsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIG_DRAFTS));
+            rsg_loadedDrafts_extra = rsgDraftsSnap.exists() ? rsgDraftsSnap.val() || {} : {};
+        } catch (draftsError) {
+            console.warn("Could not load RSG config drafts (check Firebase rules for /rsgConfigDrafts):", draftsError);
+            rsg_loadedDrafts_extra = {};
+        }
 
         // --- Load other ancillary data ---
         const globalColoursSnap = await dbGet(dbChild(dbRef(database), FB_PATH_SETTINGS_GLOBAL_CUSTOM_COLOURS));

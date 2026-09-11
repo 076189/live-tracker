@@ -1,4 +1,4 @@
-const CACHE_NAME = 'omsi-live-tracker-shell-v3';
+const CACHE_NAME = 'omsi-live-tracker-shell-v4';
 const APP_SHELL = [
     '/live-tracker/omsi_live_tracker.html',
     '/live-tracker/manifest-omsi_live_tracker.json',
@@ -28,7 +28,7 @@ self.addEventListener('fetch', event => {
 
     if (event.request.mode === 'navigate' || requestUrl.pathname.endsWith('/omsi_live_tracker.html')) {
         event.respondWith(
-            fetch(event.request)
+            fetch(event.request, { cache: 'no-store' })
                 .then(response => {
                     const copy = response.clone();
                     caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));

@@ -17569,7 +17569,7 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
     const targetRouteUppercase = targetRouteName.toUpperCase();
 
     try {
-        const { database, dbSet, dbRef, dbRemove } = window.firebaseOMSI;
+        const { database, dbSet, dbRef, dbRemove, dbUpdate } = window.firebaseOMSI;
         const saneRouteToUpdate = sanitizeFirebaseKey(targetRouteName);
         const routePathInFirebase = `${FB_PATH_SCHEDULES_BY_ROUTE}/${saneRouteToUpdate}`;
 
@@ -17592,7 +17592,7 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
                 console.error(`Error removing node for empty route "${targetRouteName}" from Firebase:`, error);
             }
         } else {
-            // Build the structured data for this specific route
+            // Build the complete structured data for this route
             const routeDataForFirebase = {};
             entriesForThisRoute.forEach(entry => {
                 if (!entry.OperatingProfile || !entry.destinationName) return;
@@ -17603,19 +17603,52 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
                 routeDataForFirebase[saneProfile][saneDest].entries.push({ ...entry });
             });
 
-            const uploadStartTime = performance.now();
-            console.log(`Attempting to save data for route "${targetRouteName}" (${entriesForThisRoute.length} entries) to Firebase path: ${routePathInFirebase}`);
+            // Clear the route's existing node first - otherwise any old profile/destination
+            // whose sanitized key no longer matches the new data (e.g. renamed/reworded
+            // destination or operating profile) would survive as stale, orphaned entries
+            // alongside the new ones.
             try {
-                await dbSet(dbRef(database, routePathInFirebase), routeDataForFirebase);
-                const uploadEndTime = performance.now();
-                console.log(`Successfully saved data for route "${targetRouteName}" to Firebase (${(uploadEndTime - uploadStartTime).toFixed(2)}ms).`);
+                await dbRemove(dbRef(database, routePathInFirebase));
             } catch (error) {
-                 console.error(`Error saving data for route "${targetRouteName}" to Firebase:`, error);
-                if (rsgStatusMessage_el_extra) {
-                    rsgStatusMessage_el_extra.textContent = `Error saving route "${targetRouteName}" to Firebase: ${error.message}`;
-                }
+                console.error(`Error clearing existing data for route "${targetRouteName}" before rewrite:`, error);
                 throw error;
             }
+
+            // Upload each profile/destination separately - the Cloud Function's trigger is
+            // scoped to this same depth, so each write's payload stays small regardless of
+            // how large the route grows overall.
+            const uploadStartTime = performance.now();
+            console.log(`Attempting to save data for route "${targetRouteName}" (${entriesForThisRoute.length} entries) to Firebase path: ${routePathInFirebase}`);
+
+            for (const profileKey of Object.keys(routeDataForFirebase)) {
+                for (const destKey of Object.keys(routeDataForFirebase[profileKey])) {
+                    const destPath = `${routePathInFirebase}/${profileKey}/${destKey}`;
+                    const destData = routeDataForFirebase[profileKey][destKey];
+
+                    try {
+                        await dbSet(dbRef(database, destPath), destData);
+                        console.log(`  -> Saved ${destData.entries.length} entries for ${profileKey} -> ${destKey}`);
+                    } catch (error) {
+                        console.error(`Error saving data for route "${targetRouteName}" profile "${profileKey}" destination "${destKey}":`, error);
+                        if (rsgStatusMessage_el_extra) {
+                            rsgStatusMessage_el_extra.textContent = `Error saving route "${targetRouteName}" (${profileKey} -> ${destKey}): ${error.message}`;
+                        }
+                        throw error;
+                    }
+                }
+            }
+
+            const uploadEndTime = performance.now();
+            console.log(`Successfully saved data for route "${targetRouteName}" to Firebase (${(uploadEndTime - uploadStartTime).toFixed(2)}ms).`);
+        }
+
+        // Tell the indexRunningNumberSchedule Cloud Function to rebuild this route's running
+        // number index. Writing a tiny value here (instead of relying on a trigger watching
+        // schedulesByRoute directly) keeps the trigger payload small regardless of route size.
+        try {
+            await dbSet(dbRef(database, `/liveSchedule/scheduleUpdateSignal/${saneRouteToUpdate}`), Date.now());
+        } catch (error) {
+            console.error(`Error signaling schedule update for route "${targetRouteName}":`, error);
         }
 
         // After saving the route, always update ancillary data (unique stops list, timestamp)
@@ -18065,7 +18098,28 @@ function rsg_openCopyFromModal_ExtraPage() {
     const sectionToShow = document.getElementById(sectionId);
     if (sectionToShow) {
         sectionToShow.style.display = "block";
-        localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
+        try {
+            localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
+        } catch (error) {
+            if (error.name === 'QuotaExceededError') {
+                console.warn('localStorage quota exceeded. Unable to save active section. Clearing some data...');
+                try {
+                    // Try to clear older cached data to make space
+                    for (let i = localStorage.length - 1; i >= 0; i--) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('cache_')) {
+                            localStorage.removeItem(key);
+                            break; // Remove just one item and retry
+                        }
+                    }
+                    localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
+                } catch (retryError) {
+                    console.error('Failed to save active section even after cleanup:', retryError);
+                }
+            } else {
+                console.error('Error saving active section to localStorage:', error);
+            }
+        }
 
         // --- START OF MODIFICATION ---
         // This is a complete 'if/else if' block to handle specific logic for each section upon being displayed.

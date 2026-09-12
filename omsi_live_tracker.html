@@ -380,7 +380,7 @@
                     
                     logs.push({
                         routeName: routeUpper,
-                        operator: getOperatorForRoute(routeFromDB),
+                        operator: record.operator || getOperatorForRoute(routeFromDB),
                         firstSeenAt: Number(record.firstSeenAt),
                         lastSeenAt: Number(record.lastSeenAt),
                         fleetNumber: record.fleetNumber || 'N/A',
@@ -486,7 +486,7 @@
 
                     logs.push({
                         routeName: String(routeName).toUpperCase(),
-                        operator: getOperatorForRoute(routeName),
+                        operator: record.operator || getOperatorForRoute(routeName),
                         firstSeenAt: Number(record.firstSeenAt),
                         lastSeenAt: Number(record.lastSeenAt),
                         fleetNumber: record.fleetNumber || 'N/A',
@@ -509,7 +509,7 @@
                 .then(response => response.ok ? response.json() : Promise.reject(new Error(`History lookup failed (${response.status})`)))
                 .then(result => (result.matches || []).map(match => ({
                     routeName: String(match.route || '').toUpperCase(),
-                    operator: getOperatorForRoute(match.route),
+                    operator: match.operator || getOperatorForRoute(match.route),
                     firstSeenAt: Number(match.firstSeenAt),
                     lastSeenAt: Number(match.lastSeenAt),
                     fleetNumber: match.fleetNumber || 'N/A',
@@ -2193,13 +2193,20 @@
                 const isDifferentRoute = currentLog.routeName !== nextLog.routeName;
                 const currentEndsAfterNextStarts = (currentLog.lastSeenAt || 0) > (nextLog.firstSeenAt || 0);
                 
-                // If vehicle is on different route but times overlap, truncate the current route's end
+                // If vehicle is on different route but times overlap, truncate whichever entry stopped
+                // being updated earlier - it's the stale one, not necessarily whichever started first
+                // (a running number's old route can keep a frozen record that started before the real
+                // current route's record, if that old route wrongly kept being written to for a while).
                 if (isSameDay && isDifferentRoute && currentEndsAfterNextStarts) {
-                    currentLog.lastSeenAt = Math.min(currentLog.lastSeenAt, nextLog.firstSeenAt);
+                    if ((currentLog.lastSeenAt || 0) >= (nextLog.lastSeenAt || 0)) {
+                        nextLog.firstSeenAt = currentLog.lastSeenAt;
+                    } else {
+                        currentLog.lastSeenAt = Math.min(currentLog.lastSeenAt, nextLog.firstSeenAt);
+                    }
                 }
             }
             
-            logs = logsWithDates;
+            logs = logsWithDates.filter(log => (log.lastSeenAt || 0) >= (log.firstSeenAt || 0));
 
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
             const getFirstSeenAt = log => log.firstSeenAt || log.timestamp;
@@ -2216,11 +2223,16 @@
                 const isDifferentRoute = currentLog.routeName !== nextLog.routeName;
                 const currentEndsAfterNextStarts = getLastSeenAt(currentLog) > getFirstSeenAt(nextLog);
                 
-                // If vehicle is on different route but times overlap, truncate the current route's end
+                // Truncate whichever overlapping entry is stale (smaller lastSeenAt) - see comment above
                 if (isSameDay && isDifferentRoute && currentEndsAfterNextStarts) {
-                    currentLog.lastSeenAt = Math.min(getLastSeenAt(currentLog), getFirstSeenAt(nextLog));
+                    if (getLastSeenAt(currentLog) >= getLastSeenAt(nextLog)) {
+                        nextLog.firstSeenAt = getLastSeenAt(currentLog);
+                    } else {
+                        currentLog.lastSeenAt = Math.min(getLastSeenAt(currentLog), getFirstSeenAt(nextLog));
+                    }
                 }
             }
+            sortedLogs = sortedLogs.filter(log => getLastSeenAt(log) >= getFirstSeenAt(log));
             
             const groupedLogs = new Map();
             sortedLogs.forEach(log => {

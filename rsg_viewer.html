@@ -2096,6 +2096,16 @@ $('save-as-draft-button').addEventListener('click', async () => {
         draftCount++;
     });
     if (!draftCount) { status.textContent = 'No saved configuration key found to draft.'; return; }
+    // Firebase rejects a multi-path update where one path is an ancestor of another (e.g. a whole-object
+    // write to /rsgConfigDrafts/{key} alongside a leftover /rsgConfigDrafts/{key}/tripDetails write from
+    // applyCrosslinkRunningNumber resolving to the same key via a different config reference). The
+    // whole-object write already carries the correct data, so drop any path nested beneath one.
+    const updatePaths = Object.keys(updates);
+    updatePaths.forEach(path => {
+        updatePaths.forEach(otherPath => {
+            if (otherPath !== path && otherPath.startsWith(`${path}/`)) delete updates[otherPath];
+        });
+    });
     status.textContent = 'Saving draft(s)...';
     try {
         await update(ref(database), updates);

@@ -216,7 +216,7 @@
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
       import { getAuth } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
-      import { getDatabase, ref, onValue, get, child } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+      import { getDatabase, ref, onValue, get, child, set, remove, update } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
       const firebaseConfig = { apiKey: "AIzaSyDePDF-kZahjzh9ij6tkuApIhoGePwVQ2s", authDomain: "omsi-c5505.firebaseapp.com", databaseURL: "https://omsi-c5505-default-rtdb.europe-west1.firebasedatabase.app", projectId: "omsi-c5505", storageBucket: "omsi-c5505.appspot.com", messagingSenderId: "503595375440", appId: "1:503595375440:web:356be6684b77ff5909ea55", measurementId: "G-VN7X65V3F9" };
       
       let app, database, auth;
@@ -225,7 +225,7 @@
         database = getDatabase(app);
         auth = getAuth(app);
         window.firebaseOMSI_SA = { 
-            database: database, auth: auth, dbRef: ref, dbOnValue: onValue, dbGet: get, dbChild: child
+            database: database, auth: auth, dbRef: ref, dbOnValue: onValue, dbGet: get, dbChild: child, dbSet: set, dbRemove: remove, dbUpdate: update
         };
       } catch (e) {
         window.firebaseOMSI_SA = null; 
@@ -247,6 +247,7 @@
     const MAX_PAST_SECONDS_TRACKER = -1800;
 
     let currentRouteFilter = null;
+    let todaysFirebaseVehicleHistoryByRoute = new Map();
     let activeMassCurtailments = {};
     let isRarePageActive = false;
     let isHistoryPageActive = false;
@@ -260,6 +261,8 @@
     const FB_PATH_LIVE_VEHICLE_ASSIGNMENTS = '/liveVehicleAssignments';
     const FB_PATH_MASS_CURTAILMENTS = '/liveServiceInterventions/massCurtailments';
     const FB_PATH_VEHICLE_HISTORY = '/vehicleSightingHistory';
+    const FB_PATH_DAILY_SEEDS = '/dailySeeds';
+    let dailySeed = null;
     const VEHICLE_HISTORY_LOOKUP_URL = 'https://europe-west1-omsi-c5505.cloudfunctions.net/lookupVehicleHistory';
     const vehicleHistoryLookupCache = new Map();
     const vehicleHistoryMemoryCache = new Map();
@@ -283,7 +286,12 @@
 
         // Find the latest dated ROC override on/before today, so a change applies
         // from its effective date onward instead of only on that exact day.
-        const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+        // Uses the LOCAL calendar date (not toISOString's UTC date) to match how
+        // Tools Extra's ROC admin section keys/compares effective dates - otherwise
+        // a change effective "today" reads as not-yet-effective for up to an hour
+        // after local midnight while BST/other positive UTC offsets are in effect.
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         let mostRecentDate = null;
         let mostRecentOperator = null;
         Object.keys(routeOperatorsByDate || {}).forEach(dateStr => {
@@ -349,19 +357,140 @@
         return String(identifier || '').trim().toUpperCase().replace(/[.#$\[\]/]/g, '_');
     }
 
-    async function loadFirebaseVehicleHistory(identifiers) {
+    async function loadTodaysFirebaseVehicleHistory(routeName) {
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return [];
         const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
-        const keys = [...new Set(identifiers.map(firebaseVehicleHistoryKey).filter(Boolean))];
-        const snapshots = await Promise.all(keys.map(key => dbGet(dbRef(database, `${FB_PATH_VEHICLE_HISTORY}/${key}`))));
+        
+        const today = new Date();
+        const todayDateKey = getLocalDateKey(today);
+        const routeUpper = String(routeName || '').toUpperCase();
+        
+        try {
+            // Query Firebase directly for all vehicles with history on this route today
+            const snapshot = await dbGet(dbRef(database, `${FB_PATH_VEHICLE_HISTORY}`));
+            if (!snapshot.exists()) return [];
+            
+            const logs = [];
+            const allVehicleHistory = snapshot.val() || {};
+            
+            // Iterate through all running numbers in history
+            Object.entries(allVehicleHistory).forEach(([runningNumber, dateData]) => {
+                if (!dateData || typeof dateData !== 'object') return;
+                
+                const recordsForToday = dateData[todayDateKey];
+                if (!recordsForToday || typeof recordsForToday !== 'object') return;
+                
+                // Check all routes for this running number on today's date
+                Object.entries(recordsForToday).forEach(([routeFromDB, record]) => {
+                    if (String(routeFromDB || '').toUpperCase() !== routeUpper) return;
+                    if (!record || !record.firstSeenAt || !record.lastSeenAt) return;
+                    
+                    logs.push({
+                        routeName: routeUpper,
+                        operator: getOperatorForRoute(routeFromDB),
+                        firstSeenAt: Number(record.firstSeenAt),
+                        lastSeenAt: Number(record.lastSeenAt),
+                        fleetNumber: record.fleetNumber || 'N/A',
+                        registration: normalizeRegistration(record.registration || '---'),
+                        runningNumber: record.runningNumber || '',
+                        garage: getGarageFromRunningNumber(record.runningNumber),
+                        dateKey: todayDateKey,
+                        source: 'firebase'
+                    });
+                });
+            });
+            
+            console.log('loadTodaysFirebaseVehicleHistory results for route', routeUpper, ':', logs);
+            return logs;
+        } catch (error) {
+            console.error('Error loading today\'s Firebase vehicle history:', error);
+            return [];
+        }
+    }
+    
+    async function preloadTodaysFirebaseVehicleHistory(routeName) {
+        const routeUpper = String(routeName || '').toUpperCase();
+        if (todaysFirebaseVehicleHistoryByRoute.has(routeUpper)) return;
+        
+        const data = await loadTodaysFirebaseVehicleHistory(routeUpper);
+        todaysFirebaseVehicleHistoryByRoute.set(routeUpper, data);
+    }
+
+    // Find all running numbers that a vehicle (by fleet/registration) used today by searching schedule data
+    function findRunningNumbersForVehicleToday(fleetNumber, registration) {
+        const runningNumbers = new Set();
+        const fleetUpper = String(fleetNumber || '').toUpperCase();
+        const regUpper = normalizeRegistration(registration || '').toUpperCase().replace(/\s+/g, '');
+        
+        if (!localScheduleData || !Array.isArray(localScheduleData)) return runningNumbers;
+        
+        localScheduleData.forEach(entry => {
+            if (!entry) return;
+            const entryFleet = String(entry.fleetNumber || '').toUpperCase();
+            const entryReg = normalizeRegistration(entry.vehicleReg || '').toUpperCase().replace(/\s+/g, '');
+            
+            // Match by fleet number or registration
+            if ((fleetUpper && entryFleet === fleetUpper) || (regUpper && entryReg === regUpper)) {
+                if (entry.runningNumber) {
+                    runningNumbers.add(String(entry.runningNumber).toUpperCase());
+                }
+            }
+        });
+        
+        return runningNumbers;
+    }
+
+    // Firebase stores history keyed by RUNNING NUMBER (e.g. /vehicleSightingHistory/AB18/...), not by fleet
+    // number or registration. To find a vehicle's history reliably we must scan every running number's
+    // records and match on the fleetNumber/registration recorded inside each entry - the same approach
+    // that makes "vehicles used today" accurate.
+    let fullVehicleHistoryTreeCache = null;
+    let fullVehicleHistoryTreeCacheTime = 0;
+    const FULL_VEHICLE_HISTORY_TREE_TTL_MS = 30000;
+
+    async function getFullVehicleSightingHistoryTree() {
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return {};
+        const now = Date.now();
+        if (fullVehicleHistoryTreeCache && (now - fullVehicleHistoryTreeCacheTime) < FULL_VEHICLE_HISTORY_TREE_TTL_MS) {
+            return fullVehicleHistoryTreeCache;
+        }
+        const { database, dbRef, dbGet } = window.firebaseOMSI_SA;
+        const snapshot = await dbGet(dbRef(database, FB_PATH_VEHICLE_HISTORY));
+        fullVehicleHistoryTreeCache = snapshot.exists() ? (snapshot.val() || {}) : {};
+        fullVehicleHistoryTreeCacheTime = now;
+        return fullVehicleHistoryTreeCache;
+    }
+
+    async function loadFirebaseVehicleHistory(identifiers) {
+        if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) return [];
+        const wantedFleets = new Set();
+        const wantedRegs = new Set();
+        const wantedRunningNumbers = new Set();
+        (identifiers || []).forEach(id => {
+            const raw = String(id || '').trim().toUpperCase();
+            if (!raw || raw === '-' || raw === '---') return;
+            wantedFleets.add(raw);
+            wantedRunningNumbers.add(raw);
+            wantedRegs.add(raw.replace(/\s+/g, ''));
+        });
+        if (wantedFleets.size === 0) return [];
+
+        const tree = await getFullVehicleSightingHistoryTree();
         const logs = [];
-        snapshots.forEach(snapshot => {
-            if (!snapshot.exists()) return;
-            const data = snapshot.val();
-            if (!data) return;
-            Object.entries(data).forEach(([dateKey, routesForDay]) => {
+        Object.entries(tree).forEach(([runningNumberKey, datesObj]) => {
+            if (!datesObj || typeof datesObj !== 'object') return;
+            const runningNumberUpper = String(runningNumberKey || '').toUpperCase();
+            Object.entries(datesObj).forEach(([dateKey, routesForDay]) => {
                 Object.entries(routesForDay || {}).forEach(([routeName, record]) => {
                     if (!record || !record.firstSeenAt || !record.lastSeenAt) return;
+                    const recordFleet = String(record.fleetNumber || '').toUpperCase();
+                    const recordReg = String(record.registration || '').toUpperCase().replace(/\s+/g, '');
+
+                    const matches = (recordFleet && wantedFleets.has(recordFleet)) ||
+                        (recordReg && wantedRegs.has(recordReg)) ||
+                        wantedRunningNumbers.has(runningNumberUpper);
+                    if (!matches) return;
+
                     logs.push({
                         routeName: String(routeName).toUpperCase(),
                         operator: getOperatorForRoute(routeName),
@@ -369,8 +498,8 @@
                         lastSeenAt: Number(record.lastSeenAt),
                         fleetNumber: record.fleetNumber || 'N/A',
                         registration: normalizeRegistration(record.registration || '---'),
-                        runningNumber: record.runningNumber || '',
-                        garage: getGarageFromRunningNumber(record.runningNumber),
+                        runningNumber: record.runningNumber || runningNumberKey || '',
+                        garage: getGarageFromRunningNumber(record.runningNumber || runningNumberKey),
                         dateKey: dateKey
                     });
                 });
@@ -402,14 +531,25 @@
 
     function combineHistoryLogs(localLogs, firebaseLogs) {
         const uniqueLogs = new Map();
+        const mergedLogs = new Map();
         [...localLogs, ...firebaseLogs].forEach(log => {
             const firstSeenAt = log.firstSeenAt || log.timestamp;
             const lastSeenAt = log.lastSeenAt || log.timestamp;
             if (!firstSeenAt || !lastSeenAt) return;
             const key = `${String(log.routeName || '').toUpperCase()}|${firstSeenAt}|${lastSeenAt}|${String(log.fleetNumber || '').toUpperCase()}|${String(log.registration || '').toUpperCase()}`;
             uniqueLogs.set(key, log);
+            
+            // Also merge logs for same route/vehicle on same day (regardless of time)
+            const mergeKey = `${String(log.routeName || '').toUpperCase()}|${String(log.fleetNumber || '').toUpperCase()}|${String(log.registration || '').toUpperCase()}|${new Date(firstSeenAt).toISOString().split('T')[0]}`;
+            const existing = mergedLogs.get(mergeKey);
+            if (existing) {
+                existing.firstSeenAt = Math.min(existing.firstSeenAt, firstSeenAt);
+                existing.lastSeenAt = Math.max(existing.lastSeenAt, lastSeenAt);
+            } else {
+                mergedLogs.set(mergeKey, { ...log, firstSeenAt, lastSeenAt });
+            }
         });
-        return [...uniqueLogs.values()];
+        return [...mergedLogs.values()];
     }
 
     function splitHistoryLogAtMidnight(log) {
@@ -441,6 +581,9 @@
                d1.getDate() === d2.getDate();
     }
 
+    // Track current route assignment for each vehicle to detect route changes
+    const vehicleCurrentRouteMap = new Map();
+
     function recordDetailedVehicleSighting(routeName, fleetNumber, registration, blockId, runningNumber, tripStartTime, tripEndTime, timeToStationInSeconds) {
         if (!routeName) return;
         
@@ -471,7 +614,25 @@
                 vehicleDetailedLogMap.set(ident, []);
             }
             const logs = vehicleDetailedLogMap.get(ident);
+            
+            // Check if this vehicle has switched routes
+            const previousRoute = vehicleCurrentRouteMap.get(ident);
+            if (previousRoute && previousRoute !== routeUpper) {
+                // Route change detected - close off previous route by finding its log and not updating it anymore
+                const previousRouteLog = [...logs].reverse().find(log => 
+                    log.routeName === previousRoute && 
+                    isSameLocalCalendarDay(log.lastSeenAt || log.timestamp, effectiveEndTime)
+                );
+                if (previousRouteLog && previousRouteLog.lastSeenAt < effectiveStartTime) {
+                    // Vehicle already closed off this route in Firebase, don't update it
+                    previousRouteLog._closed = true;
+                }
+            }
+            vehicleCurrentRouteMap.set(ident, routeUpper);
+            
+            // Only update logs for the current route
             const existingLog = [...logs].reverse().find(log => {
+                if (log._closed) return false;
                 const lastSeenAt = log.lastSeenAt || log.timestamp;
                 return log.routeName === routeUpper && lastSeenAt && isSameLocalCalendarDay(lastSeenAt, effectiveEndTime);
             });
@@ -513,20 +674,39 @@
         const targetRunning = String(runningNumber || '').trim().toUpperCase();
         if (!targetRunning) return null;
         
+        // First, try to find assignment for the specific route
+        const routeUpper = String(routeName || '').toUpperCase();
+        const routeAssignments = liveVehicleAssignments[routeUpper] || {};
+        
+        if (routeAssignments[targetRunning]) {
+            const assignment = routeAssignments[targetRunning];
+            if (!assignment) return null;
+            const fleetNumber = String(assignment.fleetNumber || '').trim();
+            const registration = String(assignment.registration || '').trim();
+            // Always return valid Firebase assignment data if found (don't check if values are N/A or ---)
+            if (fleetNumber || registration) {
+                return { fleetNumber: fleetNumber || 'N/A', registration: normalizeRegistration(registration || '---') };
+            }
+        } else {
+        }
+        
+        // If not found for this route, check for crosslink: same running number on OTHER routes
+        // This handles crosslinks where a bus keeps the same running number on different routes
         for (const rKey in liveVehicleAssignments) {
-            const routeAssignments = liveVehicleAssignments[rKey] || {};
-            for (const runKey in routeAssignments) {
-                if (runKey.toUpperCase() === targetRunning) {
-                    const assignment = routeAssignments[runKey];
-                    if (!assignment) continue;
-                    const fleetNumber = String(assignment.fleetNumber || '').trim();
-                    const registration = String(assignment.registration || '').trim();
-                    if (fleetNumber && fleetNumber !== 'N/A' || registration && registration !== '---') {
-                        return { fleetNumber: fleetNumber || 'N/A', registration: normalizeRegistration(registration || '---') };
-                    }
+            if (rKey.toUpperCase() === routeUpper) continue; // Skip the route we already checked
+            const otherRouteAssignments = liveVehicleAssignments[rKey] || {};
+            if (otherRouteAssignments[targetRunning]) {
+                const assignment = otherRouteAssignments[targetRunning];
+                if (!assignment) continue;
+                const fleetNumber = String(assignment.fleetNumber || '').trim();
+                const registration = String(assignment.registration || '').trim();
+                // Always return valid Firebase assignment data if found (don't check if values are N/A or ---)
+                if (fleetNumber || registration) {
+                    return { fleetNumber: fleetNumber || 'N/A', registration: normalizeRegistration(registration || '---') };
                 }
             }
         }
+        
         return null;
     }
 
@@ -711,6 +891,8 @@
                 if (activeRouteListener) activeRouteListener();
                 stopAllRoutesListeners();
                 if (mainHeadingElement) mainHeadingElement.textContent = unescapeHtml(isRarePageActive ? `OMSI Rare Workings Page (All Routes)` : `${getOperatorForRoute(currentRouteFilter)} - Route ${currentRouteFilter}`); 
+                // Preload Firebase vehicle history for this route
+                preloadTodaysFirebaseVehicleHistory(currentRouteFilter).catch(e => console.error('Error preloading Firebase history:', e));
                 loadRouteDataOnDemand(currentRouteFilter);
             } else { 
                 currentRouteFilter = null;
@@ -805,6 +987,14 @@
         const liveVehicleAssignmentsRef = dbRef(database, `${FB_PATH_LIVE_VEHICLE_ASSIGNMENTS}/${getLocalDateKey()}`);
         dbOnValue(liveVehicleAssignmentsRef, (snapshot) => {
             liveVehicleAssignments = snapshot.exists() ? snapshot.val() || {} : {};
+            if (localScheduleData.length > 0) throttledProcessAndDisplay();
+        });
+
+        // Load the server's per-day random seed so client fallback vehicle picks match the
+        // Cloud Function's algorithm (when real assignments haven't posted yet).
+        const dailySeedRef = dbRef(database, `${FB_PATH_DAILY_SEEDS}/${getLocalDateKey()}`);
+        dbOnValue(dailySeedRef, (snapshot) => {
+            dailySeed = snapshot.exists() ? snapshot.val() : null;
             if (localScheduleData.length > 0) throttledProcessAndDisplay();
         });
 
@@ -1094,80 +1284,106 @@
     }
 
     function getSubVehicleForRunningNumber(routeName, runningNumber) {
-        const routeAlloc = vehicleAllocationData[String(routeName || '').toUpperCase()] || vehicleAllocationData[routeName];
-        if (!routeAlloc || !Array.isArray(routeAlloc.subVehicles)) return null;
+        const routeUpper = String(routeName || '').toUpperCase();
         const targetRunningNumber = String(runningNumber || '').trim().toUpperCase();
         if (!targetRunningNumber) return null;
-        return routeAlloc.subVehicles.find(vehicle => {
-            const vehicleRunningNumber = String(vehicle.runningNumber || '').trim().toUpperCase();
-            const expiresAt = Number(vehicle.expiresAt);
-            return vehicleRunningNumber === targetRunningNumber && (!Number.isFinite(expiresAt) || Date.now() < expiresAt);
-        }) || null;
+        
+        // First try the specific route
+        const routeAlloc = vehicleAllocationData[routeUpper] || vehicleAllocationData[routeName];
+        if (routeAlloc && Array.isArray(routeAlloc.subVehicles)) {
+            const found = routeAlloc.subVehicles.find(vehicle => {
+                const vehicleRunningNumber = String(vehicle.runningNumber || '').trim().toUpperCase();
+                const expiresAt = Number(vehicle.expiresAt);
+                return vehicleRunningNumber === targetRunningNumber && (!Number.isFinite(expiresAt) || Date.now() < expiresAt);
+            });
+            if (found) return found;
+        }
+        
+        // For crosslinks, check other routes for sub-vehicle assignments with the same running number
+        for (const route in vehicleAllocationData) {
+            if (route.toUpperCase() === routeUpper) continue; // Already checked above
+            const otherRouteAlloc = vehicleAllocationData[route];
+            if (otherRouteAlloc && Array.isArray(otherRouteAlloc.subVehicles)) {
+                const found = otherRouteAlloc.subVehicles.find(vehicle => {
+                    const vehicleRunningNumber = String(vehicle.runningNumber || '').trim().toUpperCase();
+                    const expiresAt = Number(vehicle.expiresAt);
+                    return vehicleRunningNumber === targetRunningNumber && (!Number.isFinite(expiresAt) || Date.now() < expiresAt);
+                });
+                if (found) return found;
+            }
+        }
+        
+        return null;
     }
 
-    function getAssignedVehicle(serviceInstanceKey, routeName, runningNumber) {
-        const now = new Date();
+    function getAssignedVehicle(blockId, routeName, runningNumber) {
+        // If Firebase has a real assignment, use it.
         const liveAssignment = getLiveAssignedVehicle(routeName, runningNumber);
         if (liveAssignment) {
-            serviceInstanceVehicleCache.set(serviceInstanceKey, liveAssignment);
+            serviceInstanceVehicleCache.set(blockId, liveAssignment);
             return liveAssignment;
         }
 
         const subVehicle = getSubVehicleForRunningNumber(routeName, runningNumber);
         if (subVehicle) {
-            serviceInstanceVehicleCache.set(serviceInstanceKey, subVehicle);
+            serviceInstanceVehicleCache.set(blockId, subVehicle);
             return subVehicle;
         }
 
-        let vehicleFromCache = serviceInstanceVehicleCache.get(serviceInstanceKey);
+        let vehicleFromCache = serviceInstanceVehicleCache.get(blockId);
         if (vehicleFromCache && getVehicleKey(vehicleFromCache)) { 
             return vehicleFromCache; 
         }
         
+        // Fallback: use server's algorithm with server's dailySeed (if available) so client-side
+        // picks match what the Cloud Function will eventually assign.
+        if (!dailySeed) return { fleetNumber: "N/A", registration: "---" };
+
         const upperRouteName = String(routeName || "").toUpperCase();
         const routeAlloc = vehicleAllocationData[upperRouteName] || vehicleAllocationData[routeName]; 
-        let vehicle = { fleetNumber: "N/A", registration: "---" }; 
+        if (!routeAlloc) return { fleetNumber: "N/A", registration: "---" };
         
-        if (routeAlloc) {
-            const restrictedFleets = Array.isArray(routeAlloc.restrictedVehicles) 
-                ? routeAlloc.restrictedVehicles.map(v => String(v).toUpperCase()) 
-                : [];
+        const restrictedFleets = Array.isArray(routeAlloc.restrictedVehicles) 
+            ? routeAlloc.restrictedVehicles.map(v => String(v).toUpperCase()) 
+            : [];
 
-            const commonPoolRaw = parseFirebaseListOrMap(routeAlloc.commonVehicles);
-            const rarePoolRaw = parseFirebaseListOrMap(routeAlloc.rareVehicles);
-            let rareChance = typeof routeAlloc.rareChance === 'number' ? routeAlloc.rareChance : 0.05;
-            
-            if (rareChance > 1) {
-                rareChance = rareChance / 100;
-            }
+        let commonVehicles = Array.isArray(routeAlloc.commonVehicles) ? routeAlloc.commonVehicles : [];
+        let rareVehicles = Array.isArray(routeAlloc.rareVehicles) ? routeAlloc.rareVehicles : [];
+        
+        if (typeof routeAlloc.commonVehicles === 'object' && !Array.isArray(routeAlloc.commonVehicles)) {
+            commonVehicles = Object.values(routeAlloc.commonVehicles);
+        }
+        if (typeof routeAlloc.rareVehicles === 'object' && !Array.isArray(routeAlloc.rareVehicles)) {
+            rareVehicles = Object.values(routeAlloc.rareVehicles);
+        }
 
-            const dateKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-            const useRare = seededUnitInterval(`${serviceInstanceKey}|rare|${dateKey}`) < rareChance;
-            let rawPool = [];
-            
-            if (useRare && rarePoolRaw.length > 0) { 
-                rawPool = rarePoolRaw; 
-            } else if (commonPoolRaw.length > 0) { 
-                rawPool = commonPoolRaw; 
-            } else if (rarePoolRaw.length > 0) {
-                rawPool = rarePoolRaw;
-            }
+        const validVehicles = pool => pool.filter(vehicle => {
+            if (!vehicle) return false;
+            const fleet = String(vehicle.fleetNumber || "").trim().toUpperCase();
+            const registration = String(vehicle.registration || "").trim().toUpperCase();
+            return !restrictedFleets.includes(fleet) && !restrictedFleets.includes(registration);
+        });
+        const commonPool = validVehicles(commonVehicles);
+        const rarePool = validVehicles(rareVehicles);
+        let rareChance = Number(routeAlloc.rareChance);
+        if (!Number.isFinite(rareChance)) rareChance = 0.05;
+        if (rareChance > 1) rareChance /= 100;
 
-            const validPool = rawPool.filter(v => {
-                if (!v) return false;
-                const fleetStr = String(v.fleetNumber || "").toUpperCase();
-                const regStr = String(v.registration || "").toUpperCase();
-                return !restrictedFleets.includes(fleetStr) && !restrictedFleets.includes(regStr);
-            });
-
-            if (validPool.length > 0) { 
-                const pickIndex = Math.floor(seededUnitInterval(`${serviceInstanceKey}|pick|${dateKey}`) * validPool.length);
-                vehicle = validPool[pickIndex]; 
-            }
+        // Use server's block-id format: {ROUTE}_RUN_{RUNNING_NUMBER}
+        const serverBlockId = `${upperRouteName}_RUN_${runningNumber}`;
+        const useRare = seededUnitInterval(`${serverBlockId}|rare|${dailySeed}`) < rareChance;
+        const pool = useRare && rarePool.length > 0
+            ? rarePool
+            : (commonPool.length > 0 ? commonPool : rarePool);
+        if (pool.length > 0) { 
+            const selectionType = pool === rarePool ? "rarepick" : "common";
+            const pickIndex = Math.floor(seededUnitInterval(`${serverBlockId}|${selectionType}|${dailySeed}`) * pool.length);
+            const vehicle = pool[pickIndex];
+            serviceInstanceVehicleCache.set(blockId, vehicle);
+            return vehicle;
         }
         
-        serviceInstanceVehicleCache.set(serviceInstanceKey, vehicle);
-        return vehicle;
+        return { fleetNumber: "N/A", registration: "---" };
     }
 
     function computeServiceInstanceIds(busEntry) {
@@ -1211,7 +1427,7 @@
     }
 
     function getLocalDateKey(timestamp) {
-        const d = new Date(timestamp);
+        const d = new Date(timestamp || Date.now());
         const year = d.getFullYear();
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
@@ -1296,62 +1512,11 @@
                 reserved.add(key);
                 return;
             }
-            
-            const routeAllocation = vehicleAllocationData[routeName] || vehicleAllocationData[String(routeName).toUpperCase()];
-            let rareChance = 0.05;
-            if (routeAllocation && typeof routeAllocation.rareChance === 'number') {
-                rareChance = routeAllocation.rareChance;
-                if (rareChance > 1) {
-                    rareChance = rareChance / 100;
-                }
-            }
-            
-            const dateKeyForAssignment = getLocalDateKey(nowForProcessing);
-            const useRare = seededUnitInterval(`${blockId}|rare|${dateKeyForAssignment}`) < rareChance;
-            
-            if (useRare) {
-                needsRarePass.push(blockId);
-            } else {
-                needsCommonPass.push(blockId);
-            }
+
+            // No real assignment yet (Firebase's Cloud Function hasn't posted one for this block).
+            // Don't invent a random guess here - it would use a different algorithm/seed than the
+            // server and could permanently disagree with the eventual real /liveVehicleAssignments entry.
         });
-
-        const assignmentDateKey = getLocalDateKey(nowForProcessing);
-        const needsRarePassBackup = [];
-        needsCommonPass.forEach(blockId => {
-            const commonPool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'commonVehicles').filter(v => !reserved.has(getVehicleKey(v)));
-            if (commonPool.length > 0) {
-                const chosenIndex = Math.floor(seededUnitInterval(`${blockId}|common|${assignmentDateKey}`) * commonPool.length);
-                const chosen = commonPool[chosenIndex];
-                reserved.add(getVehicleKey(chosen));
-                serviceInstanceVehicleCache.set(blockId, chosen);
-            } else {
-                needsRarePassBackup.push(blockId);
-            }
-        });
-        
-        needsRarePass.push(...needsRarePassBackup);
-
-        const needsFallback = [];
-        needsRarePass.forEach(blockId => {
-            const rarePool = getVehiclePoolForRoute(blockRouteMap.get(blockId), 'rareVehicles');
-            const cached = serviceInstanceVehicleCache.get(blockId);
-            const cachedKey = cached ? getVehicleKey(cached) : '';
-            const cachedStillValid = cached && !reserved.has(cachedKey) && rarePool.some(v => getVehicleKey(v) === cachedKey);
-            if (cachedStillValid) { reserved.add(cachedKey); return; }
-
-            const freeRarePool = rarePool.filter(v => !reserved.has(getVehicleKey(v)));
-            if (freeRarePool.length > 0) {
-                const chosenIndex = Math.floor(seededUnitInterval(`${blockId}|rarepick|${assignmentDateKey}`) * freeRarePool.length);
-                const chosen = freeRarePool[chosenIndex];
-                reserved.add(getVehicleKey(chosen));
-                serviceInstanceVehicleCache.set(blockId, chosen);
-            } else {
-                needsFallback.push(blockId);
-            }
-        });
-
-        needsFallback.forEach(blockId => serviceInstanceVehicleCache.delete(blockId));
 
         saveVehicleCacheToStorage();
     }
@@ -1902,8 +2067,18 @@
         
         const identParts = cleanIdent.split(/\s+/).filter(p => p);
         const searchTerms = identParts.length === 2 
-            ? [identParts[0], identParts[1], cleanIdent.replace(/\s+/g, '')] 
+            ? [identParts[0], identParts[1], cleanIdent.replace(/\s+/g, ''), `${identParts[0]} ${identParts[1]}`] 
             : [cleanIdent];
+        
+        
+        // Add normalized registration variants for better matching
+        if (identParts.length === 1 && identParts[0].length === 7) {
+            const compact = identParts[0].replace(/\s+/g, '');
+            const ukFormatMatch = compact.match(/^([A-Z]{2}\d{2})([A-Z]{3})$/);
+            if (ukFormatMatch) {
+                searchTerms.push(`${ukFormatMatch[1]} ${ukFormatMatch[2]}`);
+            }
+        }
         
         let displayFleet = '-';
         let displayReg = '-';
@@ -1937,64 +2112,123 @@
             if (displayFleet !== '-' && displayReg !== '-') break;
         }
         
-        let logs = vehicleDetailedLogMap.get(cleanIdent) || [];
-        if (logs.length === 0) {
-            for (const [key, val] of vehicleDetailedLogMap.entries()) {
-                const keyUpper = key.toUpperCase();
-                const isKeyMatch = searchTerms.some(term => keyUpper.includes(term) || term.includes(keyUpper));
-                if (isKeyMatch) {
-                    logs = val;
-                    break;
-                }
+        // All data comes from Firebase only
+        let logs = [];
+        const cacheKey = cleanIdent;
+        const now = Date.now();
+        const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+        // Check if we have cached data and if it's still fresh
+        let cacheEntry = vehicleHistoryMemoryCache.get(cacheKey);
+        let shouldRefetch = !cacheEntry || (now - cacheEntry.timestamp) > CACHE_TTL;
+
+        // Also refetch if any log shows the vehicle is currently active (lastSeenAt is recent)
+        if (cacheEntry && cacheEntry.logs.length > 0) {
+            const mostRecentLog = cacheEntry.logs.reduce((prev, current) => 
+                (current.lastSeenAt || 0) > (prev.lastSeenAt || 0) ? current : prev
+            );
+            const timeSinceLastSeen = now - (mostRecentLog.lastSeenAt || 0);
+            // If last seen less than 30 minutes ago, vehicle might still be active - refetch
+            if (timeSinceLastSeen < 30 * 60 * 1000) {
+                shouldRefetch = true;
             }
         }
 
-        let firebaseLogs = [];
-        let historyLookupError = null;
-        const cacheKey = cleanIdent;
-
-        if (vehicleHistoryMemoryCache.has(cacheKey)) {
-            firebaseLogs = vehicleHistoryMemoryCache.get(cacheKey);
-        } else {
+        if (shouldRefetch) {
+            // Load from Firebase
+            let firebaseLogs = [];
             try {
-                firebaseLogs = await loadFirebaseVehicleHistory([
-                    ...searchTerms,
-                    displayFleet,
-                    displayReg,
-                    cleanIdent
-                ]);
+                firebaseLogs = await loadFirebaseVehicleHistory([...searchTerms, displayFleet, displayReg, cleanIdent]);
             } catch (error) {}
 
-            const historyLookupIdentifiers = [...new Set([
-                displayFleet,
-                displayReg,
-                ...searchTerms,
-                cleanIdent
-            ].map(value => String(value || '').trim()).filter(value => value && value !== '-' && value !== '---'))];
-
-            for (const historyLookupIdentifier of historyLookupIdentifiers) {
-                try {
-                    const serverLogs = await loadServerVehicleHistory(historyLookupIdentifier);
-                    firebaseLogs.push(...serverLogs);
-                } catch (error) {
-                    historyLookupError = error;
+            // Also include today's data from todaysFirebaseVehicleHistoryByRoute
+            todaysFirebaseVehicleHistoryByRoute.forEach((routeData, routeName) => {
+                if (Array.isArray(routeData)) {
+                    routeData.forEach(log => {
+                        const logFleet = String(log.fleetNumber || '').toUpperCase();
+                        const logReg = String(log.registration || '').toUpperCase().replace(/\s+/g, '');
+                        
+                        const matchedIdentifier = searchTerms.some(term => {
+                            const termClean = String(term || '').toUpperCase().replace(/\s+/g, '');
+                            return logFleet === term.toUpperCase() || 
+                                   logReg === termClean ||
+                                   (displayFleet && logFleet === displayFleet.toUpperCase()) ||
+                                   (displayReg && logReg === displayReg.toUpperCase().replace(/\s+/g, ''));
+                        });
+                        
+                        if (matchedIdentifier) {
+                            const isDuplicate = firebaseLogs.some(existing => 
+                                String(existing.routeName || '').toUpperCase() === String(log.routeName || '').toUpperCase() &&
+                                existing.firstSeenAt === log.firstSeenAt &&
+                                existing.lastSeenAt === log.lastSeenAt &&
+                                existing.fleetNumber === log.fleetNumber
+                            );
+                            if (!isDuplicate) {
+                                firebaseLogs.push(log);
+                            }
+                        }
+                    });
                 }
-            }
-            vehicleHistoryMemoryCache.set(cacheKey, firebaseLogs);
-        }
+            });
 
-        logs = firebaseLogs.length > 0 ? combineHistoryLogs(logs, firebaseLogs) : logs;
+            // Cache with timestamp
+            vehicleHistoryMemoryCache.set(cacheKey, { logs: firebaseLogs, timestamp: now });
+            logs = firebaseLogs;
+        } else {
+            // Use cached data
+            logs = cacheEntry.logs;
+        }
 
         let pageContent = '';
         if (logs.length === 0) {
-            pageContent = historyLookupError
-                ? `<p>Could not load history for ${escapeHtml(cleanIdent)}: ${escapeHtml(historyLookupError.message)}.</p>`
-                : `<p>No history records found for ${escapeHtml(cleanIdent)}.</p>`;
+            pageContent = `<p>No history records found for ${escapeHtml(cleanIdent)}.</p>`;
         } else {
+            // Fix overlapping route entries from stale Firebase data
+            // When a vehicle switches routes on the same day, ensure each route entry doesn't overlap
+            const logsWithDates = logs.map(log => ({
+                ...log,
+                dateKey: log.dateKey || new Date(log.firstSeenAt).toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-')
+            }));
+            
+            logsWithDates.sort((a, b) => (a.firstSeenAt || 0) - (b.firstSeenAt || 0));
+            
+            for (let i = 0; i < logsWithDates.length - 1; i++) {
+                const currentLog = logsWithDates[i];
+                const nextLog = logsWithDates[i + 1];
+                
+                const isSameDay = currentLog.dateKey === nextLog.dateKey;
+                const isDifferentRoute = currentLog.routeName !== nextLog.routeName;
+                const currentEndsAfterNextStarts = (currentLog.lastSeenAt || 0) > (nextLog.firstSeenAt || 0);
+                
+                // If vehicle is on different route but times overlap, truncate the current route's end
+                if (isSameDay && isDifferentRoute && currentEndsAfterNextStarts) {
+                    currentLog.lastSeenAt = Math.min(currentLog.lastSeenAt, nextLog.firstSeenAt);
+                }
+            }
+            
+            logs = logsWithDates;
+
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
             const getFirstSeenAt = log => log.firstSeenAt || log.timestamp;
             const getLastSeenAt = log => log.lastSeenAt || log.timestamp;
-            const sortedLogs = logs.flatMap(splitHistoryLogAtMidnight).sort((a, b) => getFirstSeenAt(a) - getFirstSeenAt(b));
+            let sortedLogs = logs.flatMap(splitHistoryLogAtMidnight).sort((a, b) => getFirstSeenAt(a) - getFirstSeenAt(b));
+            
+            // Fix overlapping route entries again after split (in case splitHistoryLogAtMidnight created new entries)
+            for (let i = 0; i < sortedLogs.length - 1; i++) {
+                const currentLog = sortedLogs[i];
+                const nextLog = sortedLogs[i + 1];
+                
+                const isSameDay = (currentLog.dateKey || new Date(getFirstSeenAt(currentLog)).toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-')) === 
+                                  (nextLog.dateKey || new Date(getFirstSeenAt(nextLog)).toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-'));
+                const isDifferentRoute = currentLog.routeName !== nextLog.routeName;
+                const currentEndsAfterNextStarts = getLastSeenAt(currentLog) > getFirstSeenAt(nextLog);
+                
+                // If vehicle is on different route but times overlap, truncate the current route's end
+                if (isSameDay && isDifferentRoute && currentEndsAfterNextStarts) {
+                    currentLog.lastSeenAt = Math.min(getLastSeenAt(currentLog), getFirstSeenAt(nextLog));
+                }
+            }
+            
             const groupedLogs = new Map();
             sortedLogs.forEach(log => {
                 const firstSeenAt = getFirstSeenAt(log);
@@ -2278,7 +2512,59 @@
         const nowMs = Date.now();
         const vehiclesByIdentity = new Map();
 
-        if (localScheduleData && localScheduleData.length > 0) {
+        // PRIMARY SOURCE: Use cached Firebase data for today's vehicles
+        const routeUpper = currentRouteFilter.toUpperCase();
+        const firebaseData = todaysFirebaseVehicleHistoryByRoute.get(routeUpper) || [];
+        
+        console.log('populateVehiclesUsedTodayTable - Firebase data for route:', routeUpper, firebaseData.length, 'vehicles');
+        console.log('midnight:', new Date(midnight).toLocaleTimeString(), 'nextMidnight:', new Date(nextMidnight).toLocaleTimeString(), 'nowMs:', new Date(nowMs).toLocaleTimeString());
+        
+        firebaseData.forEach(log => {
+            const rawFirstSeen = Number(log.firstSeenAt || log.timestamp);
+            const rawLastSeen = Number(log.lastSeenAt || log.timestamp);
+            
+            console.log(`  Vehicle ${log.fleetNumber}/${log.registration}: rawFirst=${new Date(rawFirstSeen).toLocaleTimeString()} rawLast=${new Date(rawLastSeen).toLocaleTimeString()}`);
+            
+            if (routeUpper !== String(log.routeName || '').toUpperCase()) {
+                console.log(`    -> Filtered: different route`);
+                return;
+            }
+            if (rawLastSeen < midnight || rawFirstSeen >= nextMidnight || rawFirstSeen > nowMs) {
+                console.log(`    -> Filtered: time range check (rawLastSeen < midnight: ${rawLastSeen < midnight}, rawFirstSeen >= nextMidnight: ${rawFirstSeen >= nextMidnight}, rawFirstSeen > nowMs: ${rawFirstSeen > nowMs})`);
+                return;
+            }
+
+            const fleet = String(log.fleetNumber || '').trim();
+            const registration = String(log.registration || '').trim();
+            const fleetUpper = fleet.toUpperCase();
+            const regUpper = registration.toUpperCase();
+            const identity = fleet && fleet !== 'N/A' ? fleetUpper : regUpper;
+            if (!identity || identity === '---') {
+                console.log(`    -> Filtered: no identity`);
+                return;
+            }
+
+            if (activeLiveIdentities.has(fleetUpper) || activeLiveIdentities.has(regUpper)) {
+                console.log(`    -> Filtered: in activeLiveIdentities`);
+                return;
+            }
+
+            const firstSeenAt = Math.max(rawFirstSeen, midnight);
+            const lastSeenAt = Math.min(rawLastSeen, nextMidnight - 1000, nowMs);
+            
+            console.log(`    -> After adjustment: first=${new Date(firstSeenAt).toLocaleTimeString()} last=${new Date(lastSeenAt).toLocaleTimeString()}`);
+            if (firstSeenAt > lastSeenAt) {
+                console.log(`    -> Filtered: firstSeenAt > lastSeenAt`);
+                return;
+            }
+
+            const key = `${fleetUpper}|${regUpper}`;
+            vehiclesByIdentity.set(key, { fleet, registration, usedFrom: firstSeenAt, usedUntil: lastSeenAt });
+            console.log(`    -> Added to map`);
+        });
+
+        // FALLBACK: If no Firebase data, use local logs
+        if (vehiclesByIdentity.size === 0 && localScheduleData && localScheduleData.length > 0) {
             const vehicleTripEntries = new Map();
 
             localScheduleData.forEach(entry => {
@@ -2324,51 +2610,15 @@
             });
         }
 
-        vehicleDetailedLogMap.forEach(logs => {
-            logs.forEach(log => {
-                const routeName = String(log.routeName || '').toUpperCase();
-                const rawFirstSeen = Number(log.firstSeenAt || log.timestamp);
-                const rawLastSeen = Number(log.lastSeenAt || log.timestamp);
-                
-                if (routeName !== currentRouteFilter.toUpperCase()) return;
-                if (rawLastSeen < midnight || rawFirstSeen >= nextMidnight || rawFirstSeen > nowMs) return;
-
-                const fleet = String(log.fleetNumber || '').trim();
-                const registration = String(log.registration || '').trim();
-                const fleetUpper = fleet.toUpperCase();
-                const regUpper = registration.toUpperCase();
-                const identity = fleet && fleet !== 'N/A' ? fleetUpper : regUpper;
-                if (!identity || identity === '---') return;
-
-                if (activeLiveIdentities.has(fleetUpper) || activeLiveIdentities.has(regUpper)) {
-                    return;
-                }
-
-                const firstSeenAt = Math.max(rawFirstSeen, midnight);
-                const lastSeenAt = Math.min(rawLastSeen, nextMidnight - 1000, nowMs);
-                
-                if (firstSeenAt > lastSeenAt) return;
-
-                const key = `${fleetUpper}|${regUpper}`;
-                const existing = vehiclesByIdentity.get(key);
-                if (existing) {
-                    existing.usedFrom = Math.min(existing.usedFrom, firstSeenAt);
-                    existing.usedUntil = Math.max(existing.usedUntil, lastSeenAt);
-                } else {
-                    vehiclesByIdentity.set(key, { fleet, registration, usedFrom: firstSeenAt, usedUntil: lastSeenAt });
-                }
-            });
-        });
-
         if (vehiclesByIdentity.size === 0) {
             tableBody.innerHTML = `<tr><td colspan="4">No completed vehicles logged on route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
             return;
         }
 
         const formatTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-        [...vehiclesByIdentity.values()]
-            .sort((a, b) => b.usedFrom - a.usedFrom)
-            .forEach(vehicle => {
+        const sortedVehicles = [...vehiclesByIdentity.values()].sort((a, b) => b.usedFrom - a.usedFrom);
+        console.log('populateVehiclesUsedTodayTable - displaying vehicles:', sortedVehicles.map(v => ({ fleet: v.fleet, reg: v.registration, from: formatTime(v.usedFrom), until: formatTime(v.usedUntil) })));
+        sortedVehicles.forEach(vehicle => {
                 tableBody.innerHTML += `<tr><td>${escapeHtml(vehicle.fleet || 'N/A')}</td><td>${escapeHtml(vehicle.registration || '---')}</td><td>${formatTime(vehicle.usedFrom)}</td><td>${formatTime(vehicle.usedUntil)}</td></tr>`;
             });
     }

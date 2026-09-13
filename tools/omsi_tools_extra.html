@@ -3067,12 +3067,15 @@ function rsg_applyPastedAdjustments_ExtraPage() {
 }
 
 async function getFCMTokenAndStore(serviceWorkerRegistration) {
-    console.log("FCM DEBUG: Entering getFCMTokenAndStore. Attempting subscription.");
-
-    if (!window.firebaseOMSI || !window.firebaseOMSI.messaging || !window.firebaseOMSI.fcmGetToken) {
-        console.error("FCM DEBUG: Firebase Messaging or getToken function not available. Cannot proceed with token acquisition.");
-        return;
-    }
+    console.log("FCM DEBUG: Notifications are disabled.");
+    return; // Notifications disabled - no FCM token acquisition
+    
+    // Original code below (disabled):
+    // console.log("FCM DEBUG: Entering getFCMTokenAndStore. Attempting subscription.");
+    // if (!window.firebaseOMSI || !window.firebaseOMSI.messaging || !window.firebaseOMSI.fcmGetToken) {
+    //     console.error("FCM DEBUG: Firebase Messaging or getToken function not available. Cannot proceed with token acquisition.");
+    //     return;
+    // }
 
     const messaging = window.firebaseOMSI.messaging;
     const fcmGetToken = window.firebaseOMSI.fcmGetToken;
@@ -7407,16 +7410,17 @@ function checkNotificationPermission() {
 }
 
 async function requestNotificationPermission() {
-    // Check if the Notification API is supported by the user's browser.
-    if (!("Notification" in window)) {
-        alert("This browser does not support desktop notifications.");
-        return "unsupported";
-    }
-
-    const currentPermission = Notification.permission; // Get the current notification permission status.
-
-    // If permission is already granted.
-    if (currentPermission === "granted") {
+    // Notifications are disabled globally
+    console.log("Notifications are disabled. Skipping permission request.");
+    return "denied";
+    
+    // Original code below (disabled):
+    // if (!("Notification" in window)) {
+    //     alert("This browser does not support desktop notifications.");
+    //     return "unsupported";
+    // }
+    // const currentPermission = Notification.permission;
+    // if (currentPermission === "granted") {
         localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store the user's preference in local storage.
         console.log("Notification permission was already granted.");
 
@@ -10495,6 +10499,12 @@ async function handleApplyScheduledRouteBatch_ExtraPage(tasksInBatch) {
             rsgStatusMessage_el_extra.textContent = `Batch update for Route ${targetRouteName} applied successfully and task(s) removed.`;
             rsgStatusMessage_el_extra.style.color = "#2ecc71";
         }
+        
+        // Rebuild arrivals index ONLY for the affected route, asynchronously in the background
+        rebuildArrivalsForRoute_ExtraPage(targetRouteName)
+            .then(() => console.log(`Arrivals index rebuild complete for route ${targetRouteName}`))
+            .catch(err => console.error(`Arrivals index rebuild failed for route ${targetRouteName}:`, err));
+        
         // Render the UI now that the local cache is up-to-date
         renderUIDependentElements_ExtraPage();
 
@@ -11334,6 +11344,74 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     await updateAncillaryScheduleData_ExtraPage();
     await rebuildArrivalsByStopIndex_ExtraPage(flatScheduleDataToSave);
     console.log("Chunked save process complete.");
+}
+
+async function rebuildArrivalsForRoute_ExtraPage(routeName) {
+    if (!currentUser_extra || !window.firebaseOMSI || !Array.isArray(currentWorkingSchedule_extra)) {
+        throw new Error('Live schedule data is not loaded or the user is not signed in.');
+    }
+
+    const targetRouteUppercase = routeName.toUpperCase();
+    
+    // Step 1: Find all stop IDs affected by this route
+    const routeEntries = currentWorkingSchedule_extra.filter(
+        e => e.lineName && e.lineName.toUpperCase() === targetRouteUppercase
+    );
+    
+    const affectedStopIDs = new Set();
+    routeEntries.forEach(entry => {
+        if (entry.stopID) affectedStopIDs.add(String(entry.stopID).toUpperCase());
+    });
+    
+    if (affectedStopIDs.size === 0) {
+        console.log(`Route "${routeName}" has no stops. Skipping arrivals index rebuild.`);
+        return;
+    }
+    
+    const { database, dbUpdate, dbRef } = window.firebaseOMSI;
+    
+    // Step 2: For each affected stop, rebuild the index from ALL routes
+    // (this preserves other routes' entries at shared stops)
+    const multiPathUpdate = {};
+    let entriesProcessed = 0;
+    
+    for (const stopID of affectedStopIDs) {
+        const arrivalsByStopForThisStop = {};
+        
+        // Get all entries for this stop from any route
+        currentWorkingSchedule_extra.forEach((entry, index) => {
+            if (!entry || !entry.stopID) return;
+            if (String(entry.stopID).toUpperCase() !== stopID) return;
+            
+            const entryKey = sanitizeFirebaseKey(
+                `${entry.tripId || entry.lineName || 'service'}_${entry.scheduledTime || index}_${index}`
+            );
+            
+            const indexedEntry = {
+                stopID: entry.stopID,
+                lineName: entry.lineName,
+                destinationName: entry.destinationName,
+                scheduledTime: entry.scheduledTime,
+                OperatingProfile: entry.OperatingProfile || '',
+                DayOffset: entry.DayOffset || 0,
+                internalId: entry.internalId || `${stopID}_${entryKey}`
+            };
+            if (entry.tripId !== undefined) indexedEntry.tripId = entry.tripId;
+            if (Array.isArray(entry.tripStopSequence)) indexedEntry.tripStopSequence = entry.tripStopSequence;
+            if (entry.curtailment !== undefined) indexedEntry.curtailment = entry.curtailment;
+            arrivalsByStopForThisStop[entryKey] = indexedEntry;
+            entriesProcessed++;
+        });
+        
+        multiPathUpdate[`${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`] = arrivalsByStopForThisStop;
+    }
+    
+    // Step 3: Write all affected stops in a single batched update
+    if (Object.keys(multiPathUpdate).length > 0) {
+        await dbUpdate(dbRef(database), multiPathUpdate);
+    }
+    
+    console.log(`Arrivals index rebuilt for route "${routeName}" (${affectedStopIDs.size} stops, ${entriesProcessed} entries).`);
 }
 
 async function rebuildArrivalsByStopIndex_ExtraPage(scheduleEntries, onProgress = null) {
@@ -17522,7 +17600,10 @@ async function reloadClosedStopsFromFirebase() {
             clearTimeout(arrivalsIndexRebuildTimer_extra);
             arrivalsIndexRebuildTimer_extra = null;
         }
-        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+        // Rebuild arrivals index ONLY for the affected route, asynchronously in the background
+        rebuildArrivalsForRoute_ExtraPage(targetRouteName)
+            .then(() => console.log(`Arrivals index rebuild complete for route ${targetRouteName}`))
+            .catch(err => console.error(`Arrivals index rebuild failed for route ${targetRouteName}:`, err));
 
         const removePromises = [];
         for (const taskKey of taskKeysInBatch) {
@@ -18819,23 +18900,8 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapsh
     const enableDesktopBtn = document.getElementById('enableDesktopNotificationsBtn_extra');
     if (enableDesktopBtn) {
         enableDesktopBtn.addEventListener('click', async () => {
-            // This uses the newer requestNotificationPermission function which handles localStorage
-            if (typeof requestNotificationPermission === 'function') {
-                await requestNotificationPermission();
-            } else if (!("Notification" in window)) { // Fallback if new function isn't there
-                alert("This browser does not support desktop notifications.");
-            } else { // Original simpler logic if new function is missing
-                const permission = await Notification.requestPermission();
-                if (permission === "granted") {
-                    alert("Desktop notifications enabled!");
-                    localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted');
-                } else if (permission === "denied") {
-                    alert("Desktop notifications denied. You can change this in your browser's site settings if you change your mind.");
-                    localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied');
-                } else {
-                    alert("Notification permission request dismissed or not acted upon.");
-                }
-            }
+            // Notifications are globally disabled
+            alert("Desktop notifications are disabled in this installation.");
         });
     }
 
@@ -18886,46 +18952,9 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapsh
             if (callbackAuthGeneration !== authGeneration_extra) return;
 
             if (user) {
-                console.log("FCM DEBUG: User authenticated. Attempting to get FCM token.");
-                if ('serviceWorker' in navigator) {
-                    try {
-                        const registration = await navigator.serviceWorker.ready;
-
-                        if (registration && typeof getFCMTokenAndStore === 'function') {
-                            if (window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken) {
-                                console.log("FCM DEBUG: Messaging and getToken already available. Proceeding.");
-                                await getFCMTokenAndStore(registration);
-                            } else {
-                                console.warn("FCM DEBUG: Messaging or getToken not immediately available. Attempting to get it explicitly.");
-                            }
-                        } else {
-                            console.warn("FCM DEBUG: Service Worker not ready or getFCMTokenAndStore function not defined.");
-                        }
-
-                        setTimeout(async () => {
-                            console.log("FCM DEBUG: Retrying FCM token acquisition after delay...");
-                            if (callbackAuthGeneration === authGeneration_extra && window.firebaseOMSI.messaging && window.firebaseOMSI.fcmGetToken && currentUser_extra) {
-                                try {
-                                    const retryRegistration = await navigator.serviceWorker.ready;
-                                    if (retryRegistration) {
-                                        await getFCMTokenAndStore(retryRegistration);
-                                    }
-                                } catch (err) {
-                                    console.error("FCM DEBUG: Error during FCM token retry:", err);
-                                }
-                            } else {
-                                console.warn("FCM DEBUG: FCM or currentUser still not ready after retry delay.");
-                            }
-                        }, 3000);
-
-                    } catch (err) {
-                        console.error("FCM DEBUG: Error waiting for Service Worker ready:", err);
-                    }
-                } else {
-                    console.warn("FCM DEBUG: Service Worker not supported in this browser.");
-                }
+                console.log("Notifications are disabled - skipping FCM token acquisition.");
             } else {
-                console.log("FCM DEBUG: User logged out. Skipping FCM token acquisition.");
+                console.log("User logged out. Skipping FCM token acquisition.");
             }
 
             if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&

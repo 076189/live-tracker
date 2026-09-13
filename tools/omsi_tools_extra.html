@@ -10483,13 +10483,19 @@ async function handleApplyScheduledRouteBatch_ExtraPage(tasksInBatch) {
             removalPromises.push(dbRemove(taskNodeRef));
         }
         await Promise.all(removalPromises);
+        
+        // Remove deleted tasks from the local cache immediately to keep UI in sync
+        // (don't wait for the real-time listener to fire)
+        taskKeysInBatch.forEach(key => {
+            delete scheduledRouteUpdates_extra[key];
+        });
         // END MODIFICATION
 
         if (rsgStatusMessage_el_extra) {
             rsgStatusMessage_el_extra.textContent = `Batch update for Route ${targetRouteName} applied successfully and task(s) removed.`;
             rsgStatusMessage_el_extra.style.color = "#2ecc71";
         }
-        // The real-time listener will now automatically refresh the UI
+        // Render the UI now that the local cache is up-to-date
         renderUIDependentElements_ExtraPage();
 
     } catch (error) {
@@ -17530,6 +17536,12 @@ async function reloadClosedStopsFromFirebase() {
             }
         }
         await Promise.all(removePromises);
+        
+        // Remove deleted tasks from the local cache immediately to keep UI in sync
+        // (don't wait for the real-time listener to fire)
+        taskKeysInBatch.forEach(key => {
+            delete scheduledRouteUpdates_extra[key];
+        });
         
         if (rsgStatusMessage_el_extra) {
             rsgStatusMessage_el_extra.textContent = `Batch update for Route ${targetRouteName} applied successfully.`;

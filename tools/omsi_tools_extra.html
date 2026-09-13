@@ -1558,7 +1558,6 @@ align-items: center;
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
     // CORRECTED: Added query, orderByChild, and equalTo to the database import
     import { getDatabase, ref, set, onValue, get, child, update, remove, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
-    import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-functions.js";
 
     const firebaseConfig = {
@@ -1575,7 +1574,6 @@ align-items: center;
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
     const auth = getAuth(app);
-    const messaging = getMessaging(app);
     const functions = getFunctions(app);
 
     // CORRECTED: Added the new query functions to the global object
@@ -1583,13 +1581,10 @@ align-items: center;
         database: database, auth: auth,
         dbRef: ref, dbSet: set, dbOnValue: onValue, dbGet: get,
         dbChild: child, dbUpdate: update, dbRemove: remove,
-        dbQuery: query, dbOrderByChild: orderByChild, dbEqualTo: equalTo, // <-- NEWLY ADDED
+        dbQuery: query, dbOrderByChild: orderByChild, dbEqualTo: equalTo,
         authOnAuthStateChanged: onAuthStateChanged,
         authSignInWithEmailAndPassword: signInWithEmailAndPassword,
         authSignOut: signOut,
-        messaging: messaging,
-        fcmGetToken: getToken,
-        fcmOnMessage: onMessage,
         functions: functions,
         httpsCallable: httpsCallable
     };
@@ -1979,12 +1974,6 @@ const sruCancelAllGlobalStatusMessage_el_extra = document.getElementById('sru-ca
             // Firebase forbids '.', '#', '$', '[', ']'
             return text.replace(/[.#$[\]]/g, '_');
         }
-
-// Your VAPID Public Key - this is the key you provided earlier
-const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; 
-
-// Ensure VAPID_PUBLIC_KEY is defined globally at the top of your script block
-// const VAPID_PUBLIC_KEY = "BLrah0KLMfCtXL-rBj-epnPyXPDHszMFMyywyGky0nOpPpsbQNV03mNuuxeiw6Fcj44u20cphHBUW8WGGTVi7QI"; 
 
 // Function to apply UI restrictions based on user role
 function applyRoleBasedAccessControl(userRole) {
@@ -3065,112 +3054,6 @@ function rsg_applyPastedAdjustments_ExtraPage() {
         rsg_closePasteAdjModal_ExtraPage();
     }, 1500);
 }
-
-async function getFCMTokenAndStore(serviceWorkerRegistration) {
-    console.log("FCM DEBUG: Notifications are disabled.");
-    return; // Notifications disabled - no FCM token acquisition
-    
-    // Original code below (disabled):
-    // console.log("FCM DEBUG: Entering getFCMTokenAndStore. Attempting subscription.");
-    // if (!window.firebaseOMSI || !window.firebaseOMSI.messaging || !window.firebaseOMSI.fcmGetToken) {
-    //     console.error("FCM DEBUG: Firebase Messaging or getToken function not available. Cannot proceed with token acquisition.");
-    //     return;
-    // }
-
-    const messaging = window.firebaseOMSI.messaging;
-    const fcmGetToken = window.firebaseOMSI.fcmGetToken;
-
-    let effectiveRegistration = serviceWorkerRegistration;
-
-    if (!effectiveRegistration || !(effectiveRegistration instanceof ServiceWorkerRegistration)) {
-        console.warn("FCM DEBUG: Invalid or no Service Worker Registration provided. Attempting to acquire a ready one.");
-        try {
-            effectiveRegistration = await navigator.serviceWorker.ready;
-            if (!effectiveRegistration) {
-                console.error("FCM DEBUG: navigator.serviceWorker.ready did not return a registration. Cannot proceed with token acquisition.");
-                return;
-            }
-            console.log("FCM DEBUG: Acquired Service Worker Registration successfully via navigator.serviceWorker.ready.");
-        } catch (err) {
-            console.error("FCM DEBUG: Error acquiring Service Worker Registration:", err);
-            return;
-        }
-    }
-    
-    if (!navigator.serviceWorker.controller) {
-        console.log("FCM DEBUG: Page not yet controlled by a Service Worker. Waiting for controller...");
-        let controllerReady = false;
-        for (let i = 0; i < 10; i++) {
-            if (navigator.serviceWorker.controller) {
-                controllerReady = true;
-                break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-
-        if (!controllerReady) {
-            console.warn("FCM DEBUG: Page still not controlled by a Service Worker after waiting. Cannot proceed with token acquisition this round. Reloading may help.");
-            return;
-        }
-        console.log("FCM DEBUG: Page is now controlled by a Service Worker.");
-    }
-
-
-    try {
-        console.log("FCM DEBUG: Attempting fcmGetToken call with VAPID_PUBLIC_KEY:", VAPID_PUBLIC_KEY);
-
-        const currentToken = await fcmGetToken(messaging, {
-            serviceWorkerRegistration: effectiveRegistration,
-            vapidKey: VAPID_PUBLIC_KEY
-        });
-
-        if (currentToken) {
-            console.log('FCM Registration Token:', currentToken);
-            if (currentUser_extra && window.firebaseOMSI.database) {
-                const { database, dbSet, dbRef } = window.firebaseOMSI;
-                await dbSet(dbRef(database, `fcmTokens/${currentUser_extra.uid}/${currentToken}`), true);
-                console.log('FCM token stored in Firebase for user:', currentUser_extra.uid);
-            } else {
-                console.warn('FCM DEBUG: Not storing FCM token in Firebase: User not logged in or Firebase database not available.');
-            }
-
-            if (window.firebaseOMSI.fcmOnMessage && !messaging._onMessageListenerSet) {
-                window.firebaseOMSI.fcmOnMessage(messaging, (payload) => {
-                    console.log('FCM DEBUG: *** FOREGROUND MESSAGE RECEIVED BY onMessage LISTENER *** ', payload);
-                    const notificationTitle = payload.notification?.title || 'Notification';
-                    const notificationBody = payload.notification?.body || '';
-                    const notificationIcon = payload.notification?.icon || '/live-tracker/assets/icons/icon-192x192.png';
-                    
-                    if (typeof showTripAlertPopup_ExtraPage === 'function') {
-                        showTripAlertPopup_ExtraPage(`${notificationTitle}: ${notificationBody}`, 'info');
-                    } else {
-                        console.warn("FCM DEBUG: showTripAlertPopup_ExtraPage function not found for foreground handling.");
-                    }
-                    
-                    if (typeof showNativeNotification === 'function') {
-                        showNativeNotification(notificationTitle, notificationBody, notificationIcon);
-                    } else {
-                        console.warn("FCM DEBUG: showNativeNotification function not found for foreground handling.");
-                    }
-                });
-                messaging._onMessageListenerSet = true;
-                console.log("FCM DEBUG: Foreground onMessage listener attached.");
-            }
-
-        } else {
-            console.warn('FCM DEBUG: getToken returned null or undefined. No FCM registration token available. This can happen if permission is denied, VAPID key is wrong, or Firebase setup incomplete.');
-        }
-    } catch (err) {
-        console.error('FCM DEBUG: An error occurred during FCM token acquisition process:', err);
-        if (Notification.permission === 'granted') {
-             alert('Error setting up push notifications: ' + err.message + '. Please ensure your browser supports them and try again.');
-        } else if (Notification.permission === 'default') {
-             alert('To receive alerts even when offline, please enable notifications when prompted by the browser.');
-        }
-    }
-    console.log("FCM DEBUG: Exiting getFCMTokenAndStore.");
-}
-// ---END---
 
 let definedCurtailmentPoints = {};
 let activeTripsForCurtailment = [];
@@ -7343,28 +7226,9 @@ function checkAndShowTripAlerts_ExtraPage() {
                 //     console.log(`[DEBUG CHECK&SHOW N-ROUTE ALERT] SHOWING ALERT for ${event.lineName} ${event.type} at ${event.departureTime}. Message: "${message}"`);
                 // }
 
-                const desktopPref = localStorage.getItem('desktopNotificationPreference_omsiExtra');
-                let currentNativePermission = "denied";
-                if (typeof checkNotificationPermission === 'function') {
-                    currentNativePermission = checkNotificationPermission();
-                }
-
-                if (desktopPref === 'granted' && currentNativePermission === 'granted') {
-                    let notificationTitle = "OMSI Trip Alert";
-                    if (event.lineName && event.headsignDestinationName) {
-                        notificationTitle = `${event.lineName} to ${event.headsignDestinationName}`;
-                    }
-                    if (typeof showNativeNotification === 'function') {
-                        showNativeNotification(notificationTitle, message, '/live-tracker/assets/icons/icon-192x192.png');
-                    } else {
-                        if (typeof showTripAlertPopup_ExtraPage === 'function') {
-                            showTripAlertPopup_ExtraPage(message);
-                        }
-                    }
-                } else {
-                    if (typeof showTripAlertPopup_ExtraPage === 'function') {
-                        showTripAlertPopup_ExtraPage(message);
-                    }
+                // Notifications disabled - use popup alert only
+                if (typeof showTripAlertPopup_ExtraPage === 'function') {
+                    showTripAlertPopup_ExtraPage(message);
                 }
                 shownTripAlerts_extra[alertShownId] = true;
             } else {
@@ -7402,99 +7266,7 @@ function createEventTimeObjForAlert(timeStr, baseDate, hasLateNightTimesInList, 
     return eventDate;
 }
 
-function checkNotificationPermission() {
-    if (!("Notification" in window)) {
-        return "unsupported";
-    }
-    return Notification.permission;
-}
-
-async function requestNotificationPermission() {
-    // Notifications are disabled globally
-    console.log("Notifications are disabled. Skipping permission request.");
-    return "denied";
-    
-    // Original code below (disabled):
-    // if (!("Notification" in window)) {
-    //     alert("This browser does not support desktop notifications.");
-    //     return "unsupported";
-    // }
-    // const currentPermission = Notification.permission;
-    // if (currentPermission === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store the user's preference in local storage.
-        console.log("Notification permission was already granted.");
-
-        // Attempt to get the active Service Worker registration.
-        // navigator.serviceWorker.ready returns a promise that resolves with the ServiceWorkerRegistration object
-        // when the service worker is active.
-        let activeRegistration = null;
-        try {
-            activeRegistration = await navigator.serviceWorker.ready;
-        } catch (err) {
-            console.error("Failed to get active Service Worker registration during permission check:", err);
-        }
-
-        // If an active Service Worker registration is found, proceed to get the FCM token.
-        if (activeRegistration) {
-            await getFCMTokenAndStore(activeRegistration); // Pass the active registration to getFCMTokenAndStore.
-        } else {
-            console.warn("FCM: Notification permission granted, but no active Service Worker registration found. Token acquisition will defer to SW activation.");
-            // This case means the SW might be installing or activating, but not yet 'ready'.
-            // The getFCMTokenAndStore call from DOMContentLoaded's .then(registration => ...) will handle it.
-        }
-
-        // Show a native notification to confirm that desktop alerts are active.
-        if (typeof showNativeNotification === 'function') {
-             showNativeNotification("OMSI Tools Notifications", "Desktop alerts are active!", '/live-tracker/assets/icons/icon-192x192.png');
-        }
-        return "granted"; // Return 'granted' as the final permission status.
-    }
-
-    // If permission was previously denied by the user.
-    if (currentPermission === "denied") {
-        alert("Notification permission was previously denied. To enable, please go to your browser's site settings and allow notifications for this page.");
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store the denied preference.
-        return "denied"; // Return 'denied'.
-    }
-
-    // If permission is in the "default" state (meaning the user has not yet made a choice).
-    // This will trigger the browser's native permission prompt.
-    const permissionResult = await Notification.requestPermission();
-
-    // If the user grants permission through the prompt.
-    if (permissionResult === "granted") {
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'granted'); // Store the granted preference.
-        console.log("Notification permission granted by user.");
-        alert("Desktop notifications have been enabled!"); // Inform the user.
-
-        // Wait for the Service Worker to be ready and active before attempting to get the FCM token.
-        // This is crucial as getToken requires an active service worker registration.
-        const newRegistration = await navigator.serviceWorker.ready;
-        if (newRegistration) {
-            await getFCMTokenAndStore(newRegistration); // Pass the new active registration to getFCMTokenAndStore.
-        } else {
-            console.error("FCM: Permission granted, but Service Worker registration was not ready. Token acquisition failed.");
-        }
-
-        // Show a test native notification immediately after permission is granted.
-        if (typeof showNativeNotification === 'function') {
-            showNativeNotification(
-                "OMSI Tools Notifications", // Title of the notification.
-                "Test successful! You will now receive desktop alerts.", // Body of the notification.
-                '' // Icon path (empty string for default or no icon).
-            );
-        }
-        return "granted"; // Return 'granted'.
-    } else if (permissionResult === "denied") { // If the user denies permission through the prompt.
-        localStorage.setItem('desktopNotificationPreference_omsiExtra', 'denied'); // Store the denied preference.
-        alert("Desktop notifications were denied. You can change this in your browser's site settings.");
-        return "denied"; // Return 'denied'.
-    } else { // If the user dismisses the prompt without making a choice.
-        localStorage.removeItem('desktopNotificationPreference_omsiExtra'); // Remove any stored preference.
-        alert("Notification permission request dismissed or not acted upon.");
-        return "default"; // Return 'default'.
-    }
-}
+// Notification functions removed - no longer used
 
 function rsg_populateRouteTiles_ExtraPage() {
     console.log("[DEBUG RSG_ROUTES] rsg_populateRouteTiles_ExtraPage: Function started."); // New log
@@ -12839,40 +12611,7 @@ const DPO_VALID_PROFILE_COMBINATIONS_SET = new Set(
     DPO_MASTER_VALID_PROFILE_COMBINATIONS_LIST.map(s => dpo_getCanonicalProfileString_ExtraPage(s.split(',')))
 );
 
-function showNativeNotification(title, body, iconUrl = '/live-tracker/assets/icons/icon-192x192.png') {
-    if (!("Notification" in window)) {
-        console.warn("Desktop notifications not supported by this browser.");
-        // Optionally, call your popup here as a fallback if browser doesn't support Notification API
-        // if (typeof showTripAlertPopup_ExtraPage === 'function') { showTripAlertPopup_ExtraPage(title + ": " + body); }
-        return;
-    }
-    if (Notification.permission === "granted") {
-        try {
-            const options = {
-                body: body,
-                // Ensure the icon path is correct and accessible from your domain.
-                // If unsure, test with icon: undefined or icon: '' first.
-                icon: iconUrl || undefined 
-            };
-            const notification = new Notification(title, options);
-
-            // You can add event listeners to the notification if needed
-            // notification.onclick = () => { console.log('Notification clicked'); window.focus(); this.close(); };
-        } catch (e) {
-            console.error("Error creating native notification:", e);
-            // Fallback to the popup if native notification fails (e.g., bad icon, browser issue)
-            if (typeof showTripAlertPopup_ExtraPage === 'function') {
-                showTripAlertPopup_ExtraPage(`Native Notification Error: ${title} - ${body}. Details: ${e.message}`);
-            }
-        }
-    } else {
-        // If permission isn't granted, it means the conditions in checkAndShowTripAlerts_ExtraPage
-        // should have already routed to the popup. This is an extra check.
-        console.warn("Native notification requested, but permission is not 'granted'. Current permission: " + Notification.permission);
-        // Optionally, show the popup here too if it's an unexpected state
-        // if (typeof showTripAlertPopup_ExtraPage === 'function') { showTripAlertPopup_ExtraPage(title + ": " + body + " (Permission: " + Notification.permission + ")");}
-    }
-}
+// showNativeNotification removed - notifications feature disabled
 
 function dpo_simulateAutoGroup_ExtraPage(selectedProfilesArray) {
     let simulatedSelections = [...selectedProfilesArray]; 
@@ -18897,14 +18636,6 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapsh
         });
     }
 
-    const enableDesktopBtn = document.getElementById('enableDesktopNotificationsBtn_extra');
-    if (enableDesktopBtn) {
-        enableDesktopBtn.addEventListener('click', async () => {
-            // Notifications are globally disabled
-            alert("Desktop notifications are disabled in this installation.");
-        });
-    }
-
     const kdRefreshBtn = document.getElementById('kd-refresh-btn_extra');
     if (kdRefreshBtn && typeof displayKeyDepartures_ExtraPage === 'function') {
         kdRefreshBtn.addEventListener('click', displayKeyDepartures_ExtraPage);
@@ -18950,12 +18681,6 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapsh
             }
 
             if (callbackAuthGeneration !== authGeneration_extra) return;
-
-            if (user) {
-                console.log("Notifications are disabled - skipping FCM token acquisition.");
-            } else {
-                console.log("User logged out. Skipping FCM token acquisition.");
-            }
 
             if (user && selectNewStopIdFormat_el_extra && inputNewStopName_el_extra && inputNewStopId_el_extra &&
                 !inputNewStopName_el_extra.value && !inputNewStopId_el_extra.value &&

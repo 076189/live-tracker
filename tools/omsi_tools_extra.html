@@ -1609,6 +1609,7 @@ align-items: center;
 	let serviceTerminusMappings_extra = {};
 	let cv_currentDisplayDate_extra = new Date();
         let rsg_batchScheduleItems = [];
+        let rsg_batchScheduleCancelled_extra = false;
 	let massCurtailments_data = {};
         let allDefinedStops_data = {};
 	let op_points_currentlyEditingOriginalData = null;
@@ -9665,17 +9666,35 @@ async function handleCancelAllUpdatesAllRoutes_Global() {
     if(sruCancelAllPendingUpdatesGloballyButton_el_extra) sruCancelAllPendingUpdatesGloballyButton_el_extra.disabled = true;
 
     const { database, dbUpdate, dbRef } = window.firebaseOMSI;
-    const updatesToNullify = {};
-    pendingApplyScheduleTaskKeys.forEach(key => {
-        updatesToNullify[`${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${key}`] = null;
-    });
-    console.log("// DEBUG: 10. Firebase updatesToNullify object prepared:", updatesToNullify); // DEBUG: New Log
-
+    
+    // Batch the cancellations into smaller groups to avoid WRITE_TOO_BIG errors
+    const BATCH_SIZE = 25; // Process 25 tasks per Firebase write
+    const batches = [];
+    for (let i = 0; i < pendingApplyScheduleTaskKeys.length; i += BATCH_SIZE) {
+        batches.push(pendingApplyScheduleTaskKeys.slice(i, i + BATCH_SIZE));
+    }
+    console.log(`// DEBUG: 10. Prepared ${batches.length} batches of up to ${BATCH_SIZE} tasks each.`);
 
     try {
-        await dbUpdate(dbRef(database), updatesToNullify);
-        console.log("// DEBUG: 11. Firebase dbUpdate successful."); // DEBUG: New Log
+        // Process each batch sequentially
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+            const batch = batches[batchIndex];
+            const updatesToNullify = {};
+            batch.forEach(key => {
+                updatesToNullify[`${FB_PATH_SCHEDULED_ROUTE_UPDATES}/${key}`] = null;
+            });
+            
+            await dbUpdate(dbRef(database), updatesToNullify);
+            console.log(`// DEBUG: 11. Firebase batch ${batchIndex + 1}/${batches.length} successful (${batch.length} tasks).`);
+            
+            // Show progress
+            const processedCount = Math.min((batchIndex + 1) * BATCH_SIZE, pendingApplyScheduleTaskKeys.length);
+            if(sruCancelAllGlobalStatusMessage_el_extra) {
+                sruCancelAllGlobalStatusMessage_el_extra.textContent = `Cancelling tasks: ${processedCount}/${pendingApplyScheduleTaskKeys.length}...`;
+            }
+        }
 
+        // Remove all cancelled tasks from local cache
         pendingApplyScheduleTaskKeys.forEach(key => {
             if (scheduledRouteUpdates_extra && scheduledRouteUpdates_extra[key]) {
                 delete scheduledRouteUpdates_extra[key];
@@ -11144,7 +11163,8 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName) {
     
     // Step 2: For each affected stop, rebuild the index from ALL routes
     // (this preserves other routes' entries at shared stops)
-    const multiPathUpdate = {};
+    // Build up the stop data first, then batch the writes
+    const stopData = {};
     let entriesProcessed = 0;
     
     for (const stopID of affectedStopIDs) {
@@ -11175,13 +11195,40 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName) {
             entriesProcessed++;
         });
         
-        multiPathUpdate[`${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`] = arrivalsByStopForThisStop;
+        stopData[stopID] = arrivalsByStopForThisStop;
     }
     
-    // Step 3: Write all affected stops in a single batched update
-    if (Object.keys(multiPathUpdate).length > 0) {
+    // Step 3: Write affected stops in batches to avoid "Write too large" error
+    const ROUTE_ARRIVALS_BATCH_ENTRIES = 1500;
+    let multiPathUpdate = {};
+    let entriesInBatch = 0;
+    
+    const flushBatch = async () => {
+        if (Object.keys(multiPathUpdate).length === 0) return;
         await dbUpdate(dbRef(database), multiPathUpdate);
+        multiPathUpdate = {};
+        entriesInBatch = 0;
+    };
+    
+    for (const stopID of affectedStopIDs) {
+        const entriesForStop = Object.keys(stopData[stopID]).length;
+        
+        // If adding this stop would exceed the batch limit, flush first
+        if (entriesInBatch > 0 && entriesInBatch + entriesForStop > ROUTE_ARRIVALS_BATCH_ENTRIES) {
+            await flushBatch();
+        }
+        
+        multiPathUpdate[`${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`] = stopData[stopID];
+        entriesInBatch += entriesForStop;
+        
+        // If batch is now full, flush it
+        if (entriesInBatch >= ROUTE_ARRIVALS_BATCH_ENTRIES) {
+            await flushBatch();
+        }
     }
+    
+    // Flush any remaining data
+    await flushBatch();
     
     console.log(`Arrivals index rebuilt for route "${routeName}" (${affectedStopIDs.size} stops, ${entriesProcessed} entries).`);
 }
@@ -15857,6 +15904,7 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
     const modal = document.getElementById('rsg-schedule-datetime-modal-extra');
     if (modal) modal.style.display = 'none';
     rsg_batchScheduleItems = [];
+    rsg_batchScheduleCancelled_extra = false;
 }
 
         async function rsg_confirmScheduleGoLive_ExtraPage() {
@@ -15905,10 +15953,24 @@ async function rsg_handleAddGeneratedToWorkingSchedule_ExtraPage() {
         rsg_batchScheduleItems.length > 0
     ) {
         // --- BATCH SCHEDULING LOGIC ---
-        modalStatus.textContent = `Processing ${rsg_batchScheduleItems.length} configurations for scheduling...`;
+        rsg_batchScheduleCancelled_extra = false;
+        modalStatus.textContent = `Processing 0/${rsg_batchScheduleItems.length} configurations...`;
         modalStatus.style.color = "#f1c40f";
 
+        let configIndex = 0;
         for (const batchItem of rsg_batchScheduleItems) {
+            if (rsg_batchScheduleCancelled_extra) {
+                modalStatus.textContent = `Cancelled. Scheduled ${successCount} configurations before cancellation.`;
+                modalStatus.style.color = "#e67e22";
+                if (rsgStatusMessage_el_extra) {
+                    rsgStatusMessage_el_extra.textContent = `Batch scheduling cancelled: ${successCount} scheduled, ${errorCount} failed before cancellation.`;
+                    rsgStatusMessage_el_extra.style.color = "#e67e22";
+                }
+                return;
+            }
+            configIndex++;
+            modalStatus.textContent = `Processing ${configIndex}/${rsg_batchScheduleItems.length} configurations...`;
+
             const configurationToSchedule = {
                 taskType: "applySchedule",
                 routeName: batchItem.routeName,
@@ -18921,7 +18983,10 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
     rsgScheduleDateTimeConfirmBtn.addEventListener('click', rsg_confirmScheduleGoLive_ExtraPage);
 }
     if (rsgScheduleDateTimeCancelBtn && typeof rsg_closeScheduleDateTimeModal_ExtraPage === 'function') {
-        rsgScheduleDateTimeCancelBtn.addEventListener('click', rsg_closeScheduleDateTimeModal_ExtraPage);
+        rsgScheduleDateTimeCancelBtn.addEventListener('click', () => {
+            rsg_batchScheduleCancelled_extra = true;
+            rsg_closeScheduleDateTimeModal_ExtraPage();
+        });
     }
     if (rsgScheduleDateTimeModal && typeof rsg_closeScheduleDateTimeModal_ExtraPage === 'function') {
         rsgScheduleDateTimeModal.addEventListener('click', (event) => {

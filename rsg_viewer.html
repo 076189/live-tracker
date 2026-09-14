@@ -1949,6 +1949,40 @@ $('save-running-button').addEventListener('click', async () => {
         config.tripDetails = updatedTripDetails;
         config.runningPoolSettings = configPoolSettings;
     });
+    // Create reciprocal crosslinks for return trips on different routes: if a crosslink has a
+    // crosslinkReturnDirectionKey pointing to a config other than the linked route, that return
+    // config needs a reciprocal crosslink entry so the return trip is locked to the same running
+    // number when editing that route (otherwise only the initial forward journey is linked, and the
+    // return trip recalculates independently when loading the return route).
+    const reciprocalsByConfig = new Map();
+    poolSettings.crosslinks.forEach((crosslink, crosslinkIndex) => {
+        if (!crosslink.crosslinkReturnTripId || !crosslink.crosslinkReturnDirectionKey) return;
+        const returnConfig = configForKey(crosslink.crosslinkReturnDirectionKey);
+        const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
+        if (!returnConfig || !linkedConfig || returnConfig.key === linkedConfig.key) return;
+        if (!reciprocalsByConfig.has(returnConfig.key)) reciprocalsByConfig.set(returnConfig.key, []);
+        reciprocalsByConfig.get(returnConfig.key).push({
+            crosslinkRouteKey: linkedConfig.key,
+            crosslinkFromDirectionKey: returnConfig.key,
+            crosslinkFromTripId: crosslink.crosslinkReturnTripId,
+            crosslinkToTripId: crosslink.crosslinkToTripId,
+            crosslinkReturnDirectionKey: crosslink.crosslinkFromDirectionKey,
+            crosslinkReturnTripId: crosslink.crosslinkFromTripId,
+            isReciprocal: true
+        });
+    });
+    reciprocalsByConfig.forEach((reciprocals, returnConfigKey) => {
+        const returnConfigSettings = updates[`/rsgConfigs/${returnConfigKey}/runningPoolSettings`];
+        if (returnConfigSettings) {
+            returnConfigSettings.crosslinks = [...(returnConfigSettings.crosslinks || []), ...reciprocals];
+        } else {
+            const returnConfig = configForKey(returnConfigKey);
+            if (returnConfig) {
+                updates[`/rsgConfigs/${returnConfigKey}/runningPoolSettings`] = { ...(returnConfig.runningPoolSettings || {}), crosslinks:reciprocals };
+                returnConfig.runningPoolSettings = { ...(returnConfig.runningPoolSettings || {}), crosslinks:reciprocals };
+            }
+        }
+    });
     if (crosslinkOwner && !directionConfigs.includes(crosslinkOwner)) {
         const crosslinkPoolSettings = { ...(crosslinkOwner.runningPoolSettings || {}), crosslinks:poolSettings.crosslinks };
         updates[`/rsgConfigs/${crosslinkOwner.key}/runningPoolSettings`] = crosslinkPoolSettings;
@@ -2070,6 +2104,25 @@ $('save-as-draft-button').addEventListener('click', async () => {
         crosslinkToTripId: remapTripId(crosslink.crosslinkToTripId),
         crosslinkReturnTripId: crosslink.crosslinkReturnTripId ? remapTripId(crosslink.crosslinkReturnTripId) : crosslink.crosslinkReturnTripId
     }));
+    // Create reciprocal crosslinks for return trips on different routes (same logic as live save above)
+    const reciprocalsByConfigKey = new Map();
+    remappedCrosslinks.forEach((crosslink, crosslinkIndex) => {
+        if (!crosslink.crosslinkReturnTripId || !crosslink.crosslinkReturnDirectionKey) return;
+        const returnConfigKey = remapKey(crosslink.crosslinkReturnDirectionKey);
+        const linkedConfigKey = remapKey(crosslink.crosslinkRouteKey);
+        const fromConfigKey = remapKey(crosslink.crosslinkFromDirectionKey);
+        if (returnConfigKey === linkedConfigKey) return;
+        if (!reciprocalsByConfigKey.has(returnConfigKey)) reciprocalsByConfigKey.set(returnConfigKey, []);
+        reciprocalsByConfigKey.get(returnConfigKey).push({
+            crosslinkRouteKey: linkedConfigKey,
+            crosslinkFromDirectionKey: returnConfigKey,
+            crosslinkFromTripId: crosslink.crosslinkReturnTripId,
+            crosslinkToTripId: crosslink.crosslinkToTripId,
+            crosslinkReturnDirectionKey: fromConfigKey,
+            crosslinkReturnTripId: crosslink.crosslinkFromTripId,
+            isReciprocal: true
+        });
+    });
     // The crosslink owner can live outside this batch (e.g. you're drafting the OTHER end of a
     // crosslink pair that was created earlier). If that owner is itself a draft, its stored
     // crosslinks still need the just-remapped keys, or it keeps pointing at this config's old
@@ -2080,10 +2133,11 @@ $('save-as-draft-button').addEventListener('click', async () => {
     configTablePairs.forEach(({ config }) => {
         if (!config || !config.key || !updatedTripDetailsByConfig.has(config.key)) return;
         const targetDraftKey = keyRemap.get(config.key) || (config.isDraft ? config.key : `${config.key}__draft`);
+        const configReciprocals = reciprocalsByConfigKey.get(targetDraftKey) || [];
         const configPoolSettings = {
             ...poolSettings,
             shortStandDirectionKeys: poolSettings.shortStandDirectionKeys.map(remapKey),
-            crosslinks: config === crosslinkOwner ? remappedCrosslinks : []
+            crosslinks: (config === crosslinkOwner ? remappedCrosslinks : []).concat(configReciprocals)
         };
         updates[`/rsgConfigDrafts/${targetDraftKey}`] = {
             userDisplayName: config.userDisplayName || `${config.routeName} to ${config.destinationName}`,
@@ -2094,6 +2148,30 @@ $('save-as-draft-button').addEventListener('click', async () => {
             lastSaved: new Date().toISOString()
         };
         draftCount++;
+    });
+    // For reciprocal crosslinks on configs outside the current batch, create/update their draft
+    // entries with the reciprocals (same logic as live save above)
+    reciprocalsByConfigKey.forEach((reciprocals, returnConfigKey) => {
+        const batchKeys = new Set(configTablePairs.map(({ config }) => {
+            const targetKey = keyRemap.get(config.key) || (config.isDraft ? config.key : `${config.key}__draft`);
+            return targetKey;
+        }));
+        if (batchKeys.has(returnConfigKey)) return;
+        if (updates[`/rsgConfigDrafts/${returnConfigKey}`]) {
+            updates[`/rsgConfigDrafts/${returnConfigKey}`].runningPoolSettings = { ...(updates[`/rsgConfigDrafts/${returnConfigKey}`].runningPoolSettings || {}), crosslinks: reciprocals };
+        } else {
+            const returnConfig = allEntries().find(c => (c.isDraft ? c.key : `${c.key}__draft`) === returnConfigKey || c.key === returnConfigKey);
+            if (returnConfig) {
+                updates[`/rsgConfigDrafts/${returnConfigKey}`] = {
+                    userDisplayName: returnConfig.userDisplayName || `${returnConfig.routeName} to ${returnConfig.destinationName}`,
+                    routeName: returnConfig.routeName, destinationName: returnConfig.destinationName, operatingProfile: returnConfig.operatingProfile,
+                    stopSequence: returnConfig.stopSequence || [], firstStopTimes: returnConfig.firstStopTimes || '',
+                    tripDetails: returnConfig.tripDetails, runningPoolSettings: { ...(returnConfig.runningPoolSettings || {}), crosslinks: reciprocals },
+                    draftEffectiveDate: draftDate, draftTargetConfigKey: returnConfig.isDraft ? (returnConfig.draftTargetConfigKey || null) : returnConfig.key,
+                    lastSaved: new Date().toISOString()
+                };
+            }
+        }
     });
     if (!draftCount) { status.textContent = 'No saved configuration key found to draft.'; return; }
     // Firebase rejects a multi-path update where one path is an ancestor of another (e.g. a whole-object

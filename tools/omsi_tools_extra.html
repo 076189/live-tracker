@@ -5289,6 +5289,8 @@ function curtail_fetchTodaysTrips() {
     }
     
     const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
+    // PERFORMANCE FIX: Convert to Set for O(1) lookups instead of O(n) array.includes()
+    const todaysActiveProfilesSet = new Set(todaysActiveProfiles);
 
     // --- START: New, More Robust Hybrid Logic ---
 
@@ -5318,7 +5320,8 @@ function curtail_fetchTodaysTrips() {
         if (!entry.lineName || entry.lineName !== route || !entry.destinationName || entry.destinationName !== dest) return false;
         if (!entry.OperatingProfile) return false;
         const entryProfiles = entry.OperatingProfile.split(',').map(p => p.trim());
-        return entryProfiles.some(profile => todaysActiveProfiles.includes(profile));
+        // PERFORMANCE FIX: Use Set.has() instead of Array.includes() for faster lookup
+        return entryProfiles.some(profile => todaysActiveProfilesSet.has(profile));
     });
 
     if (relevantLiveEntries.length === 0) {
@@ -6510,6 +6513,8 @@ async function displayScdScheduledEvents(selectedStopID) {
     // --- 2. DATA GATHERING - DIRECT FROM RSG CONFIGS ---
     const eventsForDisplay = [];
     const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
+    // PERFORMANCE FIX: Convert to Set for O(1) lookups
+    const todaysActiveProfilesSet = new Set(todaysActiveProfiles);
 
     // Loop through all saved RSG configurations
     for (const configKey in rsg_loadedConfigs_extra) {
@@ -6518,7 +6523,8 @@ async function displayScdScheduledEvents(selectedStopID) {
 
         // Check if this configuration is active today
         const configProfiles = config.operatingProfile.split(',').map(p => p.trim());
-        const isActiveToday = configProfiles.some(profile => todaysActiveProfiles.includes(profile));
+        // PERFORMANCE FIX: Use Set.has() instead of Array.includes()
+        const isActiveToday = configProfiles.some(profile => todaysActiveProfilesSet.has(profile));
 
         if (isActiveToday) {
             // Generate all trips for this active configuration
@@ -17950,6 +17956,12 @@ function rsg_openCopyFromModal_ExtraPage() {
         keyDeparturesIntervalId_extra = null;
     }
 
+    // CRITICAL FIX: Clean up Firebase listeners to prevent memory leaks
+    // (This was causing crashes on mobile after switching sections 3-4 times)
+    firebaseListenerUnsubscribers_extra.forEach(unsubscribe => unsubscribe());
+    firebaseListenerUnsubscribers_extra = [];
+    console.log('[Performance Fix] Cleaned up Firebase listeners when switching sections.');
+
     if (!toolSectionsWrapper_el_extra) {
         return;
     }
@@ -19457,6 +19469,8 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
     }
 
     const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
+    // PERFORMANCE FIX: Convert to Set for O(1) lookups
+    const todaysActiveProfilesSet = new Set(todaysActiveProfiles);
 
     const departures = currentWorkingSchedule_extra
         .filter(e => {
@@ -19464,7 +19478,8 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
                 return false;
             }
             const departureProfiles = e.OperatingProfile.split(',').map(p => p.trim());
-            return departureProfiles.some(dp => todaysActiveProfiles.includes(dp));
+            // PERFORMANCE FIX: Use Set.has() instead of Array.includes()
+            return departureProfiles.some(dp => todaysActiveProfilesSet.has(dp));
         })
         .sort((a, b) => {
             // --- NEW: Simplified sort by time on the clock, ignoring DayOffset ---

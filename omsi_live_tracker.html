@@ -704,7 +704,7 @@
     }
 
     const VEHICLE_CACHE_STORAGE_KEY = 'omsiTrackerVehicleAssignments_Standalone_v1';
-    const ROUTE_SCHEDULE_CACHE_KEY = 'omsiTrackerRouteSchedules_Standalone_v1';
+    const ROUTE_SCHEDULE_CACHE_KEY = 'omsiTrackerRouteSchedules_Standalone_v2';
     let serviceInstanceVehicleCache = new Map();
     let serviceInstanceRareCache = new Map();
 
@@ -1240,20 +1240,10 @@
             const yesterdayCodes = getCodesForCalendarDay(yesterdayCalDateCheck).map(c => c.toLowerCase());
             if (busOpCodesLower.some(boc => yesterdayCodes.includes(boc))) determinedOperationalDayDate = yesterdayCalDateCheck;
         }
-        if (!determinedOperationalDayDate && nowForProcessing.getHours() >= lateEveningThresholdHours) {
-            const tomorrowCalDateCheck = new Date(nowForProcessing);
-            tomorrowCalDateCheck.setDate(nowForProcessing.getDate() + 1);
-            tomorrowCalDateCheck.setHours(0, 0, 0, 0);
-            const tomorrowCodes = getCodesForCalendarDay(tomorrowCalDateCheck).map(c => c.toLowerCase());
-            if (busOpCodesLower.some(boc => tomorrowCodes.includes(boc))) determinedOperationalDayDate = tomorrowCalDateCheck;
-        }
-        const isDaily = busOpCodesLower.length === 0 || busOpCodesLower.includes("") || busOpCodesLower.includes("daily") || busOpCodesLower.includes("everyday");
+        // Service must have matching operating profile for today or yesterday (if early morning)
+        // No default "daily" fallback for missing profiles
         if (!determinedOperationalDayDate) {
-            if (isDaily) {
-                determinedOperationalDayDate = new Date(todayCalDateForCheck);
-            } else {
-                return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
-            }
+            return { finalAdjustedSchedTime: null, timeToStationInSeconds: Infinity, arrivalText: "?" };
         }
         const finalSchedTime = new Date(determinedOperationalDayDate.getFullYear(), determinedOperationalDayDate.getMonth(), determinedOperationalDayDate.getDate() + dayOffsetFromFile, hrs, mins, 0);
         let finalAdjustedSchedTime = new Date(finalSchedTime.getTime());
@@ -1514,6 +1504,23 @@
         saveVehicleCacheToStorage();
     }
 
+    // Mass curtailments apply to a whole time window rather than one embedded trip record, so
+    // look up whether a specific trip's own scheduled time falls inside an active window - unlike
+    // getApplicableCurtailment() (used for live display) which only checks against "now".
+    function findMassCurtailmentForTripTime(routeName, destinationName, tripTimeMs) {
+        if (!activeMassCurtailments || !Number.isFinite(tripTimeMs)) return null;
+        for (const key in activeMassCurtailments) {
+            const curtailment = activeMassCurtailments[key];
+            if (!curtailment || !curtailment.routeName || !curtailment.newTerminusStopId) continue;
+            if (curtailment.routeName !== routeName) continue;
+            if (curtailment.destinationName && curtailment.destinationName.toUpperCase() !== (destinationName || '').toUpperCase()) continue;
+            const startTime = new Date(curtailment.startTime).getTime();
+            const endTime = new Date(curtailment.endTime).getTime();
+            if (tripTimeMs >= startTime && tripTimeMs <= endTime) return curtailment;
+        }
+        return null;
+    }
+
     function startShortReturnsAfterCurtailment(scheduleEntries, nowForProcessing) {
         const tripsByBlock = new Map();
         scheduleEntries.forEach(entry => {
@@ -1530,6 +1537,12 @@
             if (entry.curtailment?.curtailAtStopID) {
                 trip.curtailment = entry.curtailment;
                 if (String(entry.stopID) === String(entry.curtailment.curtailAtStopID)) trip.curtailmentTime = timing.finalAdjustedSchedTime.getTime();
+            } else if (!trip.curtailment) {
+                const massCurt = findMassCurtailmentForTripTime(entry.lineName ? entry.lineName.toUpperCase() : '', entry.destinationName, timing.finalAdjustedSchedTime.getTime());
+                if (massCurt) {
+                    trip.curtailment = { curtailAtStopID: massCurt.newTerminusStopId };
+                    if (String(entry.stopID) === String(massCurt.newTerminusStopId)) trip.curtailmentTime = timing.finalAdjustedSchedTime.getTime();
+                }
             }
         });
 
@@ -1545,6 +1558,7 @@
         });
         return shortStartByService;
     }
+
 
     async function processAndDisplayAllData() {
         fullServiceRunDataMap.clear();
@@ -1661,10 +1675,13 @@
                     blockId: blockId,
                     runningNumber: busEntry.runningNumber || '',
                     startShortAtStopID: shortStartByService.get(serviceInstanceKey) || '',
-                    curtailment: busEntry.curtailment && busEntry.curtailment.curtailAtStopID && busEntry.curtailment.newDestinationName
-                        ? busEntry.curtailment
-                        : null
+                    curtailment: null
                 });
+            }
+            // The curtailment marker may only be embedded on the specific stop entry it applies to,
+            // not on every stop of the trip, so scan every entry rather than just the first one seen.
+            if (busEntry.curtailment && busEntry.curtailment.curtailAtStopID && busEntry.curtailment.newDestinationName) {
+                activeServicesMap.get(serviceInstanceKey).curtailment = busEntry.curtailment;
             }
             const { finalAdjustedSchedTime, timeToStationInSeconds, arrivalText } = calculatePreciseStopTimingsForTracker(busEntry, nowForProcessing);
             if (finalAdjustedSchedTime) { activeServicesMap.get(serviceInstanceKey).stops.push({ ...busEntry, stopName: unescapeHtml(busEntry.stopName), destinationName: unescapeHtml(busEntry.destinationName), preciseScheduledDateTime: finalAdjustedSchedTime, timeToStationInSeconds: timeToStationInSeconds, calculatedArrivalText: arrivalText }); }
@@ -1721,6 +1738,10 @@
                 let largestPastDiff = -Infinity;
                 let reachedCurtailmentPoint = false;
                 let reachedShortStartPoint = !run.startShortAtStopID;
+                // Route-wide (mass) curtailments truncate at newTerminusStopId rather than an
+                // embedded curtailAtStopID - check both so the stop scan stops at either kind.
+                const massCurtailmentForRun = getApplicableCurtailment(run.trueLineName, run.displayDestination);
+                const curtailStopIdForRun = run.curtailment?.curtailAtStopID ?? massCurtailmentForRun?.newTerminusStopId ?? null;
 
                 for (const stop of run.stops) {
                     if (!stop.preciseScheduledDateTime) continue;
@@ -1744,7 +1765,7 @@
                         }
                     }
 
-                    if (run.curtailment && String(stop.stopID) === String(run.curtailment.curtailAtStopID)) {
+                    if (curtailStopIdForRun && String(stop.stopID) === String(curtailStopIdForRun)) {
                         reachedCurtailmentPoint = true;
                     }
                 }
@@ -1760,7 +1781,7 @@
                 }
             }
 
-            if (selectedRun && selectedBestStop && selectedBestStop.timeToStationInSeconds < 0) {
+            if (selectedRun && selectedBestStop && selectedBestStop.timeToStationInSeconds < 0 && blockId.startsWith('GLOBAL_RUN_')) {
                 const currentIndex = runs.indexOf(selectedRun);
                 if (currentIndex !== -1 && currentIndex + 1 < runs.length) {
                     const nextRun = runs[currentIndex + 1];
@@ -1773,7 +1794,22 @@
                             break;
                         }
                     }
-                    if (nextRunBestStop) {
+                    // Trip numbers climb throughout the day for a given running number, up to
+                    // whatever its last trip of the day happens to be (varies per schedule). Once
+                    // a run reaches that day's highest trip number for this running number, there's
+                    // no genuine "next trip" left today - any chronologically-later run belongs to
+                    // the following day's schedule (which restarts numbering lower), so don't treat
+                    // it as a continuation.
+                    const currentTripNumber = parseInt(selectedBestStop.tripNumber, 10);
+                    const maxTripNumberForBlock = runs.reduce((max, r) => {
+                        const n = parseInt(r.stops[0]?.tripNumber, 10);
+                        return Number.isFinite(n) && n > max ? n : max;
+                    }, -Infinity);
+                    const isSameDayContinuation = !Number.isFinite(currentTripNumber) || !Number.isFinite(maxTripNumberForBlock) || currentTripNumber < maxTripNumberForBlock;
+                    // Known running numbers can still show their next trip beyond the normal 30-min
+                    // window, but only if it's due reasonably soon (60 min) - not hours away.
+                    const KNOWN_RUNNING_NUMBER_LOOKAHEAD_SECONDS = 3600;
+                    if (nextRunBestStop && isSameDayContinuation && nextRunBestStop.timeToStationInSeconds <= KNOWN_RUNNING_NUMBER_LOOKAHEAD_SECONDS) {
                         selectedRun = nextRun;
                         selectedBestStop = nextRunBestStop;
                     }
@@ -1840,8 +1876,8 @@
             const midnightToday = new Date(nowForProcessing);
             midnightToday.setHours(24, 0, 0, 0);
 
+            // Rare page shows all services from rare-eligible routes, not filtered by rarity
             currentTrackedServices = currentTrackedServices.filter(service => {
-                if (!service.isRareWorking) return false;
                 if (service.nextStopActualTime instanceof Date) {
                     return service.nextStopActualTime.getTime() <= midnightToday.getTime();
                 }
@@ -2410,13 +2446,19 @@
         const today = new Date();
         const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
         const nextMidnight = midnight + 24 * 60 * 60 * 1000;
+        
+        console.log(`[DEBUG Curtailments] Route=${currentRouteFilter}, midnight=${new Date(midnight).toISOString()}, nextMidnight=${new Date(nextMidnight).toISOString()}`);
 
         const curtailedEntries = [];
 
         Object.values(activeMassCurtailments).forEach(curtailment => {
+            console.log(`[DEBUG Curtailments] Checking mass curtailment: Route=${curtailment.routeName}, Start=${new Date(curtailment.startTime).toISOString()}, End=${new Date(curtailment.endTime).toISOString()}`);
             if (curtailment.routeName && curtailment.routeName.toUpperCase() === currentRouteFilter.toUpperCase()) {
                 const startTime = new Date(curtailment.startTime).getTime();
-                if (startTime >= midnight && startTime < nextMidnight) {
+                const endTime = new Date(curtailment.endTime).getTime();
+                // Show curtailments active any time during today (00:00-23:59)
+                if (startTime < nextMidnight && endTime >= midnight) {
+                    console.log(`[DEBUG Curtailments] -> MATCHED: Adding to curtailedEntries`);
                     curtailedEntries.push({
                         fleetNumber: 'N/A',
                         registration: '---',
@@ -2424,7 +2466,11 @@
                         destination: curtailment.newTerminusDisplayName || curtailment.newDestinationName || 'N/A',
                         timestamp: startTime
                     });
+                } else {
+                    console.log(`[DEBUG Curtailments] -> Route matched but time doesn't overlap. startTime=${new Date(startTime).toISOString()}, endTime=${new Date(endTime).toISOString()}`);
                 }
+            } else {
+                console.log(`[DEBUG Curtailments] -> Route doesn't match (looking for ${currentRouteFilter})`);
             }
         });
 
@@ -2454,9 +2500,13 @@
                 }
             }
         });
+        
+
 
         tripMap.forEach(trip => {
             if (trip.firstTime < midnight || trip.firstTime >= nextMidnight) return;
+            
+            // Check for embedded curtailment first
             if (trip.curtailment && trip.curtailment.curtailAtStopID) {
                 const shortDest = trip.curtailment.newDestinationName || trip.destinationName || 'Short Turn';
                 const routeName = String(trip.lineName || currentRouteFilter).toUpperCase();
@@ -2473,18 +2523,56 @@
                     destination: shortDest,
                     timestamp: trip.firstTime
                 });
+            } else {
+                // Check for mass curtailment matching this trip's route + destination
+                const applicableCurtailment = getApplicableCurtailment(String(trip.lineName || currentRouteFilter).toUpperCase(), trip.destinationName);
+                if (applicableCurtailment) {
+                    // Only add if trip already started (in past or now) during curtailment
+                    const curtailStartTime = new Date(applicableCurtailment.startTime).getTime();
+                    const curtailEndTime = new Date(applicableCurtailment.endTime).getTime();
+                    const nowMs = new Date().getTime();
+                    
+                    // Trip must start within curtailment window AND be in the past (already started)
+                    if (trip.firstTime >= curtailStartTime && trip.firstTime <= nowMs && trip.firstTime < curtailEndTime) {
+                        const shortDest = applicableCurtailment.newTerminusDisplayName || applicableCurtailment.newDestinationName || trip.destinationName || 'Short Turn';
+                        const routeName = String(trip.lineName || currentRouteFilter).toUpperCase();
+                        const { blockId } = computeServiceInstanceIds({ lineName: routeName, tripId: trip.tripId, runningNumber: trip.runningNumber });
+                        const assignedVehicle = getLiveAssignedVehicle(routeName, trip.runningNumber) ||
+                            getSubVehicleForRunningNumber(routeName, trip.runningNumber) ||
+                            serviceInstanceVehicleCache.get(blockId) ||
+                            (trip.fleetNumber && trip.fleetNumber !== 'N/A' ? { fleetNumber: trip.fleetNumber, registration: trip.vehicleReg } : getAssignedVehicle(blockId, routeName, trip.runningNumber));
+
+                        curtailedEntries.push({
+                            fleetNumber: assignedVehicle?.fleetNumber || 'N/A',
+                            registration: assignedVehicle?.registration || '---',
+                            routeName,
+                            destination: shortDest,
+                            timestamp: trip.firstTime
+                        });
+                    }
+                }
             }
         });
 
-        if (curtailedEntries.length === 0) {
+        // Deduplicate curtailedEntries by trip (vehicle + running number + destination), not by route
+        const uniqueTrips = new Map();
+        curtailedEntries.forEach(entry => {
+            const key = `${entry.fleetNumber}|${entry.registration}|${entry.destination}|${entry.timestamp}`;
+            if (!uniqueTrips.has(key)) {
+                uniqueTrips.set(key, entry);
+            }
+        });
+        const dedupedEntries = Array.from(uniqueTrips.values());
+
+        if (dedupedEntries.length === 0) {
             curtailedBusesTableBody.innerHTML = `<tr><td colspan="5">No curtailments logged for route ${escapeHtml(currentRouteFilter)} today.</td></tr>`;
             return;
         }
 
-        curtailedEntries.sort((a, b) => a.timestamp - b.timestamp);
+        dedupedEntries.sort((a, b) => a.timestamp - b.timestamp);
         
         let curtailedRowsHTML = "";
-        curtailedEntries.forEach(item => {
+        dedupedEntries.forEach(item => {
             const timeDate = new Date(item.timestamp);
             const timeCurtailed = `${String(timeDate.getHours()).padStart(2, '0')}:${String(timeDate.getMinutes()).padStart(2, '0')}`;
             curtailedRowsHTML += `<tr><td>${escapeHtml(item.routeName)}</td><td>${escapeHtml(item.fleetNumber)}</td><td>${escapeHtml(item.registration)}</td><td>${escapeHtml(item.destination)}</td><td>${timeCurtailed}</td></tr>`;

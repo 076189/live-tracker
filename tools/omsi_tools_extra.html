@@ -794,10 +794,6 @@ align-items: center;
                                 <option value="">-- Select Route --</option>
                             </select>
                         </div>
-                        <div>
-                            <label for="vehicleAllocRareChanceInput_extra">Rare Chance (%):</label>
-                            <input type="number" id="vehicleAllocRareChanceInput_extra" class="schedule-generator-input" value="5" min="0" max="100" step="1">
-                        </div>
                     </div>
 
                     <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap:0.75rem; margin-top:0.75rem;">
@@ -1776,7 +1772,6 @@ const setGlobalSchoolBusColor_el_extra = document.getElementById('setGlobalSchoo
 const setGlobalRailReplacementColor_el_extra = document.getElementById('setGlobalRailReplacementColor_extra');
 
 const selectVehicleAllocRoute_el_extra = document.getElementById('selectVehicleAllocRoute_extra');
-const vehicleAllocRareChanceInput_el_extra = document.getElementById('vehicleAllocRareChanceInput_extra');
 const vehicleAllocCommonTextarea_el_extra = document.getElementById('vehicleAllocCommonTextarea_extra');
 const vehicleAllocRareTextarea_el_extra = document.getElementById('vehicleAllocRareTextarea_extra');
 const vehicleAllocSubVehicleSelect_el_extra = document.getElementById('vehicleAllocSubVehicleSelect_extra');
@@ -3567,10 +3562,9 @@ function addSubVehicleAssignment_ExtraPage() {
 }
 
 function populateVehicleAllocFormForRoute_ExtraPage() {
-    if (!selectVehicleAllocRoute_el_extra || !vehicleAllocRareChanceInput_el_extra) return;
+    if (!selectVehicleAllocRoute_el_extra) return;
     const routeKey = selectVehicleAllocRoute_el_extra.value.toUpperCase();
     const alloc = vehicleAllocationData_extra[routeKey];
-    vehicleAllocRareChanceInput_el_extra.value = alloc ? Math.round((alloc.rareChance || 0) * 100) : 5;
     if (vehicleAllocCommonTextarea_el_extra) vehicleAllocCommonTextarea_el_extra.value = vehiclesToTextareaValue_ExtraPage(alloc ? alloc.commonVehicles : []);
     if (vehicleAllocRareTextarea_el_extra) vehicleAllocRareTextarea_el_extra.value = vehiclesToTextareaValue_ExtraPage(alloc ? alloc.rareVehicles : []);
     vehicleAllocSubVehicles_extra = Array.isArray(alloc && alloc.subVehicles) ? [...alloc.subVehicles] : [];
@@ -3601,7 +3595,7 @@ function renderVehicleAllocationsList_ExtraPage() {
         li.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.5rem; border-bottom:1px solid rgba(127,140,141,0.2);';
         li.innerHTML = `
             <span><strong>${routeName}</strong>
-                <small style="opacity:0.8;"> &mdash; ${commonCount} common, ${rareCount} rare, ${subCount} sub (${Math.round((alloc.rareChance || 0) * 100)}% chance)</small>
+                <small style="opacity:0.8;"> &mdash; ${commonCount} common, ${rareCount} rare (emergency only), ${subCount} sub</small>
             </span>
             <button type="button" class="button small-action secondary" data-delete-route="${routeName}">Delete</button>
         `;
@@ -3625,16 +3619,13 @@ async function handleSaveVehicleAllocation_ExtraPage() {
     }
 
     const routeKey = routeName.toUpperCase();
-    const rareChancePercent = parseFloat(vehicleAllocRareChanceInput_el_extra.value) || 0;
-    const rareChance = Math.min(100, Math.max(0, rareChancePercent)) / 100;
 
     const existing = vehicleAllocationData_extra[routeKey] || {};
     const allocation = {
         commonVehicles: parseVehicleTextareaValue_ExtraPage(vehicleAllocCommonTextarea_el_extra ? vehicleAllocCommonTextarea_el_extra.value : ''),
         rareVehicles: parseVehicleTextareaValue_ExtraPage(vehicleAllocRareTextarea_el_extra ? vehicleAllocRareTextarea_el_extra.value : ''),
         subVehicles: vehicleAllocSubVehicles_extra,
-        restrictedVehicles: existing.restrictedVehicles || [],
-        rareChance
+        restrictedVehicles: existing.restrictedVehicles || []
     };
 
     const { database, dbSet, dbRef } = window.firebaseOMSI;

@@ -1617,6 +1617,11 @@ align-items: center;
         let stopToServingRoutesMap_extra = new Map();
         let ukBankHolidaysData_extra = { dates: [], titles: {} };
         let schoolHolidayDateRanges_extra = [];
+        
+        // PERFORMANCE: Cache today's active profiles to avoid recalculating in every filter
+        let todaysActiveProfiles_extra = [];
+        let todaysActiveProfilesSet_extra = new Set();
+        let lastCachedProfileDate_extra = null;
 
         let currentWorkingSchedule_extra = []; // This will be populated by flattening the new structure on load
         let closedStopIDs_extra = [];
@@ -5288,9 +5293,8 @@ function curtail_fetchTodaysTrips() {
         statusMsg.style.color = '#3498db';
     }
     
-    const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
-    // PERFORMANCE FIX: Convert to Set for O(1) lookups instead of O(n) array.includes()
-    const todaysActiveProfilesSet = new Set(todaysActiveProfiles);
+    // PERFORMANCE: Use cached profiles (computed once per day)
+    const todaysActiveProfilesSet = getTodaysActiveProfilesSet_ExtraPage();
 
     // --- START: New, More Robust Hybrid Logic ---
 
@@ -5320,7 +5324,6 @@ function curtail_fetchTodaysTrips() {
         if (!entry.lineName || entry.lineName !== route || !entry.destinationName || entry.destinationName !== dest) return false;
         if (!entry.OperatingProfile) return false;
         const entryProfiles = entry.OperatingProfile.split(',').map(p => p.trim());
-        // PERFORMANCE FIX: Use Set.has() instead of Array.includes() for faster lookup
         return entryProfiles.some(profile => todaysActiveProfilesSet.has(profile));
     });
 
@@ -6512,9 +6515,8 @@ async function displayScdScheduledEvents(selectedStopID) {
 
     // --- 2. DATA GATHERING - DIRECT FROM RSG CONFIGS ---
     const eventsForDisplay = [];
-    const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
-    // PERFORMANCE FIX: Convert to Set for O(1) lookups
-    const todaysActiveProfilesSet = new Set(todaysActiveProfiles);
+    // PERFORMANCE: Use cached profiles (computed once per day)
+    const todaysActiveProfilesSet = getTodaysActiveProfilesSet_ExtraPage();
 
     // Loop through all saved RSG configurations
     for (const configKey in rsg_loadedConfigs_extra) {
@@ -6523,7 +6525,6 @@ async function displayScdScheduledEvents(selectedStopID) {
 
         // Check if this configuration is active today
         const configProfiles = config.operatingProfile.split(',').map(p => p.trim());
-        // PERFORMANCE FIX: Use Set.has() instead of Array.includes()
         const isActiveToday = configProfiles.some(profile => todaysActiveProfilesSet.has(profile));
 
         if (isActiveToday) {
@@ -10593,6 +10594,22 @@ function isStandStop_ExtraPage(stopID) {
         }
     }
     return false;
+}
+
+// PERFORMANCE: Cache today's active profiles - recalculate only once per day (or when date changes)
+function getTodaysActiveProfilesSet_ExtraPage() {
+    const now = new Date();
+    const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    
+    // Only recalculate if date has changed
+    if (lastCachedProfileDate_extra !== currentDate) {
+        todaysActiveProfiles_extra = getOperatingCodesForDate_ExtraPage(now);
+        todaysActiveProfilesSet_extra = new Set(todaysActiveProfiles_extra);
+        lastCachedProfileDate_extra = currentDate;
+        console.log(`[Performance] Refreshed today's active profiles: ${todaysActiveProfiles_extra.join(', ')}`);
+    }
+    
+    return todaysActiveProfilesSet_extra;
 }
       
   function getOperatingCodesForDate_ExtraPage(dateObject, routeName = null) {
@@ -19468,9 +19485,8 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
         return;
     }
 
-    const todaysActiveProfiles = getOperatingCodesForDate_ExtraPage(new Date());
-    // PERFORMANCE FIX: Convert to Set for O(1) lookups
-    const todaysActiveProfilesSet = new Set(todaysActiveProfiles);
+    // PERFORMANCE: Use cached profiles (computed once per day)
+    const todaysActiveProfilesSet = getTodaysActiveProfilesSet_ExtraPage();
 
     const departures = currentWorkingSchedule_extra
         .filter(e => {
@@ -19478,7 +19494,6 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
                 return false;
             }
             const departureProfiles = e.OperatingProfile.split(',').map(p => p.trim());
-            // PERFORMANCE FIX: Use Set.has() instead of Array.includes()
             return departureProfiles.some(dp => todaysActiveProfilesSet.has(dp));
         })
         .sort((a, b) => {

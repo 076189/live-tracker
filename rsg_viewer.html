@@ -639,9 +639,11 @@ function flattenRouteEntries(routeName, routeData) {
     }));
     return entries;
 }
-async function loadLiveRouteEntries(routeName) {
+async function loadLiveRouteEntries(routeName, forceRefresh = false) {
     const key = clean(routeName).toUpperCase();
-    if (!key || liveRouteEntries.has(key)) return liveRouteEntries.get(key) || [];
+    if (!key) return [];
+    // If not forcing refresh and we have cached data, return it
+    if (!forceRefresh && liveRouteEntries.has(key)) return liveRouteEntries.get(key) || [];
     try {
         const snapshot = await Promise.race([
             get(ref(database, `/liveSchedule/schedulesByRoute/${key}`)),
@@ -877,6 +879,20 @@ function crosslinksFor(config) {
         : crosslinkOwnerFor(requestedConfig);
     return owner ? storedCrosslinksFor(owner) : [];
 }
+function incomingCrosslinkTargets(config = selectedConfig) {
+    // Find all crosslinks where this config is the linked route (crosslinkRouteKey)
+    const targetKey = config?.key;
+    if (!targetKey) return [];
+    const incoming = [];
+    allEntries().forEach(ownerConfig => {
+        storedCrosslinksFor(ownerConfig).forEach(crosslink => {
+            if (clean(crosslink.crosslinkRouteKey) === targetKey) {
+                incoming.push({ ...crosslink, ownerConfig });
+            }
+        });
+    });
+    return incoming;
+}
 function crosslinkTripId(config, trip, index) {
     return `${config.key}::${tripTime(trip)}::${clean(trip.tripNumber || trip.tripNo || trip.trip || trip.number) || index}`;
 }
@@ -922,9 +938,12 @@ function renderCrosslinkRows() {
     if (!container) return;
     const directions = crosslinkDirectionConfigs();
     const routes = allEntries().filter(config => clean(config.routeName));
-    const rows = crosslinksFor();
-    container.innerHTML = rows.map((crosslink, index) => {
-        const unavailableTripIds = new Set(rows.flatMap((otherCrosslink, otherIndex) => otherIndex === index ? [] : [
+    const outboundRows = crosslinksFor();
+    const incomingRows = incomingCrosslinkTargets(selectedConfig);
+    
+    // Render outbound crosslinks (editable)
+    const outboundHtml = outboundRows.map((crosslink, index) => {
+        const unavailableTripIds = new Set(outboundRows.flatMap((otherCrosslink, otherIndex) => otherIndex === index ? [] : [
             otherCrosslink.crosslinkFromTripId,
             otherCrosslink.crosslinkToTripId,
             otherCrosslink.crosslinkReturnTripId
@@ -940,6 +959,25 @@ function renderCrosslinkRows() {
         const allDirections = [...new Map(allEntries().flatMap(config => [config, findPairedConfig(config)]).filter(Boolean).map(directionConfig => [directionConfig.key, directionConfig])).values()];
         return `<div class="calculator-grid" data-crosslink-index="${index}"><div><label>Crosslink ${index + 1}: route and direction</label><select data-crosslink-field="crosslinkRouteKey">${optionsForConfigs(routes, crosslink.crosslinkRouteKey, 'Choose linked configuration')}</select></div><div><label>Leaves from direction</label><select data-crosslink-field="crosslinkFromDirectionKey">${optionsForConfigs(rowDirections, fromConfig?.key, 'Choose a direction')}</select></div><div><label>Leaves after trip</label><select data-crosslink-field="crosslinkFromTripId">${optionsForTrips(fromConfig, crosslink.crosslinkFromTripId, 'Choose a trip', null, null, unavailableTripIds)}</select></div><div><label>Starts linked-route trip</label><select data-crosslink-field="crosslinkToTripId"${linkedConfig && fromTrip ? '' : ' disabled'}>${optionsForTrips(linkedConfig, crosslink.crosslinkToTripId, 'Choose a trip', unrestricted ? null : fromConfig, unrestricted ? null : fromTrip, unavailableTripIds)}</select></div><div><label>Returns to direction (optional)</label><select data-crosslink-field="crosslinkReturnDirectionKey">${optionsForConfigs(allDirections, returnConfig?.key, 'No return')}</select></div><div><label>Returns on trip (optional)</label><select data-crosslink-field="crosslinkReturnTripId"${returnConfig && linkedTrip ? '' : ' disabled'}>${optionsForTrips(returnConfig, crosslink.crosslinkReturnTripId, 'No return', unrestricted ? null : linkedConfig, unrestricted ? null : linkedTrip, unavailableTripIds)}</select></div><button type="button" class="secondary" data-remove-crosslink="${index}">Remove crosslink ${index + 1}</button></div>`;
     }).join('');
+    
+    // Render incoming crosslinks (read-only, managed from source route)
+    const incomingHtml = incomingRows.map((incoming, index) => {
+        const crosslink = incoming;
+        const fromConfig = configForKey(crosslink.crosslinkFromDirectionKey) || incoming.ownerConfig;
+        const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
+        const returnConfig = configForKey(crosslink.crosslinkReturnDirectionKey);
+        const fromTrip = tripForCrosslinkId(fromConfig, crosslink.crosslinkFromTripId);
+        const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
+        const returnTrip = tripForCrosslinkId(returnConfig, crosslink.crosslinkReturnTripId);
+        const fromTripLabel = fromTrip && fromConfig ? `${tripTime(fromTrip) || 'No time'} to ${lastStopTimeForTrip(fromConfig, fromTrip, liveRouteEntries.get(clean(fromConfig.routeName).toUpperCase()) || []) || 'end unavailable'}` : 'Unknown';
+        const linkedTripLabel = linkedTrip && linkedConfig ? `${tripTime(linkedTrip) || 'No time'} to ${lastStopTimeForTrip(linkedConfig, linkedTrip, liveRouteEntries.get(clean(linkedConfig.routeName).toUpperCase()) || []) || 'end unavailable'}` : 'Unknown';
+        const returnTripLabel = returnTrip && returnConfig ? `${tripTime(returnTrip) || 'No time'} to ${lastStopTimeForTrip(returnConfig, returnTrip, liveRouteEntries.get(clean(returnConfig.routeName).toUpperCase()) || []) || 'end unavailable'}` : 'Unknown';
+        const sourceRoute = fromConfig ? configDisplayName(fromConfig) : 'Unknown source';
+        const targetRoute = linkedConfig ? configDisplayName(linkedConfig) : 'Unknown target';
+        return `<div class="calculator-grid" style="opacity:0.7; pointer-events:none;"><div><label>Incoming crosslink ${index + 1} (from ${esc(sourceRoute)})</label><div style="padding:9px 11px; background:#f5f5f5; border:1px solid var(--line); border-radius:3px;">${esc(targetRoute)}</div></div><div><label>From direction</label><div style="padding:9px 11px; background:#f5f5f5; border:1px solid var(--line); border-radius:3px;">${esc(sourceRoute)}</div></div><div><label>After trip</label><div style="padding:9px 11px; background:#f5f5f5; border:1px solid var(--line); border-radius:3px;">${esc(fromTripLabel)}</div></div><div><label>Starts trip</label><div style="padding:9px 11px; background:#f5f5f5; border:1px solid var(--line); border-radius:3px;">${esc(linkedTripLabel)}</div></div>${returnConfig ? `<div><label>Returns to</label><div style="padding:9px 11px; background:#f5f5f5; border:1px solid var(--line); border-radius:3px;">${esc(configDisplayName(returnConfig))}</div></div><div><label>Return trip</label><div style="padding:9px 11px; background:#f5f5f5; border:1px solid var(--line); border-radius:3px;">${esc(returnTripLabel)}</div></div>` : '<div style="grid-column:1/-1; color:var(--muted); font-size:.85rem;">No return trip</div>'}</div>`;
+    }).join('');
+    
+    container.innerHTML = outboundHtml + (incomingHtml ? `<div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">${incomingHtml}</div>` : '');
 }
 function populateCrosslinkRoutes() { renderCrosslinkRows(); }
 function crosslinkWait(previousConfig, previousTrip, nextConfig, nextTrip) {
@@ -1180,7 +1218,15 @@ function incomingCrosslinkRunReservations(config, paired) {
         if (!fromConfig || !linkedConfig || !selectedDirectionKeys.has(linkedConfig.key) || selectedDirectionKeys.has(fromConfig.key)) return;
         const fromTrip = tripForCrosslinkId(fromConfig, crosslink.crosslinkFromTripId);
         const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
-        const runningNumber = runningValue(fromTrip);
+        let runningNumber = runningValue(fromTrip);
+        
+        // If the source trip doesn't have a saved running number, check if IT'S the target of another crosslink
+        // This handles multi-leg crosslinks like: Trip 69 (SC8) → Route 604 Trip 2 → Trip 147
+        if (!runningNumber && fromTrip && linkedTrip) {
+            const sourceRunFromChain = sourceRunningNumberFromCrosslinkChain(fromConfig, fromTrip);
+            if (sourceRunFromChain) runningNumber = sourceRunFromChain;
+        }
+        
         const fromInterval = fromTrip && tripInterval(fromConfig, fromTrip);
         const linkedInterval = linkedTrip && tripInterval(linkedConfig, linkedTrip);
         if (!runningNumber || !fromInterval || !linkedInterval) return;
@@ -1189,6 +1235,29 @@ function incomingCrosslinkRunReservations(config, paired) {
         reservations.push({ runningNumber:runningNumber.toUpperCase(), start:fromInterval.start, end:linkedStart, targetIdentity:crosslinkTripIdentity(crosslink.crosslinkToTripId) });
     }));
     return reservations;
+}
+function sourceRunningNumberFromCrosslinkChain(config, trip) {
+    // Look for any crosslink where this trip is the target
+    // If found, recursively get the running number from the source of that crosslink
+    for (const ownerConfig of allEntries()) {
+        for (const crosslink of storedCrosslinksFor(ownerConfig)) {
+            const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
+            const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
+            if (linkedTrip && linkedConfig && linkedConfig.key === config.key && tripTime(linkedTrip) === tripTime(trip)) {
+                // Found a crosslink where this trip is the target
+                const fromConfig = configForKey(crosslink.crosslinkFromDirectionKey) || ownerConfig;
+                const fromTrip = tripForCrosslinkId(fromConfig, crosslink.crosslinkFromTripId);
+                if (fromTrip) {
+                    const savedRun = runningValue(fromTrip);
+                    if (savedRun) return savedRun;
+                    // Recursively check if the source is also a target of another crosslink
+                    const chainedRun = sourceRunningNumberFromCrosslinkChain(fromConfig, fromTrip);
+                    if (chainedRun) return chainedRun;
+                }
+            }
+        }
+    }
+    return '';
 }
 function isRunningNumberReservedForEvent(runningNumber, event, reservations) {
     if (!runningNumber) return false;
@@ -1208,20 +1277,96 @@ function assignRunningNumbersInOrder(config, paired, entries, dutyRuns = []) {
     const incomingRunReservations = incomingCrosslinkRunReservations(config, paired);
     const inheritedRunningNumbers = crosslinkInheritedRunningNumberMap();
     const returns = new Map([...reservations.values()].filter(reservation => reservation.returnKey).map(reservation => [reservation.returnKey, reservation]));
+    
+    // Helper: trace crosslink chain to find ultimate source trip on target config
+    function findUltimateSourceOnConfig(trip, tripConfig, targetConfig) {
+        // FIRST check if THIS trip is a crosslink target - if so, recurse on source
+        for (const ownerConfig of allEntries()) {
+            for (const crosslink of storedCrosslinksFor(ownerConfig)) {
+                const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
+                if (linkedConfig && linkedConfig.key === tripConfig.key) {
+                    const sourceTrip = tripForCrosslinkId(ownerConfig, crosslink.crosslinkFromTripId);
+                    const targetTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
+                    if (sourceTrip && targetTrip && tripTime(targetTrip) === tripTime(trip)) {
+                        // This crosslink targets our trip - recurse on source
+                        return findUltimateSourceOnConfig(sourceTrip, ownerConfig, targetConfig);
+                    }
+                }
+            }
+        }
+        // No crosslink found where this trip is target - return this trip
+        return { trip, config: tripConfig };
+    }
+    
+    // Build map of crosslink targets to their ultimate source on THIS config
+    const crosslinkTargetToSourceMap = new Map();
+    if (window.RSG_DEBUG_CROSSLINKS) console.log(`[Map Building] Starting for route ${config.routeName}, looking through ${allEntries().length} configs`);
+    allEntries().forEach(ownerConfig => {
+        const xlinks = storedCrosslinksFor(ownerConfig);
+        if (xlinks.length > 0 && window.RSG_DEBUG_CROSSLINKS) console.log(`  [Map Building] Route ${ownerConfig.routeName} has ${xlinks.length} crosslinks`);
+        xlinks.forEach((crosslink, index) => {
+            const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
+            if (!linkedConfig) {
+                if (window.RSG_DEBUG_CROSSLINKS) console.log(`  [Map Building] Crosslink ${index}: can't find linked config for key ${crosslink.crosslinkRouteKey}`);
+                return;
+            }
+            const sourceTrip = tripForCrosslinkId(ownerConfig, crosslink.crosslinkFromTripId);
+            const targetTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
+            if (!sourceTrip || !targetTrip) {
+                if (window.RSG_DEBUG_CROSSLINKS) console.log(`  [Map Building] Crosslink ${index}: missing trip - source=${sourceTrip ? tripTime(sourceTrip) : 'NOT FOUND'}, target=${targetTrip ? tripTime(targetTrip) : 'NOT FOUND'}`);
+                return;
+            }
+            if (window.RSG_DEBUG_CROSSLINKS) console.log(`  [Map Building] Crosslink: ${ownerConfig.routeName} ${tripTime(sourceTrip)} → ${linkedConfig.routeName} ${tripTime(targetTrip)}`);
+            const targetKey = tripKey(targetTrip, linkedConfig);
+            // Find ultimate source that traces back to current config
+            const ultimateSource = findUltimateSourceOnConfig(targetTrip, linkedConfig, config);
+            if (ultimateSource.config.key === config.key) {
+                crosslinkTargetToSourceMap.set(targetKey, {
+                    sourceTrip: ultimateSource.trip,
+                    sourceConfig: ultimateSource.config,
+                    immediateSourceTrip: sourceTrip,
+                    immediateSourceConfig: ownerConfig
+                });
+                if (window.RSG_DEBUG_CROSSLINKS) {
+                    console.log(`  [Chain Trace] ✓ Target ${tripTime(targetTrip)} on ${linkedConfig.routeName} traces back to ${tripTime(ultimateSource.trip)} on ${ultimateSource.config.routeName}`);
+                }
+            } else if (window.RSG_DEBUG_CROSSLINKS) {
+                console.log(`  [Chain Trace] ✗ Target ${tripTime(targetTrip)} does NOT trace back to current config (traces to ${ultimateSource.config.routeName})`);
+            }
+        });
+    });
+    
     events.forEach(event => {
         let dutyIndex = -1;
         let latestEligibleEnd = -Infinity;
         const eventId = crosslinkIdForTrip(event.config, event.trip);
+        const eventTripKey = tripKey(event.trip, event.config);
+        
+        // CHECK IF THIS TRIP IS A CROSSLINK TARGET - if so, use same duty as ultimate source
+        const crosslinkSource = crosslinkTargetToSourceMap.get(eventTripKey);
+        if (crosslinkSource) {
+            const sourceAssignment = assignments.get(tripKey(crosslinkSource.sourceTrip, crosslinkSource.sourceConfig));
+            if (sourceAssignment && Number.isInteger(sourceAssignment.dutyIndex) && sourceAssignment.dutyIndex >= 0) {
+                dutyIndex = sourceAssignment.dutyIndex;
+                if (window.RSG_DEBUG_CROSSLINKS) {
+                    console.log(`[Crosslink Target] Trip ${tripTime(event.trip)} is target, using duty ${dutyIndex} from source ${tripTime(crosslinkSource.sourceTrip)}`);
+                }
+            }
+        }
+        
         const incomingReservation = incomingRunReservations.find(reservation => reservation.targetIdentity === crosslinkTripIdentity(eventId));
         const incomingDutyIndex = incomingReservation
             ? dutyRuns.findIndex(run => clean(run).toUpperCase() === incomingReservation.runningNumber)
             : -1;
         const returningReservation = returns.get(eventId);
-        if (incomingDutyIndex >= 0) {
+        if (dutyIndex === -1 && incomingDutyIndex >= 0) {
             dutyIndex = incomingDutyIndex;
-        } else if (Number.isInteger(returningReservation?.dutyIndex) && returningReservation.dutyIndex >= 0) {
+        } else if (dutyIndex === -1 && Number.isInteger(returningReservation?.dutyIndex) && returningReservation.dutyIndex >= 0) {
             dutyIndex = returningReservation.dutyIndex;
-        } else {
+            if (window.RSG_DEBUG_CROSSLINKS) console.log(`[Crosslink Return Found] Trip ${tripTime(event.trip)}, using reserved duty ${dutyIndex}`);
+        } else if (dutyIndex === -1 && returningReservation && window.RSG_DEBUG_CROSSLINKS) {
+            console.log(`[Crosslink Return NOT Found] Trip ${tripTime(event.trip)}, reservation exists but no dutyIndex yet`);
+        } else if (dutyIndex === -1) {
             duties.forEach((duty, candidateIndex) => {
                 const locationsAreKnown = duty.endTerminus && event.startTerminus;
                 const changesDirection = duty.directionIndex !== event.directionIndex;
@@ -1266,10 +1411,29 @@ function assignRunningNumbersInOrder(config, paired, entries, dutyRuns = []) {
         if (sourceReservation) {
             sourceReservation.dutyIndex = dutyIndex;
             duties[dutyIndex].reserved = true;
+            if (window.RSG_DEBUG_CROSSLINKS) console.log(`[Crosslink Source] Trip ${tripTime(event.trip)} assigned duty ${dutyIndex}, will return on ${sourceReservation.returnKey}`);
         }
         const inheritedRunningNumber = inheritedRunningNumbers.get(crosslinkTripIdentity(eventId));
-        if (inheritedRunningNumber) duties[dutyIndex].inheritedRunningNumber = inheritedRunningNumber;
-        assignments.set(tripKey(event.trip, event.config), { dutyIndex, runningNumberOverride: duties[dutyIndex].inheritedRunningNumber || '' });
+        if (inheritedRunningNumber) {
+            duties[dutyIndex].inheritedRunningNumber = inheritedRunningNumber;
+            // Keep inherited running number active for this duty until it naturally completes its cycle
+            duties[dutyIndex].activeInheritedRunningNumber = inheritedRunningNumber;
+            if (window.RSG_DEBUG_CROSSLINKS) console.log(`[Crosslink Return] Trip ${tripTime(event.trip)} assigned duty ${dutyIndex}, inheriting ${inheritedRunningNumber}`);
+        }
+        // If this trip is a crosslink target and source is on same duty, inherit running number
+        if (crosslinkSource && dutyIndex === assignments.get(tripKey(crosslinkSource.sourceTrip, crosslinkSource.sourceConfig))?.dutyIndex) {
+            const dutyActiveRunning = duties[dutyIndex]?.activeInheritedRunningNumber;
+            if (dutyActiveRunning) {
+                if (window.RSG_DEBUG_CROSSLINKS) console.log(`[Crosslink Duty Inheritance] Trip ${tripTime(event.trip)} inheriting duty's running number ${dutyActiveRunning}`);
+                assignments.set(eventTripKey, { dutyIndex, runningNumberOverride: dutyActiveRunning });
+            }
+        }
+        // Apply inherited running number from a previous crosslink return on this duty
+        const activeInheritedRun = duties[dutyIndex]?.activeInheritedRunningNumber;
+        if (activeInheritedRun && !inheritedRunningNumber && window.RSG_DEBUG_CROSSLINKS) {
+            console.log(`[Crosslink Continuation] Trip ${tripTime(event.trip)} assigned duty ${dutyIndex}, continuing inherited ${activeInheritedRun}`);
+        }
+        assignments.set(tripKey(event.trip, event.config), { dutyIndex, runningNumberOverride: activeInheritedRun || inheritedRunningNumber || '' });
     });
     return assignments;
 }
@@ -1445,7 +1609,15 @@ function crosslinkInheritedRunningNumberMap() {
         if (crosslinkStorageOwnerFor(fromConfig)?.key !== ownerConfig.key || !crosslink.crosslinkToTripId) return;
         const sourceTrip = tripForCrosslinkId(fromConfig, crosslink.crosslinkFromTripId);
         const savedRun = sourceTrip && runningValue(sourceTrip);
-        if (savedRun) map.set(crosslinkTripIdentity(crosslink.crosslinkToTripId), savedRun);
+        if (savedRun) {
+            // Map OUTBOUND trip (TO other route) to running number
+            map.set(crosslinkTripIdentity(crosslink.crosslinkToTripId), savedRun);
+            // Also map RETURN trip (FROM other route BACK) to the same running number
+            // This ensures the return trip and all subsequent trips inherit the same running number
+            if (crosslink.crosslinkReturnTripId) {
+                map.set(crosslinkTripIdentity(crosslink.crosslinkReturnTripId), savedRun);
+            }
+        }
     }));
     return map;
 }
@@ -1500,8 +1672,9 @@ async function selectConfig(config, card) {
     const draftBadge = config.isDraft ? ` <span style="color:var(--accent); font-size:.6em; text-transform:uppercase; letter-spacing:.06em; vertical-align:middle;">(Draft${config.draftTargetConfigKey ? ' - replaces existing live config' : ' - new route'})</span>` : '';
     $('details').innerHTML = `<h2>${esc(config.userDisplayName || 'Configuration details')}${draftBadge}</h2><div class="meta">Route: ${esc(config.routeName || '-')} | Destination: ${esc(config.destinationName || '-')} | Profile: ${esc(config.operatingProfile || '-')}<br>Last saved: ${esc(config.lastSaved ? new Date(config.lastSaved).toLocaleString('en-GB') : '-')}</div><div class="meta" style="margin-top:16px">Stop sequence (${sequence.length})</div><div class="sequence">${sequence.length ? sequence.map(stop => `<span class="stop">${esc(stop.stopName || stop.name || stop.stopID || stop.id || stop)}</span>`).join('') : '<span class="meta">No stop sequence saved.</span>'}</div>`;
     $('draft-effective-date-input').value = config.isDraft ? clean(config.draftEffectiveDate) : '';
-    const entries = await loadLiveRouteEntries(config.routeName);
-    await Promise.all(crosslinkConfigs(config).map(linkedConfig => loadLiveRouteEntries(linkedConfig.routeName)));
+    // Force refresh of live route entries to pick up any running numbers that were just saved
+    const entries = await loadLiveRouteEntries(config.routeName, true);
+    await Promise.all(crosslinkConfigs(config).map(linkedConfig => loadLiveRouteEntries(linkedConfig.routeName, true)));
     const dutyPrimaryConfig = findFullRouteConfigFor(config) || config;
     const pairedConfig = findPairedConfig(dutyPrimaryConfig);
     const dutyResult = calculateDutyAssignments(dutyPrimaryConfig, pairedConfig, entries);
@@ -1534,7 +1707,8 @@ async function load() {
             console.warn('Could not load RSG config drafts (check Firebase rules for /rsgConfigDrafts):', draftsError);
             drafts = [];
         }
-        window.rsgDebug = { configs, shortWorkingRelation, stopsMatch, shortWorkingConfigsFor, findPairedConfig, findFullRouteConfigFor, profileCoveredBy, isNightConfig, isTwentyFourHourContinuation, buildDirectionEvents, assignRunningNumbersInOrder, configTermini, isCircularService, runningPool, calculateDutyAssignments, runningValue, tripKey, crosslinksFor, generatedRunningPool, tripsOf };
+        window.rsgDebug = { configs, shortWorkingRelation, stopsMatch, shortWorkingConfigsFor, findPairedConfig, findFullRouteConfigFor, profileCoveredBy, isNightConfig, isTwentyFourHourContinuation, buildDirectionEvents, assignRunningNumbersInOrder, configTermini, isCircularService, runningPool, calculateDutyAssignments, runningValue, tripKey, crosslinksFor, incomingCrosslinkTargets, generatedRunningPool, tripsOf };
+        window.RSG_DEBUG_CROSSLINKS = false; // Set to true to debug crosslink assignments
         populateFilters(); render(); renderRouteRunningNumbers(); renderMissingRunningNumbersOverview(); renderDraftsList(); $('status').textContent = `${configs.length} saved RSG configuration(s) loaded.`;
     } catch (error) { $('status').textContent = `Could not load RSG configurations: ${error.message}`; $('config-list').innerHTML = '<div class="empty">Check Firebase access and refresh the page.</div>'; }
 }
@@ -2013,10 +2187,19 @@ $('save-running-button').addEventListener('click', async () => {
     status.textContent = 'Saving to RSG...';
     try {
         await update(ref(database), updates);
+        // Clear cache for affected routes so next load gets fresh data with saved running numbers
+        if (selectedConfig) {
+            liveRouteEntries.delete(clean(selectedConfig.routeName).toUpperCase());
+            crosslinkConfigs(selectedConfig).forEach(linkedConfig => {
+                liveRouteEntries.delete(clean(linkedConfig.routeName).toUpperCase());
+            });
+        }
         render();
         renderMissingRunningNumbers(selectedConfig, findPairedConfig(selectedConfig));
         renderRouteRunningNumbers();
-        suggest(selectedConfig, liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
+        // Reload entries fresh for suggest()
+        const freshEntries = await loadLiveRouteEntries(clean(selectedConfig?.routeName), true);
+        suggest(selectedConfig, freshEntries);
         status.textContent = propagatedCrosslinks ? `${propagatedCrosslinks} crosslink running number(s) saved to their target trip(s). OMSI Tools will pick these up next time it loads the RSG.` : 'Running numbers saved to RSG. OMSI Tools will pick these up next time it loads the RSG.';
     } catch (error) {
         status.textContent = `Save failed: ${error.message}`;

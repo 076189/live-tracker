@@ -470,8 +470,7 @@ align-items: center;
 <body>
     <div class="page-container">
         <h1>OMSI Tools - Extra Modules</h1>
-        <div id="global-notification-banner" style="display: none; padding: 12px 15px; background-color: #27ae60; color: white; text-align: center; position: sticky; top: 0; left: 0; width: 100%; z-index: 1060; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-        </div>
+        <!-- Notification banner removed -->
 
         <div id="auth-section" class="section">
             <h2>Admin Login</h2>
@@ -490,9 +489,6 @@ align-items: center;
             </div>
         </div>
 
-        <div id="current-profile-display-container" style="display:none;"> <p id="current-profile-display">Today's Operating Profile: (loading...)</p>
-            <!--<button id="enableDesktopNotificationsBtn_extra" class="button neutral">Enable Desktop Alerts</button>-->
-            <!--<button id="iphoneTestNotificationBtn" class="button neutral" style="background-color: lightblue; color: #2c3e50;">Test iPhone Notification</button>-->
         </div>
 
         <div id="top-menu-bar_extra" style="display:none;"> 
@@ -11198,37 +11194,21 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName) {
         stopData[stopID] = arrivalsByStopForThisStop;
     }
     
-    // Step 3: Write affected stops in batches to avoid "Write too large" error
-    const ROUTE_ARRIVALS_BATCH_ENTRIES = 1500;
-    let multiPathUpdate = {};
-    let entriesInBatch = 0;
-    
-    const flushBatch = async () => {
-        if (Object.keys(multiPathUpdate).length === 0) return;
-        await dbUpdate(dbRef(database), multiPathUpdate);
-        multiPathUpdate = {};
-        entriesInBatch = 0;
-    };
+    // Step 3: Write affected stops using dbSet (not dbUpdate) to completely replace old data
+    // and avoid stale trip entries from being retained
+    const { dbSet } = window.firebaseOMSI;
     
     for (const stopID of affectedStopIDs) {
-        const entriesForStop = Object.keys(stopData[stopID]).length;
-        
-        // If adding this stop would exceed the batch limit, flush first
-        if (entriesInBatch > 0 && entriesInBatch + entriesForStop > ROUTE_ARRIVALS_BATCH_ENTRIES) {
-            await flushBatch();
-        }
-        
-        multiPathUpdate[`${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`] = stopData[stopID];
-        entriesInBatch += entriesForStop;
-        
-        // If batch is now full, flush it
-        if (entriesInBatch >= ROUTE_ARRIVALS_BATCH_ENTRIES) {
-            await flushBatch();
+        const stopPath = `${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`;
+        try {
+            // Use dbSet to completely replace the stop's index, removing any orphaned entries
+            await dbSet(dbRef(database, stopPath), stopData[stopID]);
+            console.log(`  -> Set arrivals index for stop ${stopID} (${Object.keys(stopData[stopID]).length} entries)`);
+        } catch (error) {
+            console.error(`Error writing arrivals index for stop ${stopID}:`, error);
+            throw error;
         }
     }
-    
-    // Flush any remaining data
-    await flushBatch();
     
     console.log(`Arrivals index rebuilt for route "${routeName}" (${affectedStopIDs.size} stops, ${entriesProcessed} entries).`);
 }

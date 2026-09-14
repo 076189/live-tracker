@@ -671,6 +671,17 @@
         if (backgroundHistoryScheduleData.length > 0) queueBackgroundHistoryProcessing();
         if (localScheduleData.length > 0) throttledProcessAndDisplay();
     }
+    
+    function applySchoolHolidayRanges(snapshot) {
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+            if (Array.isArray(data)) {
+                schoolHolidayDateRanges.length = 0;
+                schoolHolidayDateRanges.push(...data);
+            }
+        }
+        if (localScheduleData.length > 0) throttledProcessAndDisplay();
+    }
 
     function getLiveAssignedVehicle(routeName, runningNumber) {
         const targetRunning = String(runningNumber || '').trim().toUpperCase();
@@ -796,24 +807,33 @@
         const tripDetails = {};
         scheduleData.forEach(entry => {
             if (!entry.tripId || entry.tripId.startsWith("NO_TRIPID")) return;
-            const tripKey = `${entry.lineName}_${entry.OperatingProfile}_${entry.tripId}`;
-            let timeStr = String(entry.scheduledTime).trim();
-            let mins = 0;
-            if (timeStr.includes(':')) {
-                const p = timeStr.split(':');
-                mins = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
-            } else if (!isNaN(parseFloat(timeStr))) {
-                mins = Math.round(parseFloat(timeStr) * 1440);
-            }
-            if (!tripDetails[tripKey]) {
-                tripDetails[tripKey] = {
-                    tripId: entry.tripId, lineName: entry.lineName, profile: entry.OperatingProfile,
-                    startTime: mins, endTime: mins, tripKey: tripKey
-                };
-            } else {
-                if (mins < tripDetails[tripKey].startTime) tripDetails[tripKey].startTime = mins;
-                if (mins > tripDetails[tripKey].endTime) tripDetails[tripKey].endTime = mins;
-            }
+            
+            // Handle both single profile (backward compat) and array of profiles
+            const profiles = Array.isArray(entry.OperatingProfiles) 
+                ? entry.OperatingProfiles 
+                : (entry.OperatingProfile ? [entry.OperatingProfile] : []);
+            
+            // Create a trip key for each profile this entry applies to
+            profiles.forEach(profile => {
+                const tripKey = `${entry.lineName}_${profile}_${entry.tripId}`;
+                let timeStr = String(entry.scheduledTime).trim();
+                let mins = 0;
+                if (timeStr.includes(':')) {
+                    const p = timeStr.split(':');
+                    mins = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+                } else if (!isNaN(parseFloat(timeStr))) {
+                    mins = Math.round(parseFloat(timeStr) * 1440);
+                }
+                if (!tripDetails[tripKey]) {
+                    tripDetails[tripKey] = {
+                        tripId: entry.tripId, lineName: entry.lineName, profile: profile,
+                        startTime: mins, endTime: mins, tripKey: tripKey
+                    };
+                } else {
+                    if (mins < tripDetails[tripKey].startTime) tripDetails[tripKey].startTime = mins;
+                    if (mins > tripDetails[tripKey].endTime) tripDetails[tripKey].endTime = mins;
+                }
+            });
         });
         const routesProfiles = {};
         Object.values(tripDetails).forEach(trip => {
@@ -985,6 +1005,10 @@
         const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
         dbOnValue(vehicleAllocationsRef, (snapshot) => { applyLiveVehicleAllocations(snapshot); });
 
+        // Load school holiday date ranges from Firebase
+        const schoolHolidaysRef = dbRef(database, '/settings/schoolHolidayRanges');
+        dbOnValue(schoolHolidaysRef, (snapshot) => { applySchoolHolidayRanges(snapshot); });
+
         // Load operator changes by date from Firebase
         const rocRef = dbRef(database, '/routeOperatorChangesByDate');
         dbOnValue(rocRef, (snapshot) => {
@@ -1018,18 +1042,55 @@
 
     function loadRouteDataOnDemand(routeKey) {
         const normalizedRouteKey = String(routeKey || '').trim().toUpperCase();
+        
         const cachedSchedules = loadRouteScheduleCache();
-        const cachedRouteEntries = Array.isArray(cachedSchedules[normalizedRouteKey]) ? cachedSchedules[normalizedRouteKey] : [];
+        let cachedRouteEntries = Array.isArray(cachedSchedules[normalizedRouteKey]) ? cachedSchedules[normalizedRouteKey] : [];
+        
+        // CRITICAL FIX: Old cached entries might not have OperatingProfiles field (from before the fix)
+        // Need to infer it from context or re-cache. For now, delete old cache to force fresh load
+        if (cachedRouteEntries.length > 0 && (!cachedRouteEntries[0].OperatingProfiles || !Array.isArray(cachedRouteEntries[0].OperatingProfiles))) {
+            console.log(`[DEBUG] Cache has old format (missing OperatingProfiles), clearing cache for ${normalizedRouteKey}`);
+            // Clear the cached entries for this route to force fresh load from Firebase
+            delete cachedSchedules[normalizedRouteKey];
+            try { 
+                localStorage.setItem(ROUTE_SCHEDULE_CACHE_KEY, JSON.stringify(cachedSchedules)); 
+            } catch (e) {}
+            cachedRouteEntries = [];
+        }
+        
+        // Apply current profile filtering to cached entries to ensure they match today's profiles
+        const applicableCodesArray = getCodesForCalendarDay(new Date());
+        const applicableCodesForToday = new Set(applicableCodesArray);
+        console.log(`[DEBUG] Today's codes:`, Array.from(applicableCodesForToday), `Cached: ${cachedRouteEntries.length} entries`);
+        
+        // Debug: Show what profiles are in the cached entries
         if (cachedRouteEntries.length > 0) {
+            const cachedProfiles = new Set();
+            cachedRouteEntries.forEach(e => {
+                if (e.OperatingProfiles && Array.isArray(e.OperatingProfiles)) {
+                    e.OperatingProfiles.forEach(p => cachedProfiles.add(p));
+                }
+            });
+            console.log(`[DEBUG] Profiles in cached entries:`, Array.from(cachedProfiles));
+        }
+        
+        const filteredCachedEntries = cachedRouteEntries.filter(entry => {
+            if (!entry || !entry.OperatingProfiles || !Array.isArray(entry.OperatingProfiles)) return false;
+            // Check if ANY of the entry's profiles match today's codes
+            return entry.OperatingProfiles.some(prof => applicableCodesForToday.has(prof));
+        });
+        console.log(`[DEBUG] After filtering: ${filteredCachedEntries.length} entries (profiles: ${new Set(filteredCachedEntries.flatMap(e => e.OperatingProfiles || [])).size} unique)`);
+        
+        if (filteredCachedEntries.length > 0) {
             localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== normalizedRouteKey);
-            localScheduleData.push(...cachedRouteEntries);
+            localScheduleData.push(...filteredCachedEntries);
             generateVehicleBlocks(localScheduleData);
             processAndDisplayAllData();
             generateAndDisplayRouteSequences();
         }
 
         if (!window.firebaseOMSI_SA || !window.firebaseOMSI_SA.database) {
-            if (searchStatusMessage) searchStatusMessage.textContent = cachedRouteEntries.length > 0
+            if (searchStatusMessage) searchStatusMessage.textContent = filteredCachedEntries.length > 0
                 ? `Loaded route ${escapeHtml(normalizedRouteKey)} from cache.`
                 : `Route ${escapeHtml(normalizedRouteKey)} is unavailable while offline.`;
             return;
@@ -1046,8 +1107,28 @@
                 const flatEntries = flattenSingleRouteData(routeKey, routeData);
                 saveRouteScheduleToCache(routeKey, flatEntries);
                 
+                // Debug: Show what profiles are being set
+                const profilesSet = new Set();
+                flatEntries.forEach(e => {
+                    if (e.OperatingProfiles && Array.isArray(e.OperatingProfiles)) {
+                        e.OperatingProfiles.forEach(p => profilesSet.add(p));
+                    }
+                });
+                console.log(`[DEBUG] Profiles SET in flattenSingleRouteData:`, Array.from(profilesSet));
+                
+                // Apply current profile filtering to Firebase-loaded data
+                const applicableCodesArray = getCodesForCalendarDay(new Date());
+                const applicableCodesForToday = new Set(applicableCodesArray);
+                
+                const filteredEntries = flatEntries.filter(entry => {
+                    if (!entry || !entry.OperatingProfiles || !Array.isArray(entry.OperatingProfiles)) return false;
+                    // Check if ANY of the entry's profiles match today's codes
+                    return entry.OperatingProfiles.some(prof => applicableCodesForToday.has(prof));
+                });
+                console.log(`[DEBUG] Firebase: ${flatEntries.length} total → ${filteredEntries.length} filtered (profiles: ${new Set(filteredEntries.flatMap(e => e.OperatingProfiles || [])).size} unique)`);
+                
                 localScheduleData = localScheduleData.filter(e => String(e.lineName).toUpperCase() !== routeKey.toUpperCase());
-                localScheduleData.push(...flatEntries);
+                localScheduleData.push(...filteredEntries);
 
                 if (currentRouteFilter) generateVehicleBlocks(localScheduleData);
                 if(searchStatusMessage) searchStatusMessage.textContent = `Loaded route ${escapeHtml(routeKey)}.`;
@@ -1119,8 +1200,23 @@
 
         const cachedSchedules = loadRouteScheduleCache();
         const cachedAllEntries = [];
+        
+        // Apply current profile filtering to cached entries
+        const applicableCodesArray = getCodesForCalendarDay(new Date());
+        const applicableCodesForToday = new Set(applicableCodesArray);
+        
         rareRouteKeys.forEach(routeKey => {
-            if (Array.isArray(cachedSchedules[routeKey])) cachedAllEntries.push(...cachedSchedules[routeKey]);
+            if (Array.isArray(cachedSchedules[routeKey])) {
+                const filteredEntries = cachedSchedules[routeKey].filter(entry => {
+                    if (!entry || (!entry.OperatingProfiles && !entry.OperatingProfile)) return true;
+                    // Handle both array format and single profile (backward compat)
+                    const profiles = Array.isArray(entry.OperatingProfiles) 
+                        ? entry.OperatingProfiles 
+                        : (entry.OperatingProfile ? [entry.OperatingProfile] : []);
+                    return profiles.some(prof => applicableCodesForToday.has(prof));
+                });
+                cachedAllEntries.push(...filteredEntries);
+            }
         });
         if (cachedAllEntries.length > 0) {
             localScheduleData = cachedAllEntries;
@@ -1160,8 +1256,21 @@
             if (snapshot.exists()) {
                 const flatEntries = flattenSingleRouteData(routeKey, snapshot.val());
                 saveRouteScheduleToCache(routeKey, flatEntries);
+                
+                // Apply current profile filtering
+                const applicableCodesArray = getCodesForCalendarDay(new Date());
+                const applicableCodesForToday = new Set(applicableCodesArray);
+                const filteredEntries = flatEntries.filter(entry => {
+                    if (!entry || (!entry.OperatingProfiles && !entry.OperatingProfile)) return true;
+                    // Handle both array format and single profile (backward compat)
+                    const profiles = Array.isArray(entry.OperatingProfiles) 
+                        ? entry.OperatingProfiles 
+                        : (entry.OperatingProfile ? [entry.OperatingProfile] : []);
+                    return profiles.some(prof => applicableCodesForToday.has(prof));
+                });
+                
                 localScheduleData = localScheduleData.filter(e => String(e.lineName || '').toUpperCase() !== routeKey);
-                localScheduleData.push(...flatEntries);
+                localScheduleData.push(...filteredEntries);
                 generateVehicleBlocks(localScheduleData);
                 throttledProcessAndDisplay();
                 generateAndDisplayRouteSequences();
@@ -1180,15 +1289,12 @@
         const flatEntries = [];
         if (!routeData || typeof routeData !== 'object') return flatEntries;
         
-        // Filter entries by applicable operating codes for today
-        const applicableCodesArray = getCodesForCalendarDay(new Date());
-        const applicableCodesForToday = new Set(applicableCodesArray);
+        // Cache ALL profiles without filtering
+        // Filtering by today's profiles happens during display, not during caching
+        // This ensures cached data isn't incomplete if school holidays haven't loaded yet
         
         for (const profileKey in routeData) {
             if (!Object.hasOwnProperty.call(routeData, profileKey)) continue;
-            
-            // Check if this profile is applicable for today
-            if (!applicableCodesForToday.has(profileKey)) continue;
             
             const profileData = routeData[profileKey];
             if (!profileData || typeof profileData !== 'object') continue;
@@ -1196,9 +1302,15 @@
                 if (!Object.hasOwnProperty.call(profileData, destKey)) continue;
                 const destData = profileData[destKey];
                 if (destData && Array.isArray(destData.entries)) {
+                    // Split profile key in case it contains multiple profiles (e.g., "MF, Sa")
+                    const profiles = profileKey.split(',').map(p => p.trim());
+                    
                     destData.entries.forEach(entry => { 
                         if (entry) {
                             if (!entry.lineName) entry.lineName = routeKey;
+                            // CRITICAL: Store the profiles (comma-separated keys might have multiple)
+                            // Store them as an array so we can check if ANY match today's codes
+                            entry.OperatingProfiles = profiles;
                             if (entry.destinationName) entry.destinationName = unescapeHtml(entry.destinationName);
                             if (entry.stopName) entry.stopName = unescapeHtml(entry.stopName);
                             flatEntries.push(entry); 
@@ -2909,13 +3021,20 @@
     async function fetchBankHolidays(){ 
         try{
             const r = await fetch('https://www.gov.uk/bank-holidays.json');
-            if(!r.ok) return;
+            if(!r.ok) {
+                ukBankHolidaysData = { dates: [], titles: {} };
+                return;
+            }
             const d = await r.json();
             if(d['england-and-wales'] && d['england-and-wales'].events){
                 const e = d['england-and-wales'].events;
                 ukBankHolidaysData = { dates: e.map(ev=>ev.date), titles: e.reduce((a,ev)=>{a[ev.date]=ev.title;return a},{}) };
+            } else {
+                ukBankHolidaysData = { dates: [], titles: {} };
             }
-        }catch(e){}
+        }catch(e){
+            ukBankHolidaysData = { dates: [], titles: {} };
+        }
     }
 
     function isSchoolHolidayPeriod(dateObj) { 
@@ -2933,11 +3052,14 @@
     function getCodesForCalendarDay(dateObj) { 
         const n = dateObj.getDay(), t = `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,"0")}-${String(dateObj.getDate()).padStart(2,"0")}`;
         let o = new Set, a = false;
-        if(ukBankHolidaysData && ukBankHolidaysData.dates && ukBankHolidaysData.dates.includes(t)){
+        
+        // Check for bank holidays - only if ukBankHolidaysData is initialized with data
+        if(ukBankHolidaysData && ukBankHolidaysData.dates && Array.isArray(ukBankHolidaysData.dates) && ukBankHolidaysData.dates.includes(t)){
             const e = ukBankHolidaysData.titles[t] || "";
             a = true;
             o.add(e.toLowerCase().includes("good friday") ? "Sa" : "Su");
         }
+        
         if(!a){
             const s = isSchoolHolidayPeriod(dateObj), i = s ? "NSD" : "Sch";
             let l = "";
@@ -2951,14 +3073,15 @@
                 case 6: l="Sa"; break;
             }
             o.add(l);
-            n >= 1 && n <= 5 && (o.add(l+i), o.add("MF"+i), o.add("Mo-Fr"), o.add("MF"));
+            n >= 1 && n <= 5 && (o.add(l+i), o.add("MF"+i), o.add("MF"));
             (n === 6 || n === 0) && s && o.add(l+"NSD");
             s && o.add("SchoolHoliday");
         } else {
             const c = isSchoolHolidayPeriod(dateObj);
             c && (o.add("SchoolHoliday"), o.has("Sa") && o.add("SaNSD"), o.has("Su") && !o.has("Sa") && o.add("SuNSD"));
         }
-        return Array.from(o);
+        const result = Array.from(o);
+        return result;
     }
 
     function generateArrivalText(s) { 

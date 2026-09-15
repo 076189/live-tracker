@@ -1646,6 +1646,7 @@ align-items: center;
 	let tripAlertIntervalId_extra = null; // To store the setInterval ID
     let firebaseListenerUnsubscribers_extra = [];
     let vehicleAllocationData_extra = {};
+    let liveVehicleAssignmentsData_extra = {};
     let authGeneration_extra = 0;
     let isManualUploadInProgress_extra = false; // Flag to skip listener processing during manual route uploads
     let dependentRenderTimer_extra = null;
@@ -1693,6 +1694,7 @@ align-items: center;
         const FB_PATH_SETTINGS_STOP_SPECIFIC_COLOURS = '/settings/stopSpecificRouteColours';
         const FB_PATH_VEHICLE_ALLOCATIONS = '/vehicleAllocations';
         const FB_PATH_VEHICLE_FLEET = '/vehicleFleet';
+        const FB_PATH_LIVE_VEHICLE_ASSIGNMENTS = '/liveVehicleAssignments';
         const FB_PATH_RSG_CONFIGS = '/rsgConfigs';
         const FB_PATH_ALL_DEFINED_STOPS = '/allDefinedStops';
         const FB_PATH_SCHEDULED_UPDATES = '/scheduledUpdates';
@@ -2457,6 +2459,13 @@ function setupFirebaseListeners_ExtraPage() {
         vehicleAllocationData_extra = snapshot.exists() ? snapshot.val() || {} : {};
         if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
         if (typeof populateVehicleAllocFormForRoute_ExtraPage === 'function') populateVehicleAllocFormForRoute_ExtraPage();
+    }));
+
+    // Listener for Live Vehicle Assignments (what vehicles are actually assigned to running numbers TODAY)
+    const liveVehicleAssignmentsRef = dbRef(database, `${FB_PATH_LIVE_VEHICLE_ASSIGNMENTS}/${getLocalDateKey()}`);
+    firebaseListenerUnsubscribers_extra.push(dbOnValue(liveVehicleAssignmentsRef, (snapshot) => {
+        console.log("[Live Vehicle Assignments Listener] Live vehicle assignment data updated via listener.");
+        liveVehicleAssignmentsData_extra = snapshot.exists() ? snapshot.val() || {} : {};
     }));
 
     // Listener for User Data
@@ -3374,6 +3383,15 @@ function updateRsgStopCountDisplay() {
 
 // --- Vehicle Allocation Management Functions ---
 
+// Get today's date key in YYYY-MM-DD format
+function getLocalDateKey(timestamp) {
+    const d = new Date(timestamp || Date.now());
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 // Identifies a vehicle for matching purposes (fleet number, falling back to registration).
 function getVehicleKeyForVehicle_ExtraPage(v) {
     const fleet = String((v && v.fleetNumber) || '').trim().toUpperCase();
@@ -3476,12 +3494,30 @@ function updateSubRunningCurrentVehicle_ExtraPage() {
     }
 
     let currentVehicle = null;
-    const activeRouteAlloc = vehicleAllocationData_extra[routeKey] || {};
-    const subAssignment = (Array.isArray(activeRouteAlloc.subVehicles) ? activeRouteAlloc.subVehicles : []).find(item => String(item.runningNumber || '').trim().toUpperCase() === runningNumber);
-
-    if (subAssignment) {
-        currentVehicle = { fleetNumber: subAssignment.fleetNumber, registration: subAssignment.registration };
-    } else {
+    
+    // FIRST PRIORITY: Check live vehicle assignments (what's ACTUALLY on the route right now)
+    if (liveVehicleAssignmentsData_extra && liveVehicleAssignmentsData_extra[routeKey]) {
+        const routeAssignments = liveVehicleAssignmentsData_extra[routeKey];
+        if (routeAssignments[runningNumber]) {
+            const liveAssignment = routeAssignments[runningNumber];
+            currentVehicle = { 
+                fleetNumber: liveAssignment.fleetNumber, 
+                registration: liveAssignment.registration 
+            };
+        }
+    }
+    
+    // SECOND PRIORITY: Check if there's an existing sub assignment
+    if (!currentVehicle) {
+        const activeRouteAlloc = vehicleAllocationData_extra[routeKey] || {};
+        const subAssignment = (Array.isArray(activeRouteAlloc.subVehicles) ? activeRouteAlloc.subVehicles : []).find(item => String(item.runningNumber || '').trim().toUpperCase() === runningNumber);
+        if (subAssignment) {
+            currentVehicle = { fleetNumber: subAssignment.fleetNumber, registration: subAssignment.registration };
+        }
+    }
+    
+    // THIRD PRIORITY: Check cached assignments
+    if (!currentVehicle) {
         try {
             const cachedAssignments = JSON.parse(localStorage.getItem('omsiTrackerVehicleAssignments_Standalone_v1') || '{}');
             currentVehicle = cachedAssignments[`${routeKey}_RUN_${runningNumber}`] || null;
@@ -3490,11 +3526,9 @@ function updateSubRunningCurrentVehicle_ExtraPage() {
         }
     }
 
-    if (!currentVehicle && window.firebaseOMSI && window.firebaseOMSI.database) {
-        const liveRunningIndex = window.firebaseOMSI.database;
-    }
-
+    // FOURTH PRIORITY: Pick from common vehicles using hash
     if (!currentVehicle) {
+        const activeRouteAlloc = vehicleAllocationData_extra[routeKey] || {};
         const commonList = Array.isArray(activeRouteAlloc.commonVehicles) ? activeRouteAlloc.commonVehicles : [];
         if (commonList.length > 0) {
             let hash = 0;

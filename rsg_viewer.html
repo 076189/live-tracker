@@ -1212,6 +1212,7 @@ function crosslinkDutyReservations(config, events) {
 function incomingCrosslinkRunReservations(config, paired) {
     const selectedDirectionKeys = new Set([config, paired].filter(Boolean).map(directionConfig => directionConfig.key));
     const reservations = [];
+    if (window.RSG_DEBUG_CROSSLINKS) console.log(`[Incoming Reservations] Checking crosslinks for route ${config.routeName}`);
     allEntries().forEach(ownerConfig => storedCrosslinksFor(ownerConfig).forEach(crosslink => {
         const fromConfig = configForKey(crosslink.crosslinkFromDirectionKey) || ownerConfig;
         const linkedConfig = configForKey(crosslink.crosslinkRouteKey);
@@ -1219,17 +1220,24 @@ function incomingCrosslinkRunReservations(config, paired) {
         const fromTrip = tripForCrosslinkId(fromConfig, crosslink.crosslinkFromTripId);
         const linkedTrip = tripForCrosslinkId(linkedConfig, crosslink.crosslinkToTripId);
         let runningNumber = runningValue(fromTrip);
+        if (window.RSG_DEBUG_CROSSLINKS && fromTrip && linkedTrip) {
+            console.log(`  [Incoming Check] ${fromConfig.routeName} ${tripTime(fromTrip)} → ${linkedConfig.routeName} ${tripTime(linkedTrip)}, saved run: ${runningNumber || 'NONE'}`);
+        }
         
         // If the source trip doesn't have a saved running number, check if IT'S the target of another crosslink
         // This handles multi-leg crosslinks like: Trip 69 (SC8) → Route 604 Trip 2 → Trip 147
         if (!runningNumber && fromTrip && linkedTrip) {
             const sourceRunFromChain = sourceRunningNumberFromCrosslinkChain(fromConfig, fromTrip);
-            if (sourceRunFromChain) runningNumber = sourceRunFromChain;
+            if (sourceRunFromChain) {
+                runningNumber = sourceRunFromChain;
+                if (window.RSG_DEBUG_CROSSLINKS) console.log(`  [Incoming Chain] Found chain run: ${runningNumber}`);
+            }
         }
         
         const fromInterval = fromTrip && tripInterval(fromConfig, fromTrip);
         const linkedInterval = linkedTrip && tripInterval(linkedConfig, linkedTrip);
         if (!runningNumber || !fromInterval || !linkedInterval) return;
+        if (window.RSG_DEBUG_CROSSLINKS) console.log(`  [Incoming Reservation] Trip ${tripTime(linkedTrip)} on ${linkedConfig.routeName} reserved for ${runningNumber}`);
         let linkedStart = linkedInterval.start;
         while (linkedStart < fromInterval.end) linkedStart += 1440;
         reservations.push({ runningNumber:runningNumber.toUpperCase(), start:fromInterval.start, end:linkedStart, targetIdentity:crosslinkTripIdentity(crosslink.crosslinkToTripId) });
@@ -1430,10 +1438,20 @@ function assignRunningNumbersInOrder(config, paired, entries, dutyRuns = []) {
         }
         // Apply inherited running number from a previous crosslink return on this duty
         const activeInheritedRun = duties[dutyIndex]?.activeInheritedRunningNumber;
+        // Also check if THIS trip should have inherited a running number (in case it got reassigned to a different duty)
+        const tripInheritedRun = inheritedRunningNumbers.get(crosslinkIdForTrip(event.config, event.trip));
+        const finalOverride = activeInheritedRun || tripInheritedRun || inheritedRunningNumber || '';
         if (activeInheritedRun && !inheritedRunningNumber && window.RSG_DEBUG_CROSSLINKS) {
             console.log(`[Crosslink Continuation] Trip ${tripTime(event.trip)} assigned duty ${dutyIndex}, continuing inherited ${activeInheritedRun}`);
         }
-        assignments.set(tripKey(event.trip, event.config), { dutyIndex, runningNumberOverride: activeInheritedRun || inheritedRunningNumber || '' });
+        if (tripInheritedRun && !activeInheritedRun && window.RSG_DEBUG_CROSSLINKS) {
+            console.log(`[Crosslink Direct Inheritance] Trip ${tripTime(event.trip)} assigned duty ${dutyIndex}, directly inheriting ${tripInheritedRun}`);
+        }
+        const key = tripKey(event.trip, event.config);
+        assignments.set(key, { dutyIndex, runningNumberOverride: finalOverride, inheritedRunningNumber: activeInheritedRun || '' });
+        if (window.RSG_DEBUG_CROSSLINKS && (activeInheritedRun || tripInheritedRun || inheritedRunningNumber)) {
+            console.log(`  [Assignment Storage] Key: ${key}, Override: ${finalOverride}, Duty: ${dutyIndex}, InheritedRun: ${activeInheritedRun || ''}`);
+        }
     });
     return assignments;
 }
@@ -1631,7 +1649,28 @@ function renderSuggestedTable(title, config, directionIndex, entries, assignment
     }), row => minutesFromTime(tripTime(row.trip)));
     const generatedActive = generatedRunningPool().length > 0;
     const crosslinkActive = crosslinksFor(selectedConfig).some(crosslink => crosslink.crosslinkFromTripId && crosslink.crosslinkToTripId);
-    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${tripRows.length ? tripRows.map(({ directionConfig, directionEntries, trip, index }) => { const savedRunning = runningValue(trip); const duty = assignments?.get(tripKey(trip, directionConfig)); const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; const inheritedCrosslinkRun = duty?.runningNumberOverride || crosslinkSourceRunningNumber(directionConfig, trip); const suggestedRunning = inheritedCrosslinkRun || (generatedActive || crosslinkActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning)); const markers = crosslinkMarkersForTrip(directionConfig, trip); const markerHtml = markers.length ? `<div class="crosslink-markers">${markers.map(marker => `<span class="crosslink-marker">${marker}</span>`).join('')}</div>` : ''; const shortWorkingRelationKind = shortWorkingRelationByKey.get(directionConfig.key) || null; const shortWorkingNoteHtml = shortWorkingRelationKind ? `<span class="short-working-note">${esc(shortWorkingDescription(shortWorkingRelationKind, directionConfig))}</span>` : ''; return `<tr data-config-key="${esc(directionConfig.key)}" data-trip-time="${esc(tripTime(trip))}"><td title="${esc(directionConfig.userDisplayName || directionConfig.destinationName || 'Unknown')} | ${esc(directionConfig.operatingProfile || 'Unknown profile')} | key:${esc(directionConfig.key)} | ${tripsOf(directionConfig).length} trip(s) | stops:${(Array.isArray(directionConfig.stopSequence) ? directionConfig.stopSequence.length : 0)}"><input class="trip-number-input" value="${esc(suggestedTripNumber(directionConfig, index, (directionConfig === config || isShortWorkingOf(directionConfig, config)) ? 0 : 1, paired, directionEntries, trip))}" aria-label="Trip number">${markerHtml}${shortWorkingNoteHtml}</td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(directionConfig, trip, directionEntries) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
+    return `<div class="suggested-table"><h3>${esc(title)}</h3><table><thead><tr><th>Trip</th><th>Running / Bus Run</th><th>First stop</th><th>Last stop</th></tr></thead><tbody>${tripRows.length ? tripRows.map(({ directionConfig, directionEntries, trip, index }) => { 
+        const savedRunning = runningValue(trip); 
+        const tripKey_val = tripKey(trip, directionConfig);
+        const duty = assignments?.get(tripKey_val);
+        const tripTime_val = tripTime(trip);
+        if (window.RSG_DEBUG_CROSSLINKS && tripTime_val === '01:06') {
+            console.log(`  [Display Retrieval for 01:06] key: ${tripKey_val}, duty found: ${!!duty}, dutyIndex: ${duty?.dutyIndex}, override: '${duty?.runningNumberOverride}', pool value: ${pool[duty?.dutyIndex]}`);
+        }
+        if (window.RSG_DEBUG_CROSSLINKS && duty?.runningNumberOverride) {
+            console.log(`  [Display Retrieval] Trip ${tripTime_val}, key: ${tripKey_val}, override from map: ${duty.runningNumberOverride}, duty ${duty.dutyIndex} pool value: ${pool[duty.dutyIndex]}`);
+        }
+        const dutyRunning = duty ? (pool[duty.dutyIndex] || `Run ${duty.dutyIndex + 1}`) : ''; 
+        const inheritedCrosslinkRun = duty?.runningNumberOverride || duty?.inheritedRunningNumber || crosslinkSourceRunningNumber(directionConfig, trip); 
+        const suggestedRunning = inheritedCrosslinkRun || (generatedActive || crosslinkActive ? (dutyRunning || savedRunning) : (savedRunning || dutyRunning));
+        if (window.RSG_DEBUG_CROSSLINKS && tripTime_val === '01:06') {
+            console.log(`  [Display Final] Trip 01:06: inheritedCrosslinkRun='${inheritedCrosslinkRun}', dutyRunning='${dutyRunning}', savedRunning='${savedRunning}', FINAL suggestedRunning='${suggestedRunning}'`);
+        } 
+        const markers = crosslinkMarkersForTrip(directionConfig, trip); 
+        const markerHtml = markers.length ? `<div class="crosslink-markers">${markers.map(marker => `<span class="crosslink-marker">${marker}</span>`).join('')}</div>` : ''; 
+        const shortWorkingRelationKind = shortWorkingRelationByKey.get(directionConfig.key) || null; 
+        const shortWorkingNoteHtml = shortWorkingRelationKind ? `<span class="short-working-note">${esc(shortWorkingDescription(shortWorkingRelationKind, directionConfig))}</span>` : ''; 
+        return `<tr data-config-key="${esc(directionConfig.key)}" data-trip-time="${esc(tripTime(trip))}"><td title="${esc(directionConfig.userDisplayName || directionConfig.destinationName || 'Unknown')} | ${esc(directionConfig.operatingProfile || 'Unknown profile')} | key:${esc(directionConfig.key)} | ${tripsOf(directionConfig).length} trip(s) | stops:${(Array.isArray(directionConfig.stopSequence) ? directionConfig.stopSequence.length : 0)}"><input class="trip-number-input" value="${esc(suggestedTripNumber(directionConfig, index, (directionConfig === config || isShortWorkingOf(directionConfig, config)) ? 0 : 1, paired, directionEntries, trip))}" aria-label="Trip number">${markerHtml}${shortWorkingNoteHtml}</td><td><input class="running-number-input" value="${esc(suggestedRunning)}" placeholder="Enter running number" aria-label="Running number"></td><td>${esc(tripTime(trip) || '-')}</td><td>${esc(lastStopTimeForTrip(directionConfig, trip, directionEntries) || '-')}</td></tr>`; }).join('') : '<tr><td colspan="4">No trips saved.</td></tr>'}</tbody></table></div>`;
 }
 function renderSuggestedTables(config, entries) {
     const container = $('suggested-tables');

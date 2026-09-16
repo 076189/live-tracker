@@ -2395,131 +2395,158 @@ function op_points_populateReturnOriginSelect() {
 }
 
 function setupFirebaseListeners_ExtraPage() {
-    if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
-        console.error("Firebase not ready, cannot set up listeners on Extra Tools page.");
-        return;
-    }
-
-    firebaseListenerUnsubscribers_extra.forEach(unsubscribe => unsubscribe());
-    firebaseListenerUnsubscribers_extra = [];
-
-    const { database, dbOnValue, dbRef } = window.firebaseOMSI;
-
-    // Listener for Mass Service Leg Curtailments
-    const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(massCurtailmentsRef, (snapshot) => {
-        console.log("[SLC Listener] Mass curtailment data updated from Firebase.");
-        massCurtailments_data = snapshot.exists() ? snapshot.val() || {} : {};
-        if (typeof slc_renderActiveCurtailments === 'function') {
-            slc_renderActiveCurtailments();
-        }
-    }));
-
-    // Listener for the LIVE SCHEDULE data
-    let liveScheduleDebounceTimer = null;
-    const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(liveScheduleRefForTools, (snapshot) => {
-        console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
-        
-        // OPTIMIZATION: Skip listener processing if we're doing a manual upload 
-        // (we'll update locally instead to avoid re-processing all 174K+ entries)
-        if (isManualUploadInProgress_extra) {
-            console.log("[Master Stop List LIVE Data Listener] Skipping processing - manual upload in progress.");
+    try {
+        if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
+            console.error("Firebase not ready, cannot set up listeners on Extra Tools page.");
             return;
         }
+
+        firebaseListenerUnsubscribers_extra.forEach(unsubscribe => unsubscribe());
+        firebaseListenerUnsubscribers_extra = [];
+
+        const { database, dbOnValue, dbRef } = window.firebaseOMSI;
+
+        // Listener for Mass Service Leg Curtailments
+        try {
+            const massCurtailmentsRef = dbRef(database, FB_PATH_MASS_CURTAILMENTS);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(massCurtailmentsRef, (snapshot) => {
+                console.log("[SLC Listener] Mass curtailment data updated from Firebase.");
+                massCurtailments_data = snapshot.exists() ? snapshot.val() || {} : {};
+                if (typeof slc_renderActiveCurtailments === 'function') {
+                    slc_renderActiveCurtailments();
+                }
+            }, (error) => console.error("[SLC Listener] Error:", error)));
+        } catch (e) { console.warn("[SLC Listener] Setup failed:", e); }
+
+        // Listener for the LIVE SCHEDULE data
+        try {
+            let liveScheduleDebounceTimer = null;
+            const liveScheduleRefForTools = dbRef(database, FB_PATH_SCHEDULES_BY_ROUTE);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(liveScheduleRefForTools, (snapshot) => {
+                console.log("[Master Stop List LIVE Data Listener] Live schedules data updated. Rebuilding serving routes map.");
+                
+                // OPTIMIZATION: Skip listener processing if we're doing a manual upload 
+                if (isManualUploadInProgress_extra) {
+                    console.log("[Master Stop List LIVE Data Listener] Skipping processing - manual upload in progress.");
+                    return;
+                }
+                
+                // OPTIMIZATION: Debounce listener to avoid processing multiple times during cascade writes
+                clearTimeout(liveScheduleDebounceTimer);
+                liveScheduleDebounceTimer = setTimeout(() => processLiveScheduleSnapshot_ExtraPage(snapshot), 500);
+            }, (error) => console.error("[Master Stop List LIVE Data Listener] Error:", error)));
+        } catch (e) { console.warn("[Live Schedule Listener] Setup failed:", e); }
+
+        // Listener for RSG Configurations
+        try {
+            let rsgConfigsDebounceTimer = null;
+            const rsgConfigsRef = dbRef(database, FB_PATH_RSG_CONFIGS);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgConfigsRef, (snapshot) => {
+                console.log("[RSG Configs Listener] RSG configurations data updated.");
+                rsg_loadedConfigs_extra = snapshot.exists() ? snapshot.val() || {} : {};
+                // OPTIMIZATION: Debounce to avoid processing multiple times during cascade writes
+                clearTimeout(rsgConfigsDebounceTimer);
+                rsgConfigsDebounceTimer = setTimeout(() => rebuildScheduleFromRsgConfigs_ExtraPage(), 500);
+            }, (error) => console.error("[RSG Configs Listener] Error:", error)));
+        } catch (e) { console.warn("[RSG Configs Listener] Setup failed:", e); }
+
+        // Listener for Defined Curtailment Points
+        try {
+            const curtailmentPointsRef = dbRef(database, FB_PATH_CURTAILMENT_POINTS);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(curtailmentPointsRef, (snapshot) => {
+                console.log("[CurtailmentPoints Listener] CurtailmentPoints data updated via listener.");
+                definedCurtailmentPoints = snapshot.exists() ? snapshot.val() || {} : {};
+            }, (error) => console.error("[CurtailmentPoints Listener] Error:", error)));
+        } catch (e) { console.warn("[CurtailmentPoints Listener] Setup failed:", e); }
+
+        // Listener for Vehicle Allocations (per-route common/rare/restricted vehicle lists)
+        try {
+            const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(vehicleAllocationsRef, (snapshot) => {
+                console.log("[Vehicle Allocations Listener] Vehicle allocation data updated via listener.");
+                vehicleAllocationData_extra = snapshot.exists() ? snapshot.val() || {} : {};
+                if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
+                if (typeof populateVehicleAllocFormForRoute_ExtraPage === 'function') populateVehicleAllocFormForRoute_ExtraPage();
+            }, (error) => console.error("[Vehicle Allocations Listener] Error:", error)));
+        } catch (e) { console.warn("[Vehicle Allocations Listener] Setup failed:", e); }
+
+        // Listener for Live Vehicle Assignments (what vehicles are actually assigned to running numbers TODAY)
+        try {
+            const today = new Date();
+            const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const liveVehicleAssignmentsRef = dbRef(database, `${FB_PATH_LIVE_VEHICLE_ASSIGNMENTS}/${todayKey}`);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(liveVehicleAssignmentsRef, (snapshot) => {
+                console.log("[Live Vehicle Assignments Listener] Live vehicle assignment data updated via listener.");
+                liveVehicleAssignmentsData_extra = snapshot.exists() ? snapshot.val() || {} : {};
+            }, (error) => console.warn("[Live Vehicle Assignments Listener] Error:", error)));
+        } catch (e) { console.warn("[Live Vehicle Assignments Listener] Setup failed:", e); }
+
+        // Listener for User Data
+        try {
+            const usersRef = dbRef(database, FB_PATH_USERS);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
+                console.log("[UM Listener] User data changed in Firebase.");
+                um_allUsersData = snapshot.val() || {};
+                if (document.getElementById('user-management-section_extra').style.display !== 'none') {
+                    um_renderUserList(um_allUsersData);
+                }
+            }, (error) => console.error("[UM Listener] Error:", error)));
+        } catch (e) { console.warn("[UM Listener] Setup failed:", e); }
         
-        // OPTIMIZATION: Debounce listener to avoid processing multiple times during cascade writes
-        // (e.g., when saving a single route, multiple listener events can fire rapidly)
-        clearTimeout(liveScheduleDebounceTimer);
-        liveScheduleDebounceTimer = setTimeout(() => processLiveScheduleSnapshot_ExtraPage(snapshot), 500);
-    }));
+        // Listener for Scheduled Route Updates
+        try {
+            const scheduledUpdatesRef = dbRef(database, FB_PATH_SCHEDULED_ROUTE_UPDATES);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(scheduledUpdatesRef, (snapshot) => {
+                console.log("[SRU Listener] Scheduled route updates data changed in Firebase.");
+                scheduledRouteUpdates_extra = snapshot.exists() ? snapshot.val() || {} : {};
+                if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
+                    renderScheduledUpdatesList_ExtraPage();
+                }
+            }, (error) => console.error("[SRU Listener Updates] Error:", error)));
+        } catch (e) { console.warn("[SRU Listener Updates] Setup failed:", e); }
 
-    // Listener for RSG Configurations
-    let rsgConfigsDebounceTimer = null;
-    const rsgConfigsRef = dbRef(database, FB_PATH_RSG_CONFIGS);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgConfigsRef, (snapshot) => {
-        console.log("[RSG Configs Listener] RSG configurations data updated.");
-        rsg_loadedConfigs_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        // OPTIMIZATION: Debounce to avoid processing multiple times during cascade writes
-        clearTimeout(rsgConfigsDebounceTimer);
-        rsgConfigsDebounceTimer = setTimeout(() => rebuildScheduleFromRsgConfigs_ExtraPage(), 500);
-    }));
+        // Listener for Scheduled Deletions
+        try {
+            const scheduledDeletionsRef = dbRef(database, FB_PATH_SCHEDULED_DELETIONS);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(scheduledDeletionsRef, (snapshot) => {
+                console.log("[SRU Listener] Scheduled route deletions data changed in Firebase.");
+                scheduledRouteDeletions_extra = snapshot.exists() ? snapshot.val() || {} : {};
+                if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
+                    renderScheduledUpdatesList_ExtraPage();
+                }
+            }, (error) => console.error("[SRU Listener Deletions] Error:", error)));
+        } catch (e) { console.warn("[SRU Listener Deletions] Setup failed:", e); }
 
-    // Listener for Defined Curtailment Points
-    const curtailmentPointsRef = dbRef(database, FB_PATH_CURTAILMENT_POINTS);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(curtailmentPointsRef, (snapshot) => {
-        console.log("[CurtailmentPoints Listener] CurtailmentPoints data updated via listener.");
-        definedCurtailmentPoints = snapshot.exists() ? snapshot.val() || {} : {};
-    }));
+        // Listener for Route Operator Changes by Date
+        try {
+            const rocRef = dbRef(database, '/routeOperatorChangesByDate');
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(rocRef, (snapshot) => {
+                console.log("[ROC Listener] Route operator changes data updated.");
+                routeOperatorChangesByDate_extra = snapshot.exists() ? snapshot.val() || {} : {};
+                if (typeof renderOperatorChangesList_ExtraPage === 'function') {
+                    renderOperatorChangesList_ExtraPage();
+                }
+            }, (error) => console.error("[ROC Listener] Error:", error)));
+        } catch (e) { console.warn("[ROC Listener] Setup failed:", e); }
 
-    // Listener for Vehicle Allocations (per-route common/rare/restricted vehicle lists)
-    const vehicleAllocationsRef = dbRef(database, FB_PATH_VEHICLE_ALLOCATIONS);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(vehicleAllocationsRef, (snapshot) => {
-        console.log("[Vehicle Allocations Listener] Vehicle allocation data updated via listener.");
-        vehicleAllocationData_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
-        if (typeof populateVehicleAllocFormForRoute_ExtraPage === 'function') populateVehicleAllocFormForRoute_ExtraPage();
-    }));
+        // Listener for RSG config drafts
+        try {
+            const rsgDraftsRef = dbRef(database, FB_PATH_RSG_CONFIG_DRAFTS);
+            firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgDraftsRef, (snapshot) => {
+                rsg_loadedDrafts_extra = snapshot.exists() ? snapshot.val() || {} : {};
+                if (typeof rsg_renderDraftsList_ExtraPage === 'function') rsg_renderDraftsList_ExtraPage();
+            }, (error) => {
+                console.warn("RSG drafts listener denied (check Firebase rules for /rsgConfigDrafts):", error);
+            }));
+        } catch (e) { console.warn("[RSG Drafts Listener] Setup failed:", e); }
 
-    // Listener for Live Vehicle Assignments (what vehicles are actually assigned to running numbers TODAY)
-    const liveVehicleAssignmentsRef = dbRef(database, `${FB_PATH_LIVE_VEHICLE_ASSIGNMENTS}/${getLocalDateKey()}`);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(liveVehicleAssignmentsRef, (snapshot) => {
-        console.log("[Live Vehicle Assignments Listener] Live vehicle assignment data updated via listener.");
-        liveVehicleAssignmentsData_extra = snapshot.exists() ? snapshot.val() || {} : {};
-    }));
-
-    // Listener for User Data
-const usersRef = dbRef(database, FB_PATH_USERS); // Using constant is better
-firebaseListenerUnsubscribers_extra.push(dbOnValue(usersRef, (snapshot) => {
-    console.log("[UM Listener] User data changed in Firebase.");
-    um_allUsersData = snapshot.val() || {}; // MODIFIED: Store data in the global cache
-    if (document.getElementById('user-management-section_extra').style.display !== 'none') {
-        um_renderUserList(um_allUsersData); // MODIFIED: Pass the cached data to the render function
+        console.log("Real-time Firebase listeners set up for Extra Tools page. Total listeners:", firebaseListenerUnsubscribers_extra.length);
+    } catch (error) {
+        console.error("FATAL ERROR in setupFirebaseListeners_ExtraPage:", error);
     }
-}));
-    
-    // *** CORRECTED: Real-time listeners for Scheduled Tasks ***
-    const scheduledUpdatesRef = dbRef(database, FB_PATH_SCHEDULED_ROUTE_UPDATES);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(scheduledUpdatesRef, (snapshot) => {
-        console.log("[SRU Listener] Scheduled route updates data changed in Firebase.");
-        scheduledRouteUpdates_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        // The visibility check has been REMOVED here to ensure it always updates the UI.
-        if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
-            renderScheduledUpdatesList_ExtraPage();
-        }
-    }));
+}
 
-    const scheduledDeletionsRef = dbRef(database, FB_PATH_SCHEDULED_DELETIONS);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(scheduledDeletionsRef, (snapshot) => {
-        console.log("[SRU Listener] Scheduled route deletions data changed in Firebase.");
-        scheduledRouteDeletions_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        // The visibility check has been REMOVED here as well.
-        if (typeof renderScheduledUpdatesList_ExtraPage === 'function') {
-            renderScheduledUpdatesList_ExtraPage();
-        }
-    }));
-    // *** END CORRECTION ***
-
-    // Listener for Route Operator Changes by Date
-    const rocRef = dbRef(database, '/routeOperatorChangesByDate');
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(rocRef, (snapshot) => {
-        console.log("[ROC Listener] Route operator changes data updated.");
-        routeOperatorChangesByDate_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        if (typeof renderOperatorChangesList_ExtraPage === 'function') {
-            renderOperatorChangesList_ExtraPage();
-        }
-    }));
-
-    // Listener for RSG config drafts, kept separate from the live /rsgConfigs listener above.
-    const rsgDraftsRef = dbRef(database, FB_PATH_RSG_CONFIG_DRAFTS);
-    firebaseListenerUnsubscribers_extra.push(dbOnValue(rsgDraftsRef, (snapshot) => {
-        rsg_loadedDrafts_extra = snapshot.exists() ? snapshot.val() || {} : {};
-        if (typeof rsg_renderDraftsList_ExtraPage === 'function') rsg_renderDraftsList_ExtraPage();
-    }, (error) => {
-        console.warn("RSG drafts listener denied (check Firebase rules for /rsgConfigDrafts):", error);
-    }));
-
-
+function scheduleDependentRender_ExtraPage() {
     console.log("Real-time Firebase listeners set up for Extra Tools page.");
 }
 

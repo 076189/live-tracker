@@ -4484,15 +4484,21 @@ async function loadOperatorChanges_ExtraPage() {
 
 function renderOperatorChangesList_ExtraPage() {
     if (!rocChangesList_el_extra) return;
-    
-    if (Object.keys(routeOperatorChangesByDate_extra).length === 0) {
-        rocChangesList_el_extra.innerHTML = '<p style="text-align: center; color: #999; font-style: italic;">No operator changes scheduled.</p>';
+
+    // Only show changes that haven't taken effect yet - once a date is today or in the past,
+    // it's already reflected as the current operator (route tiles, Live Tracker) via
+    // roc_getCurrentOperatorForRoute_ExtraPage, so it no longer needs to appear in this list.
+    const todayStr = getYYYYMMDD_ExtraPage(new Date());
+    const sortedDates = Object.keys(routeOperatorChangesByDate_extra)
+        .filter(dateStr => dateStr > todayStr)
+        .sort()
+        .reverse();
+
+    if (sortedDates.length === 0) {
+        rocChangesList_el_extra.innerHTML = '<p style="text-align: center; color: #999; font-style: italic;">No upcoming operator changes scheduled.</p>';
         return;
     }
-    
-    // Sort by date (newest first)
-    const sortedDates = Object.keys(routeOperatorChangesByDate_extra).sort().reverse();
-    
+
     let html = '';
     sortedDates.forEach(dateStr => {
         const changes = routeOperatorChangesByDate_extra[dateStr];

@@ -11252,26 +11252,48 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName) {
         return;
     }
     
-    const { database, dbUpdate, dbRef } = window.firebaseOMSI;
-    
-    // Step 2: For each affected stop, rebuild the index from ALL routes
-    // (this preserves other routes' entries at shared stops)
-    // Build up the stop data first, then batch the writes
+    const { database, dbUpdate, dbRef, dbGet, dbSet } = window.firebaseOMSI;
+
+    // Step 2: For each affected stop, build ONLY this route's fresh entries from the local
+    // working schedule, then MERGE them into the EXISTING /arrivalsByStop/{stopID} node
+    // (read-modify-write), keeping every other route's entries untouched. We deliberately do
+    // NOT treat currentWorkingSchedule_extra as the full truth for other routes here: it is
+    // rebuilt from /rsgConfigs, which can lag behind what's actually live (e.g. a route
+    // pushed live via "Add Preview to Live Schedule" without ever being saved as an RSG
+    // config) - trusting it for OTHER routes previously wiped their entries out of the
+    // arrivals index whenever this route alone was rebuilt.
     const stopData = {};
     let entriesProcessed = 0;
-    
+
     for (const stopID of affectedStopIDs) {
         const arrivalsByStopForThisStop = {};
-        
-        // Get all entries for this stop from any route
-        currentWorkingSchedule_extra.forEach((entry, index) => {
+
+        // Start from whatever is already live for this stop, keeping every entry that does
+        // NOT belong to the route being updated.
+        try {
+            const existingSnap = await dbGet(dbRef(database, `${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`));
+            if (existingSnap.exists()) {
+                const existingEntries = existingSnap.val() || {};
+                Object.entries(existingEntries).forEach(([key, entry]) => {
+                    if (entry && entry.lineName && entry.lineName.toUpperCase() !== targetRouteUppercase) {
+                        arrivalsByStopForThisStop[key] = entry;
+                    }
+                });
+            }
+        } catch (error) {
+            console.error(`Error reading existing arrivals index for stop ${stopID} before merge:`, error);
+            throw error;
+        }
+
+        // Now add this route's fresh entries for this stop from the local working schedule.
+        routeEntries.forEach((entry, index) => {
             if (!entry || !entry.stopID) return;
             if (String(entry.stopID).toUpperCase() !== stopID) return;
-            
+
             const entryKey = sanitizeFirebaseKey(
                 `${entry.tripId || entry.lineName || 'service'}_${entry.scheduledTime || index}_${index}`
             );
-            
+
             const indexedEntry = {
                 stopID: entry.stopID,
                 lineName: entry.lineName,
@@ -11287,14 +11309,12 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName) {
             arrivalsByStopForThisStop[entryKey] = indexedEntry;
             entriesProcessed++;
         });
-        
+
         stopData[stopID] = arrivalsByStopForThisStop;
     }
-    
+
     // Step 3: Write affected stops using dbSet (not dbUpdate) to completely replace old data
     // and avoid stale trip entries from being retained
-    const { dbSet } = window.firebaseOMSI;
-    
     for (const stopID of affectedStopIDs) {
         const stopPath = `${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`;
         try {
@@ -11306,7 +11326,7 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName) {
             throw error;
         }
     }
-    
+
     console.log(`Arrivals index rebuilt for route "${routeName}" (${affectedStopIDs.size} stops, ${entriesProcessed} entries).`);
 }
 

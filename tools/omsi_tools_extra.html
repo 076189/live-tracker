@@ -489,6 +489,8 @@ align-items: center;
             </div>
         </div>
 
+        <div id="current-profile-display-container" style="display:none;">
+            <p id="current-profile-display">Today's Operating Profile: (loading...)</p>
         </div>
 
         <div id="top-menu-bar_extra" style="display:none;"> 
@@ -1653,6 +1655,7 @@ align-items: center;
     let keyDeparturesRefreshInProgress_extra = false;
     let arrivalsIndexMigrationStarted_extra = false;
     let arrivalsIndexRebuildTimer_extra = null;
+    let arrivalsIndexRebuildPendingRoutes_extra = new Set();
     let rsgScheduleRebuildToken_extra = 0; // Invalidates in-progress chunked rebuilds superseded by newer data
     let liveScheduleFlattenToken_extra = 0; // Invalidates in-progress chunked live-schedule flattens
         let rsg_lastLoadedRouteName_extra = null;
@@ -5692,7 +5695,7 @@ async function curtail_confirmCurtailment(tripIndex, curtailmentPoint) {
                 clearTimeout(arrivalsIndexRebuildTimer_extra);
                 arrivalsIndexRebuildTimer_extra = null;
             }
-            await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+            await rebuildArrivalsForRoute_ExtraPage(routeName);
             
             tripObject.isCurtailed = true;
             tripObject.stops.forEach(stop => stop.curtailment = curtailmentData);
@@ -5747,7 +5750,7 @@ async function curtail_revertCurtailment(tripIndex) {
                 clearTimeout(arrivalsIndexRebuildTimer_extra);
                 arrivalsIndexRebuildTimer_extra = null;
             }
-            await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+            await rebuildArrivalsForRoute_ExtraPage(routeName);
             
             // Update the local display object's state for immediate UI refresh.
             tripObject.isCurtailed = false;
@@ -6365,11 +6368,16 @@ async function handleEnhancedBulkUpdateDestination() {
         // Ensure the arrivals index reflects the new destination name before we report
         // success, instead of relying on the debounced rebuild scheduled internally by
         // saveSpecificRouteDataToFirebase (which could be missed if the tab is closed too soon).
+        // Rebuild per affected route (merges against the existing live index) rather than the
+        // full rebuild, which would trust currentWorkingSchedule_extra for every OTHER route
+        // too and could wipe any route not present in that RSG-config-derived local cache.
         if (arrivalsIndexRebuildTimer_extra !== null) {
             clearTimeout(arrivalsIndexRebuildTimer_extra);
             arrivalsIndexRebuildTimer_extra = null;
         }
-        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+        for (const routeName of affectedScheduleRoutes) {
+            await rebuildArrivalsForRoute_ExtraPage(routeName);
+        }
 
         statusEl.textContent = "Full system update complete! All destination names have been changed.";
         statusEl.style.color = '#2ecc71';
@@ -11230,7 +11238,7 @@ async function rebuildAndSaveEntireScheduleToFirebase_ExtraPage(flatScheduleData
     console.log("Chunked save process complete.");
 }
 
-async function rebuildArrivalsForRoute_ExtraPage(routeName) {
+async function rebuildArrivalsForRoute_ExtraPage(routeName, explicitStopIDs = null) {
     if (!currentUser_extra || !window.firebaseOMSI || !Array.isArray(currentWorkingSchedule_extra)) {
         throw new Error('Live schedule data is not loaded or the user is not signed in.');
     }
@@ -11242,7 +11250,7 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName) {
         e => e.lineName && e.lineName.toUpperCase() === targetRouteUppercase
     );
     
-    const affectedStopIDs = new Set();
+    const affectedStopIDs = new Set(explicitStopIDs ? explicitStopIDs.map(id => String(id).toUpperCase()) : []);
     routeEntries.forEach(entry => {
         if (entry.stopID) affectedStopIDs.add(String(entry.stopID).toUpperCase());
     });
@@ -11510,12 +11518,21 @@ async function handleSyncRsgStopNames_ExtraPage() {
     }
 }
 
-function scheduleArrivalsByStopIndexRebuild_ExtraPage() {
+function scheduleArrivalsByStopIndexRebuild_ExtraPage(routeName) {
+    // Scoped to just the route(s) that changed via rebuildArrivalsForRoute_ExtraPage (merges
+    // against the existing live index) - NEVER the full rebuildArrivalsByStopIndex_ExtraPage
+    // here, which trusts currentWorkingSchedule_extra (RSG-config derived) for every OTHER
+    // route too and would silently wipe any route missing from that local cache.
+    if (routeName) arrivalsIndexRebuildPendingRoutes_extra.add(routeName);
     if (arrivalsIndexRebuildTimer_extra !== null) return;
     arrivalsIndexRebuildTimer_extra = setTimeout(async () => {
         arrivalsIndexRebuildTimer_extra = null;
+        const routesToRebuild = Array.from(arrivalsIndexRebuildPendingRoutes_extra);
+        arrivalsIndexRebuildPendingRoutes_extra.clear();
         try {
-            await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+            for (const route of routesToRebuild) {
+                await rebuildArrivalsForRoute_ExtraPage(route);
+            }
         } catch (error) {
             console.error('Unable to update the mobile arrivals index after route changes:', error);
         }
@@ -17141,6 +17158,11 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
         });
         
         for (const route in changesByRoute) {
+            if (changesByRoute[route].type === 'delete') {
+                changesByRoute[route].deletedStopIDs = tempWorkingSchedule
+                    .filter(entry => entry.lineName && entry.lineName.toUpperCase() === route && entry.stopID)
+                    .map(entry => entry.stopID);
+            }
             let index = tempWorkingSchedule.findIndex(entry => entry.lineName && entry.lineName.toUpperCase() === route);
             while (index !== -1) {
                 tempWorkingSchedule.splice(index, 1);
@@ -17158,9 +17180,15 @@ async function handleApplyAllBatchesForSelectedTime_ExtraPage() {
         // Ensure the arrivals index is definitely up to date before we report success,
         // instead of relying on the debounced rebuild that saveSpecificRouteDataToFirebase
         // schedules internally (which could still be pending when the user checks arrivals).
+        // Rebuild per affected route (merges against the existing live index) rather than the
+        // full rebuild, which would trust currentWorkingSchedule_extra for every OTHER route
+        // too and could wipe any route not present in that RSG-config-derived local cache.
         if (arrivalsIndexRebuildTimer_extra !== null) {
             clearTimeout(arrivalsIndexRebuildTimer_extra);
             arrivalsIndexRebuildTimer_extra = null;
+        }
+        for (const routeName of Object.keys(changesByRoute)) {
+            await rebuildArrivalsForRoute_ExtraPage(routeName, changesByRoute[routeName].deletedStopIDs || null);
         }
         await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
         
@@ -17205,6 +17233,12 @@ async function handleExecuteScheduledDeletion_ExtraPage(taskKey) {
 
     // Remove route's entries from currentWorkingSchedule_extra (local cache)
     let originalScheduleLength = currentWorkingSchedule_extra.length;
+    const affectedStopIDsForDeletion = new Set();
+    currentWorkingSchedule_extra.forEach(entry => {
+        if (entry.lineName && entry.lineName.toUpperCase() === task.routeName.toUpperCase() && entry.stopID) {
+            affectedStopIDsForDeletion.add(entry.stopID);
+        }
+    });
     currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry =>
         !(entry.lineName && entry.lineName.toUpperCase() === task.routeName.toUpperCase())
     );
@@ -17219,11 +17253,14 @@ async function handleExecuteScheduledDeletion_ExtraPage(taskKey) {
 
         // 3. Rebuild the arrivals index synchronously so the deleted route stops showing on
         // the live arrivals display immediately, rather than relying on the debounced rebuild.
+        // Pass the pre-deletion stop IDs explicitly - the route now has zero entries in
+        // currentWorkingSchedule_extra, so rebuildArrivalsForRoute_ExtraPage can't derive
+        // them itself, but still needs to purge this route from those stops' entries.
         if (arrivalsIndexRebuildTimer_extra !== null) {
             clearTimeout(arrivalsIndexRebuildTimer_extra);
             arrivalsIndexRebuildTimer_extra = null;
         }
-        await rebuildArrivalsByStopIndex_ExtraPage(currentWorkingSchedule_extra);
+        await rebuildArrivalsForRoute_ExtraPage(task.routeName, Array.from(affectedStopIDsForDeletion));
 
         // 4. Remove the task record itself from Firebase (crucial for auto-deletion)
         await dbRemove(dbRef(database, `${FB_PATH_SCHEDULED_DELETIONS}/${taskKey}`));
@@ -17646,7 +17683,7 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
         try {
             console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
             await updateAncillaryScheduleData_ExtraPage();
-            scheduleArrivalsByStopIndexRebuild_ExtraPage();
+            scheduleArrivalsByStopIndexRebuild_ExtraPage(targetRouteName);
             const endTime = performance.now();
             const totalTime = (endTime - startTime).toFixed(2);
             console.log(`[PERF] saveSpecificRouteDataToFirebase_ExtraPage completed in ${totalTime}ms`);
@@ -19582,7 +19619,10 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
     }
 
     // OPTIMIZATION: If schedule hasn't loaded yet, show loading message and retry (max 5 retries)
-    if ((!currentWorkingSchedule_extra || currentWorkingSchedule_extra.length === 0) && retryCount < 5) {
+    // Uses liveScheduleForToolsDisplay (actual live /liveSchedule/schedulesByRoute data), not
+    // currentWorkingSchedule_extra (derived from /rsgConfigs, which can be empty/incomplete for
+    // routes that were pushed live without ever being saved as an RSG config).
+    if ((!liveScheduleForToolsDisplay || liveScheduleForToolsDisplay.length === 0) && retryCount < 5) {
         noDeparturesMsg.textContent = 'Loading schedule data... please wait.';
         noDeparturesMsg.style.display = 'block';
         // Retry after 500ms to allow schedule to build
@@ -19597,12 +19637,12 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
     // PERFORMANCE: Use cached profiles (computed once per day)
     const todaysActiveProfilesSet = getTodaysActiveProfilesSet_ExtraPage();
 
-    const departures = currentWorkingSchedule_extra
+    const departures = liveScheduleForToolsDisplay
         .filter(e => {
-            if (e.stopID !== selectedStopID || !e.scheduledTime) {
+            if (!e.stopID || e.stopID.toUpperCase() !== selectedStopID.toUpperCase() || !e.scheduledTime) {
                 return false;
             }
-            const departureProfiles = e.OperatingProfile.split(',').map(p => p.trim());
+            const departureProfiles = (e.OperatingProfile || '').split(',').map(p => p.trim());
             return departureProfiles.some(dp => todaysActiveProfilesSet.has(dp));
         })
         .sort((a, b) => {

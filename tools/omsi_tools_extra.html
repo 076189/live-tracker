@@ -501,6 +501,7 @@ align-items: center;
                 <button class="menu-button" data-section="route-schedule-generator-section_extra">Route Schedule Generator</button>
                 <button class="menu-button" data-section="route-profile-deletion-section_extra">Route Profile Deletion</button>
                 <button class="menu-button" data-section="view-departures-section_extra">View Departures</button>
+                <button class="menu-button" data-section="timetable-download-section_extra">Timetable Download</button>
                 <button class="menu-button" data-section="scheduled-route-updates-section_extra">Scheduled Tasks</button>
                 <button class="menu-button" data-section="scheduled-route-deletion-section_extra">Schedule Route Deletion</button>
                 <button class="menu-button" data-section="config-data-section_extra">School Holiday Periods<br>& Operating Profiles List </button>
@@ -1192,7 +1193,19 @@ align-items: center;
                     <p id="noDeparturesForStopMessage_extra" style="display:none;"></p>
                 </div>
             </div>
-            
+
+            <div id="timetable-download-section_extra" class="tool-content-section section" style="display:none;">
+                <h2>Timetable Download</h2>
+                <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">Select a route to view today's scheduled stop times in both directions, or download the full timetable as a CSV file.</p>
+                <div class="subsection">
+                    <label for="td-route-select-extra">Route:</label>
+                    <select id="td-route-select-extra" class="schedule-generator-input"></select>
+                    <button id="td-download-button-extra" class="button secondary" style="margin-left:0.75rem;" disabled>Download as CSV</button>
+                </div>
+                <div id="td-timetable-container-extra" class="subsection" style="margin-top:1.5rem; overflow-x:auto;"></div>
+                <p id="td-status-message-extra" style="min-height:1.2em; margin-top:0.5rem;"></p>
+            </div>
+
             <div id="scheduled-route-updates-section_extra" class="tool-content-section section" style="display:none;">
                 <h2>Scheduled Tasks</h2>
                 <p style="font-size:0.9em; margin-bottom:1.5em; opacity: 0.8;">Review, manage, and execute pending or errored timetable updates and route deletions.</p>
@@ -1740,6 +1753,10 @@ const umListStatus_el = document.getElementById('um-list-status_extra');
         const tteStatusMessage_el_extra = document.getElementById('tte-status-message-extra');
 	const rsgNewRouteNameInput_el_extra = document.getElementById('rsg-new-route-name-input-extra'); // NEW: For typing a new route name
 	const selectStopForDeparturesView_extra = document.getElementById('selectStopForDeparturesView_extra');
+	const tdRouteSelect_el_extra = document.getElementById('td-route-select-extra');
+	const tdDownloadButton_el_extra = document.getElementById('td-download-button-extra');
+	const tdTimetableContainer_el_extra = document.getElementById('td-timetable-container-extra');
+	const tdStatusMessage_el_extra = document.getElementById('td-status-message-extra');
         const rsgSelectAllConfigsCheckbox_el_extra = document.getElementById('rsg-select-all-configs-checkbox-extra');
 	// New: Stop-Specific Route Colour Management
 const stopSpecificRouteColourManagementSection_el_extra = document.getElementById('stop-specific-route-colour-management-section-extra');
@@ -1891,8 +1908,8 @@ const rsgReplaceStopModalCancelButton_el_extra = document.getElementById('rsg-re
         // Global Route Deletion
         // Corrected line
 const globalRouteDeletionListContainer_el_extra = document.getElementById('globalRouteDeletionListContainer_extra');
-        const deleteEntireRouteButton_el_extra = document.getElementById('deleteEntireRouteButton_el_extra');
-        const deleteEntireRouteStatusMessage_el_extra = document.getElementById('deleteEntireRouteStatusMessage_el_extra');
+        const deleteEntireRouteButton_el_extra = document.getElementById('deleteEntireRouteButton_extra');
+        const deleteEntireRouteStatusMessage_el_extra = document.getElementById('deleteEntireRouteStatusMessage_extra');
         
 	// Route Schedule Generator (RSG)
         // Removed: const rsgRouteNameSelect_el_extra = document.getElementById('rsg-routeName-select-extra'); // REMOVED as it's no longer a <select>
@@ -7914,6 +7931,13 @@ function dpo_selectAllRoutes_ExtraPage() {
 const departuresSelect = document.getElementById('selectStopForDeparturesView_extra');
     if (departuresSelect) {
         departuresSelect.addEventListener('change', displayDeparturesForSelectedStop_ExtraPage);
+    }
+
+    if (tdRouteSelect_el_extra && typeof td_renderTimetable_ExtraPage === 'function') {
+        tdRouteSelect_el_extra.addEventListener('change', td_renderTimetable_ExtraPage);
+    }
+    if (tdDownloadButton_el_extra && typeof td_downloadTimetableCsv_ExtraPage === 'function') {
+        tdDownloadButton_el_extra.addEventListener('click', td_downloadTimetableCsv_ExtraPage);
     }
 
         function dpo_updateActionButtonsState() {
@@ -18181,6 +18205,8 @@ function rsg_openCopyFromModal_ExtraPage() {
         } else if (sectionId === 'view-departures-section_extra') {
             if (typeof populateStopSelectorForDeparturesView_ExtraPage === 'function') populateStopSelectorForDeparturesView_ExtraPage();
             if (typeof displayDeparturesForSelectedStop_ExtraPage === 'function') displayDeparturesForSelectedStop_ExtraPage();
+        } else if (sectionId === 'timetable-download-section_extra') {
+            if (typeof td_populateRouteSelect_ExtraPage === 'function') td_populateRouteSelect_ExtraPage();
         } else if (sectionId === 'scheduled-route-updates-section_extra') {
             if (typeof loadAndDisplayScheduledUpdates_ExtraPage === 'function') loadAndDisplayScheduledUpdates_ExtraPage();
         } else if (sectionId === 'scheduled-route-deletion-section_extra') {
@@ -19686,6 +19712,233 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
             listEl.appendChild(li);
         });
     }
+}
+
+let tdLastBuiltGrids_extra = []; // Grids from the most recently rendered timetable, reused by the CSV download
+
+function td_populateRouteSelect_ExtraPage() {
+    if (!tdRouteSelect_el_extra) return;
+    const currentVal = tdRouteSelect_el_extra.value;
+    const uniqueRoutes = [...new Set((liveScheduleForToolsDisplay || []).map(e => e.lineName))]
+        .filter(Boolean)
+        .sort(compareLineNames_ExtraPage);
+
+    tdRouteSelect_el_extra.innerHTML = '<option value="">-- Select Route --</option>';
+    uniqueRoutes.forEach(route => {
+        const opt = document.createElement('option');
+        opt.value = route;
+        opt.textContent = route;
+        tdRouteSelect_el_extra.appendChild(opt);
+    });
+
+    if (uniqueRoutes.includes(currentVal)) {
+        tdRouteSelect_el_extra.value = currentVal;
+    }
+    td_renderTimetable_ExtraPage();
+}
+
+function td_renderTimetable_ExtraPage(retryCount = 0) {
+    if (!tdRouteSelect_el_extra || !tdTimetableContainer_el_extra || !tdStatusMessage_el_extra) return;
+
+    const selectedRoute = tdRouteSelect_el_extra.value;
+    tdTimetableContainer_el_extra.innerHTML = '';
+    tdLastBuiltGrids_extra = [];
+    if (tdDownloadButton_el_extra) tdDownloadButton_el_extra.disabled = true;
+
+    if (!selectedRoute) {
+        tdStatusMessage_el_extra.textContent = 'Select a route to view its timetable.';
+        return;
+    }
+
+    // Uses liveScheduleForToolsDisplay (actual live schedule), same source as View Departures.
+    if ((!liveScheduleForToolsDisplay || liveScheduleForToolsDisplay.length === 0) && retryCount < 5) {
+        tdStatusMessage_el_extra.textContent = 'Loading schedule data... please wait.';
+        setTimeout(() => td_renderTimetable_ExtraPage(retryCount + 1), 500);
+        return;
+    } else if (retryCount >= 5 && (!liveScheduleForToolsDisplay || liveScheduleForToolsDisplay.length === 0)) {
+        tdStatusMessage_el_extra.textContent = 'Schedule data did not load. Please refresh the page.';
+        return;
+    }
+
+    const todaysActiveProfilesSet = getTodaysActiveProfilesSet_ExtraPage();
+    const routeEntries = liveScheduleForToolsDisplay.filter(e => {
+        if (!e.lineName || e.lineName.toUpperCase() !== selectedRoute.toUpperCase() || !e.tripId) return false;
+        const entryProfiles = (e.OperatingProfile || '').split(',').map(p => p.trim());
+        return entryProfiles.some(p => todaysActiveProfilesSet.has(p));
+    });
+
+    if (routeEntries.length === 0) {
+        tdStatusMessage_el_extra.textContent = `No scheduled trips found for route "${selectedRoute}" today.`;
+        return;
+    }
+
+    // Group the flattened stop-entries back into trips (one column per trip) keyed by tripId.
+    const tripsById = new Map();
+    routeEntries.forEach(entry => {
+        if (!tripsById.has(entry.tripId)) {
+            tripsById.set(entry.tripId, {
+                tripId: entry.tripId,
+                direction: entry.direction || 'Unknown Direction',
+                destinationName: entry.destinationName || 'Unknown',
+                runningNumber: entry.runningNumber || '',
+                tripStopSequence: Array.isArray(entry.tripStopSequence) ? entry.tripStopSequence : [],
+                stopTimes: new Map() // stopID -> {scheduledTime, DayOffset, stopName}
+            });
+        }
+        const trip = tripsById.get(entry.tripId);
+        if (entry.stopID && !trip.stopTimes.has(entry.stopID)) {
+            trip.stopTimes.set(entry.stopID, {
+                scheduledTime: entry.scheduledTime || '',
+                DayOffset: entry.DayOffset || '0',
+                stopName: entry.stopName || entry.stopID
+            });
+        }
+    });
+    const trips = Array.from(tripsById.values());
+
+    // Group trips by direction so each direction gets its own table.
+    const tripsByDirection = new Map();
+    trips.forEach(trip => {
+        if (!tripsByDirection.has(trip.direction)) tripsByDirection.set(trip.direction, []);
+        tripsByDirection.get(trip.direction).push(trip);
+    });
+
+    const sortedDirections = Array.from(tripsByDirection.keys()).sort();
+    sortedDirections.forEach(direction => {
+        const grid = td_buildDirectionGrid_ExtraPage(direction, tripsByDirection.get(direction));
+        tdLastBuiltGrids_extra.push(grid);
+        tdTimetableContainer_el_extra.appendChild(td_renderGridTable_ExtraPage(grid));
+    });
+
+    tdStatusMessage_el_extra.textContent = '';
+    if (tdDownloadButton_el_extra) tdDownloadButton_el_extra.disabled = tdLastBuiltGrids_extra.length === 0;
+}
+
+function td_buildDirectionGrid_ExtraPage(direction, directionTrips) {
+    // Canonical stop order = the trip covering the most stops (assumed to be the full route pattern);
+    // any stop IDs only seen on shorter-working trips get appended at the end.
+    let masterTrip = directionTrips[0];
+    directionTrips.forEach(t => {
+        if (t.tripStopSequence.length > masterTrip.tripStopSequence.length) masterTrip = t;
+    });
+    const stopOrder = [...masterTrip.tripStopSequence];
+    directionTrips.forEach(t => {
+        t.tripStopSequence.forEach(stopID => {
+            if (!stopOrder.includes(stopID)) stopOrder.push(stopID);
+        });
+        if (t.tripStopSequence.length === 0) {
+            t.stopTimes.forEach((_, stopID) => { if (!stopOrder.includes(stopID)) stopOrder.push(stopID); });
+        }
+    });
+
+    const stopNameById = new Map();
+    directionTrips.forEach(t => t.stopTimes.forEach((data, stopID) => {
+        if (!stopNameById.has(stopID)) stopNameById.set(stopID, data.stopName);
+    }));
+    const stopRows = stopOrder.map(stopID => ({ stopID, stopName: stopNameById.get(stopID) || stopID }));
+
+    // Sort trip columns chronologically by their first timed stop.
+    const sortedTrips = [...directionTrips].sort((a, b) => {
+        const firstStopA = stopOrder.find(id => a.stopTimes.has(id));
+        const firstStopB = stopOrder.find(id => b.stopTimes.has(id));
+        const timeA = firstStopA ? a.stopTimes.get(firstStopA).scheduledTime : '99:99';
+        const timeB = firstStopB ? b.stopTimes.get(firstStopB).scheduledTime : '99:99';
+        return timeA.localeCompare(timeB);
+    });
+
+    const destinationLabels = [...new Set(sortedTrips.map(t => t.destinationName))];
+    const directionLabel = `${direction}${destinationLabels.length ? ` (to ${destinationLabels.join(' / ')})` : ''}`;
+
+    const tripColumns = sortedTrips.map(t => {
+        const cells = new Map();
+        stopOrder.forEach(stopID => {
+            const timeData = t.stopTimes.get(stopID);
+            if (timeData) {
+                const dayOffsetSuffix = (timeData.DayOffset && timeData.DayOffset !== '0') ? `+${timeData.DayOffset}d` : '';
+                cells.set(stopID, `${timeData.scheduledTime}${dayOffsetSuffix}`);
+            }
+        });
+        return { header: `${t.destinationName}${t.runningNumber ? ` (${t.runningNumber})` : ''}`, cells };
+    });
+
+    return { direction, directionLabel, stopRows, tripColumns };
+}
+
+function td_renderGridTable_ExtraPage(grid) {
+    const wrapper = document.createElement('div');
+    wrapper.style.marginBottom = '2rem';
+
+    const heading = document.createElement('h3');
+    heading.className = 'subsection-title';
+    heading.textContent = grid.directionLabel;
+    wrapper.appendChild(heading);
+
+    const table = document.createElement('table');
+    table.style.cssText = 'border-collapse:collapse; width:100%; font-size:0.85em;';
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    const stopHeaderCell = document.createElement('th');
+    stopHeaderCell.textContent = 'Stop';
+    stopHeaderCell.style.cssText = 'text-align:left; padding:0.4em; border:1px solid #444; position:sticky; left:0; background:#2c3e50;';
+    headerRow.appendChild(stopHeaderCell);
+    grid.tripColumns.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.header;
+        th.style.cssText = 'padding:0.4em; border:1px solid #444; white-space:nowrap;';
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    grid.stopRows.forEach(row => {
+        const tr = document.createElement('tr');
+        const stopCell = document.createElement('td');
+        stopCell.textContent = row.stopName;
+        stopCell.style.cssText = 'padding:0.4em; border:1px solid #444; position:sticky; left:0; background:#1e2b38; white-space:nowrap;';
+        tr.appendChild(stopCell);
+        grid.tripColumns.forEach(col => {
+            const td = document.createElement('td');
+            td.textContent = col.cells.get(row.stopID) || '';
+            td.style.cssText = 'padding:0.4em; border:1px solid #444; text-align:center;';
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    return wrapper;
+}
+
+function td_csvEscape_ExtraPage(value) {
+    const str = String(value === undefined || value === null ? '' : value);
+    return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function td_downloadTimetableCsv_ExtraPage() {
+    if (!tdLastBuiltGrids_extra || tdLastBuiltGrids_extra.length === 0) return;
+    const selectedRoute = tdRouteSelect_el_extra ? tdRouteSelect_el_extra.value : 'route';
+    const lines = [];
+    tdLastBuiltGrids_extra.forEach(grid => {
+        lines.push(td_csvEscape_ExtraPage(grid.directionLabel));
+        lines.push(['Stop', ...grid.tripColumns.map(c => c.header)].map(td_csvEscape_ExtraPage).join(','));
+        grid.stopRows.forEach(row => {
+            lines.push([row.stopName, ...grid.tripColumns.map(c => c.cells.get(row.stopID) || '')].map(td_csvEscape_ExtraPage).join(','));
+        });
+        lines.push('');
+    });
+
+    const csvContent = lines.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Timetable_${(selectedRoute || 'route').replace(/[^a-z0-9]/gi, '_')}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 </script>
 </body>

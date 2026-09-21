@@ -485,18 +485,25 @@
 
         const tree = await getFullVehicleSightingHistoryTree();
         const logs = [];
+        
+        // Updated to match tree structure: /vehicleSightingHistory/[RunningNumber]/[DateKey]/[RouteName]
         Object.entries(tree).forEach(([runningNumberKey, datesObj]) => {
             if (!datesObj || typeof datesObj !== 'object') return;
             const runningNumberUpper = String(runningNumberKey || '').toUpperCase();
+            
             Object.entries(datesObj).forEach(([dateKey, routesForDay]) => {
-                Object.entries(routesForDay || {}).forEach(([routeName, record]) => {
+                if (!routesForDay || typeof routesForDay !== 'object') return;
+                
+                Object.entries(routesForDay).forEach(([routeName, record]) => {
                     if (!record || !record.firstSeenAt || !record.lastSeenAt) return;
                     const recordFleet = String(record.fleetNumber || '').toUpperCase();
                     const recordReg = String(record.registration || '').toUpperCase().replace(/\s+/g, '');
 
                     const matches = (recordFleet && wantedFleets.has(recordFleet)) ||
                         (recordReg && wantedRegs.has(recordReg)) ||
-                        wantedRunningNumbers.has(runningNumberUpper);
+                        wantedRunningNumbers.has(runningNumberUpper) ||
+                        wantedRunningNumbers.has(String(record.runningNumber || '').toUpperCase());
+                    
                     if (!matches) return;
 
                     logs.push({
@@ -683,13 +690,14 @@
         if (localScheduleData.length > 0) throttledProcessAndDisplay();
     }
 
-    function getLiveAssignedVehicle(routeName, runningNumber) {
+    function getLiveAssignedVehicle(routeName, runningNumber, sourceRoute = null) {
         const targetRunning = String(runningNumber || '').trim().toUpperCase();
         if (!targetRunning) return null;
         
-        // First, try to find assignment for the specific route
-        const routeUpper = String(routeName || '').toUpperCase();
-        const routeAssignments = liveVehicleAssignments[routeUpper] || {};
+        // Use sourceRoute if provided (for duty consistency across crosslinks)
+        // Otherwise, use the passed routeName
+        const lookupRoute = sourceRoute ? String(sourceRoute || '').toUpperCase() : String(routeName || '').toUpperCase();
+        const routeAssignments = liveVehicleAssignments[lookupRoute] || {};
         
         if (routeAssignments[targetRunning]) {
             const assignment = routeAssignments[targetRunning];
@@ -700,13 +708,12 @@
             if (fleetNumber || registration) {
                 return { fleetNumber: fleetNumber || 'N/A', registration: normalizeRegistration(registration || '---') };
             }
-        } else {
         }
         
-        // If not found for this route, check for crosslink: same running number on OTHER routes
+        // If not found on sourceRoute/routeName, check for crosslink: same running number on OTHER routes
         // This handles crosslinks where a bus keeps the same running number on different routes
         for (const rKey in liveVehicleAssignments) {
-            if (rKey.toUpperCase() === routeUpper) continue; // Skip the route we already checked
+            if (rKey.toUpperCase() === lookupRoute) continue; // Skip the route we already checked
             const otherRouteAssignments = liveVehicleAssignments[rKey] || {};
             if (otherRouteAssignments[targetRunning]) {
                 const assignment = otherRouteAssignments[targetRunning];
@@ -715,6 +722,9 @@
                 const registration = String(assignment.registration || '').trim();
                 // Always return valid Firebase assignment data if found (don't check if values are N/A or ---)
                 if (fleetNumber || registration) {
+                    if (targetRunning === 'V36' || targetRunning === 'V42') {
+                        console.log(`[DEBUG] Found ${targetRunning} on different route ${rKey}`);
+                    }
                     return { fleetNumber: fleetNumber || 'N/A', registration: normalizeRegistration(registration || '---') };
                 }
             }
@@ -727,6 +737,7 @@
     const ROUTE_SCHEDULE_CACHE_KEY = 'omsiTrackerRouteSchedules_Standalone_v2';
     let serviceInstanceVehicleCache = new Map();
     let serviceInstanceRareCache = new Map();
+    let blockIdToFirstRoute = new Map(); // Maps blockId to the first route it was seen on (for duty consistency)
 
     let clockTimeElement, clockDateElement, trackerTableBodyA, trackerTableBodyB, trackerTableBodyRare, busCounterElement,
         updateTimeElement, nextUpdateTimerElement,
@@ -949,6 +960,7 @@
 
     function handleToggleRarePage() {
         isRarePageActive = !isRarePageActive;
+        serviceInstanceRareCache.clear();
         if (rarePageToggleButton) {
             rarePageToggleButton.textContent = unescapeHtml(isRarePageActive ? "Exit Rare Workings Page" : "Open Rare Workings Page");
             rarePageToggleButton.style.backgroundColor = isRarePageActive ? "#dc3545" : "#6f42c1";
@@ -1019,6 +1031,7 @@
         const liveVehicleAssignmentsRef = dbRef(database, `${FB_PATH_LIVE_VEHICLE_ASSIGNMENTS}/${getLocalDateKey()}`);
         dbOnValue(liveVehicleAssignmentsRef, (snapshot) => {
             liveVehicleAssignments = snapshot.exists() ? snapshot.val() || {} : {};
+            
             if (localScheduleData.length > 0) throttledProcessAndDisplay();
         });
 
@@ -1436,8 +1449,15 @@
     }
 
     function getAssignedVehicle(blockId, routeName, runningNumber) {
-        // If Firebase has a real assignment, use it.
-        const liveAssignment = getLiveAssignedVehicle(routeName, runningNumber);
+        // Track which route this blockId was first seen on
+        // This ensures the same vehicle assignment is used across all crosslinked routes in a duty
+        if (!blockIdToFirstRoute.has(blockId) && routeName) {
+            blockIdToFirstRoute.set(blockId, String(routeName || '').toUpperCase());
+        }
+        const sourceRoute = blockIdToFirstRoute.get(blockId);
+
+        // If Firebase has a real assignment, use it (with sourceRoute consistency)
+        const liveAssignment = getLiveAssignedVehicle(routeName, runningNumber, sourceRoute);
         if (liveAssignment) {
             serviceInstanceVehicleCache.set(blockId, liveAssignment);
             return liveAssignment;
@@ -1691,6 +1711,7 @@
 
     async function processAndDisplayAllData() {
         fullServiceRunDataMap.clear();
+        serviceInstanceRareCache.clear();
 
         if (!localScheduleData || localScheduleData.length === 0) {
             if (!isRarePageActive && !isHistoryPageActive && !currentRouteFilter) {
@@ -1713,7 +1734,10 @@
         }
 
         resolveActiveVehicleAssignments();
-        populateCurtailmentsTable();
+        // Skip the vehicles-used-today refresh here - currentTrackedServices still holds the
+        // previous pass's data at this point, so excluding "currently live" vehicles would use
+        // stale info. A fresh, correct call happens later once currentTrackedServices is rebuilt.
+        populateCurtailmentsTable(true);
 
         let dataToProcess = localScheduleData;
         if (!isRarePageActive && currentRouteFilter) {
@@ -1783,6 +1807,7 @@
                     }
 
                     let lastSeenTime = 0;
+                    // Check if vehicle has been seen on THIS specific route within 60 days
                     firebaseLogs.forEach(log => {
                         if (String(log.routeName || '').toUpperCase() === routeUpper) {
                             const endT = Number(log.lastSeenAt || log.timestamp || 0);
@@ -1793,6 +1818,7 @@
                     const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
                     const currentTime = Date.now();
                     const hasSightingRecord = lastSeenTime > 0;
+                    // Rare if: never seen on this route OR last seen >60 days ago
                     const isOlderThan60Days = !hasSightingRecord || (currentTime - lastSeenTime > sixtyDaysMs);
 
                     isRare = isOlderThan60Days;
@@ -1868,6 +1894,7 @@
                 let bestStopForThisRun = null;
                 let smallestFutureDiff = Infinity;
                 let largestPastDiff = -Infinity;
+                let anyStopAtAll = null; // For rare page fallback
                 let reachedCurtailmentPoint = false;
                 let reachedShortStartPoint = !run.startShortAtStopID;
                 // Route-wide (mass) curtailments truncate at newTerminusStopId rather than an
@@ -1885,6 +1912,11 @@
                     }
 
                     const diff = stop.timeToStationInSeconds;
+                    // Track any stop for rare page fallback
+                    if (!anyStopAtAll || diff > (anyStopAtAll.timeToStationInSeconds || 0)) {
+                        anyStopAtAll = stop;
+                    }
+
                     if (diff >= 0 && diff <= MAX_UPCOMING_SECONDS_TRACKER) {
                         if (diff < smallestFutureDiff) {
                             smallestFutureDiff = diff;
@@ -1902,11 +1934,16 @@
                     }
                 }
 
-                if (bestStopForThisRun) {
-                    if (bestStopForThisRun.timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER) {
+                // Use best stop found in normal time window, or fall back to any stop for rare page
+                const stopToUse = bestStopForThisRun || (isRarePageActive ? anyStopAtAll : null);
+                
+                if (stopToUse) {
+                    // For rare page, include services even if all stops are past (rare vehicles show history)
+                    // For normal page, require stops within the relevant time window
+                    if (isRarePageActive || stopToUse.timeToStationInSeconds >= MIN_RELEVANT_PAST_SECONDS_TRACKER) {
                         selectedRun = run;
-                        selectedBestStop = bestStopForThisRun;
-                        if (bestStopForThisRun.timeToStationInSeconds >= 0) {
+                        selectedBestStop = stopToUse;
+                        if (stopToUse.timeToStationInSeconds >= 0) {
                             break;
                         }
                     }
@@ -2008,8 +2045,11 @@
             const midnightToday = new Date(nowForProcessing);
             midnightToday.setHours(24, 0, 0, 0);
 
-            // Rare page shows all services from rare-eligible routes, not filtered by rarity
+            // Rare page shows only services marked as rare workings
             currentTrackedServices = currentTrackedServices.filter(service => {
+                // Must be marked as a rare working
+                if (!service.isRareWorking) return false;
+                // Must not be too far in the past
                 if (service.nextStopActualTime instanceof Date) {
                     return service.nextStopActualTime.getTime() <= midnightToday.getTime();
                 }
@@ -2152,7 +2192,8 @@
         tbody.innerHTML = "";
         servicesToDisplay.slice().sort((a, b) => naturalSortCompareRoute(a.trueLineName, b.trueLineName)).forEach((service) => {
             const isPast = service._timeToNextStopSec < 0;
-            if (service._timeToNextStopSec < MAX_PAST_SECONDS_TRACKER) return;
+            // On rare page, show even old services; elsewhere, filter out past services
+            if (!isRarePageActive && service._timeToNextStopSec < MAX_PAST_SECONDS_TRACKER) return;
 
             const row = tbody.insertRow();
             if (isPast) {
@@ -2225,6 +2266,7 @@
         }
         
         vehicleHistoryMemoryCache.clear();
+        vehicleHistoryLookupCache.clear();
         
         const identParts = cleanIdent.split(/\s+/).filter(p => p);
         const searchTerms = identParts.length === 2 
@@ -2382,21 +2424,20 @@
                 const routeName = String(log.routeName || '').toUpperCase();
                 const operator = log.operator || getOperatorFromGarage(log.garage) || '(Unknown)';
                 const garage = log.garage || getGarageFromRunningNumber(log.runningNumber) || '-';
-                const groupKey = `${operator}|${routeName}|${dateKey}|${garage}`;
-                const existing = groupedLogs.get(groupKey);
-                if (existing) {
-                    existing.from = Math.min(existing.from, firstSeenAt);
-                    existing.until = Math.max(existing.until, lastSeenAt);
-                } else {
-                    groupedLogs.set(groupKey, { dateKey, routeName, operator, garage, from: firstSeenAt, until: lastSeenAt });
-                }
+                // Include firstSeenAt in groupKey so each distinct trip shows separately instead of combining multiple trips
+                const groupKey = `${operator}|${routeName}|${dateKey}|${garage}|${firstSeenAt}|${lastSeenAt}`;
+                groupedLogs.set(groupKey, { dateKey, routeName, operator, garage, from: firstSeenAt, until: lastSeenAt });
             });
 
             if (displayFleet === '-' && logs[0].fleetNumber) displayFleet = String(logs[0].fleetNumber);
             if (displayReg === '-' && logs[0].registration) displayReg = String(logs[0].registration);
             displayReg = normalizeRegistration(displayReg);
              
-            const formatHistoryTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            const formatHistoryTime = timestamp => {
+                // Firebase stores milliseconds (1.7e12+). Treat as milliseconds if >1e11, else treat as seconds
+                const ms = timestamp > 1e11 ? timestamp : timestamp * 1000;
+                return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            };
             [...groupedLogs.values()].sort((a, b) => b.until - a.until).forEach(group => {
                 const dateText = group.dateKey.replace(/\//g, '-');
                 const fromText = formatHistoryTime(group.from);
@@ -2527,8 +2568,8 @@
         searchStatusMessage.textContent = `No vehicle ID found for "${escapeHtml(rawInput)}".`; 
     }
     
-    function populateCurtailmentsTable() {
-        populateVehiclesUsedTodayTable();
+    function populateCurtailmentsTable(skipVehiclesUsedToday = false) {
+        if (!skipVehiclesUsedToday) populateVehiclesUsedTodayTable();
         if (!curtailedBusesTableBody) return;
         curtailedBusesTableBody.innerHTML = "";
 
@@ -2710,7 +2751,7 @@
             const rawFirstSeen = Number(log.firstSeenAt || log.timestamp);
             const rawLastSeen = Number(log.lastSeenAt || log.timestamp);
             
-            console.log(`  Vehicle ${log.fleetNumber}/${log.registration}: rawFirst=${new Date(rawFirstSeen).toLocaleTimeString()} rawLast=${new Date(rawLastSeen).toLocaleTimeString()}`);
+            console.log(`  Vehicle ${log.fleetNumber}/${log.registration}: rawFirstVal=${rawFirstSeen} rawLastVal=${rawLastSeen} => ${new Date(rawFirstSeen).toLocaleTimeString()} to ${new Date(rawLastSeen).toLocaleTimeString()}`);
             
             if (routeUpper !== String(log.routeName || '').toUpperCase()) {
                 console.log(`    -> Filtered: different route`);
@@ -2802,7 +2843,11 @@
             return;
         }
 
-        const formatTime = timestamp => new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        const formatTime = timestamp => {
+            // Firebase stores milliseconds (1.7e12+). Treat as milliseconds if >1e11, else treat as seconds
+            const ms = timestamp > 1e11 ? timestamp : timestamp * 1000;
+            return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        };
         const sortedVehicles = [...vehiclesByIdentity.values()].sort((a, b) => b.usedFrom - a.usedFrom);
         console.log('populateVehiclesUsedTodayTable - displaying vehicles:', sortedVehicles.map(v => ({ fleet: v.fleet, reg: v.registration, from: formatTime(v.usedFrom), until: formatTime(v.usedUntil) })));
         sortedVehicles.forEach(vehicle => {

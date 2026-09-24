@@ -2261,10 +2261,6 @@
         currentHistoryIdentifier = cleanIdent;
         isHistoryPageActive = true;
         
-        if (mainHeadingElement) {
-            mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle/Running History: ${cleanIdent}`);
-        }
-        
         vehicleHistoryMemoryCache.clear();
         vehicleHistoryLookupCache.clear();
         
@@ -2273,8 +2269,6 @@
             ? [identParts[0], identParts[1], cleanIdent.replace(/\s+/g, ''), `${identParts[0]} ${identParts[1]}`] 
             : [cleanIdent];
         
-        
-        // Add normalized registration variants for better matching
         if (identParts.length === 1 && identParts[0].length === 7) {
             const compact = identParts[0].replace(/\s+/g, '');
             const ukFormatMatch = compact.match(/^([A-Z]{2}\d{2})([A-Z]{3})$/);
@@ -2315,36 +2309,30 @@
             if (displayFleet !== '-' && displayReg !== '-') break;
         }
         
-        // All data comes from Firebase only
         let logs = [];
         const cacheKey = cleanIdent;
         const now = Date.now();
-        const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+        const CACHE_TTL = 5 * 60 * 1000;
 
-        // Check if we have cached data and if it's still fresh
         let cacheEntry = vehicleHistoryMemoryCache.get(cacheKey);
         let shouldRefetch = !cacheEntry || (now - cacheEntry.timestamp) > CACHE_TTL;
 
-        // Also refetch if any log shows the vehicle is currently active (lastSeenAt is recent)
         if (cacheEntry && cacheEntry.logs.length > 0) {
             const mostRecentLog = cacheEntry.logs.reduce((prev, current) => 
                 (current.lastSeenAt || 0) > (prev.lastSeenAt || 0) ? current : prev
             );
             const timeSinceLastSeen = now - (mostRecentLog.lastSeenAt || 0);
-            // If last seen less than 30 minutes ago, vehicle might still be active - refetch
             if (timeSinceLastSeen < 30 * 60 * 1000) {
                 shouldRefetch = true;
             }
         }
 
         if (shouldRefetch) {
-            // Load from Firebase
             let firebaseLogs = [];
             try {
                 firebaseLogs = await loadFirebaseVehicleHistory([...searchTerms, displayFleet, displayReg, cleanIdent]);
             } catch (error) {}
 
-            // Also include today's data from todaysFirebaseVehicleHistoryByRoute
             todaysFirebaseVehicleHistoryByRoute.forEach((routeData, routeName) => {
                 if (Array.isArray(routeData)) {
                     routeData.forEach(log => {
@@ -2374,37 +2362,45 @@
                 }
             });
 
-            // Cache with timestamp
             vehicleHistoryMemoryCache.set(cacheKey, { logs: firebaseLogs, timestamp: now });
             logs = firebaseLogs;
         } else {
-            // Use cached data
             logs = cacheEntry.logs;
+        }
+
+        if (displayFleet === '-' && logs.length > 0 && logs[0].fleetNumber) displayFleet = String(logs[0].fleetNumber);
+        if (displayReg === '-' && logs.length > 0 && logs[0].registration) displayReg = String(logs[0].registration);
+        displayReg = normalizeRegistration(displayReg);
+
+        let fullIdentTitle = cleanIdent;
+        if (displayFleet !== '-' && displayReg !== '-' && displayReg !== '---') {
+            fullIdentTitle = `${displayFleet} (${displayReg})`;
+        } else if (displayFleet !== '-' && displayFleet !== cleanIdent) {
+            fullIdentTitle = `${displayFleet} (${cleanIdent})`;
+        } else if (displayReg !== '-' && displayReg !== '---' && displayReg.replace(/\s+/g, '') !== cleanIdent.replace(/\s+/g, '')) {
+            fullIdentTitle = `${cleanIdent} (${displayReg})`;
+        }
+
+        if (mainHeadingElement) {
+            mainHeadingElement.textContent = unescapeHtml(`OMSI Live Tracker - Vehicle/Running History: ${fullIdentTitle}`);
         }
 
         let pageContent = '';
         if (logs.length === 0) {
-            pageContent = `<p>No history records found for ${escapeHtml(cleanIdent)}.</p>`;
+            pageContent = `<p>No history records found for ${escapeHtml(fullIdentTitle)}.</p>`;
         } else {
-            // Prepare logs with date keys - do NOT modify recorded times
             const logsWithDates = logs.map(log => ({
                 ...log,
                 dateKey: log.dateKey || new Date(log.firstSeenAt).toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-')
             }));
             
             logsWithDates.sort((a, b) => (a.firstSeenAt || 0) - (b.firstSeenAt || 0));
-            
-            // Do NOT modify recorded times even if they appear to overlap
-            // (crosslinked routes are sequential, not overlapping)
             logs = logsWithDates.filter(log => (log.lastSeenAt || 0) >= (log.firstSeenAt || 0));
 
             let tableHTML = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; background-color: #fff;"><thead><tr><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Oper</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Route</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Date</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">From</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Until</th><th style="border: 1px solid #dfe4ea; padding: 8px 10px; background-color: #e9ecef; text-align: center; font-weight: bold;">Garage</th></tr></thead><tbody>';
             const getFirstSeenAt = log => log.firstSeenAt || log.timestamp;
             const getLastSeenAt = log => log.lastSeenAt || log.timestamp;
             let sortedLogs = logs.flatMap(splitHistoryLogAtMidnight).sort((a, b) => getFirstSeenAt(a) - getFirstSeenAt(b));
-            
-            // Do NOT modify recorded times - history entries should be immutable once recorded
-            // (including crosslinked route pairs which are sequential, not overlapping)
             
             const groupedLogs = new Map();
             sortedLogs.forEach(log => {
@@ -2424,17 +2420,11 @@
                 const routeName = String(log.routeName || '').toUpperCase();
                 const operator = log.operator || getOperatorFromGarage(log.garage) || '(Unknown)';
                 const garage = log.garage || getGarageFromRunningNumber(log.runningNumber) || '-';
-                // Include firstSeenAt in groupKey so each distinct trip shows separately instead of combining multiple trips
                 const groupKey = `${operator}|${routeName}|${dateKey}|${garage}|${firstSeenAt}|${lastSeenAt}`;
                 groupedLogs.set(groupKey, { dateKey, routeName, operator, garage, from: firstSeenAt, until: lastSeenAt });
             });
-
-            if (displayFleet === '-' && logs[0].fleetNumber) displayFleet = String(logs[0].fleetNumber);
-            if (displayReg === '-' && logs[0].registration) displayReg = String(logs[0].registration);
-            displayReg = normalizeRegistration(displayReg);
              
             const formatHistoryTime = timestamp => {
-                // Firebase stores milliseconds (1.7e12+). Treat as milliseconds if >1e11, else treat as seconds
                 const ms = timestamp > 1e11 ? timestamp : timestamp * 1000;
                 return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
             };
@@ -2445,9 +2435,15 @@
                 tableHTML += `<tr><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.operator)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.routeName)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(dateText)}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${fromText}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${untilText}</td><td style="border: 1px solid #dfe4ea; padding: 8px 10px;">${escapeHtml(group.garage)}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
-            pageContent = `<p><strong>History for ${escapeHtml(cleanIdent)} :-</strong></p>${tableHTML}`;
+            pageContent = `<p><strong>History for ${escapeHtml(fullIdentTitle)} :-</strong></p>${tableHTML}`;
         }
         
+        const historyHeading = document.getElementById('history-heading');
+        if (historyHeading) {
+            historyHeading.textContent = unescapeHtml(`Vehicle Sighting History - ${fullIdentTitle}`);
+            historyHeading.style.display = "block";
+        }
+
         const historyPageContent = document.getElementById('history-page-content');
         if (historyPageContent) {
             historyPageContent.innerHTML = pageContent;

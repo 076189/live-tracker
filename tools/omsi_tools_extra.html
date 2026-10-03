@@ -11276,19 +11276,18 @@ async function rebuildArrivalsForRoute_ExtraPage(routeName, explicitStopIDs = nu
         stopData[stopID] = arrivalsByStopForThisStop;
     }
 
-    // Step 3: Write affected stops using dbSet (not dbUpdate) to completely replace old data
-    // and avoid stale trip entries from being retained
-    for (const stopID of affectedStopIDs) {
-        const stopPath = `${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`;
-        try {
-            // Use dbSet to completely replace the stop's index, removing any orphaned entries
-            await dbSet(dbRef(database, stopPath), stopData[stopID]);
-            console.log(`  -> Set arrivals index for stop ${stopID} (${Object.keys(stopData[stopID]).length} entries)`);
-        } catch (error) {
-            console.error(`Error writing arrivals index for stop ${stopID}:`, error);
-            throw error;
-        }
+    console.groupCollapsed("Updating affected stop arrivals index");
+for (const stopID of affectedStopIDs) {
+    const stopPath = `${FB_PATH_ARRIVALS_BY_STOP}/${stopID}`;
+    try {
+        await dbSet(dbRef(database, stopPath), stopData[stopID]);
+        console.log(`-> Set arrivals index for stop ${stopID} (${Object.keys(stopData[stopID]).length} entries)`);
+    } catch (error) {
+        console.error(`Error writing arrivals index for stop ${stopID}:`, error);
+        throw error;
     }
+}
+console.groupEnd();
 
     console.log(`Arrivals index rebuilt for route "${routeName}" (${affectedStopIDs.size} stops, ${entriesProcessed} entries).`);
 }

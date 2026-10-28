@@ -15152,33 +15152,59 @@ function downloadAllStops_ExtraPage() {
     }
 
     const stopsArray = Object.values(allDefinedStops_data);
-    
-    // Create CSV format for better compatibility
-    const lines = ['Stop ID,Stop Name,Direction,Routes Served'];
+    const data = [
+        ['Stop ID', 'Stop Name', 'Towards', 'Routes Served']
+    ];
+
     stopsArray.forEach(stop => {
         const routesServing = (stopToServingRoutesMap_extra && stopToServingRoutesMap_extra.get(stop.stopID))
             ? Array.from(stopToServingRoutesMap_extra.get(stop.stopID)).sort((a, b) => {
                 const aNum = parseInt(a);
                 const bNum = parseInt(b);
                 return isNaN(aNum) || isNaN(bNum) ? a.localeCompare(b) : aNum - bNum;
-            }).join('; ')
+            }).join(', ')
             : '(no routes)';
         
-        const safeName = (stop.stopName || '').replace(/"/g, '""'); // Escape quotes for CSV
-        const safeDirection = (stop.direction || '').replace(/"/g, '""');
-        lines.push(`"${stop.stopID}","${safeName}","${safeDirection}","${routesServing}"`);
+        data.push([
+            String(stop.stopID),
+            stop.stopName || '',
+            stop.direction || '',
+            routesServing
+        ]);
     });
 
-    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const timestamp = new Date().toISOString().slice(0, 10);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `all_stops_${timestamp}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const ws = XLSX.utils.aoa_to_sheet(data);
+
+    ws['!cols'] = [
+        { wch: 13.29 },
+        { wch: 40.43 },
+        { wch: 45.43 },
+        { wch: 29.43 }
+    ];
+
+    ws['!freeze'] = { ySplit: 1, topLeftCell: 'A2', state: 'frozen' };
+    ws['!autofilter'] = { ref: `A1:D${data.length}` };
+
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!ws[cellRef]) continue;
+            if (!ws[cellRef].s) ws[cellRef].s = {};
+            ws[cellRef].s.alignment = { wrapText: true, vertical: 'center' };
+        }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Stops');
+
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const timestamp = `${day}-${month}-${year}`;
+
+    XLSX.writeFile(wb, `All_OMSI_Stops_${timestamp}.xlsx`);
 }
 
 function rsg_renderStopSequence_ExtraPage() {
@@ -17411,8 +17437,6 @@ async function reloadClosedStopsFromFirebase() {
         console.log(`DEFENSIVE RELOAD: Re-loaded ${closedStopIDs_extra.length} closed stop definitions.`);
     } catch (error) {
         console.error("Defensive reload of closed stops failed:", error);
-        // In case of error, we don't want to wipe out a potentially valid local list.
-        // We just log the error and proceed with what we have in memory.
     }
 }
 
@@ -17428,7 +17452,6 @@ async function reloadClosedStopsFromFirebase() {
 
     const { database, dbRef, dbSet, dbGet, dbChild, dbRemove, dbUpdate } = window.firebaseOMSI;
 
-    // *** MODIFICATION START: Backup closed stops list ***
     let closedStopsBackup = {};
     try {
         const backupSnap = await dbGet(dbChild(dbRef(database), FB_PATH_APPSTATE_CLOSED_STOPS));
@@ -17439,7 +17462,6 @@ async function reloadClosedStopsFromFirebase() {
         alert("CRITICAL ERROR: Could not backup closed stops list. Operation aborted to prevent data loss.");
         return;
     }
-    // *** MODIFICATION END ***
 
     const representativeTask = tasksInBatch[0];
     const targetRouteName = representativeTask.routeName;
@@ -17473,7 +17495,6 @@ async function reloadClosedStopsFromFirebase() {
         rsgStatusMessage_el_extra.textContent = `Processing batch for Route ${targetRouteName}...`;
     }
 
-    // Modify the in-memory schedule first
     currentWorkingSchedule_extra = currentWorkingSchedule_extra.filter(entry => 
         !(entry.lineName && entry.lineName.toUpperCase() === targetRouteName.toUpperCase())
     );
@@ -17482,14 +17503,10 @@ async function reloadClosedStopsFromFirebase() {
     try {
         await saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName);
 
-        // Ensure the arrivals index is definitely up to date before we report success,
-        // instead of relying on the debounced rebuild that saveSpecificRouteDataToFirebase
-        // schedules internally (which could be missed if the tab is closed too soon).
         if (arrivalsIndexRebuildTimer_extra !== null) {
             clearTimeout(arrivalsIndexRebuildTimer_extra);
             arrivalsIndexRebuildTimer_extra = null;
         }
-        // Rebuild arrivals index ONLY for the affected route, asynchronously in the background
         rebuildArrivalsForRoute_ExtraPage(targetRouteName)
             .then(() => console.log(`Arrivals index rebuild complete for route ${targetRouteName}`))
             .catch(err => console.error(`Arrivals index rebuild failed for route ${targetRouteName}:`, err));
@@ -17502,13 +17519,11 @@ async function reloadClosedStopsFromFirebase() {
                 removePromises.push(dbRemove(taskNodeRef)); 
             } catch (e) {
                 console.error(`Error updating status for task ${taskKey}:`, e);
-                removePromises.push(dbRemove(taskNodeRef)); // Still try to remove it
+                removePromises.push(dbRemove(taskNodeRef));
             }
         }
         await Promise.all(removePromises);
         
-        // Remove deleted tasks from the local cache immediately to keep UI in sync
-        // (don't wait for the real-time listener to fire)
         taskKeysInBatch.forEach(key => {
             delete scheduledRouteUpdates_extra[key];
         });
@@ -17527,11 +17542,9 @@ async function reloadClosedStopsFromFirebase() {
             rsgStatusMessage_el_extra.style.color = "#e74c3c";
         }
     } finally {
-        // *** MODIFICATION START: Restore closed stops state ***
         await dbSet(dbRef(database, FB_PATH_APPSTATE_CLOSED_STOPS), closedStopsBackup);
         closedStopIDs_extra = Object.keys(closedStopsBackup || {});
         console.log(`FINALLY: Closed stops state restored from backup after applying batch for Route ${targetRouteName}.`);
-        // *** MODIFICATION END ***
     }
 }
 
@@ -17545,7 +17558,6 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
         throw new Error("Authentication or Firebase connection issue.");
     }
 
-    // OPTIMIZATION: Set flag to skip listener processing (we'll update locally instead)
     isManualUploadInProgress_extra = true;
     const startTime = performance.now();
     const targetRouteUppercase = targetRouteName.toUpperCase();
@@ -17562,19 +17574,17 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
         );
 
         if (entriesForThisRoute.length === 0) {
-            // If the route now has no schedules, delete its node from Firebase.
+            // NOTE [Ryan - 03/10/26 - 18:46:07]: If the route now has no schedules, delete its node from Firebase.
             console.log(`Route "${targetRouteName}" has no schedule entries. Removing its node from Firebase at ${routePathInFirebase}.`);
             try {
                 await dbRemove(dbRef(database, routePathInFirebase));
                 console.log(`Successfully removed node for route "${targetRouteName}" from Firebase.`);
-                // Remove from local schedule
                 const updatedSchedule = currentWorkingSchedule_extra.filter(e => e.lineName?.toUpperCase() !== targetRouteUppercase);
                 currentWorkingSchedule_extra = updatedSchedule;
             } catch (error) {
                 console.error(`Error removing node for empty route "${targetRouteName}" from Firebase:`, error);
             }
         } else {
-            // Build the complete structured data for this route
             const routeDataForFirebase = {};
             entriesForThisRoute.forEach(entry => {
                 if (!entry.OperatingProfile || !entry.destinationName) return;
@@ -17585,10 +17595,6 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
                 routeDataForFirebase[saneProfile][saneDest].entries.push({ ...entry });
             });
 
-            // Clear the route's existing node first - otherwise any old profile/destination
-            // whose sanitized key no longer matches the new data (e.g. renamed/reworded
-            // destination or operating profile) would survive as stale, orphaned entries
-            // alongside the new ones.
             try {
                 await dbRemove(dbRef(database, routePathInFirebase));
             } catch (error) {
@@ -17596,9 +17602,6 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
                 throw error;
             }
 
-            // Upload each profile/destination separately - the Cloud Function's trigger is
-            // scoped to this same depth, so each write's payload stays small regardless of
-            // how large the route grows overall.
             const uploadStartTime = performance.now();
             console.log(`Attempting to save data for route "${targetRouteName}" (${entriesForThisRoute.length} entries) to Firebase path: ${routePathInFirebase}`);
 
@@ -17624,16 +17627,12 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
             console.log(`Successfully saved data for route "${targetRouteName}" to Firebase (${(uploadEndTime - uploadStartTime).toFixed(2)}ms).`);
         }
 
-        // Tell the indexRunningNumberSchedule Cloud Function to rebuild this route's running
-        // number index. Writing a tiny value here (instead of relying on a trigger watching
-        // schedulesByRoute directly) keeps the trigger payload small regardless of route size.
         try {
             await dbSet(dbRef(database, `/liveSchedule/scheduleUpdateSignal/${saneRouteToUpdate}`), Date.now());
         } catch (error) {
             console.error(`Error signaling schedule update for route "${targetRouteName}":`, error);
         }
 
-        // After saving the route, always update ancillary data (unique stops list, timestamp)
         try {
             console.log(`Updating ancillary data after changes to route "${targetRouteName}".`);
             await updateAncillaryScheduleData_ExtraPage();
@@ -17642,11 +17641,9 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
             const totalTime = (endTime - startTime).toFixed(2);
             console.log(`[PERF] saveSpecificRouteDataToFirebase_ExtraPage completed in ${totalTime}ms`);
             
-            // Display success message to user
             if (rsgStatusMessage_el_extra) {
                 rsgStatusMessage_el_extra.textContent = `✓ Route "${targetRouteName}" uploaded successfully (${totalTime}ms)`;
                 rsgStatusMessage_el_extra.style.color = "#27ae60";
-                // Auto-clear success message after 5 seconds
                 setTimeout(() => {
                     if (rsgStatusMessage_el_extra) {
                         rsgStatusMessage_el_extra.textContent = '';
@@ -17661,8 +17658,6 @@ async function saveSpecificRouteDataToFirebase_ExtraPage(targetRouteName) {
             }
         }
     } finally {
-        // CRITICAL: Clear flag to allow listener processing to resume
-        // Add a small delay to ensure Firebase update has propagated
         setTimeout(() => {
             isManualUploadInProgress_extra = false;
             console.log(`[PERF] Manual upload flag cleared, listener re-enabled`);
@@ -17677,10 +17672,8 @@ function rsg_updateRsgActionButtonsState() {
     const opProfiles = rsg_getSelectedOpProfilesString_ExtraPage();
     const destName = rsgDestinationNameInput_el_extra.value.trim();
     const firstStopTimes = rsgFirstStopTimesInput_el_extra.value.trim();
-    // stopSequenceHasItems is no longer part of formIsComplete for enabling Generate button
-    // const stopSequenceHasItems = rsg_selectedStops_extra && rsg_selectedStops_extra.length > 0;
 
-    const formIsComplete = routeName && opProfiles && destName && firstStopTimes; // Removed stopSequenceHasItems
+    const formIsComplete = routeName && opProfiles && destName && firstStopTimes;
     const previewExists = rsg_generatedPreviewEntries_extra && rsg_generatedPreviewEntries_extra.length > 0;
 
     const tickedCheckboxes = document.querySelectorAll('.rsg-saved-config-checkbox:checked');
@@ -17760,11 +17753,9 @@ function rsg_openCopyFromModal_ExtraPage() {
         rsgCopySourceRouteNameSelect_el_extra.value = rsg_copySourceSelection_extra.route;
     }
     
-    // Trigger population of dependent dropdowns (Destination, then Profile)
-    // Call rsg_populateCopySourceDestinationSelect_ExtraPage which will in turn call profile population
     if (typeof rsg_populateCopySourceDestinationSelect_ExtraPage === 'function') {
         rsg_populateCopySourceDestinationSelect_ExtraPage(); 
-    } else { // Fallback if dest populator somehow not ready, at least try to clear profiles
+    } else {
         if (typeof rsg_populateCopySourceOpProfileSelect_ExtraPage === 'function') {
             rsg_populateCopySourceOpProfileSelect_ExtraPage();
         }
@@ -17789,9 +17780,8 @@ function rsg_openCopyFromModal_ExtraPage() {
         }
 
         function rsg_populateCopySourceDestinationSelect_ExtraPage() { 
-    if (!rsgCopySourceDestNameSelect_el_extra || !rsgCopySourceRouteNameSelect_el_extra) { // Removed check for text input
+    if (!rsgCopySourceDestNameSelect_el_extra || !rsgCopySourceRouteNameSelect_el_extra) {
         console.warn("RSG Copy Modal: Destination select or route select missing for populating destinations.");
-        // Attempt to populate profiles even if destination can't be fully processed, as profiles might depend only on route
         if (typeof rsg_populateCopySourceOpProfileSelect_ExtraPage === 'function') {
             rsg_populateCopySourceOpProfileSelect_ExtraPage();
         }
@@ -17980,12 +17970,9 @@ function rsg_openCopyFromModal_ExtraPage() {
         if (rsgFirstStopTimesInput_el_extra && existingStopCount === 0) {
             rsgFirstStopTimesInput_el_extra.value = sourceFirstStopTimes;
             
-            // Parse times from source
             const parsedTimes = sourceFirstStopTimes.split(/\t|,|;/).map(t => t.trim()).filter(t => t.match(/^\d{2}:\d{2}$/));
             
-            // Try to copy tripDetails from source config if available
             if (sourceConfigData && sourceConfigData.tripDetails && Array.isArray(sourceConfigData.tripDetails)) {
-                // Copy existing trip details from source, matching by time
                 const sourceTimeMap = new Map();
                 sourceConfigData.tripDetails.forEach(td => {
                     if (td.time) sourceTimeMap.set(td.time, td);
@@ -18000,11 +17987,9 @@ function rsg_openCopyFromModal_ExtraPage() {
                     };
                 });
             } else {
-                // No source tripDetails; initialize with empty and try to apply patterns
                 rsg_tripDetails_extra = parsedTimes.map(t => ({ time: t, tripNumber: '', runningNumber: '' }));
             }
             
-            // Apply smart suggestions for any remaining empty fields based on detected patterns
             const tripPattern = rsg_detectTripNumberPattern_ExtraPage();
             const runningPattern = rsg_detectRunningNumberPattern_ExtraPage();
             
@@ -18053,7 +18038,6 @@ function rsg_openCopyFromModal_ExtraPage() {
 }
 
     function showExtraPageSection(sectionId) {
-    // Clear any active interval timers when switching sections
     if (slc_list_updater_interval) {
         clearInterval(slc_list_updater_interval);
         slc_list_updater_interval = null;
@@ -18067,8 +18051,6 @@ function rsg_openCopyFromModal_ExtraPage() {
         keyDeparturesIntervalId_extra = null;
     }
 
-    // CRITICAL FIX: Clean up Firebase listeners to prevent memory leaks
-    // (This was causing crashes on mobile after switching sections 3-4 times)
     firebaseListenerUnsubscribers_extra.forEach(unsubscribe => unsubscribe());
     firebaseListenerUnsubscribers_extra = [];
     console.log('[Performance Fix] Cleaned up Firebase listeners when switching sections.');
@@ -18077,7 +18059,6 @@ function rsg_openCopyFromModal_ExtraPage() {
         return;
     }
 
-    // Hide all tool sections first
     const allSections = toolSectionsWrapper_el_extra.querySelectorAll(".tool-content-section.section");
     allSections.forEach((s) => {
         s.style.display = "none";
@@ -18092,12 +18073,11 @@ function rsg_openCopyFromModal_ExtraPage() {
             if (error.name === 'QuotaExceededError') {
                 console.warn('localStorage quota exceeded. Unable to save active section. Clearing some data...');
                 try {
-                    // Try to clear older cached data to make space
                     for (let i = localStorage.length - 1; i >= 0; i--) {
                         const key = localStorage.key(i);
                         if (key && key.startsWith('cache_')) {
                             localStorage.removeItem(key);
-                            break; // Remove just one item and retry
+                            break;
                         }
                     }
                     localStorage.setItem("omsiExtraToolsActiveSection", sectionId);
@@ -18109,11 +18089,7 @@ function rsg_openCopyFromModal_ExtraPage() {
             }
         }
 
-        // --- START OF MODIFICATION ---
-        // This is a complete 'if/else if' block to handle specific logic for each section upon being displayed.
         if (sectionId === 'user-management-section_extra') {
-            // This is the key fix. It ensures the user list is rendered with the
-            // latest available data every time this section is viewed.
             if (typeof um_renderUserList === 'function' && typeof um_allUsersData !== 'undefined') {
                 um_renderUserList(um_allUsersData);
             }
@@ -18164,15 +18140,11 @@ function rsg_openCopyFromModal_ExtraPage() {
             if (typeof curtail_populateSelectors === 'function') curtail_populateSelectors();
             if (typeof curtail_renderTripCards === 'function') {
                 curtail_renderTripCards();
-                // DISABLED: Auto-refresh interval was causing mobile app to freeze/restart due to constant DOM manipulation
-                // curtail_trip_list_updater_interval = setInterval(curtail_renderTripCards, 10000); 
             }
         } else if (sectionId === 'route-curtailment-section_extra') {
             if (typeof slc_populateRouteSelect === 'function') slc_populateRouteSelect();
             if (typeof slc_renderActiveCurtailments === 'function') {
                 slc_renderActiveCurtailments();
-                // DISABLED: Auto-refresh interval was causing mobile app to freeze/restart due to constant DOM manipulation
-                // slc_list_updater_interval = setInterval(slc_renderActiveCurtailments, 15000);
             }
         } else if (sectionId === 'enhanced-bulk-update-section_extra') {
             if (typeof ebu_populateRouteTiles_ExtraPage === 'function') ebu_populateRouteTiles_ExtraPage();
@@ -18184,7 +18156,6 @@ function rsg_openCopyFromModal_ExtraPage() {
              if (typeof renderVehicleAllocationsList_ExtraPage === 'function') renderVehicleAllocationsList_ExtraPage();
              if (typeof renderVehicleFleetAssignmentForRoute_ExtraPage === 'function') renderVehicleFleetAssignmentForRoute_ExtraPage();
         }
-        // --- END OF MODIFICATION ---
     }
 }
 
@@ -18192,9 +18163,8 @@ function rsg_openCopyFromModal_ExtraPage() {
     currentUser_extra = user;
     const authHeading = authSection_el_extra ? authSection_el_extra.querySelector('h2') : null;
 
-    if (user) { // User is logged in
-        // --- This is the new logic to fetch the user's role ---
-        let userRole = 'Standard User'; // Default role if not found
+    if (user) {
+        let userRole = 'Standard User';
         const { database, dbGet, dbRef, dbChild } = window.firebaseOMSI;
         try {
             const userRoleRef = dbChild(dbRef(database), `${FB_PATH_USERS}/${user.uid}/role`);
@@ -18206,15 +18176,12 @@ function rsg_openCopyFromModal_ExtraPage() {
             }
         } catch (error) {
             console.error("Error fetching user role:", error);
-            // In case of an error fetching the role, it's safest to default to the most restrictive role.
             userRole = 'Standard User';
         }
         
-        // <<< THE FIX: Attach the fetched role to the global user object
         if(currentUser_extra) {
             currentUser_extra.role = userRole; 
         }
-        // <<< END OF FIX
 
         if (loginFormContainer_el_extra) loginFormContainer_el_extra.style.display = 'none';
         if (logoutContainer_el_extra) logoutContainer_el_extra.style.display = 'flex';
@@ -18231,11 +18198,10 @@ function rsg_openCopyFromModal_ExtraPage() {
         await loadInitialData_ExtraPage();
         setupFirebaseListeners_ExtraPage();
         
-        // Display today's active profiles at the top
         getTodaysActiveProfilesSet_ExtraPage();
         updateTodaysProfilesDisplay();
 
-    } else { // User is logged out
+    } else {
         if (dependentRenderTimer_extra !== null) {
             clearTimeout(dependentRenderTimer_extra);
             dependentRenderTimer_extra = null;
@@ -18278,7 +18244,7 @@ async function loadInitialData_ExtraPage() {
     closedStopIDs_extra = [];
     vehicleAllocationData_extra = {};
     vehicleFleetData_extra = {};
-    appSettings_extra = { autoLogoutMinutes: 30 }; // Reset to default
+    appSettings_extra = { autoLogoutMinutes: 30 };
 
     if (!window.firebaseOMSI || !window.firebaseOMSI.database) {
         console.error("Firebase not initialized. Cannot load data.");
@@ -18313,7 +18279,6 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded app state and ${closedStopIDs_extra.length} closed stop IDs in ${duration.toFixed(2)} ms.`);
 
-        // The live schedule listener below performs the initial schedule load.
         currentWorkingSchedule_extra = [];
         liveScheduleForToolsDisplay = [];
         stopToServingRoutesMap_extra.clear();
@@ -18326,9 +18291,6 @@ async function loadInitialData_ExtraPage() {
         duration = performance.now() - startTime;
         console.log(`[PERF] ...loaded ${Object.keys(rsg_loadedConfigs_extra).length} RSG configs in ${duration.toFixed(2)} ms.`);
 
-        // --- Load RSG config drafts (kept separate from the live configs above) ---
-        // Wrapped separately: if Firebase rules don't yet grant access to this newer path,
-        // a permission error here must not abort loading the rest of the app's data below.
         try {
             const rsgDraftsSnap = await dbGet(dbChild(dbRef(database), FB_PATH_RSG_CONFIG_DRAFTS));
             rsg_loadedDrafts_extra = rsgDraftsSnap.exists() ? rsgDraftsSnap.val() || {} : {};
@@ -18382,7 +18344,7 @@ async function loadInitialData_ExtraPage() {
     await fetchBankHolidays_ExtraPage();
     await updateCurrentProfileDisplay_ExtraPage();
     
-    initializeAutoLogoutTimer_ExtraPage(); // Initialize timer after data load
+    initializeAutoLogoutTimer_ExtraPage();
     renderUIDependentElements_ExtraPage();
 
     const totalDuration = performance.now() - totalStartTime;
@@ -18436,14 +18398,11 @@ function renderUIDependentElements_ExtraPage() {
             rocRenderRouteTiles_ExtraPage();
         }
         
-        // --- THIS IS THE ADDED LINE ---
         if (typeof curtail_populateSelectors === 'function') {
             curtail_populateSelectors();
         }
-        // --- END OF ADDITION ---
 
     } else {
-        // Clear elements if logged out
         if (selectRouteNameColour_el_extra) selectRouteNameColour_el_extra.innerHTML = '<option value="">-- Select Route --</option>';
         if (currentGlobalRouteColoursList_el_extra) currentGlobalRouteColoursList_el_extra.innerHTML = '';
         if (noGlobalCustomColoursMessage_el_extra) noGlobalCustomColoursMessage_el_extra.style.display = 'block';
@@ -18480,7 +18439,7 @@ const syncRsgStopNamesButton = document.getElementById('sync-rsg-stop-names-butt
         syncRsgStopNamesButton.addEventListener('click', handleSyncRsgStopNames_ExtraPage);
     }
 
-// Route Operator Changes Event Listeners
+// Route Operator Changes (ROC) Event Listeners
 if (rocAddButton_el_extra && typeof rocAddChange_ExtraPage === 'function') {
     rocAddButton_el_extra.addEventListener('click', rocAddChange_ExtraPage);
 }
@@ -18501,29 +18460,27 @@ if (rsgNewRouteNameInput_el_extra) {
         rsgNewRouteNameInput_el_extra.addEventListener('input', () => {
             const typedRoute = rsgNewRouteNameInput_el_extra.value.trim();
             if (typedRoute !== '') {
-                // If user types, deselect all route tiles and update display
+                // NOTE [Ryan - 03/10/26 - 18:40:15]: If user types, deselect all route tiles and update display.
                 rsgRouteSelectionContainer_el_extra.querySelectorAll('.selectable-route-tile.selected').forEach(selectedTile => {
                     selectedTile.classList.remove('selected');
                 });
                 rsg_selectedRoute_extra = typedRoute;
-                rsgRouteNameInput_el_extra.value = typedRoute; // Keep the hidden input synced
+                rsgRouteNameInput_el_extra.value = typedRoute;
                 rsgSelectedRouteDisplay_el_extra.textContent = typedRoute;
             } else {
-                // If input cleared, revert to no selection state
                 rsg_selectedRoute_extra = null;
                 rsgRouteNameInput_el_extra.value = '';
                 rsgSelectedRouteDisplay_el_extra.textContent = '(None selected)';
             }
-            rsg_populateDestinationSelect_ExtraPage(); // Update destinations based on new route
-            rsg_loadOrPullConfiguration_ExtraPage(); // Trigger a load/pull based on the new route
-            rsg_updateRsgActionButtonsState(); // Update button states
+            rsg_populateDestinationSelect_ExtraPage();
+            rsg_loadOrPullConfiguration_ExtraPage();
+            rsg_updateRsgActionButtonsState();
         });
     }
 
-// --- Stop-Specific Route Colour Management Section Listeners (NEW) ---
+// --- Stop-Specific Route Colour Management Section Listeners ---
     if (selectStopForSpecificRouteColour_el_extra && typeof populateStopSelectorForSpecificColours_ExtraPage === 'function') {
         selectStopForSpecificRouteColour_el_extra.addEventListener('change', () => {
-            // This event listener updates the displayed routes for coloring when a stop is selected.
             displayRoutesForSpecificColouring_ExtraPage();
         });
     }
@@ -18533,7 +18490,7 @@ if (rsgNewRouteNameInput_el_extra) {
     if (deleteRouteFromStopButton_el_extra && typeof handleDeleteRouteFromSpecificStop_ExtraPage === 'function') {
         deleteRouteFromStopButton_el_extra.addEventListener('click', handleDeleteRouteFromSpecificStop_ExtraPage);
     }
-    // Listeners for stop-specific color preset buttons
+    // Listeners for stop-specific colour preset buttons
     if (setStopSpecificDayBusColor_el_extra && inputStopSpecificRouteColour_el_extra) {
         setStopSpecificDayBusColor_el_extra.addEventListener('click', () => { inputStopSpecificRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra; });
     }
@@ -18547,9 +18504,8 @@ if (rsgNewRouteNameInput_el_extra) {
         setStopSpecificRailReplacementColor_el_extra.addEventListener('click', () => { inputStopSpecificRouteColour_el_extra.value = "#CBC51A"; });
     }
 
-// --- Global Route Colour Management Section Listeners (NEW) ---
+// --- Global Route Colour Management Section Listeners ---
     if (selectRouteNameColour_el_extra && typeof populateRouteSelectorForGlobalColours_ExtraPage === 'function') {
-        // Initial population happens via renderUIDependentElements_ExtraPage
         selectRouteNameColour_el_extra.addEventListener('change', () => {
             const selectedRoute = selectRouteNameColour_el_extra.value;
             const upperSelectedRoute = selectedRoute.toUpperCase();
@@ -18557,7 +18513,6 @@ if (rsgNewRouteNameInput_el_extra) {
                 if (selectedRoute && globalCustomRouteColours_extra[upperSelectedRoute]) {
                     inputRouteColour_el_extra.value = globalCustomRouteColours_extra[upperSelectedRoute];
                 } else {
-                    // Fallback to default if no custom color for selected route
                     inputRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra;
                 }
             }
@@ -18587,7 +18542,7 @@ if (rsgNewRouteNameInput_el_extra) {
     if (cleanupWithdrawnRouteColoursButton_el_extra && typeof handleCleanupWithdrawnRouteColours_ExtraPage === 'function') {
         cleanupWithdrawnRouteColoursButton_el_extra.addEventListener('click', handleCleanupWithdrawnRouteColours_ExtraPage);
     }
-    // Preset buttons for global colors
+    // Preset buttons for global colours
     if (setGlobalDayBusColor_el_extra && inputRouteColour_el_extra) {
         setGlobalDayBusColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = DEFAULT_ROUTE_COLOUR_TOOLS_extra; });
     }
@@ -18595,13 +18550,13 @@ if (rsgNewRouteNameInput_el_extra) {
         setGlobalNightBusColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = NIGHT_BUS_BLUE_COLOR_extra; });
     }
     if (setGlobalSchoolBusColor_el_extra && inputRouteColour_el_extra) {
-        setGlobalSchoolBusColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = "#AC5099"; }); // Hardcoded value from previous tools.html
+        setGlobalSchoolBusColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = "#AC5099"; });
     }
     if (setGlobalRailReplacementColor_el_extra && inputRouteColour_el_extra) {
-        setGlobalRailReplacementColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = "#CBC51A"; }); // Hardcoded value from previous tools.html
+        setGlobalRailReplacementColor_el_extra.addEventListener('click', () => { inputRouteColour_el_extra.value = "#CBC51A"; });
     }
 
-// Listener for the new Enhanced Bulk Update button
+// Listener for the Enhanced Bulk Update button
 const ebuExecuteButton = document.getElementById('ebu-execute-update-button-extra');
 if (ebuExecuteButton) {
     ebuExecuteButton.addEventListener('click', handleEnhancedBulkUpdateDestination);
@@ -18653,7 +18608,6 @@ if (document.getElementById('slc-refresh-list-button-extra')) {
 
 if (document.getElementById('curtail-route-select-extra')) {
     document.getElementById('curtail-route-select-extra').addEventListener('change', () => {
-        // This now calls both the original function for single trips and the new one for mass curtailment
         curtail_populateDestSelect();
         mrc_setupToolForRoute();
     });
@@ -18677,7 +18631,7 @@ if (opPointsDestSelect) {
     opPointsDestSelect.addEventListener('change', () => {
         op_points_populateLastStopSelect();
         op_points_displayDefinedPoints();
-        op_points_updateCopyButtonState(); // <-- ADD THIS LINE
+        op_points_updateCopyButtonState();
     });
 }
 const opPointsAddBtn = document.getElementById('op-points-add-btn-extra');
@@ -18747,50 +18701,46 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapsh
     const iphoneTestBtn = document.getElementById('iphoneTestNotificationBtn');
     if (iphoneTestBtn) {
         iphoneTestBtn.addEventListener('click', () => {
-            console.log("TEST BUTTON CLICKED - Listener Fired!"); // Debug log
+            console.log("TEST BUTTON CLICKED - Listener Fired!");
 
-            // Ensure Notification API is supported
             if (!("Notification" in window)) {
-                console.log("Browser does not support native desktop notifications."); // Log instead of alert
-                alert("Your browser does not support desktop notifications."); // Keep alert for user feedback
+                console.log("Browser does not support native desktop notifications.");
+                alert("Your browser does not support desktop notifications.");
                 return;
             }
 
-            // Check if permission is granted
             if (Notification.permission === "granted") {
                 try {
                     const options = {
                         body: "Success! This is a desktop/OS notification from your Home Screen app.",
-                        icon: '/live-tracker/assets/icons/icon-192x192.png', // Ensure this path is correct
-                        // Add data to the notification itself for the click action
+                        icon: '/live-tracker/assets/icons/icon-192x192.png',
                         data: {
-                            url: 'https://076189.github.io/live-tracker/omsi_tools_extra.html' // URL to open on click
+                            url: 'https://076189.github.io/live-tracker/omsi_tools_extra.html'
                         }
                     };
                     const notification = new Notification("iPhone Test Notification!", options);
 
-                    console.log("Notification object created successfully."); // Debug log
+                    console.log("Notification object created successfully.");
 
                     notification.onclick = function(event) {
-                        console.log('Test notification clicked directly.', event); // Debug log
-                        event.preventDefault(); // Prevent default browser action if any
+                        console.log('Test notification clicked directly.', event);
+                        event.preventDefault();
 
-                        const clickUrl = this.data.url; // Get URL from the notification's data
+                        const clickUrl = this.data.url;
 
                         if (clickUrl) {
-                            // Directly open the window using window.open for main page context
                             window.open(clickUrl, '_blank');
                         }
-                        this.close(); // Close the notification after click
+                        this.close();
                     };
 
                 } catch (e) {
-                    console.error("Error creating native notification:", e); // Log the error
-                    alert("Error creating notification: " + e.message); // Alert user to error
+                    console.error("Error creating native notification:", e);
+                    alert("Error creating notification: " + e.message);
                 }
             } else {
-                console.warn("Notification permission not granted. Current status:", Notification.permission); // Log the status
-                // Provide user guidance if permission is not granted
+                console.warn("Notification permission not granted. Current status:", Notification.permission);
+                // NOTE [Ryan - 03/10/26 - 18:35:40]: Provide user guidance if permission is not granted.
                 if (Notification.permission === "default") {
                     alert("Notification permission not granted. Please click 'Enable Desktop Alerts' first and allow the prompt.");
                 } else if (Notification.permission === "denied") {
@@ -18834,8 +18784,6 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapsh
         const {
             auth,
             authOnAuthStateChanged,
-            // We no longer destructure authSignInWithEmailAndPassword or authSignOut here.
-            // We will access them directly from window.firebaseOMSI to ensure scope availability.
         } = window.firebaseOMSI;
 
         authOnAuthStateChanged(auth, async user => {
@@ -18853,7 +18801,6 @@ firebaseListenerUnsubscribers_extra.push(dbOnValue(liveInterventionsRef, (snapsh
             }
         });
 
-        // REPLACE the existing login form listener with this one.
 if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && authStatus_el_extra) {
     adminLoginForm_el_extra.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -18864,12 +18811,11 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
         const password = inputPassword_el_extra.value;
 
         window.firebaseOMSI.authSignInWithEmailAndPassword(window.firebaseOMSI.auth, email, password)
-            .catch(async (err) => { // Make the catch block async
+            .catch(async (err) => {
                 if (err.code === 'auth/user-disabled') {
                     authStatus_el_extra.textContent = 'Checking account status...';
                     
                     try {
-                        // Call the new, secure Cloud Function
                         const getStatusFunction = window.firebaseOMSI.httpsCallable(window.firebaseOMSI.functions, 'getDisabledUserStatus');
                         const result = await getStatusFunction({ email: email });
                         const userData = result.data;
@@ -18880,21 +18826,17 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
                             const liftTime = new Date(userData.suspensionLiftTime).toLocaleString('en-GB');
                             authStatus_el_extra.textContent = `Your account has been suspended until ${liftTime}.`;
                         } else {
-                            // Fallback for a disabled account without a specific status in the database
                             authStatus_el_extra.textContent = 'Your account has been disabled.';
                         }
                     } catch (functionError) {
                         console.error("Error calling getDisabledUserStatus function:", functionError);
-                        // Provide a generic message to the user if the Cloud Function fails
+                        // NOTE [Ryan - 03/10/26 - 18:34:29]: Provide a generic message to the user if the Cloud Function fails.
                         authStatus_el_extra.textContent = 'Login Error: Account is disabled. Could not retrieve details.';
                     }
                 } else {
-                    // Handle all other types of auth errors (wrong password, etc.)
-                    // Use a regex to remove the "Firebase: " prefix and "(auth/...)" code for a cleaner message.
                     authStatus_el_extra.textContent = `Login Error: ${err.message.replace("Firebase: ", "").replace(/\(.*\)\.?/, "").trim()}`;
                 }
-                // Always set the text color to red for any kind of login failure
-                authStatus_el_extra.style.color = '#e74c3c';
+                authStatus_el_extra.style.color = '#e74c3c'; // NOTE [Ryan - 03/10/26 - 18:33:33]: Always set the text color to red for any kind of login failure.
             });
     });
 }
@@ -18915,7 +18857,6 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
                 const globalBanner = document.getElementById('global-notification-banner');
                 if (globalBanner) globalBanner.style.display = 'none';
 
-                // *** IMPORTANT CHANGE HERE ***
                 window.firebaseOMSI.authSignOut(window.firebaseOMSI.auth).catch(e => console.error("Sign-out error (Extra):", e));
             });
         }
@@ -18973,12 +18914,11 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
                 newStopIdAvailability_el_extra.textContent = '';
                 return;
             }
-            if (!/^[A-Z0-9]+$/.test(newStopId)) { // Ensure only A-Z, 0-9
+            if (!/^[A-Z0-9]+$/.test(newStopId)) {
                 newStopIdAvailability_el_extra.textContent = 'ID invalid chars (A-Z, 0-9 only).';
                 newStopIdAvailability_el_extra.style.color = '#e74c3c';
                 return;
             }
-            // Check against allDefinedStops_data keys (which should be uppercase)
             const definedStopIDsUppercase = allDefinedStops_data ? Object.keys(allDefinedStops_data) : [];
             if (definedStopIDsUppercase.includes(newStopId)) {
                 newStopIdAvailability_el_extra.textContent = 'ID already exists in definitions!';
@@ -19002,10 +18942,10 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
         masterStopListFilterInput_el_extra.addEventListener('input', populateMasterStopList_ExtraPage);
     }
     if (refreshMasterStopListButton_el_extra && typeof loadInitialData_ExtraPage === 'function' && typeof populateMasterStopList_ExtraPage === 'function') {
-        refreshMasterStopListButton_el_extra.addEventListener('click', async () => { // made async
+        refreshMasterStopListButton_el_extra.addEventListener('click', async () => {
             if (masterStopListStatus_el_extra) masterStopListStatus_el_extra.textContent = "Refreshing stop data...";
-            await loadInitialData_ExtraPage(); // Data loading can be awaited
-            populateMasterStopList_ExtraPage(); // Then populate
+            await loadInitialData_ExtraPage();
+            populateMasterStopList_ExtraPage();
             if (masterStopListStatus_el_extra && masterStopListStatus_el_extra.textContent.includes("Refreshing")) {
                 masterStopListStatus_el_extra.textContent = "Stop list refreshed.";
             }
@@ -19032,14 +18972,12 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
         rpdRouteSelect_el_extra.addEventListener('change', rpd_handleRouteNameSelectChange_ExtraPage);
     }
     if (rpdRouteInput_el_extra && typeof rpd_handleRouteNameInputChange_ExtraPage === 'function') {
-        // Using 'input' for more responsive update than 'blur'
         rpdRouteInput_el_extra.addEventListener('input', rpd_handleRouteNameInputChange_ExtraPage);
     }
     if (rpdDestinationSelect_el_extra && typeof rpd_handleDestinationNameSelectChange_ExtraPage === 'function') {
         rpdDestinationSelect_el_extra.addEventListener('change', rpd_handleDestinationNameSelectChange_ExtraPage);
     }
     if (rpdDestinationInput_el_extra && typeof rpd_handleDestinationNameInputChange_ExtraPage === 'function') {
-        // Using 'input' for more responsive update
         rpdDestinationInput_el_extra.addEventListener('input', rpd_handleDestinationNameInputChange_ExtraPage);
     }
     if (rpdClearDestinationButton_el_extra && typeof rpd_handleClearDestination_ExtraPage === 'function') {
@@ -19061,7 +18999,7 @@ if (adminLoginForm_el_extra && inputEmail_el_extra && inputPassword_el_extra && 
         rsgDestinationNameSelect_el_extra.addEventListener('change', rsg_handleDestinationNameSelectChange_ExtraPage);
     }
     if (rsgDestinationNameInput_el_extra && typeof rsg_handleDestinationNameInputChange_ExtraPage === 'function') {
-        rsgDestinationNameInput_el_extra.addEventListener('blur', rsg_handleDestinationNameInputChange_ExtraPage); // Or 'input' if preferred
+        rsgDestinationNameInput_el_extra.addEventListener('blur', rsg_handleDestinationNameInputChange_ExtraPage); // HACK [Ryan - 03/10/26 - 18:31:48]: Or 'input' if preferred
     }
     if (rsgStopSearchInput_el_extra && typeof rsg_handleStopSearch_ExtraPage === 'function') {
         rsgStopSearchInput_el_extra.addEventListener('input', rsg_handleStopSearch_ExtraPage);
@@ -19176,19 +19114,6 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
             if (event.target === rsgSaveModal_local) rsg_hideSaveConfigModal_ExtraPage();
         });
     }
-    // Listeners for RSG Rename Config Modal (if it exists and has these IDs)
-    // const rsgRenameConfirmBtn_local = document.getElementById('rsg-rename-config-confirm-button-extra');
-    // if (rsgRenameConfirmBtn_local && typeof rsg_performRenameConfiguration_ExtraPage === 'function') {
-    //    rsgRenameConfirmBtn_local.addEventListener('click', () => rsg_performRenameConfiguration_ExtraPage(rsg_configKeyToRename_extra));
-    // }
-    // const rsgRenameCancelBtn_local = document.getElementById('rsg-rename-config-cancel-button-extra');
-    // if (rsgRenameCancelBtn_local && typeof rsg_hideRenameConfigModal_ExtraPage === 'function') {
-    //    rsgRenameCancelBtn_local.addEventListener('click', rsg_hideRenameConfigModal_ExtraPage);
-    // }
-    // const rsgRenameModal_local = document.getElementById('rsg-rename-config-modal-extra');
-    // if (rsgRenameModal_local && typeof rsg_hideRenameConfigModal_ExtraPage === 'function') {
-    //     rsgRenameModal_local.addEventListener('click', (event) => { if (event.target === rsgRenameModal_local) rsg_hideRenameConfigModal_ExtraPage(); });
-    // }
 
     if (rsgReplaceStopSearchInput_el_extra && typeof rsg_handleReplaceStopSearch_ExtraPage === 'function') {
         rsgReplaceStopSearchInput_el_extra.addEventListener('input', rsg_handleReplaceStopSearch_ExtraPage);
@@ -19227,14 +19152,13 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
     const sruRefreshButton_local = document.getElementById('sru-refresh-list-button-extra');
     if (sruRefreshButton_local && typeof loadAndDisplayScheduledUpdates_ExtraPage === 'function') {
         sruRefreshButton_local.addEventListener('click', () => {
-            isScheduledTasksCacheValid_extra = false; // Invalidate cache on manual refresh
+            isScheduledTasksCacheValid_extra = false;
             loadAndDisplayScheduledUpdates_ExtraPage();
         });
     }
     if (sruApplyAllForTimeButton_el_extra && typeof handleApplyAllBatchesForSelectedTime_ExtraPage === 'function') {
         sruApplyAllForTimeButton_el_extra.addEventListener('click', handleApplyAllBatchesForSelectedTime_ExtraPage);
     }
-    // Replace the entire delegated event listener in DOMContentLoaded with this corrected version.
     const sruListContainer_local = document.getElementById('sru-updates-list-container-extra');
     if (sruListContainer_local) {
         if (!sruListContainer_local.dataset.listenerAttachedSruMain) {
@@ -19278,11 +19202,6 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
                     }
                     return;
                 }
-
-                // NOTE: The handler for 'sru-apply-batch-btn' has been removed from here.
-                // The correct listener is attached directly to the button when it is created
-                // inside the renderScheduledUpdatesList_ExtraPage function.
-
             });
             sruListContainer_local.dataset.listenerAttachedSruMain = 'true';
         }
@@ -19323,7 +19242,7 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
         });
     }
     if (serviceAnalyzerStopInput_el_extra && serviceAnalyzerStopSelect_el_extra && typeof triggerStopAnalysisDynamically === 'function') {
-        serviceAnalyzerStopInput_el_extra.addEventListener('input', function() { // 'input' for immediate feedback
+        serviceAnalyzerStopInput_el_extra.addEventListener('input', function() {
             const typedValueLower = this.value.toLowerCase().trim();
             if (typedValueLower === "") {
                 if (serviceAnalyzerStopSelect_el_extra.value !== "") serviceAnalyzerStopSelect_el_extra.value = "";
@@ -19338,25 +19257,20 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
             if (matchedOption) {
                 if (serviceAnalyzerStopSelect_el_extra.value !== matchedOption.value) {
                     serviceAnalyzerStopSelect_el_extra.value = matchedOption.value;
-                    // Trigger analysis if select value changes due to typing
                     triggerStopAnalysisDynamically(matchedOption.value);
                 }
             } else {
                 if (serviceAnalyzerStopSelect_el_extra.value !== "") serviceAnalyzerStopSelect_el_extra.value = "";
-                 // If typing and no match, you might want to clear summary or show "no match"
                  if(serviceAnalyzerStopSummary_el_extra) serviceAnalyzerStopSummary_el_extra.innerHTML = `<span style="color:#f1c40f;">Searching for stop matching "${this.value}"...</span>`;
             }
         });
-        serviceAnalyzerStopInput_el_extra.addEventListener('blur', function() { // Analyze on blur if a value is present
+        serviceAnalyzerStopInput_el_extra.addEventListener('blur', function() {
             const typedValue = this.value.trim();
-            // If select has a value, it means a match was found during 'input' or already selected
-            // So, we only analyze typed value if dropdown didn't make a selection
             if (typedValue && !serviceAnalyzerStopSelect_el_extra.value) {
                 triggerStopAnalysisDynamically(typedValue);
             } else if (!typedValue && !serviceAnalyzerStopSelect_el_extra.value){
                 if(serviceAnalyzerStopSummary_el_extra) serviceAnalyzerStopSummary_el_extra.innerHTML = `<span style="color:#f1c40f;">Please select or enter a stop.</span>`;
             }
-            // if serviceAnalyzerStopSelect_el_extra.value IS set, analysis would have happened on change or input sync
         });
     }
 
@@ -19377,37 +19291,32 @@ if (rsgScheduleDateTimeConfirmBtn && typeof rsg_confirmScheduleGoLive_ExtraPage 
 
 });
 
-
-
-// Helper function to generate sequence HTML for a given set of profiles
 function generateSequenceMapForProfiles(
     profilesToAnalyze,
     currentDestName,
-    allEntriesForRoute // All schedule entries for the main route being analyzed
+    allEntriesForRoute
 ) {
-    const sequencesMap = new Map(); // Key: sequenceSignature, Value: { sequence: [stopObjects], profiles: Set() }
+    const sequencesMap = new Map();
 
     if (!profilesToAnalyze || profilesToAnalyze.length === 0) {
-        return sequencesMap; // Return an empty map if no profiles to analyze
+        return sequencesMap; // NOTE [Ryan - 03/10/26 - 18:28:16]: Return an empty map if no profiles to analyze.
     }
 
-    const sortedProfiles = [...profilesToAnalyze].sort(); // Process profiles in a consistent order
+    const sortedProfiles = [...profilesToAnalyze].sort();
 
     for (const opProfile of sortedProfiles) {
-        // Filter entries for the current operating profile and destination
         const specificProfileEntries = allEntriesForRoute.filter(e =>
             e.destinationName === currentDestName && e.OperatingProfile === opProfile
         );
 
-        if (specificProfileEntries.length === 0) continue; // No entries for this specific profile/destination
+        if (specificProfileEntries.length === 0) continue;
 
-        // Sort these specificProfileEntries chronologically to correctly identify the first trip
         specificProfileEntries.sort((a, b) => {
             const dayOffsetA = parseInt(a.DayOffset || 0);
             const dayOffsetB = parseInt(b.DayOffset || 0);
             if (dayOffsetA !== dayOffsetB) return dayOffsetA - dayOffsetB;
 
-            const timeA = (a.scheduledTime || "99:99").replace(':', ''); // Fallback for missing time
+            const timeA = (a.scheduledTime || "99:99").replace(':', '');
             const timeB = (b.scheduledTime || "99:99").replace(':', '');
             return timeA.localeCompare(timeB);
         });
@@ -19416,9 +19325,8 @@ function generateSequenceMapForProfiles(
         if (specificProfileEntries.length > 0) {
             const firstStopIDOfThisJourneyPattern = specificProfileEntries[0].stopID;
             let previousStopTimeInAbsoluteMinutes = -1;
-            // Heuristic: Minimum stops to process before considering a repeat of the first stop ID as a new trip.
-            // This helps distinguish a genuine new trip from a route that might loop back to its start ID quickly.
-            // Adjust if necessary. If routes are very short (e.g. 2-stop shuttles that repeat often), this might need tuning.
+            // NOTE [Ryan - 03/10/26 - 18:26:47]: Minimum stops to process before considering a repeat of the first stop ID as a new trip. This helps distinguish a genuine new trip from a route that might loop back to its start ID quickly.
+            // REVIEW [Ryan - 03/10/26 - 18:26:47]: Adjust if necessary. If routes are very short (e.g. 2-stop shuttles that repeat often), this might need tuning.
             const MIN_STOPS_BEFORE_FIRST_ID_REVISIT_BREAK = 3;
 
             for (let i = 0; i < specificProfileEntries.length; i++) {
@@ -19434,16 +19342,13 @@ function generateSequenceMapForProfiles(
                     parseInt(entry.scheduledTime.split(':')[0]) * 60 +
                     parseInt(entry.scheduledTime.split(':')[1]);
 
-                // These break conditions apply only after the very first stop (i > 0)
                 if (i > 0) {
-                    // Condition 1: Time regresses (e.g., next day's service, or data error)
                     if (currentStopTimeInAbsoluteMinutes < previousStopTimeInAbsoluteMinutes) {
-                        break; // End of the current trip's sequence
+                        break;
                     }
-                    // Condition 2: Encountered the starting stop ID again *after* a few other stops
                     if (entry.stopID === firstStopIDOfThisJourneyPattern &&
                         sequenceForThisProfileTrip.length >= MIN_STOPS_BEFORE_FIRST_ID_REVISIT_BREAK) {
-                        break; // Assumed start of the next iteration of this trip pattern
+                        break;
                     }
                 }
 
@@ -19466,7 +19371,7 @@ function generateSequenceMapForProfiles(
             }
             sequencesMap.get(sequenceSignature).profiles.add(opProfile);
         }
-    } // End opProfile loop
+    }
     return sequencesMap;
 }
 
@@ -19523,7 +19428,6 @@ async function fetchAndRenderSavedConfigurations() {
 }
 
 function populateStopSelectorForDeparturesView_ExtraPage() {
-    // This function now uses the global constants defined above
     if (!selectStopForDeparturesView_extra) {
         console.error("View Departures: Stop selector element not found.");
         return;
@@ -19532,7 +19436,7 @@ function populateStopSelectorForDeparturesView_ExtraPage() {
     const currentVal = selectStopForDeparturesView_extra.value;
     selectStopForDeparturesView_extra.innerHTML = '<option value="">-- Select Stop --</option>';
 
-    // OPTIMIZATION: Use allDefinedStops_data directly instead of iterating through massive currentWorkingSchedule_extra
+    // OPTIMIZE [Ryan - 03/10/26 - 18:23:58]: Use allDefinedStops_data directly instead of iterating through massive currentWorkingSchedule_extra.
     const stopsToShow = Object.values(allDefinedStops_data || {}).sort((a, b) => {
         const nameA = (a.stopName || "").toLowerCase();
         const nameB = (b.stopName || "").toLowerCase();
@@ -19574,14 +19478,11 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
         return;
     }
 
-    // OPTIMIZATION: If schedule hasn't loaded yet, show loading message and retry (max 5 retries)
-    // Uses liveScheduleForToolsDisplay (actual live /liveSchedule/schedulesByRoute data), not
-    // currentWorkingSchedule_extra (derived from /rsgConfigs, which can be empty/incomplete for
-    // routes that were pushed live without ever being saved as an RSG config).
+    // OPTIMIZE [Ryan - 03/10/26 - 18:23:14]: If schedule hasn't loaded yet, show loading message and retry (max 5 retries). Uses liveScheduleForToolsDisplay (actual live /liveSchedule/schedulesByRoute data), not currentWorkingSchedule_extra (derived from /rsgConfigs, which can be empty/incomplete for routes that were pushed live without ever being saved as an RSG config).
     if ((!liveScheduleForToolsDisplay || liveScheduleForToolsDisplay.length === 0) && retryCount < 5) {
         noDeparturesMsg.textContent = 'Loading schedule data... please wait.';
         noDeparturesMsg.style.display = 'block';
-        // Retry after 500ms to allow schedule to build
+        // NOTE [Ryan - 03/10/26 - 18:22:22]: Retry after 500ms to allow schedule to build
         setTimeout(() => displayDeparturesForSelectedStop_ExtraPage(retryCount + 1), 500);
         return;
     } else if (retryCount >= 5) {
@@ -19590,7 +19491,7 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
         return;
     }
 
-    // PERFORMANCE: Use cached profiles (computed once per day)
+    // PERFORMANCE [Ryan - 03/10/26 - 18:21:59]: Use cached profiles (computed once per day)
     const todaysActiveProfilesSet = getTodaysActiveProfilesSet_ExtraPage();
 
     const departures = liveScheduleForToolsDisplay
@@ -19602,18 +19503,14 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
             return departureProfiles.some(dp => todaysActiveProfilesSet.has(dp));
         })
         .sort((a, b) => {
-            // --- NEW: Simplified sort by time on the clock, ignoring DayOffset ---
 
-            // Level 1: Time of Day
             const timeA = (a.scheduledTime || "99:99").replace(':', '');
             const timeB = (b.scheduledTime || "99:99").replace(':', '');
             if (timeA !== timeB) return timeA.localeCompare(timeB);
 
-            // Level 2: Route Name (as a tie-breaker)
             const routeCompare = compareLineNames_ExtraPage(a.lineName, b.lineName);
             if (routeCompare !== 0) return routeCompare;
 
-            // Level 3: Destination Name (as a final tie-breaker)
             return (a.destinationName || "").localeCompare(b.destinationName || "");
         });
 
@@ -19643,7 +19540,7 @@ function displayDeparturesForSelectedStop_ExtraPage(retryCount = 0) {
     }
 }
 
-let tdLastBuiltGrids_extra = []; // Grids from the most recently rendered timetable, reused by the CSV download
+let tdLastBuiltGrids_extra = [];
 
 function td_populateRouteSelect_ExtraPage() {
     if (!tdRouteSelect_el_extra) return;
@@ -19679,7 +19576,6 @@ function td_renderTimetable_ExtraPage(retryCount = 0) {
         return;
     }
 
-    // Uses liveScheduleForToolsDisplay (actual live schedule), same source as View Departures.
     if ((!liveScheduleForToolsDisplay || liveScheduleForToolsDisplay.length === 0) && retryCount < 5) {
         tdStatusMessage_el_extra.textContent = 'Loading schedule data... please wait.';
         setTimeout(() => td_renderTimetable_ExtraPage(retryCount + 1), 500);
@@ -19701,7 +19597,7 @@ function td_renderTimetable_ExtraPage(retryCount = 0) {
         return;
     }
 
-    // Group the flattened stop-entries back into trips (one column per trip) keyed by tripId.
+    // NOTE [Ryan - 03/10/26 - 18:20:46]: Group the flattened stop-entries back into trips (one column per trip) keyed by tripId.
     const tripsById = new Map();
     routeEntries.forEach(entry => {
         if (!tripsById.has(entry.tripId)) {
@@ -19711,7 +19607,7 @@ function td_renderTimetable_ExtraPage(retryCount = 0) {
                 destinationName: entry.destinationName || 'Unknown',
                 runningNumber: entry.runningNumber || '',
                 tripStopSequence: Array.isArray(entry.tripStopSequence) ? entry.tripStopSequence : [],
-                stopTimes: new Map() // stopID -> {scheduledTime, DayOffset, stopName}
+                stopTimes: new Map()
             });
         }
         const trip = tripsById.get(entry.tripId);
@@ -19725,7 +19621,7 @@ function td_renderTimetable_ExtraPage(retryCount = 0) {
     });
     const trips = Array.from(tripsById.values());
 
-    // Group trips by direction so each direction gets its own table.
+    // NOTE [Ryan - 03/10/26 - 18:20:05]: Group trips by direction so each direction gets its own table.
     const tripsByDirection = new Map();
     trips.forEach(trip => {
         if (!tripsByDirection.has(trip.direction)) tripsByDirection.set(trip.direction, []);
@@ -19744,8 +19640,6 @@ function td_renderTimetable_ExtraPage(retryCount = 0) {
 }
 
 function td_buildDirectionGrid_ExtraPage(direction, directionTrips) {
-    // Canonical stop order = the trip covering the most stops (assumed to be the full route pattern);
-    // any stop IDs only seen on shorter-working trips get appended at the end.
     let masterTrip = directionTrips[0];
     directionTrips.forEach(t => {
         if (t.tripStopSequence.length > masterTrip.tripStopSequence.length) masterTrip = t;
@@ -19766,7 +19660,7 @@ function td_buildDirectionGrid_ExtraPage(direction, directionTrips) {
     }));
     const stopRows = stopOrder.map(stopID => ({ stopID, stopName: stopNameById.get(stopID) || stopID }));
 
-    // Sort trip columns chronologically by their first timed stop.
+    // NOTE [Ryan - 03/10/26 - 18:19:23]: Sort trip columns chronologically by their first timed stop.
     const sortedTrips = [...directionTrips].sort((a, b) => {
         const firstStopA = stopOrder.find(id => a.stopTimes.has(id));
         const firstStopB = stopOrder.find(id => b.stopTimes.has(id));

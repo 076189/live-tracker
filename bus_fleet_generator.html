@@ -230,6 +230,9 @@
             <tr><td>AES1 – AES999</td><td>Single Deck</td><td>Enviro 200 MMC 8.9m</td></tr>
             <tr><td>AEL1 – AEL999</td><td>Single Deck</td><td>Enviro 200 MMC 11.5m</td></tr>
             <tr><td>EVL1 – EVL999</td><td>Single Deck</td><td>Enviro 200 EV</td></tr>
+            <tr><td>VEMS1 – VEMS999</td><td>Double Deck</td><td>MCV Evocity (10.5m)</td></tr>
+            <tr><td>VEMM1 – VEMM999</td><td>Double Deck</td><td>MCV Evocity (12m)</td></tr>
+            <tr><td>VEML1 – VEML999</td><td>Double Deck</td><td>MCV Evocity (12.8m)</td></tr>
         </tbody>
     </table>
 
@@ -310,6 +313,7 @@
             <tr><td>21***</td><td>Single Deck</td><td>Volvo B7RLE</td></tr>
             <tr><td>22***</td><td>Single Deck</td><td>Optare Versa</td></tr>
             <tr><td>25001 – 27999</td><td>Single Deck</td><td>Optare Solo, Optare MetroCity</td></tr>
+            <tr><td>31***</td><td>Single Deck</td><td>GB Kite Electroliner</td></tr>
             <tr><td>34***</td><td>Single Deck</td><td>Dennis Dart</td></tr>
             <tr><td>36001 – 38999</td><td>Single Deck</td><td>Enviro 200, Enviro 200 MMC</td></tr>
             <tr><td>39***</td><td>Single Deck</td><td>Volvo BZL</td></tr>
@@ -327,6 +331,7 @@
             </tr>
         </thead>
         <tbody>
+            <tr><td>GBE1 – GBE999</td><td>Single Deck</td><td>GB Kite Electroliner</td></tr>
             <tr><td>GBH1 – GBH999</td><td>Single Deck</td><td>GB Kite Hydroliner</td></tr>
             <tr><td>VE1***</td><td>Single Deck</td><td>Enviro 200 MMC EV</td></tr>
             <tr><td>WS12001 – WS12999</td><td>Double Deck</td><td>Wright Streetdeck Electroliner</td></tr>
@@ -349,7 +354,11 @@ const vehicleOptions = {
         {name: "Enviro 200 EV", base: "EVL1"},
         {name: "Enviro 200 MMC 8.9m", base: "AES1"},
         {name: "Enviro 200 MMC 11.5m", base: "AEL1"},
-        {name: "Gemini 3 Hybrid", base: "HV1"}
+        {name: "Gemini 3 Hybrid", base: "HV1"},
+        {name: "MCV Evocity (10.5m)", base: "VEMS1"},
+        {name: "MCV Evocity (12m)", base: "VEMM1"},
+        {name: "MCV Evocity (12.8m)", base: "VEML1"}
+        
     ],
     first: [
         {name: "Enviro 200", base: 44001},
@@ -382,6 +391,7 @@ const vehicleOptions = {
         {name: "Enviro 400", base: 19000},
         {name: "Enviro 400H", base: 12001},
         {name: "Enviro 400 MMC", base: 10001},
+        {name: "GB Kite Electroliner", base: "31001"},
         {name: "MCV Evocity", base: 16001},
         {name: "Megabus", base: 50000},
         {name: "Optare MetroCity", base: 26001},
@@ -394,6 +404,7 @@ const vehicleOptions = {
     ],
     virgingroup: [
         {name: "Enviro 200 MMC EV", base: "VE1001"},
+        {name: "GB Kite Electroliner", base: "GBE1"},
         {name: "GB Kite Hydroliner", base: "GBH1"},
         {name: "Wright Streetdeck Electroliner", base: "WS12001"}
     ]
@@ -487,6 +498,8 @@ const rawDvlaGroups = [
 window.onload = function() {
     initRegAreaSelect();
     updateVehicleOptions();
+    // Master session group stays open so new generations nest underneath it
+    console.group("Bus Fleet Generation Session");
 };
 
 function initRegAreaSelect() {
@@ -496,7 +509,7 @@ function initRegAreaSelect() {
     if (lastUsedTag) {
         let lastOpt = document.createElement('option');
         lastOpt.value = lastUsedTag;
-        lastOpt.textContent = `↩️ Last Used (${lastUsedTag})`;
+        lastOpt.textContent = `↩ Last Used (${lastUsedTag})`;
         select.appendChild(lastOpt);
     }
     
@@ -660,6 +673,13 @@ function generateNewFleet() {
     let age = selectedYearCode !== "" ? selectedYearCode : "76";
     let currentSuffix = getRandomValidLetter() + getRandomValidLetter() + getRandomValidLetter();
 
+    // Each generation is now a sub-group nested under the main session group
+    console.group(`Batch Generated: [${operatorKey.toUpperCase()}]`);
+    console.log("Target Quantity:", quantity);
+    console.log("Initial Fleet ID:", currentFleetId);
+    console.log("Selected DVLA Area:", area);
+    console.log("Year Age Code:", age);
+
     for(let i = 0; i < quantity; i++) {
         if (i > 0) {
             currentSuffix = getNextLetterSequence(currentSuffix);
@@ -681,6 +701,8 @@ function generateNewFleet() {
             reg: reg
         };
 
+        console.log(`Unit ${i+1}: Fleet ID -> ${currentFleetId} | Reg -> ${reg}`);
+
         let row = document.createElement('tr');
         row.innerHTML = `
             <td><strong>${currentFleetId}</strong></td>
@@ -688,6 +710,8 @@ function generateNewFleet() {
         `;
         tableBody.appendChild(row);
     }
+
+    console.groupEnd();
 
     updateFleetBadge(finalFleetId);
 }

@@ -1,0 +1,1720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Fleet & Route PVR Manager</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background: #f9f9f9; color: #333; }
+        .container { max-width: 1400px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 120px; margin-bottom: 10px; padding: 8px; box-sizing: border-box; }
+        button { background: #0066cc; color: #fff; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; font-size: 14px; margin-right: 10px; margin-bottom: 5px; }
+        button:hover { background: #004999; }
+        .btn-danger { background: #c92a2a; }
+        .btn-danger:hover { background: #a61e1e; }
+        .btn-success { background: #2b8a3e; }
+        .btn-success:hover { background: #2b8a3e; }
+        .btn-excel { background: #107c41; }
+        .btn-excel:hover { background: #0b532c; }
+        .btn-pdf { background: #e03131; }
+        .btn-pdf:hover { background: #c92a2a; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; font-size: 13px; }
+        th { background: #f4f4f4; text-align: left !important; }
+        td[contenteditable="true"]:hover { background: #fff9db; outline: 1px dashed #ccc; }
+        .summary-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+        .summary-table th, .summary-table td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        .summary-table th { background: #eaeaea; }
+        .alert-error { background: #ffe3e3; color: #c92a2a; font-weight: bold; }
+        .alert-success { background: #ebfbee; color: #2b8a3e; font-weight: bold; }
+        .operator-header { background: #000000 !important; color: #ffffff !important; font-weight: bold; font-size: 15px; text-align: center !important; }
+        .garage-header { background: #334155 !important; color: #fff !important; font-weight: bold; font-size: 14px; text-align: left !important; }
+        .model-header { background: #e9ecef !important; color: #495057 !important; font-weight: bold; text-align: left !important; }
+        .panel { background: #f1f3f5; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+        .route-input-group { display: flex; gap: 10px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+        .route-input-group input, .route-input-group select { padding: 6px; font-size: 14px; }
+        .batch-assignment-row { background: #e7f5ff; padding: 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bac8ff; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .batch-assignment-row select, .batch-assignment-row input { padding: 6px; }
+        .merged-route-cell { background: #f8f9fa; font-weight: bold; text-align: center; vertical-align: middle; }
+        .highlight-match { background-color: #fff3bf !important; transition: background-color 1s ease; }
+        .search-dropdown-group { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+        .search-dropdown-group select { padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ced4da; background: #fff; min-width: 180px; }
+        h3 { margin-top: 30px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Fleet & Route PVR Manager</h2>
+
+    <div class="panel">
+        <h3>1. Define Routes, PVRs & Operating Days</h3>
+        <p>Paste multiple routes (one per line) or add them individually. You can list multiple routes on a vehicle batch (e.g., sharing a pool of buses).</p>
+        
+        <label for="routeBatchInput"><strong>Paste Routes (One per line):</strong></label>
+        <textarea id="routeBatchInput" placeholder="22&#10;32&#10;37" style="height: 80px;"></textarea>
+        <button class="btn-success" onclick="processPastedRoutes()">Import Pasted Routes</button>
+        <button class="btn-success" onclick="showPVRImportDialog()">📊 Import PVRs from Data</button>
+        <button class="btn-success" onclick="exportSettings()">⬇️ Export Settings</button>
+        <button class="btn-success" onclick="importSettings()">⬆️ Import Settings</button>
+        <p id="pvr-load-status" style="font-size: 0.9em; margin-top: 0.5rem; min-height: 1.2em;"></p>
+        <hr style="margin: 15px 0; border: 0; border-top: 1px solid #ddd;">
+
+        <div id="routeManagerList"></div>
+        <button class="btn-success" onclick="addRouteField()">+ Add Route</button>
+        <button onclick="renderAnalysis()">Update Routes</button>
+    </div>
+
+    <div class="panel">
+        <h3>2. Batch Assign Routes to Model Groups</h3>
+        <p>Select a model block from your fleet list and assign one or more routes (comma or newline separated) to cover that batch.</p>
+        <div id="batchAssignmentsContainer"></div>
+        <button class="btn-success" onclick="addBatchRow()">+ Add Batch Allocation Rule</button>
+        <button onclick="applyBatchRulesAndRender()">Apply Batches & Refresh Table</button>
+    </div>
+
+    <div class="panel">
+        <h3>3. Fleet Data Source & Actions</h3>
+        <div class="search-dropdown-group">
+            <select id="findOperatorSelect" onchange="jumpToEntity('operator', this.value)">
+                <option value="">-- Find Operator --</option>
+            </select>
+            <select id="findGarageSelect" onchange="jumpToEntity('garage', this.value)">
+                <option value="">-- Find Garage --</option>
+            </select>
+            <select id="findRouteSelect" onchange="jumpToEntity('route', this.value)">
+                <option value="">-- Find Route --</option>
+            </select>
+            <select id="findFleetSelect" onchange="jumpToEntity('fleet', this.value)">
+                <option value="">-- Find Fleet Number --</option>
+            </select>
+            <select id="findRegSelect" onchange="jumpToEntity('reg', this.value)">
+                <option value="">-- Find Registration Number --</option>
+            </select>
+        </div>
+        <textarea id="inputData" placeholder="Paste tab-separated fleet data here...">FLEET NUMBER	REG NUMBER	LIVERY	PREVIOUS REG NO	PREVIOUS FLEET NO	PREVIOUS GARAGE	ROUTES ALLOCATED TO	NOTES
+ARRIVA							
+Brumby (BY)							
+Arriva (BY) (E200 MMC 8.9m)							
+AES1	YY73 AAH	Arriva				SPARE	
+AES2	YJ73 NFU	Arriva				SPARE	
+AES3	YJ73 NFV	Arriva				SPARE	
+AES4	YJ73 NFW	Arriva				SPARE	
+Arriva (BY) (E200 MMC 11.5m)							
+AEL1	YX73 AGU	Arriva (BY)				SPARE	
+AEL2	YX73 AGV	Arriva (BY)				SPARE	
+AEL3	YX73 AGW	Arriva (BY)				SPARE	
+AEL4	YX73 AGX	Arriva (BY)				SPARE	
+AEL5	YX73 AGY	Arriva (BY)				SPARE	
+AEL6	YX73 AGZ	Arriva (BY)				SPARE	
+AEL7	YX73 AHA	Arriva (BY)				SPARE	
+AEL8	YX73 AHB	Arriva (BY)				SPARE	
+AEL9	YX73 AHC	Arriva (BY)				SPARE	
+AEL10	YX73 AHD	Arriva (BY)				SPARE	
+Arriva (BY) (Enviro 200 EV 11.5m)							
+EVL1	YX74 EBE	Arriva				389	
+EVL2	YX74 EBF	Arriva				389	
+EVL3	YX74 EBG	Arriva				389	
+EVL4	BD76 URA	Arriva				389	
+EVL5	BD76 URB	Arriva				389	
+EVL6	BD76 URC	Arriva				389	
+EVL7	BD76 URD	Arriva				389	
+EVL8	BD76 URE	Arriva				389	
+EVL9	BD76 URF	Arriva				389	
+EVL10	BD76 URG	Arriva				389	
+EVL11	BD76 URH	Arriva				389	
+EVL12	BD76 URJ	Arriva				389	
+EVL13	BD76 URK	Arriva				389	
+EVL14	BD76 URL	Arriva				389	
+EVL15	BD76 URM	Arriva				389	
+EVL16	BD76 URN	Arriva				389	
+Arriva (BY) (Streetdeck 10.5m)							
+HV193	FJ64 ETZ	Arriva				37	
+HV410	LC67 ACZ	Arriva				37	
+HV471	YJ73 TEA	Arriva				37	
+HV472	YJ73 TEB	Arriva				37	
+HV473	YJ73 TEC	Arriva				37	
+HV474	YJ73 TED	Arriva				37	
+HV475	YN76 XYX	Arriva				37	
+HV476	YN76 XYY	Arriva				37	
+HV477	YN76 XYZ	Arriva				37	
+Keadby Riverside (BF)							
+Arriva (BF) (Enviro 200 EV 11.5m)							
+EVL17	BD76 WYR	Arriva				88	
+EVL18	BD76 WYS	Arriva				88	
+EVL19	BD76 WYT	Arriva				88	
+EVL20	BD76 WYU	Arriva				88	
+EVL21	BD76 WYV	Arriva				88	
+EVL22	BD76 WYW	Arriva				88	
+EVL23	BD76 WYX	Arriva				88	
+EVL24	BD76 WYY	Arriva				88	
+EVL25	BD76 WYZ	Arriva				88	
+EVL26	BD76 WZA	Arriva				88	
+EVL27	BD76 WZB	Arriva				88	
+EVL28	BD76 WZC	Arriva				88	
+EVL29	BD76 WZD	Arriva				88	
+EVL30	BD76 WZE	Arriva				88	
+Arriva (BF) (MCV EvoSeti 10.5m)							
+VEMS1	EU76 SVU	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS2	EU76 SVV	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS3	EU76 SVW	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS4	EU76 SVX	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS5	EU76 SVY	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS6	EU76 SVZ	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS7	EU76 SWA	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS8	EU76 SWB	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS9	EU76 SWC	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS10	EU76 SWD	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS11	EU76 SWE	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS12	EU76 SWF	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS13	EU76 SWG	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS14	EU76 SWH	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS15	EU76 SWJ	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS16	EU76 SWK	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS17	EU76 SWL	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS18	EU76 SWM	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS19	EU76 SWN	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS20	EU76 SWO	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS21	EU76 SWP	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS22	EU76 SWR	Arriva				SPARE	Routes 343/N343 - 31/10/26
+VEMS23	EU76 SWS	Arriva				SPARE	Routes 343/N343 - 31/10/26
+Ashby (AB)							
+First (AB) (Cadet)							
+48181	R181 CVR	First Olympia Essex				SPARE	
+48182	R182 CVR	First Olympia Essex				SPARE	
+48183	R183 CVR	First Olympia Essex				SPARE	
+48184	R184 CVR	First Olympia Essex				SPARE	
+48185	R185 CVR	First Olympia Essex				SPARE	
+48186	R186 CVR	First Olympia Essex				SPARE	
+48187	R187 CVR	First Olympia Essex				SPARE	
+48188	R188 CVR	First Olympia Essex				SPARE	
+48189	R189 CVR	First Olympia Essex				SPARE	
+48190	R190 CVR	First Olympia Essex				SPARE	
+48191	R191 CVR	First Olympia Essex				SPARE	
+First (AB) (E200 MMC 11.5m)							
+67071	SN65 ZFK	Firstbus				SPARE	
+67079	SN65 ZFU	Firstbus				SPARE	
+First (AB) (E200 MMC EV 11.5m)							
+37001	YN76 LCV	Firstbus				SPARE	
+37002	YN76 LCW	Firstbus				SPARE	
+37003	YN76 LCX	Firstbus				SPARE	
+37004	YN76 LCY	Firstbus				SPARE	
+37005	YN76 LCZ	Firstbus				SPARE	
+37006	YN76 LDA	Firstbus				SPARE	
+37007	YN76 LDB	Firstbus				SPARE	
+37008	YN76 LDC	Firstbus				SPARE	
+37009	YN76 LDD	Firstbus				SPARE	
+37010	YN76 LDE	Firstbus				SPARE	
+37011	YN76 LDF	Firstbus				SPARE	
+37012	YN76 LDG	Firstbus				SPARE	
+37013	YN76 LDH	Firstbus				SPARE	
+37014	YN76 LDJ	Firstbus				SPARE	
+37015	YN76 LDK	Firstbus				SPARE	
+37016	YN76 LDL	Firstbus				SPARE	
+37017	YN76 LDM	Firstbus				SPARE	
+37018	YN76 LDN	Firstbus				SPARE	
+37019	YN76 LDO	Firstbus				SPARE	
+37020	YN76 LDP	Firstbus				SPARE	
+37021	YN76 LDR	Firstbus				SPARE	
+37022	YN76 LDS	Firstbus				SPARE	
+37023	YN76 LDT	Firstbus				SPARE	
+37024	YN76 LDU	Firstbus				SPARE	
+37025	YN76 LDV	Firstbus				SPARE	
+37026	YN76 LDW	Firstbus				SPARE	
+37027	YN76 LDX	Firstbus				SPARE	
+37028	YN76 LDY	Firstbus				SPARE	
+37029	YN76 LDZ	Firstbus				SPARE	
+First (AB) (B5TL DD 10.5m)							
+39402	YJ18 WAM	First Olympia Scunthorpe				SPARE	
+39403	F1 RST	First Olympia Scunthorpe	YJ18 WAN			SPARE	
+39404	BN69 EWH	First Olympia Scunthorpe				SPARE	
+39405	BN69 EWJ	First Olympia Scunthorpe				SPARE	
+39406	BN69 EWK	First Olympia Scunthorpe				SPARE	
+39407	BP11 JWL	First Olympia Scunthorpe				SPARE	
+39408	BP11 JWM	First Olympia Scunthorpe				SPARE	
+39409	BP11J WN	First Olympia Scunthorpe				SPARE	
+39410	BP11 JWO	First Olympia Scunthorpe				SPARE	
+39411	BP11 JWP	First Olympia Scunthorpe				SPARE	
+39412	BP11 JWR	First Olympia Scunthorpe				SPARE	
+39413	BP11 JWS	First Olympia Scunthorpe				SPARE	
+39414	BP11 JWT	First Olympia Scunthorpe				SPARE	
+39415	BP11 JWU	First Olympia Scunthorpe				SPARE	
+First (AB) (Streetlite 10.8m)							
+63926	YY26 EAM	First				SPARE	
+63927	YY26 EAN	First				SPARE	
+63928	YY26 EAP	First				SPARE	
+63929	YY26 EAR	First				SPARE	
+63930	YY26 EAS	First				SPARE	
+63931	YY26 EAT	First				SPARE	
+63932	YY26 EAU	First				SPARE	
+63933	YY26 EAV	First				SPARE	
+63934	YY26 EAW	First				SPARE	
+63935	YY26 EAX	First				SPARE	
+63936	YY26 EAY	First				SPARE	
+63937	YY26 EAZ	First				SPARE	
+63938	YY26 EBA	First				SPARE	
+63939	YY26 EBB	First				SPARE	
+64004	YX76 AAD	First			KR	SPARE	
+64005	YX76 AAE	First			KR	SPARE	
+64006	YX76 AAF	First			KR	SPARE	
+64007	YX76 AAG	First			KR	SPARE	
+64008	YX76 AAH	First			KR	SPARE	
+64009	YX76 AAJ	First			KR	SPARE	
+64010	YX76 AAK	First			KR	SPARE	
+Flixborough (FX)							
+First (FX) (B5TL DD 10.5m)							
+39213	BN61 MWM	First Olympia Scunthorpe			AB	612	
+39214	BN61 MWO	First Olympia Scunthorpe			AB	612	
+39215	BN61 MWP	First Olympia Scunthorpe			AB	612	
+First (FX) (E400 MMC 10.3m DD)							
+33981	SN65 OFW	First (AB)			AB	10	
+33982	SN65 OFX	First (AB)			AB	10	
+33983	SN65 OFY	First (AB)			AB	10	
+33984	SN65 OFZ	First (AB)			AB	10	
+33985	SN17 DBV	First (AB)			AB	10	
+33986	SN17 DBW	First (AB)			AB	10	
+33987	SK68 BRT	First (AB)			AB	10	
+33988	SK68 BRU	First (AB)			AB	10	
+33989	SK68 BRV	First (AB)			AB	10	
+33990	EU21 TVV	First (AB) (mirrorless)			AB	10	
+33991	SK72 GYA	First (AB) (mirrorless)			AB	10	
+33992	SK26 JWA	First (AB) (mirrorless)			AB	10	
+33993	SK26 JWB	First (AB) (mirrorless)			AB	10	
+33994	SK26 JWC	First (AB) (mirrorless)			AB	10	
+33995	SK26 JWD	First (AB) (mirrorless)			AB	10	
+First (FX) (MCV EvoSeti 10.5m)							
+36001	FX76 HKB	First				343	
+36002	FX76 HKC	First				343	
+36003	FX76 HKD	First				343	
+36004	FX76 HKE	First				343	
+36005	FX76 HKF	First				343	
+36006	FX76 HKG	First				343	
+36007	FX76 HKH	First				343	
+36008	FX76 HKJ	First				343	
+36009	FX76 HKK	First				343	
+36010	FX76 HKL	First				343	
+36011	FX76 HKM	First				343	
+36012	FX76 HKN	First				343	
+36013	FX76 HKO	First				343	
+36014	FX76 HKP	First				343	
+36015	FX76 HKR	First				343	
+36016	FX76 HKS	First				343	
+36017	FX76 HKT	First				343	
+First (FX) (Streetdeck 10.5m)							
+47901	SK76 GUW	First				304, S304	
+47902	SK76 GUX	First				304, S304	
+47903	SK76 GUY	First				304, S304	
+47904	SK76 GUZ	First				304, S304	
+47905	SK76 GVA	First				304, S304	
+47906	SK76 GVB	First				304, S304	
+47907	SK76 GVC	First				304, S304	
+47908	SK76 GVD	First				304, S304	
+47909	SK76 GVE	First				304, S304	
+47910	SK76 GVF	First				304, S304	
+47911	SK76 GVG	First				304, S304	
+47912	SK76 GVH	First				304, S304	
+47913	SK76 GVJ	First				304, S304	
+47914	SK76 GVK	First				304, S304	
+First (FX) (Streetlite 10.8m)							
+63136	SN14 DWK	First			AB	303, 415	
+63137	SN14 DWL	First			AB	303, 415	
+63138	SN14 DWM	First			AB	303, 415	
+63161	SN64 CHX	First			AB	303, 415	
+63162	SN64 CHY	First			AB	303, 415	
+63163	SN64 CHZ	First			AB	303, 415	
+63913	SN18 XXV	First			AB	303, 415	
+63914	YY26 DZZ	First			AB	303, 415	
+63915	YY26 EAA	First			AB	303, 415	
+63916	YY26 EAB	First			AB	303, 415	
+63917	YY26 EAC	First			AB	303, 415	
+63918	YY26 EAD	First			AB	303, 415	
+63919	YY26 EAE	First			AB	303, 415	
+63920	YY26 EAF	First			AB	303, 415	
+63921	YY26 EAG	First			AB	303, 415	
+63922	YY26 EAH	First			AB	303, 415	
+63923	YY26 EAJ	First			AB	303, 415	
+63924	YY26 EAK	First			AB	303, 415	
+63925	YY26 EAL	First			AB	303, 415	
+First (FX) (Volvo Hybrid Routemaster 10.6m)							
+VHR71001	FY76 BLL	First			AB	X1	
+VHR71002	FY76 BLM	First			AB	X1	
+VHR71003	FY76 BLN	First			AB	X1	
+VHR71004	FY76 BLO	First			AB	X1	
+VHR71005	FY76 BLP	First			AB	X1	
+VHR71006	FY76 BLR	First			AB	X1	
+VHR71007	FY76 BLS	First			AB	X1	
+VHR71008	FY76 BLT	First			AB	X1	
+VHR71009	FY76 BLU	First			AB	X1	
+VHR71010	FY76 BLV	First			AB	X1	
+Keadby Riverside (KR)							
+First (KR) (MCV EvoSeti 10.5m)							
+36401	SN26 EAA	First Scunthorpe				35, 97, 823, N35, N343	
+36402	SN26 EAB	First Scunthorpe				35, 97, 823, N35, N343	
+36403	SN26 EAC	First Scunthorpe				35, 97, 823, N35, N343	
+36404	SN26 EAD	First Scunthorpe				35, 97, 823, N35, N343	
+36405	SN26 EAE	First Scunthorpe				35, 97, 823, N35, N343	
+36406	SN26 EAF	First Scunthorpe				35, 97, 823, N35, N343	
+36407	SN26 EAG	First Scunthorpe				35, 97, 823, N35, N343	
+36408	SN26 EAH	First Scunthorpe				35, 97, 823, N35, N343	
+36409	SN26 EAJ	First Scunthorpe				35, 97, 823, N35, N343	
+36410	SN26 EAK	First Scunthorpe				35, 97, 823, N35, N343	
+36411	SN26 EAL	First Scunthorpe				35, 97, 823, N35, N343	
+36412	SN26 EAM	First Scunthorpe				35, 97, 823, N35, N343	
+36413	SN26 EAN	First Scunthorpe				35, 97, 823, N35, N343	
+36414	SN26 EAP	First Scunthorpe				35, 97, 823, N35, N343	
+36415	SN26 EAR	First Scunthorpe				35, 97, 823, N35, N343	
+36416	SN26 EAS	First Scunthorpe				35, 97, 823, N35, N343	
+36417	SN26 EAT	First Scunthorpe				35, 97, 823, N35, N343	
+36418	SN26 EAU	First Scunthorpe				35, 97, 823, N35, N343	
+36419	SN26 EAV	First Scunthorpe				35, 97, 823, N35, N343	
+36420	SN26 EAW	First Scunthorpe				35, 97, 823, N35, N343	
+36421	SN26 EAX	First Scunthorpe				35, 97, 823, N35, N343	
+36422	SN26 EAY	First Scunthorpe				35, 97, 823, N35, N343	
+36423	SN26 EAZ	First Scunthorpe				35, 97, 823, N35, N343	
+36424	SN26 EBA	First Scunthorpe				35, 97, 823, N35, N343	
+36425	SN26 EBB	First Scunthorpe				35, 97, 823, N35, N343	
+36426	SN26 EBC	First Scunthorpe				35, 97, 823, N35, N343	
+36427	SN26 EBD	First Scunthorpe				35, 97, 823, N35, N343	
+36428	SN26 EBE	First Scunthorpe			DL	35, 97, 823, N35, N343	
+36429	YY76 AOV	First Scunthorpe			DL	35, 97, 823, N35, N343	
+36430	YY76 AOW	First Scunthorpe			DL	35, 97, 823, N35, N343	
+36431	YY76 AOX	First Scunthorpe			DL	35, 97, 823, N35, N343	
+36432	YY76 AOY	First Scunthorpe			DL	35, 97, 823, N35, N343	
+36433	YY76 AOZ	First Scunthorpe			DL	35, 97, 823, N35, N343	
+36434	YY76 APA	First Scunthorpe			DL	35, 97, 823, N35, N343	
+First (KR) (Streetdeck 10.5m)							
+47001	WJ76 ZKH	First				25	
+47002	WJ76 ZKJ	First				25	
+47003	WJ76 ZKK	First				25	
+47004	WJ76 ZKL	First				25	
+47005	WJ76 ZKM	First				25	
+47006	WJ76 ZKN	First				25	
+47007	WJ76 ZKO	First				25	
+47008	WJ76 ZKP	First				25	
+47009	WJ76 ZKR	First				25	
+47010	WJ76 ZKS	First				25	
+First (KR) (Streetlite 10.8m)							
+64011	YX76 AAL	First				SPARE	
+64012	YX76 AAM	First				SPARE	
+64013	YX76 AAN	First				SPARE	
+64014	YX76 AAP	First				SPARE	
+64015	YX76 AAR	First				SPARE	
+64016	YX76 AAS	First				SPARE	
+64017	YX76 AAT	First				SPARE	
+64018	YX76 AAU	First				SPARE	
+64019	YX76 AAV	First				SPARE	
+64020	YX76 AAW	First				SPARE	
+64021	YX76 AAX	First				SPARE	
+64022	YX76 AAY	First				SPARE	
+64023	YX76 AAZ	First				SPARE	
+64024	YX76 ABA	First				SPARE	
+64025	YX76 ABB	First				SPARE	
+64026	YX76 ABC	First				SPARE	
+64027	YX76 ABD	First				SPARE	
+64028	YX76 ABE	First				SPARE	
+64029	YX76 ABF	First				SPARE	
+64030	YX76 ABG	First				SPARE	
+64031	YX76 ABH	First				SPARE	
+64032	YX76 ABJ	First				SPARE	
+64033	YX76 ABK	First				SPARE	
+Skippingdale (DL)							
+First (DL) (B5TL DD 10.5m)							
+39216	BN61 MWU	First Olympia Scunthorpe			AB	32, 232	
+39220	BN61 MWY	First Olympia Scunthorpe			AB	32, 232	
+39222	BP11 JWD	First Olympia Scunthorpe			AB	32, 232	
+39230	BP11 JWJ	First Olympia Scunthorpe			AB	32, 232	
+39231	BP11 JWK	First Olympia Scunthorpe			AB	32, 232	
+39401	YJ18 WAL	First Olympia Scunthorpe			AB	32, 232	
+First (DL) (E200 10.8m)							
+44054	YX58 FPO	First Barbie				11	
+44444	YX09 HJY	First Barbie				11	
+44518	YX09 ACZ	First Barbie				11	
+44578	YX13 BNJ	First Barbie				11	
+44579	YX13 BNK	First Barbie				11	
+44581	YX13 BNN	First Barbie				11	
+44801	YX74 AVK	First Barbie				11	
+44802	YX74 AVL	First Barbie				11	
+44803	YX74 AVM	First Barbie				11	
+44804	YX74 AVN	First Barbie				11	
+First (DL) (Streetlite 9.6m)							
+64001	YX76 AAA	First			KR/AB	454, 925	
+64002	YX76 AAB	First			KR/AB	454, 925	
+64003	YX76 AAC	First			KR/AB	454, 925	
+First (DL) (Streetlite 10.8m)							
+63001	SM13 NDJ	First Essex Olympia			First (AB)	9	
+63002	SM13 NDK	First Essex Olympia			First (AB)	9	
+63003	SM13 NDL	First Essex Olympia			First (AB)	9	
+First (DL) (Volvo Hybrid Routemaster 10.6m)							
+VHR71011	FY76 BLW	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71012	FY76 BLX	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71013	FY76 BLY	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71014	FY76 BLZ	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71015	FY76 BMA	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71016	FY76 BMB	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71017	FY76 BMC	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71018	FY76 BMD	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71019	FY76 BME	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71020	FY76 BMF	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71021	FY76 BMG	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71022	FY76 BMH	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71023	FY76 BMJ	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71024	FY76 BMK	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+VHR71025	FY76 BML	First			First (AB)	SPARE	Routes 7/N7 - 31/10/26
+KELLY GROUP							
+Skippingdale (K)							
+Kelly Group (K) (E400 MMC 10.3m DD)							
+DDE1	K3 LLY	Kelly Group	LX73 DSV			S1	
+DDE2	LX73 DSW	Kelly Group				S1	
+DDE3	LX73 DSX	Kelly Group				S1	
+DDE4	LX73 DSY	Kelly Group				S1	
+DDE5	LX73 DSZ	Kelly Group	WVT 618			S1	
+DDE6	LX73 DTA	Kelly Group				S1	
+DDE7	LX73 DTB	Kelly Group				S1	
+DDE8	LX73 DTC	Kelly Group				S1	
+DDE9	SN73 AVX	Kelly Group				S1	
+DDE10	SN73 AVY	Kelly Group				S1	
+DDE11	YY76 AYO	Kelly Group				S1	
+DDE12	YY76 AYP	Kelly Group				S1	
+DDE13	YY76 AYR	Kelly Group				S1	
+Kelly Group (K) (LT)							
+LT105	LTZ 1105	Kelly Group			Stagecoach (SC)	SPARE	Route 23 - 31/10/26
+LT106	LTZ 1106	Kelly Group			Stagecoach (SC)	SPARE	Route 23 - 31/10/26
+LT259	LTZ 1259	Kelly Group			Stagecoach (SC)	SPARE	Route 23 - 31/10/26
+LT260	LTZ 1260	Kelly Group			Stagecoach (SC)	SPARE	Route 23 - 31/10/26
+LT792	LTZ 1792	Kelly Group			Stagecoach (SC)	SPARE	Route 23 - 31/10/26
+LT793	LTZ 1793	Kelly Group			Stagecoach (SC)	SPARE	Route 23 - 31/10/26
+Kelly Group (K) (Streetlite 11.5m)							
+SLL1	KX73 YAD	Kelly Group				SPARE	
+SLL2	LJ73 UPP	Kelly Group				SPARE	
+SLL3	LJ73 UPR	Kelly Group				SPARE	
+SLL4	LJ73 UPS	Kelly Group				SPARE	
+SLL5	LJ73 UPT	Kelly Group				SPARE	
+SLL6	LJ73 UPU	Kelly Group				SPARE	
+SLL7	LJ73 UPV	Kelly Group				SPARE	
+LANTERN CHALLENGER							
+Ashby (DR)							
+Lantern Challenger (DR) (E200 MMC EV 11.5m)							
+EEV1001	BJ76 EOH	Lantern				102, 251	
+EEV1002	BJ76 EOJ	Lantern				102, 251	
+EEV1003	BJ76 EOK	Lantern				102, 251	
+EEV1004	BJ76 EOL	Lantern				102, 251	
+EEV1005	BJ76 EOM	Lantern				102, 251	
+EEV1006	BJ76 EON	Lantern				102, 251	
+EEV1007	BJ76 EOO	Lantern				102, 251	
+EEV1008	BJ76 EOP	Lantern				102, 251	
+EEV1009	BJ76 EOR	Lantern				102, 251	
+EEV1010	BJ76 EOS	Lantern				102, 251	
+EEV1011	BJ76 EOT	Lantern				102, 251	
+EEV1012	BJ76 EOU	Lantern				102, 251	
+EEV1013	BJ76 EOV	Lantern				102, 251	
+EEV1014	BJ76 EOW	Lantern				102, 251	
+EEV1015	BJ76 EOX	Lantern				102, 251	
+EEV1016	BJ76 EOY	Lantern				102, 251	
+EEV1017	BJ76 EOZ	Lantern				102, 251	
+EEV1018	BJ76 EPA	Lantern				102, 251	
+EEV1019	BJ76 EPB	Lantern				102, 251	
+EEV1020	BJ76 EPC	Lantern				102, 251	
+Lantern Challenger (DR) (Streetlite 9.6m)							
+SL1001	KX73 YAA	Lantern		SLS1	Skippingdale (K)	SPARE	Route 79 - 31/10/2026
+SL1002	KX73 YAB	Lantern		SLS2	Skippingdale (K)	SPARE	Route 79 - 31/10/2026
+SL1003	KX73 YAC	Lantern		SLS3	Skippingdale (K)	SPARE	Route 79 - 31/10/2026
+STAGECOACH							
+Lodge Moor (GP)							
+Stagecoach (GP) (E400 MMC 10.9m Mirrorless)							
+11280	SN69 ZPG	Stagecoach (GP)			SC	604, 635, 697	
+11281	SN69 ZPH	Stagecoach (GP)			SC	604, 635, 697	
+11282	SN69 ZPJ	Stagecoach (GP)			SC	604, 635, 697	
+11283	SN69 ZPK	Stagecoach (GP)			SC	604, 635, 697	
+11284	SN69 ZPL	Stagecoach (GP)			SC	604, 635, 697	
+11285	SN69 ZPO	Stagecoach (GP)			SC	604, 635, 697	
+11286	SN69 ZPP	Stagecoach (GP)			SC	604, 635, 697	
+Stagecoach (GP) (LT)							
+LT99	LTZ 1099	Stagecoach 2020			SC	23	
+LT100	LTZ 1100	Stagecoach 2020			SC	23	
+LT101	LTZ 1101	Stagecoach 2020			SC	23	
+LT102	LTZ 1102	Stagecoach 2020			SC	23	
+LT103	LTZ 1103	Stagecoach 2020			SC	23	
+LT104	LTZ 1104	Stagecoach 2020			SC	23	
+Stagecoach (GP) (MCV EvoSeti 10.5m)							
+16501	YY74 SEA	Stagecoach (GP)				34	
+16502	YY74 SEB	Stagecoach (GP)				34	
+16503	YY74 SEC	Stagecoach (GP)				34	
+16504	YX74 SED	Stagecoach (GP)				34	
+16505	YX74 SEE	Stagecoach (GP)				34	
+16506	YX74 SEF	Stagecoach (GP)				34	
+16507	YX74 SEG	Stagecoach (GP)				34	
+16508	YX74 SHE	Stagecoach (GP)				34	
+16509	YX74 SHF	Stagecoach (GP)				34	
+16510	YX74 SHG	Stagecoach (GP)				34	
+16511	YX74 SHH	Stagecoach (GP)				34	
+16512	YX74 SHJ	Stagecoach (GP)				34	
+16513	YX74 SHK	Stagecoach (GP)				34	
+16514	YX74 SHL	Stagecoach (GP)				34	
+Stagecoach (GP) (Streetdeck 10.5m)							
+13001	YY76 MFX	Stagecoach				113, N113	
+13002	YY76 MFY	Stagecoach				113, N113	
+13003	YY76 MFZ	Stagecoach				113, N113	
+13004	YY76 MGA	Stagecoach				113, N113	
+13005	YY76 MGB	Stagecoach				113, N113	
+13006	YY76 MGC	Stagecoach				113, N113	
+13007	YY76 MGD	Stagecoach				113, N113	
+13008	YY76 MGE	Stagecoach				113, N113	
+13009	YY76 MGF	Stagecoach				113, N113	
+13010	YY76 MGG	Stagecoach				113, N113	
+13011	YY76 MGH	Stagecoach				113, N113	
+13012	YY76 MGJ	Stagecoach				113, N113	
+13013	YY76 MGK	Stagecoach				113, N113	
+13014	YY76 MGL	Stagecoach				113, N113	
+13015	YY76 MGM	Stagecoach				113, N113	
+13016	YY76 MGN	Stagecoach				113, N113	
+13017	YY76 MGO	Stagecoach				113, N113	
+13018	YY76 MGP	Stagecoach				113, N113	
+13019	YY76 MGR	Stagecoach				113, N113	
+13020	YY76 MGS	Stagecoach				113, N113	
+13021	YY76 MGT	Stagecoach				113, N113	
+13022	YY76 MGU	Stagecoach				113, N113	
+13023	YY76 MGV	Stagecoach				113, N113	
+13024	YY76 MGW	Stagecoach				113, N113	
+13025	YY76 MGX	Stagecoach				113, N113	
+13026	YY76 MGY	Stagecoach				113, N113	
+13027	YY76 MGZ	Stagecoach				113, N113	
+Scunthorpe (SC)							
+Stagecoach (SC) (ALX 400 10.5m)							
+17111	V477 KJN	Stagecoach Stripes				SPARE	
+17112	V112 MEV	Stagecoach				SPARE	
+17359	Y359 NHK	Stagecoach				SPARE	
+17362	Y362 NHK	Stagecoach				SPARE	
+17363	Y363 NHK	Stagecoach				SPARE	
+17364	Y364 NHK	Stagecoach				SPARE	
+17444	LX51 FKO	Stagecoach				SPARE	
+Stagecoach (SC) (E200 10.8m)							
+37065	YY63 YRM	Stagecoach				SPARE	
+37066	YY63 YRN	Stagecoach				SPARE	
+37067	YY63 YRO	Stagecoach				SPARE	
+37068	YY63 YRP	Stagecoach				SPARE	
+37069	YY63 YRR	Stagecoach				SPARE	
+37070	YY63 YRS	Stagecoach				SPARE	
+37071	YY63 YRT	Stagecoach				SPARE	
+37072	YY63 YRU	Stagecoach				SPARE	
+37073	YY63 YRV	Stagecoach				SPARE	
+37074	YY63 YRW	Stagecoach				SPARE	
+37075	YY63 YRX	Stagecoach				SPARE	
+Stagecoach (SC) (E200 MMC 8.9m)							
+0	0						
+Stagecoach (SC) (E200 MMC 11.5m)							
+26083	YY16 YJN	Stagecoach				399	
+Stagecoach (SC) (E200 MMC EV 11.5m)							
+36701	YY76 ZHY	Stagecoach				4	
+36702	YY76 ZHZ	Stagecoach				4	
+36703	YY76 ZJA	Stagecoach				4	
+36704	YY76 ZJB	Stagecoach				4	
+36705	YY76 ZJC	Stagecoach				4	
+36706	YY76 ZJD	Stagecoach				4	
+36707	YY76 ZJE	Stagecoach				4	
+36708	YY76 ZJF	Stagecoach				4	
+36709	YY76 ZJG	Stagecoach				4	
+Stagecoach (SC) (E400 MMC 10.9m Mirrorless)							
+10521	SN16 OMH	Stagecoach				SPARE	
+10672	SN16 OYU	Stagecoach				SPARE	
+10740	SN66 VXH	Stagecoach				SPARE	
+10899	YX67 VCM	Stagecoach				SPARE	
+11126	SK68 LUW	Stagecoach Gold				SPARE	
+11127	SK68 LUY	Stagecoach				SPARE	
+11178	YX19 OUC	Coca-Cola Christmas				SPARE	
+11179	YX19 OUD	Stagecoach				SPARE	
+11180	YX19 OUE	Stagecoach				SPARE	
+11279	SN69 ZPF	Stagecoach				SPARE	
+11601	YN76 MKM	Stagecoach				SPARE	
+11602	YN76 MKN	Stagecoach				SPARE	
+Stagecoach (SC) (GB Kite Electroliner 10.9m)							
+31001	SC76 BUS	Stagecoach	SC76 YVA			6	
+31002	SC76 YVB	Stagecoach				6	
+31003	SC76 YVC	Stagecoach				6	
+31004	SC76 YVD	Stagecoach				6	
+31005	SC76 YVE	Stagecoach				6	
+31006	WLT 177	Stagecoach	SC76 YVF			6	
+31007	SC76 YVG	Stagecoach				6	
+31008	SC76 YVH	Stagecoach				6	
+31009	SC76 YVJ	Stagecoach				6	
+31010	SC76 YVK	Stagecoach				6	
+31011	SC76 YVL	Stagecoach				6	
+31012	SC76 YVM	Stagecoach				6	
+31013	SC76 YVN	Stagecoach				6	
+31014	SC76 YVO	Stagecoach				6	
+31015	SC76 YVP	Stagecoach				6	
+31016	SC76 YVR	Stagecoach				6	
+Stagecoach (SC) (Volvo BZL 10.8m)							
+39001	YY76 UVN	Stagecoach Route 302				302	
+39002	YY76 UVO	Stagecoach Route 302				302	
+39003	YY76 UVP	Stagecoach Route 302				302	
+39004	YY76 UVR	Stagecoach Route 302				302	
+39005	YY76 UVS	Stagecoach Route 302				302	
+39006	YY76 UVT	Stagecoach Route 302				302	
+39007	YY76 UVU	Stagecoach Route 302				302	
+39008	YY76 UVV	Stagecoach Route 302				302	
+39009	YY76 UVW	Stagecoach Route 302				302	
+39010	YY76 UVX	Stagecoach Route 302				302	
+39011	YY76 UVY	Stagecoach Route 302				302	
+39012	YY76 UVZ	Stagecoach Route 302				302	
+39013	YY76 UWA	Stagecoach Route 302				302	
+VIRGIN GROUP							
+Yaddlethorpe (V)							
+Virgin Group (V) (Streetdeck 10.5m)							
+WS12001	PE76 TZE	Virgin				22, 98, 285, N22, N98	
+WS12002	PE76 TZF	Virgin				22, 98, 285, N22, N98	
+WS12003	PE76 TZG	Virgin				22, 98, 285, N22, N98	
+WS12004	PE76 TZH	Virgin				22, 98, 285, N22, N98	
+WS12005	PE76 TZJ	Virgin				22, 98, 285, N22, N98	
+WS12006	PE76 TZK	Virgin				22, 98, 285, N22, N98	
+WS12007	PE76 TZL	Virgin				22, 98, 285, N22, N98	
+WS12008	PE76 TZM	Virgin				22, 98, 285, N22, N98	
+WS12009	PE76 TZN	Virgin				22, 98, 285, N22, N98	
+WS12010	PE76 TZO	Virgin				22, 98, 285, N22, N98	
+WS12011	PE76 TZP	Virgin				22, 98, 285, N22, N98	
+WS12012	PE76 TZR	Virgin				22, 98, 285, N22, N98	
+WS12013	PE76 TZS	Virgin				22, 98, 285, N22, N98	
+WS12014	PE76 TZT	Virgin				22, 98, 285, N22, N98	
+WS12015	PE76 TZU	Virgin				22, 98, 285, N22, N98	
+WS12016	PE76 TZV	Virgin				22, 98, 285, N22, N98	
+WS12017	PE76 TZW	Virgin				22, 98, 285, N22, N98	
+WS12018	PE76 TZX	Virgin				22, 98, 285, N22, N98	
+WS12019	PE76 TZY	Virgin				22, 98, 285, N22, N98	
+WS12020	PE76 TZZ	Virgin				22, 98, 285, N22, N98	
+WS12021	PE76 UAA	Virgin				22, 98, 285, N22, N98	
+WS12022	PE76 UAB	Virgin				22, 98, 285, N22, N98	
+WS12023	PE76 UAC	Virgin				22, 98, 285, N22, N98	
+WS12024	PE76 UAD	Virgin				22, 98, 285, N22, N98	
+WS12025	PE76 UAE	Virgin				22, 98, 285, N22, N98	
+WS12026	PE76 UAF	Virgin				22, 98, 285, N22, N98	
+WS12027	PE76 UAG	Virgin				22, 98, 285, N22, N98	
+WS12028	PE76 UAH	Virgin				22, 98, 285, N22, N98	
+WS12029	PE76 UAJ	Virgin				22, 98, 285, N22, N98	
+WS12030	PE76 UAK	Virgin				22, 98, 285, N22, N98	
+WS12031	PE76 UAL	Virgin				22, 98, 285, N22, N98	
+WS12032	PE76 UAM	Virgin				22, 98, 285, N22, N98	
+WS12033	PE76 UAN	Virgin				22, 98, 285, N22, N98	
+WS12034	PE76 UAO	Virgin				22, 98, 285, N22, N98	
+WS12035	PE76 UAP	Virgin				22, 98, 285, N22, N98	
+WS12036	PE76 UAR	Virgin				22, 98, 285, N22, N98	
+WS12037	PE76 UAS	Virgin				22, 98, 285, N22, N98	
+WS12038	PE76 UAT	Virgin				22, 98, 285, N22, N98	
+WS12039	PE76 UAU	Virgin				22, 98, 285, N22, N98	
+WS12040	PE76 UAV	Virgin				22, 98, 285, N22, N98	
+WS12041	PE76 UAW	Virgin				22, 98, 285, N22, N98	
+WS12042	YY76 YSV	Virgin				22, 98, 285, N22, N98	
+WS12043	YY76 YSW	Virgin				22, 98, 285, N22, N98	
+WS12044	YY76 YSX	Virgin				22, 98, 285, N22, N98	
+WS12045	YY76 YSY	Virgin				22, 98, 285, N22, N98	
+WS12046	YY76 YSZ	Virgin				22, 98, 285, N22, N98	
+WS12047	YY76 YTA	Virgin				22, 98, 285, N22, N98	
+WS12048	YY76 YTB	Virgin				22, 98, 285, N22, N98	
+WS12049	YY76 YTC	Virgin				22, 98, 285, N22, N98	
+WS12050	YY76 YTD	Virgin				22, 98, 285, N22, N98	
+WS12051	YY76 YTE	Virgin				22, 98, 285, N22, N98	
+WS12052	YY76 YTF	Virgin				22, 98, 285, N22, N98	
+WS12053	YY76 YTG	Virgin				22, 98, 285, N22, N98	
+WS12054	YY76 YTH	Virgin				22, 98, 285, N22, N98	
+WS12055	YY76 YTJ	Virgin				22, 98, 285, N22, N98	
+WS12056	YY76 YTK	Virgin				22, 98, 285, N22, N98	
+WS12057	YY76 YTL	Virgin				22, 98, 285, N22, N98	
+WS12058	YY76 YTM	Virgin				22, 98, 285, N22, N98	
+WS12059	YY76 YTN	Virgin				22, 98, 285, N22, N98	
+WS12060	YY76 YTO	Virgin				22, 98, 285, N22, N98	
+Virgin Group (V) (GB Kite Electroliner 11.6m)							
+GBE1	PE76 VWG	Virgin Route 415				SPARE	Route 415 - 31/10/26
+GBE2	PE76 VWH	Virgin Route 415				SPARE	Route 415 - 31/10/26
+GBE3	PE76 VWJ	Virgin Route 415				SPARE	Route 415 - 31/10/26
+GBE4	PE76 VWK	Virgin Route 415				SPARE	Route 415 - 31/10/26
+GBE5	PE76 VWL	Virgin Route 415				SPARE	Route 415 - 31/10/26
+GBE6	PE76 VWM	Virgin Route 415				SPARE	Route 415 - 31/10/26
+GBE7	PE76 VWN	Virgin Route 415				SPARE	Route 415 - 31/10/26
+Virgin Group (V) (GB Kite Hydroliner 11.6m)							
+GBH1	PE76 LAN	Virgin				12, 388	
+GBH2	PE76 LAO	Virgin				12, 388	
+GBH3	PE76 LAP	Virgin				12, 388	
+GBH4	PE76 LAR	Virgin				12, 388	
+GBH5	PE76 LAS	Virgin				12, 388	
+GBH6	PE76 LAT	Virgin				12, 388	
+GBH7	PE76 LAU	Virgin				12, 388	
+GBH8	PE76 LAV	Virgin				12, 388	
+GBH9	PE76 LAW	Virgin				12, 388	
+GBH10	V112 GIN	Virgin Ambassador	PE76 LAX			12, 388	
+GBH11	PE76 LAY	Virgin				12, 388	
+GBH12	PE76 LAZ	Virgin				12, 388	
+GBH13	PE76 LBA	Virgin				12, 388	
+GBH14	PE76 LBB	Virgin				12, 388	
+GBH15	PE76 LBC	Virgin				12, 388	
+GBH16	PE76 LBD	Virgin				12, 388	
+GBH17	PE76 LBE	Virgin				12, 388	
+GBH18	PE76 LBF	Virgin				12, 388	
+GBH19	PE76 LBG	Virgin				12, 388	
+GBH20	PE76 LBH	Virgin				12, 388	
+GBH21	PE76 SWX	Virgin				12, 388	
+GBH22	PE76 SWY	Virgin				12, 388	
+GBH23	PE76 SWZ	Virgin				12, 388	
+GBH24	PE76 SXA	Virgin				12, 388	
+GBH25	PE76 SXB	Virgin				12, 388	
+GBH26	PE76 SXC	Virgin				12, 388	
+GBH27	PE76 SXD	Virgin				12, 388	
+GBH28	PE76 SXE	Virgin				12, 388	
+</textarea>
+        <br>
+        <button onclick="generateTable()">Load / Refresh Fleet Table</button>
+        <button class="btn-excel" onclick="downloadExcel()">Download Excel File (.xlsx)</button>
+        <button class="btn-pdf" onclick="downloadPDF()">📄 Download PDF Report</button>
+    </div>
+
+    <div id="summaryContainer"></div>
+    <div id="tableContainer"></div>
+</div>
+
+<script>
+    const STORAGE_KEY_ROUTES = 'fleetPvr_routes_v1';
+    const STORAGE_KEY_BATCHES = 'fleetPvr_batches_v1';
+    const knownOperators = ['ARRIVA', 'FIRST', 'KELLY GROUP', 'LANTERN CHALLENGER', 'STAGECOACH', 'VIRGIN GROUP'];
+
+    function saveRoutesToStorage() {
+        const routes = [];
+        document.querySelectorAll('.route-input-group').forEach(group => {
+            routes.push({
+                route: group.querySelector('.route-name').value.trim(),
+                pvr: parseInt(group.querySelector('.route-pvr').value) || 0,
+                days: group.querySelector('.route-days').value
+            });
+        });
+        localStorage.setItem(STORAGE_KEY_ROUTES, JSON.stringify(routes));
+    }
+
+    function loadRoutesFromStorage() {
+        const stored = localStorage.getItem(STORAGE_KEY_ROUTES);
+        if (stored) {
+            try { return JSON.parse(stored); } catch (e) { return null; }
+        }
+        return null;
+    }
+
+    function saveBatchesToStorage() {
+        const batches = [];
+        document.querySelectorAll('.batch-assignment-row').forEach(row => {
+            batches.push({
+                model: row.querySelector('.batch-model-select').value,
+                routes: row.querySelector('.batch-route-text').value
+            });
+        });
+        localStorage.setItem(STORAGE_KEY_BATCHES, JSON.stringify(batches));
+    }
+
+    function loadBatchesFromStorage() {
+        const stored = localStorage.getItem(STORAGE_KEY_BATCHES);
+        if (stored) {
+            try { return JSON.parse(stored); } catch (e) { return null; }
+        }
+        return null;
+    }
+
+    function exportSettings() {
+        const routes = [];
+        document.querySelectorAll('.route-input-group').forEach(group => {
+            routes.push({
+                route: group.querySelector('.route-name').value.trim(),
+                pvr: parseInt(group.querySelector('.route-pvr').value) || 0,
+                days: group.querySelector('.route-days').value
+            });
+        });
+        
+        const batches = [];
+        document.querySelectorAll('.batch-assignment-row').forEach(row => {
+            batches.push({
+                model: row.querySelector('.batch-model-select').value,
+                routes: row.querySelector('.batch-route-text').value
+            });
+        });
+
+        const data = { routes, batches, exportDate: new Date().toISOString() };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `fleet_pvr_backup_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        alert('Settings exported successfully!');
+    }
+
+    function importSettings() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    document.querySelectorAll('.route-input-group').forEach(el => el.remove());
+                    if (data.routes && Array.isArray(data.routes)) {
+                        data.routes.forEach(item => addRouteField(item.route, item.pvr, item.days));
+                    }
+                    document.querySelectorAll('.batch-assignment-row').forEach(el => el.remove());
+                    setTimeout(() => {
+                        if (data.batches && Array.isArray(data.batches)) {
+                            data.batches.forEach(batch => addBatchRow(batch.model, batch.routes));
+                        }
+                        renderAnalysis();
+                        alert('Settings imported successfully!');
+                    }, 100);
+                } catch (err) {
+                    alert('Error importing settings: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    function showPVRImportDialog() {
+        const pvrData = prompt(
+            'Paste PVR data (one per line, format: "22: 11" or "22=11" or just "22 11"):\n\n' +
+            'Example:\n22: 11\n32: 3\n37: 3\n97: 0\n113: 0',
+            ''
+        );
+        if (!pvrData) return;
+
+        const statusEl = document.getElementById('pvr-load-status');
+        statusEl.textContent = 'Processing PVR data...';
+        statusEl.style.color = '#3498db';
+
+        try {
+            const routePVRs = parsePVRData(pvrData);
+            let updatedCount = 0;
+            document.querySelectorAll('.route-input-group').forEach(group => {
+                const routeName = group.querySelector('.route-name').value.trim();
+                if (routeName && routePVRs[routeName] !== undefined) {
+                    group.querySelector('.route-pvr').value = routePVRs[routeName];
+                    updatedCount++;
+                }
+            });
+
+            statusEl.textContent = `✓ Loaded ${updatedCount} PVR values. Unrecognized routes kept their original values.`;
+            statusEl.style.color = '#2ecc71';
+            saveRoutesToStorage();
+            renderAnalysis();
+            setTimeout(() => { statusEl.textContent = ''; }, 5000);
+        } catch (error) {
+            statusEl.textContent = `Error: ${error.message}`;
+            statusEl.style.color = '#e74c3c';
+        }
+    }
+
+    function parsePVRData(pvrText) {
+        const routePVRs = {};
+        pvrText.split('\n').forEach(line => {
+            const trimmed = line.trim();
+            if (!trimmed) return;
+            let route, pvr;
+            if (trimmed.includes(':')) {
+                [route, pvr] = trimmed.split(':').map(s => s.trim());
+            } else if (trimmed.includes('=')) {
+                [route, pvr] = trimmed.split('=').map(s => s.trim());
+            } else {
+                const parts = trimmed.split(/\s+/);
+                route = parts[0];
+                pvr = parts[1];
+            }
+            const pvrNum = parseInt(pvr);
+            if (!isNaN(pvrNum) && route) {
+                routePVRs[route] = pvrNum;
+            }
+        });
+        return routePVRs;
+    }
+
+    window.onload = function() {
+        let routes = []
+        if (!routes || routes.length === 0) {
+            routes = [
+{route: '4', pvr: 4, days: 'Daily'},
+{route: '6', pvr: 15, days: 'Daily'},
+{route: '7', pvr: 10, days: 'Daily'},
+{route: '9', pvr: 2, days: 'Mon-Sat'},
+{route: '10', pvr: 8, days: 'Daily'},
+{route: '11', pvr: 9, days: 'Daily'},
+{route: '12', pvr: 8, days: 'Daily'},
+{route: '22', pvr: 10, days: 'Daily'},
+{route: '23', pvr: 5, days: 'Mon-Sat'},
+{route: '25', pvr: 9, days: 'Daily'},
+{route: '32', pvr: 5, days: 'Mon-Sat'},
+{route: '34', pvr: 13, days: 'Daily'},
+{route: '35', pvr: 9, days: 'Daily'},
+{route: '37', pvr: 6, days: 'Daily'},
+{route: '79', pvr: 2, days: 'Mon-Sat'},
+{route: '88', pvr: 13, days: 'Daily'},
+{route: '97', pvr: 8, days: 'Daily'},
+{route: '98', pvr: 12, days: 'Daily'},
+{route: '102', pvr: 14, days: 'Daily'},
+{route: '113', pvr: 15, days: 'Daily'},
+{route: '232', pvr: 12, days: 'Sun'},
+{route: '251', pvr: 3, days: 'Mon-Sat'},
+{route: '285', pvr: 11, days: 'Daily'},
+{route: '302', pvr: 12, days: 'Daily'},
+{route: '303', pvr: 11, days: 'Daily'},
+{route: '304', pvr: 12, days: 'Daily'},
+{route: 'S304', pvr: 0, days: 'Mon-Fri School'},
+{route: '343', pvr: 16, days: 'Daily'},
+{route: '388', pvr: 20, days: 'Daily'},
+{route: '389', pvr: 12, days: 'Mon-Sat'},
+{route: '399', pvr: 1, days: 'Mon-Sat'},
+{route: '415', pvr: 6, days: 'Mon-Sat'},
+{route: '454', pvr: 2, days: 'Sat-Sun'},
+{route: '604', pvr: 0, days: 'Mon-Fri School'},
+{route: '612', pvr: 2, days: 'Mon-Fri School'},
+{route: '635', pvr: 1, days: 'Mon-Fri School'},
+{route: '697', pvr: 1, days: 'Mon-Fri School'},
+{route: '823', pvr: 3, days: 'Mon-Fri School'},
+{route: '925', pvr: 1, days: 'Wed & Fri'},
+{route: 'N7', pvr: 8, days: 'Nightly'},
+{route: 'N22', pvr: 7, days: 'Nightly'},
+{route: 'N35', pvr: 6, days: 'Nightly'},
+{route: 'N98', pvr: 10, days: 'Nightly'},
+{route: 'N113', pvr: 11, days: 'Nightly'},
+{route: 'N343', pvr: 6, days: 'Nightly'},
+{route: 'S1', pvr: 12, days: 'Mon-Sat'},
+{route: 'X1', pvr: 7, days: 'Mon-Sat'}
+            ];
+        }
+        routes.forEach(item => addRouteField(item.route, item.pvr, item.days));
+        
+        const batches = loadBatchesFromStorage();
+        if (batches && batches.length > 0) {
+            setTimeout(() => {
+                batches.forEach(batch => addBatchRow(batch.model, batch.routes));
+            }, 100);
+        }
+        generateTable();
+    };
+
+    function addRouteField(routeName = '', pvrVal = 0, runningDays = 'Daily') {
+        const container = document.getElementById('routeManagerList');
+        const div = document.createElement('div');
+        div.className = 'route-input-group';
+        div.innerHTML = `
+            <label>Route:</label>
+            <input type="text" class="route-name" placeholder="e.g. 22" value="${routeName}" style="width: 80px;" oninput="renderAnalysis(); saveRoutesToStorage();">
+            <label>PVR:</label>
+            <input type="number" min="0" class="route-pvr" value="${pvrVal}" style="width: 60px;" oninput="renderAnalysis(); saveRoutesToStorage()">
+            <label>Days:</label>
+            <select class="route-days" style="width: 140px;" onchange="renderAnalysis(); saveRoutesToStorage()">
+                <option value="Daily" ${runningDays === 'Daily' ? 'selected' : ''}>Daily (Mon-Sun)</option>
+                <option value="Nightly" ${runningDays === 'Nightly' ? 'selected' : ''}>Nightly (Mon-Sun)</option>
+                <option value="Mon-Sat" ${runningDays === 'Mon-Sat' ? 'selected' : ''}>Mon-Sat</option>
+                <option value="Mon-Fri" ${runningDays === 'Mon-Fri' ? 'selected' : ''}>Mon-Fri</option>
+                <option value="Mon-Fri School" ${runningDays === 'Mon-Fri School' ? 'selected' : ''}>Mon-Fri Schooldays</option>
+                <option value="Wed & Fri" ${runningDays === 'Wed & Fri' ? 'selected' : ''}>Wed & Fri</option>
+                <option value="Sat" ${runningDays === 'Sat' ? 'selected' : ''}>Saturday</option>
+                <option value="Sun" ${runningDays === 'Sun' ? 'selected' : ''}>Sunday</option>
+                <option value="Sat-Sun" ${runningDays === 'Sat-Sun' ? 'selected' : ''}>Weekend</option>
+            </select>
+            <button class="btn-danger" onclick="this.parentElement.remove(); renderAnalysis(); saveRoutesToStorage();">Remove</button>
+        `;
+        container.appendChild(div);
+        saveRoutesToStorage();
+    }
+
+    function processPastedRoutes() {
+        const pastedText = document.getElementById('routeBatchInput').value;
+        const existingRoutes = new Set();
+        document.querySelectorAll('.route-name').forEach(input => {
+            if (input.value.trim()) existingRoutes.add(input.value.trim());
+        });
+
+        pastedText.split('\n').forEach(line => {
+            const cleanRoute = line.trim();
+            if (cleanRoute && !existingRoutes.has(cleanRoute)) {
+                addRouteField(cleanRoute, 0, 'Daily');
+                existingRoutes.add(cleanRoute);
+            }
+        });
+
+        document.getElementById('routeBatchInput').value = '';
+        saveRoutesToStorage();
+        renderAnalysis();
+    }
+
+    function addBatchRow(selectedModel = '', selectedRoute = '') {
+        const container = document.getElementById('batchAssignmentsContainer');
+        const div = document.createElement('div');
+        div.className = 'batch-assignment-row';
+        
+        let modelOptions = '<option value="">-- Select Model Group --</option>';
+        document.querySelectorAll('.model-header').forEach(th => {
+            const m = th.innerText.trim();
+            modelOptions += `<option value="${m}" ${m === selectedModel ? 'selected' : ''}>${m}</option>`;
+        });
+
+        div.innerHTML = `
+            <label>Model Group:</label>
+            <select class="batch-model-select" onchange="saveBatchesToStorage()">${modelOptions}</select>
+            <label>Assign to Routes:</label>
+            <input type="text" class="batch-route-text" placeholder="e.g. 22, 32, 37" value="${selectedRoute}" style="width: 180px;" oninput="saveBatchesToStorage()">
+            <button class="btn-success" onclick="applySingleBatchRule(this)">Apply to Batch</button>
+            <button class="btn-danger" onclick="this.parentElement.remove(); saveBatchesToStorage()">Remove Rule</button>
+        `;
+        container.appendChild(div);
+        saveBatchesToStorage();
+    }
+
+    function applySingleBatchRule(btn) {
+        const row = btn.parentElement;
+        const model = row.querySelector('.batch-model-select').value;
+        const routes = row.querySelector('.batch-route-text').value.trim();
+        if (!model || !routes) return;
+
+        const table = document.querySelector('#tableContainer table');
+        if (!table) return;
+
+        let currentModel = '';
+        table.querySelectorAll('tr').forEach(tr => {
+            if (tr.classList.contains('model-header')) {
+                currentModel = tr.innerText.trim();
+                return;
+            }
+            if (currentModel === model) {
+                const mergedCell = tr.querySelector('.merged-route-cell');
+                if (mergedCell) mergedCell.innerText = routes;
+            }
+        });
+
+        updateTextareaFromTable();
+        saveBatchesToStorage();
+        renderAnalysis();
+    }
+
+    function generateTable() {
+        const raw = document.getElementById('inputData').value;
+        const lines = raw.split('\n');
+        if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+            document.getElementById('tableContainer').innerHTML = '<p>Please paste some data.</p>';
+            return;
+        }
+
+        let headerCols = [];
+        let isHeaderRow = true;
+
+        let tableBodyHtml = '';
+        let currentModel = null;
+        let currentRowGroup = [];
+
+        function flushModelBlock() {
+            if (currentModel && currentRowGroup.length > 0) {
+                tableBodyHtml += `<tr class="model-header"><td colspan="7">${currentModel}</td></tr>`;
+                const rowCount = currentRowGroup.length;
+                currentRowGroup.forEach((rowCols, rIndex) => {
+                    tableBodyHtml += '<tr>';
+                    for (let c = 0; c < 6; c++) {
+                        const val = rowCols[c] !== undefined ? rowCols[c] : '';
+                        const editable = c > 0 ? 'contenteditable="true" oninput="renderAnalysis()"' : '';
+                        tableBodyHtml += `<td ${editable}>${val}</td>`;
+                    }
+                    if (rIndex === 0) {
+                        let routeVal = rowCols[6] !== undefined ? rowCols[6] : '';
+                        tableBodyHtml += `<td rowspan="${rowCount}" class="merged-route-cell" contenteditable="true" oninput="renderAnalysis()">${routeVal}</td>`;
+                    }
+                    tableBodyHtml += '</tr>';
+                });
+                currentRowGroup = [];
+            }
+            currentModel = null;
+        }
+
+        lines.forEach((line) => {
+            if (line.trim() === '') return;
+            const cols = line.split('\t');
+            const col0 = cols[0].trim();
+
+            if (isHeaderRow) {
+                headerCols = cols;
+                isHeaderRow = false;
+                return;
+            }
+
+            const isOnlyCol0 = cols.slice(1).every(c => c.trim() === '');
+
+            if (isOnlyCol0) {
+                if (knownOperators.includes(col0)) {
+                    flushModelBlock();
+                    tableBodyHtml += `<tr class="operator-header"><td colspan="7">${col0}</td></tr>`;
+                } else if (/^[A-Za-z\s'\-\&\.,]+\([A-Z]{1,3}\)$/.test(col0)) {
+                    flushModelBlock();
+                    tableBodyHtml += `<tr class="garage-header"><td colspan="7">${col0}</td></tr>`;
+                } else {
+                    flushModelBlock();
+                    currentModel = col0;
+                }
+            } else {
+                currentRowGroup.push(cols);
+            }
+        });
+        flushModelBlock();
+
+        let tableHtml = '<table><tr>';
+        headerCols.forEach(col => { tableHtml += `<th>${col}</th>`; });
+        tableHtml += '</tr>' + tableBodyHtml + '</table>';
+
+        document.getElementById('tableContainer').innerHTML = tableHtml;
+
+        const modelHeaders = [];
+        document.querySelectorAll('.model-header').forEach(th => {
+            modelHeaders.push(th.innerText.trim());
+        });
+
+        document.querySelectorAll('.batch-model-select').forEach(select => {
+            const currentVal = select.value;
+            let opts = '<option value="">-- Select Model Group --</option>';
+            modelHeaders.forEach(m => {
+                opts += `<option value="${m}" ${m === currentVal ? 'selected' : ''}>${m}</option>`;
+            });
+            select.innerHTML = opts;
+        });
+
+        populateSearchDropdowns();
+        renderAnalysis();
+    }
+
+    function populateSearchDropdowns() {
+        const table = document.querySelector('#tableContainer table');
+        if (!table) return;
+
+        const operators = new Set();
+        const garages = new Set();
+        const routes = new Set();
+        const fleetNumbers = new Set();
+        const regNumbers = new Set();
+
+        table.querySelectorAll('tr').forEach(tr => {
+            if (tr.classList.contains('operator-header')) {
+                operators.add(tr.innerText.trim());
+            } else if (tr.classList.contains('garage-header')) {
+                garages.add(tr.innerText.trim());
+            } else {
+                const mergedCell = tr.querySelector('.merged-route-cell');
+                if (mergedCell) {
+                    mergedCell.innerText.split(/[,/\n\s]+/).forEach(r => {
+                        const clean = r.replace(/"/g, '').trim();
+                        if (clean) routes.add(clean);
+                    });
+                }
+                const cells = tr.querySelectorAll('td');
+                if (cells.length >= 2 && cells[0].innerText.trim() !== '') {
+                    const fleet = cells[0].innerText.trim();
+                    const reg = cells[1].innerText.trim();
+                    if (fleet && fleet !== '0') fleetNumbers.add(fleet);
+                    if (reg && reg !== '0') regNumbers.add(reg);
+                }
+            }
+        });
+
+        const opSelect = document.getElementById('findOperatorSelect');
+        opSelect.innerHTML = '<option value="">-- Find Operator --</option>';
+        Array.from(operators).sort().forEach(op => {
+            opSelect.innerHTML += `<option value="${op}">${op}</option>`;
+        });
+
+        const garSelect = document.getElementById('findGarageSelect');
+        garSelect.innerHTML = '<option value="">-- Find Garage --</option>';
+        Array.from(garages).sort().forEach(gar => {
+            garSelect.innerHTML += `<option value="${gar}">${gar}</option>`;
+        });
+
+        const routeSelect = document.getElementById('findRouteSelect');
+        routeSelect.innerHTML = '<option value="">-- Find Route --</option>';
+        Array.from(routes).sort((a, b) => a.localeCompare(b, undefined, {numeric: true})).forEach(rt => {
+            routeSelect.innerHTML += `<option value="${rt}">${rt}</option>`;
+        });
+
+        const fleetSelect = document.getElementById('findFleetSelect');
+        fleetSelect.innerHTML = '<option value="">-- Find Fleet Number --</option>';
+        Array.from(fleetNumbers).sort((a, b) => a.localeCompare(b, undefined, {numeric: true})).forEach(fn => {
+            fleetSelect.innerHTML += `<option value="${fn}">${fn}</option>`;
+        });
+
+        const regSelect = document.getElementById('findRegSelect');
+        regSelect.innerHTML = '<option value="">-- Find Registration --</option>';
+        Array.from(regNumbers).sort().forEach(rn => {
+            regSelect.innerHTML += `<option value="${rn}">${rn}</option>`;
+        });
+    }
+
+    function jumpToEntity(type, query) {
+        if (!query) return;
+        const qLower = query.trim().toLowerCase();
+
+        const table = document.querySelector('#tableContainer table');
+        if (!table) return;
+
+        let targetRow = null;
+        const rows = table.querySelectorAll('tr');
+
+        rows.forEach(tr => {
+            if (targetRow) return;
+            const text = tr.innerText.toLowerCase();
+
+            if (type === 'operator' && tr.classList.contains('operator-header') && text.includes(qLower)) {
+                targetRow = tr;
+            } else if (type === 'garage' && tr.classList.contains('garage-header') && text.includes(qLower)) {
+                targetRow = tr;
+            } else if (type === 'route') {
+                const mergedCell = tr.querySelector('.merged-route-cell');
+                if (mergedCell) {
+                    const routeList = mergedCell.innerText.split(/[,/\n\s]+/).map(s => s.replace(/"/g, '').trim().toLowerCase());
+                    if (routeList.includes(qLower)) {
+                        targetRow = tr;
+                    }
+                }
+            } else if (type === 'fleet') {
+                const fleetCell = tr.querySelectorAll('td')[0];
+                if (fleetCell && fleetCell.innerText.toLowerCase().trim() === qLower) {
+                    targetRow = tr;
+                }
+            } else if (type === 'reg') {
+                const regCell = tr.querySelectorAll('td')[1];
+                if (regCell && regCell.innerText.toLowerCase().trim() === qLower) {
+                    targetRow = tr;
+                }
+            }
+        });
+
+        if (targetRow) {
+            document.querySelectorAll('.highlight-match').forEach(el => el.classList.remove('highlight-match'));
+            targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            targetRow.classList.add('highlight-match');
+            setTimeout(() => { targetRow.classList.remove('highlight-match'); }, 3000);
+        }
+
+        setTimeout(() => {
+            document.getElementById('findOperatorSelect').value = "";
+            document.getElementById('findGarageSelect').value = "";
+            document.getElementById('findRouteSelect').value = "";
+            document.getElementById('findFleetSelect').value = "";
+            document.getElementById('findRegSelect').value = "";
+        }, 100);
+    }
+
+    function applyBatchRulesAndRender() {
+        document.querySelectorAll('.batch-assignment-row').forEach(row => {
+            const btn = row.querySelector('.btn-success');
+            if (btn) applySingleBatchRule(btn);
+        });
+        saveBatchesToStorage();
+    }
+
+    function updateTextareaFromTable() {
+        const table = document.querySelector('#tableContainer table');
+        if (!table) return;
+
+        let newText = "FLEET NUMBER\tREG NUMBER\tLIVERY\tPREVIOUS REG NO\tPREVIOUS FLEET NO\tPREVIOUS GARAGE\tROUTES ALLOCATED TO\n";
+        let currentRouteValue = "";
+
+        table.querySelectorAll('tr').forEach(row => {
+            if (row.classList.contains('operator-header')) {
+                newText += `${row.innerText.trim()}\t\t\t\t\t\t\n`;
+                currentRouteValue = "";
+                return;
+            }
+            if (row.classList.contains('garage-header')) {
+                newText += `${row.innerText.trim()}\t\t\t\t\t\t\n`;
+                currentRouteValue = "";
+                return;
+            }
+            if (row.classList.contains('model-header')) {
+                newText += `${row.innerText.trim()}\t\t\t\t\t\t\n`;
+                currentRouteValue = "";
+                return;
+            }
+            if (row.querySelectorAll('th').length > 0) return;
+
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 6) {
+                let rowArr = [];
+                for (let i = 0; i < 6; i++) {
+                    rowArr.push(cells[i].innerText);
+                }
+                const mergedCell = row.querySelector('.merged-route-cell');
+                if (mergedCell) currentRouteValue = mergedCell.innerText;
+                rowArr.push(currentRouteValue);
+                newText += rowArr.join('\t') + '\n';
+            }
+        });
+        document.getElementById('inputData').value = newText;
+    }
+
+    function validateNoDuplicateFleetNumbers() {
+        const table = document.querySelector('#tableContainer table');
+        if (!table) return { valid: true, errors: [] };
+
+        let batchFleetNumbers = {}; 
+        let activeModelRoute = "";
+        const errors = [];
+
+        table.querySelectorAll('tr').forEach(row => {
+            if (row.classList.contains('operator-header') || row.classList.contains('garage-header') || row.classList.contains('model-header')) {
+                activeModelRoute = "";
+                return;
+            }
+            if (row.querySelectorAll('th').length > 0) return;
+
+            const mergedCell = row.querySelector('.merged-route-cell');
+            if (mergedCell) activeModelRoute = mergedCell.innerText.trim();
+
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 6 && cells[0].innerText.trim() !== '') {
+                const fleetNumber = cells[0].innerText.trim();
+                if (activeModelRoute !== '') {
+                    if (!batchFleetNumbers[activeModelRoute]) batchFleetNumbers[activeModelRoute] = new Set();
+                    if (batchFleetNumbers[activeModelRoute].has(fleetNumber)) {
+                        errors.push(`Duplicate fleet number "${fleetNumber}" in batch "${activeModelRoute}"`);
+                    }
+                    batchFleetNumbers[activeModelRoute].add(fleetNumber);
+                }
+            }
+        });
+
+        return { valid: errors.length === 0, errors: errors };
+    }
+
+    function renderAnalysis() {
+        updateTextareaFromTable();
+
+        const validation = validateNoDuplicateFleetNumbers();
+        if (!validation.valid) {
+            alert('❌ ERROR: ' + validation.errors.join('\n'));
+            return;
+        }
+
+        let routeConfig = {};
+        document.querySelectorAll('.route-input-group').forEach(group => {
+            const rName = group.querySelector('.route-name').value.trim();
+            const rPvr = parseInt(group.querySelector('.route-pvr').value) || 0;
+            const rDays = group.querySelector('.route-days').value;
+            if (rName) routeConfig[rName] = { pvr: rPvr, days: rDays };
+        });
+
+        let batchPools = {}; 
+        let routeToBatches = {}; 
+
+        const table = document.querySelector('#tableContainer table');
+        if (table) {
+            let activeModelRoute = "";
+            table.querySelectorAll('tr').forEach(row => {
+                if (row.classList.contains('operator-header') || row.classList.contains('garage-header')) return;
+                if (row.classList.contains('model-header')) {
+                    activeModelRoute = "";
+                    return;
+                }
+                if (row.querySelectorAll('th').length > 0) return;
+
+                const mergedCell = row.querySelector('.merged-route-cell');
+                if (mergedCell) activeModelRoute = mergedCell.innerText.trim();
+
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 6 && cells[0].innerText.trim() !== '') {
+                    if (activeModelRoute !== '') {
+                        if (!batchPools[activeModelRoute]) batchPools[activeModelRoute] = 0;
+                        batchPools[activeModelRoute]++;
+
+                        activeModelRoute.split(/[,/\n\s]+/).forEach(r => {
+                            const cleanR = r.replace(/"/g, '').trim();
+                            if (cleanR) {
+                                if (!routeToBatches[cleanR]) routeToBatches[cleanR] = new Set();
+                                routeToBatches[cleanR].add(activeModelRoute);
+                            }
+                        });
+                    }
+                }
+            });
+        }
+
+        let routeBatchCount = {}; 
+        for (const batchKey of Object.keys(batchPools)) {
+            batchKey.split(/[,/\n\s]+/).forEach(r => {
+                const cleanR = r.replace(/"/g, '').trim();
+                if (cleanR) routeBatchCount[cleanR] = (routeBatchCount[cleanR] || 0) + 1;
+            });
+        }
+
+        let batchPeakDemand = {};
+        for (const [batchKey, busCount] of Object.entries(batchPools)) {
+            const routesInBatch = [];
+            batchKey.split(/[,/\n\s]+/).forEach(r => {
+                const cleanR = r.replace(/"/g, '').trim();
+                if (cleanR) routesInBatch.push(cleanR);
+            });
+
+            const dayPVR = { 'Mon': 0, 'Tue': 0, 'Wed': 0, 'Thu': 0, 'Fri': 0, 'Sat': 0, 'Sun': 0 };
+            const getDaysForCategory = (cat) => {
+                if (cat === 'Daily') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                if (cat === 'Nightly') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                if (cat === 'Mon-Sat') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                if (cat === 'Mon-Fri') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+                if (cat === 'Mon-Fri School') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+                if (cat === 'Wed & Fri') return ['Wed', 'Fri'];
+                if (cat === 'Sat-Sun') return ['Sat', 'Sun'];
+                if (cat === 'Sat') return ['Sat'];
+                if (cat === 'Sun') return ['Sun'];
+                return [];
+            };
+
+            routesInBatch.forEach(r => {
+                if (routeConfig[r] && routeBatchCount[r] === 1) {
+                    const cat = routeConfig[r].days;
+                    const pvr = routeConfig[r].pvr;
+                    getDaysForCategory(cat).forEach(day => { dayPVR[day] += pvr; });
+                }
+            });
+
+            batchPeakDemand[batchKey] = {
+                availableBuses: busCount,
+                requiredPVR: Math.max(...Object.values(dayPVR), 0)
+            };
+        }
+
+        let summaryHtml = '<h3>Route PVR Audit & Shared Fleet Pool Analysis</h3>';
+        summaryHtml += '<table class="summary-table">';
+        summaryHtml += '<tr><th>Route</th><th>Days</th><th>Target PVR</th><th>Shared Pool Batch</th><th>Pool Status</th></tr>';
+
+        for (const [route, config] of Object.entries(routeConfig)) {
+            let statusClass = 'alert-success';
+            let statusText = 'Sufficient';
+            let assignedPoolInfo = 'None Assigned';
+
+            const batches = routeToBatches[route];
+            if (batches && batches.size > 0) {
+                let poolDetails = [];
+                batches.forEach(bKey => {
+                    const pool = batchPeakDemand[bKey];
+                    if (pool.availableBuses < pool.requiredPVR) {
+                        const deficit = pool.requiredPVR - pool.availableBuses;
+                        statusClass = 'alert-error';
+                        statusText = `Pool Short by ${deficit} bus(es) (Has ${pool.availableBuses}, Needs ${pool.requiredPVR})`;
+                    } else {
+                        statusText = `Sufficient (Pool has ${pool.availableBuses} buses for peak ${pool.requiredPVR} PVR)`;
+                    }
+                    poolDetails.push(`${bKey} [Avail: ${pool.availableBuses} / Req: ${pool.requiredPVR}]`);
+                });
+                assignedPoolInfo = poolDetails.join('<br>');
+            } else {
+                statusClass = 'alert-error';
+                statusText = 'Unassigned to any vehicle batch';
+            }
+
+            summaryHtml += `<tr>
+                <td><strong>${route}</strong></td>
+                <td>${config.days}</td>
+                <td>${config.pvr}</td>
+                <td><small>${assignedPoolInfo}</small></td>
+                <td class="${statusClass}">${statusText}</td>
+            </tr>`;
+        }
+        summaryHtml += '</table>';
+        document.getElementById('summaryContainer').innerHTML = summaryHtml;
+    }
+
+    function downloadExcel() {
+        const table = document.querySelector('#tableContainer table');
+        if (!table) { alert('Please load the table first.'); return; }
+
+        let csvContent = "";
+        table.querySelectorAll('tr').forEach(row => {
+            let rowData = [];
+            row.querySelectorAll('th, td').forEach(cell => {
+                rowData.push(`"${cell.innerText.replace(/"/g, '""')}"`);
+            });
+            csvContent += rowData.join(",") + "\r\n";
+        });
+
+        const blob = new Blob([csvContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Fleet_PVR_Report.xls';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    function downloadPDF() {
+        const table = document.querySelector('#tableContainer table');
+        if (!table) { alert('Please load the table first.'); return; }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('p', 'mm', 'a4');
+
+        const trs = Array.from(table.querySelectorAll('tr'));
+        let garagesMap = new Map();
+        let currentOperator = '';
+        let currentGarage = '';
+        let currentModel = '';
+        let currentRows = [];
+
+        trs.forEach((row) => {
+            if (row.classList.contains('operator-header')) {
+                currentOperator = row.innerText.trim();
+                return;
+            }
+            if (row.classList.contains('garage-header')) {
+                if (currentGarage && currentRows.length > 0) {
+                    if (!garagesMap.has(currentGarage)) {
+                        garagesMap.set(currentGarage, { operator: currentOperator, groups: [] });
+                    }
+                    garagesMap.get(currentGarage).groups.push({ model: currentModel, rows: currentRows });
+                    currentRows = [];
+                }
+                currentGarage = row.innerText.trim();
+                currentModel = '';
+                return;
+            }
+            if (row.classList.contains('model-header')) {
+                if (currentGarage && currentRows.length > 0) {
+                    if (!garagesMap.has(currentGarage)) {
+                        garagesMap.set(currentGarage, { operator: currentOperator, groups: [] });
+                    }
+                    garagesMap.get(currentGarage).groups.push({ model: currentModel, rows: currentRows });
+                    currentRows = [];
+                }
+                currentModel = row.innerText.trim();
+                return;
+            }
+            if (row.querySelectorAll('th').length > 0) return;
+
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 6) {
+                let rowArr = [];
+                for (let i = 0; i < 6; i++) rowArr.push(cells[i].innerText);
+                let mergedCell = row.querySelector('.merged-route-cell');
+                rowArr.push(mergedCell ? mergedCell.innerText : '');
+                currentRows.push(rowArr);
+            }
+        });
+        if (currentGarage && currentRows.length > 0) {
+            if (!garagesMap.has(currentGarage)) {
+                garagesMap.set(currentGarage, { operator: currentOperator, groups: [] });
+            }
+            garagesMap.get(currentGarage).groups.push({ model: currentModel, rows: currentRows });
+        }
+
+        let isFirstGarage = true;
+
+        garagesMap.forEach((garageData, garageName) => {
+            if (!isFirstGarage) {
+                doc.addPage();
+            }
+            isFirstGarage = false;
+
+            doc.setFontSize(16);
+            doc.setTextColor(28, 28, 28);
+            doc.text('Fleet & Route PVR Manager Report', 14, 15);
+
+            doc.setFontSize(10);
+            doc.setTextColor(100, 100, 100);
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
+
+            let finalBodyRows = [];
+
+            finalBodyRows.push([
+                { content: garageData.operator, colSpan: 7, styles: { fillColor: [0, 0, 0], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10, halign: 'center' } }
+            ]);
+
+            finalBodyRows.push([
+                { content: garageName, colSpan: 7, styles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9, halign: 'left' } }
+            ]);
+
+            garageData.groups.forEach((group) => {
+                let routeValue = group.rows.length > 0 ? (group.rows[0][6] || '') : '';
+                group.rows.forEach((r, rIdx) => {
+                    let baseRow = [r[0], r[1], r[2], r[3], r[4], r[5]];
+                    if (rIdx === 0) {
+                        baseRow.push({
+                            content: routeValue,
+                            rowSpan: group.rows.length,
+                            styles: { halign: 'center', valign: 'middle', fontStyle: 'bold', fillColor: [248, 249, 250] }
+                        });
+                        
+                        // Push model header right before the first row of this group with rowPageBreak: 'avoid'
+                        // Also, setting minCellHeight or keeping the cell linked prevents the header from rendering alone at the bottom of a page
+                        finalBodyRows.push([
+                            { content: group.model, colSpan: 7, styles: { fillColor: [233, 235, 237], textColor: [73, 80, 87], fontStyle: 'bold', fontSize: 9, halign: 'left' }, rowPageBreak: 'avoid' }
+                        ]);
+                    }
+                    // For the very first data row following the header, also give it rowPageBreak: 'avoid' so they stick together
+                    if (rIdx === 0) {
+                        // We can mark the baseRow cell objects or let autoTable handle avoid if consecutive. 
+                        // Actually, autotable's rowPageBreak: 'avoid' applies to individual cells or we can use a custom hook.
+                    }
+                    finalBodyRows.push(baseRow);
+                });
+            });
+
+            doc.autoTable({
+                startY: 28,
+                head: [['Fleet Number', 'Reg Number', 'Livery', 'Prev Reg', 'Prev Fleet', 'Prev Garage', 'Routes Allocated']],
+                body: finalBodyRows,
+                theme: 'grid',
+                showHead: 'firstPage',
+                headStyles: { fillColor: [0, 102, 204], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9, halign: 'left' },
+                bodyStyles: { fontSize: 8 },
+                rowPageBreak: 'auto',
+                margin: { top: 25, right: 14, bottom: 20, left: 14 },
+                // Use didParseCell hook to force model header and its first row to stay together if page break happens
+                didParseCell: function (data) {
+                    if (data.row.raw && data.row.raw.length === 1 && data.row.raw[0].content && data.row.raw[0].colSpan === 7) {
+                        // This is a model header row; set rowPageBreak to avoid splitting it from the next row
+                        data.row.pageBreak = 'avoid';
+                    }
+                },
+                didDrawPage: function (data) {
+                    let pageSize = doc.internal.pageSize;
+                    let pageHeight = pageSize.height || pageSize.getHeight();
+                    let pageWidth = pageSize.width || pageSize.getWidth();
+                    doc.setFontSize(9);
+                    doc.setTextColor(150);
+                    doc.text('Page ' + doc.internal.getNumberOfPages(), pageWidth - 20, pageHeight - 10, { align: 'right' });
+                }
+            });
+        });
+
+        const summaryTable = document.querySelector('.summary-table');
+        if (summaryTable) {
+            doc.addPage();
+            doc.setFontSize(14);
+            doc.setTextColor(28, 28, 28);
+            doc.text('Route PVR Audit & Shared Fleet Pool Summary', 14, 20);
+
+            const summaryHead = [];
+            const summaryBody = [];
+            summaryTable.querySelectorAll('tr').forEach((tr, index) => {
+                const rowData = [];
+                tr.querySelectorAll('th, td').forEach(cell => rowData.push(cell.innerText.replace(/\n/g, ' ')));
+                if (index === 0) summaryHead.push(rowData);
+                else summaryBody.push(rowData);
+            });
+
+            doc.autoTable({
+                startY: 26,
+                head: summaryHead,
+                body: summaryBody,
+                theme: 'grid',
+                showHead: 'firstPage',
+                headStyles: { fillColor: [43, 138, 62], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+                bodyStyles: { fontSize: 8 },
+                rowPageBreak: 'auto',
+                margin: { top: 20, right: 14, bottom: 20, left: 14 }
+            });
+        }
+
+        doc.save(`Fleet_PVR_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    }
+</script>
+
+</body>
+</html>

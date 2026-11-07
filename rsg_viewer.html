@@ -171,16 +171,19 @@ const uniqueSorted = values => [...new Set(values.filter(Boolean))].sort((a,b) =
 const garages = [
     { code:'BF', name:'Keadby Riverside', operator:'Arriva' },
     { code:'BY', name:'Brumby', operator:'Arriva' },
+    { code:'TH', name:'Thorne', operator:'Comfort Delgro' },
     { code:'AB', name:'Ashby', operator:'First' },
     { code:'FX', name:'Flixborough', operator:'First' },
     { code:'KR', name:'Keadby Riverside', operator:'First' },
     { code:'DL', name:'Skippingdale', operator:'First' },
     { code:'K', name:'Skippingdale', operator:'Kelly Group' },
+    { code:'RD', name:'West Riddings', operator:'Kelly Group' },
+    { code:'DR', name:'Ashby', operator:'Lantern Challenger' },
     { code:'GP', name:'Lodge Moor', operator:'Stagecoach' },
     { code:'SC', name:'Scunthorpe', operator:'Stagecoach' },
     { code:'WR', name:'West Riddings', operator:'Stagecoach' },
-    { code:'V', name:'Yaddlethorpe', operator:'Virgin Group' },
-    { code:'DR', name:'Ashby', operator:'Lantern Challenger' }
+    { code:'SR', name:'Scotter', operator:'Virgin Group' },
+    { code:'V', name:'Yaddlethorpe', operator:'Virgin Group' }
 ].sort((first, second) => first.operator.localeCompare(second.operator) || first.name.localeCompare(second.name) || first.code.localeCompare(second.code));
 const garageForRunningNumber = runningNumber => garages.slice().sort((first, second) => second.code.length - first.code.length)
     .find(garage => clean(runningNumber).toUpperCase().startsWith(garage.code));
@@ -1105,15 +1108,27 @@ function allowsShortStand(config) {
     const enabledDirections = config?.runningPoolSettings?.shortStandDirectionKeys;
     return Array.isArray(enabledDirections) && enabledDirections.includes(config.key);
 }
-function populateShortStandDirections(config, paired) {
-    [config, paired].forEach((directionConfig, index) => {
-        const input = $(`short-stand-direction-${index + 1}`);
-        const label = $(`short-stand-direction-${index + 1}-label`);
-        const destination = clean(directionConfig?.destinationName) || `Direction ${index + 1}`;
+function populateShortStandDirections(paired, config) {
+    // Ensure the array matches the visual order of the tables rendered on screen
+    const directions = [paired, config].filter(Boolean);
+    
+    for (let i = 1; i <= 2; i++) {
+        const input = $(`short-stand-direction-${i}`);
+        const label = $(`short-stand-direction-${i}-label`);
+        const targetConfig = directions[i - 1];
+        
+        if (!targetConfig) {
+            input.disabled = true;
+            label.textContent = `Allow 0-4 min stand`;
+            continue;
+        }
+        
+        const destination = clean(targetConfig.destinationName) || `Direction ${i}`;
         label.textContent = `Allow 0-4 min stand at ${destination}`;
-        input.checked = Boolean(directionConfig && allowsShortStand(directionConfig));
-        input.disabled = !directionConfig;
-    });
+        input.dataset.configKey = targetConfig.key;
+        input.checked = Boolean(allowsShortStand(targetConfig));
+        input.disabled = false;
+    }
 }
 function buildDirectionEvents(config, paired, entries) {
     const events = [];
@@ -1848,18 +1863,24 @@ document.addEventListener('click', async event => {
 });
 ['route-filter','profile-filter','search-filter'].forEach(id => $(id).addEventListener(id === 'search-filter' ? 'input' : 'change', render));
 $('pvr-input').addEventListener('input', event => { event.target.dataset.manuallySet = 'true'; });
-['short-stand-direction-1', 'short-stand-direction-2'].forEach(id => $(id).addEventListener('change', () => {
-    if (!selectedConfig) return;
-    const paired = findPairedConfig(selectedConfig);
-    const shortStandDirectionKeys = [
-        $('short-stand-direction-1').checked ? selectedConfig.key : '',
-        $('short-stand-direction-2').checked && paired?.key ? paired.key : ''
-    ].filter(Boolean);
-    [selectedConfig, paired].filter(Boolean).forEach(config => {
-        config.runningPoolSettings = { ...(config.runningPoolSettings || {}), shortStandDirectionKeys };
+['short-stand-direction-1', 'short-stand-direction-2'].forEach(id => {
+    $(id).addEventListener('change', () => {
+        if (!selectedConfig) return;
+        const paired = findPairedConfig(selectedConfig);
+        const directions = [selectedConfig, paired].filter(Boolean);
+        
+        // Collect keys directly from whichever checkboxes are ticked based on their bound configKey
+        const shortStandDirectionKeys = directions.filter((_, idx) => {
+            return $(`short-stand-direction-${idx + 1}`).checked;
+        }).map((_, idx) => $(`short-stand-direction-${idx + 1}`).dataset.configKey).filter(Boolean);
+
+        directions.forEach(dirConfig => {
+            dirConfig.runningPoolSettings = { ...(dirConfig.runningPoolSettings || {}), shortStandDirectionKeys };
+        });
+        
+        suggest(selectedConfig, liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
     });
-    suggest(selectedConfig, liveRouteEntries.get(clean(selectedConfig.routeName).toUpperCase()) || []);
-}));
+});
 $('add-crosslink-button').addEventListener('click', () => {
     if (!selectedConfig) return;
     const crosslinks = crosslinksFor().map(crosslink => ({ ...crosslink }));
